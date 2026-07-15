@@ -48,6 +48,10 @@ import {
     abortGjcSession,
 } from './gjc-cli.js';
 import {
+    getPendingGjcApprovalsForSession,
+    resolveGjcToolApproval,
+} from './gjc-sdk-bridge.js';
+import {
     stripAnsiSequences,
     normalizeDetectedUrl,
     extractUrlsFromText,
@@ -102,6 +106,19 @@ function readUsageNumber(value) {
     return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function resolveProviderToolApproval(requestId, decision) {
+    if (!resolveGjcToolApproval(requestId, decision)) {
+        resolveToolApproval(requestId, decision);
+    }
+}
+
+function getPendingProviderApprovalsForSession(sessionId) {
+    return [
+        ...getPendingApprovalsForSession(sessionId),
+        ...getPendingGjcApprovalsForSession(sessionId),
+    ];
+}
+
 const app = express();
 app.set('trust proxy', 1);
 const server = http.createServer(app);
@@ -126,8 +143,8 @@ const wss = createWebSocketServer(server, {
             opencode: abortOpenCodeSession,
             gjc: abortGjcSession,
         },
-        resolveToolApproval,
-        getPendingApprovalsForSession,
+        resolveToolApproval: resolveProviderToolApproval,
+        getPendingApprovalsForSession: getPendingProviderApprovalsForSession,
     },
     shell: {
         resolveProviderSessionId: (sessionId, provider) => {

@@ -75,7 +75,7 @@ type ChatWebSocketDependencies = {
       rememberEntry?: unknown;
     }
   ) => void;
-  /** Claude-only today: pending tool approvals included in `chat_subscribed`. */
+  /** Provider-runtime approvals included in `chat_subscribed` after reconnect. */
   getPendingApprovalsForSession: (providerSessionId: string) => unknown[];
 };
 

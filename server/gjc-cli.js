@@ -8,6 +8,7 @@ import crossSpawn from 'cross-spawn';
 import { providerAuthService } from './modules/providers/services/provider-auth.service.js';
 import { notifyRunFailed, notifyRunStopped } from './services/notification-orchestrator.js';
 import { createCompleteMessage, createNormalizedMessage } from './shared/utils.js';
+import { attachGjcSdkBridge } from './gjc-sdk-bridge.js';
 
 // cross-spawn resolves .cmd shims/PATHEXT on Windows and delegates to
 // child_process.spawn everywhere else. Mirrors opencode-cli.js.
@@ -21,6 +22,7 @@ const activeGjcProcesses = new Map();
 const MAX_PROMPT_BYTES = 10 * 1024 * 1024;
 const MAX_NDJSON_LINE_BYTES = 32 * 1024 * 1024;
 const ABORT_GRACE_PERIOD_MS = 5000;
+const SDK_USAGE_FLUSH_GRACE_MS = 100;
 
 /**
  * Adds a process under a stable run key or provider-session alias. The caller
@@ -188,6 +190,11 @@ function spawnGjc(message, options = {}, writer) {
     let terminalNotificationSent = false;
     let completeSent = false;
     let gjcProcess = null;
+    let sdkBridge = null;
+    let sdkBridgeSessionId = null;
+    let sdkAttachSessionId = null;
+    let sdkAttachGeneration = 0;
+    let sdkUsagePromise = null;
 
     // Assistant text arrives as monotonically growing snapshots (gjc emits the
     // accumulated partial message on every streaming update). The frontend
@@ -205,6 +212,86 @@ function spawnGjc(message, options = {}, writer) {
         provider: PROVIDER,
         ...fields,
       }));
+    };
+    const closeSdkBridge = async ({ flushUsage = false } = {}) => {
+      sdkAttachGeneration += 1;
+      sdkAttachSessionId = null;
+      const bridge = sdkBridge;
+      sdkBridge = null;
+      sdkBridgeSessionId = null;
+      if (gjcProcess?.gjcSdkBridge === bridge) {
+        gjcProcess.gjcSdkBridge = null;
+      }
+      if (!bridge) {
+        return;
+      }
+
+      if (flushUsage && sdkUsagePromise) {
+        const flushTimer = new Promise((resolve) => {
+          const timer = setTimeout(resolve, SDK_USAGE_FLUSH_GRACE_MS);
+          timer.unref?.();
+        });
+        await Promise.race([sdkUsagePromise, flushTimer]);
+      }
+      try {
+        await bridge.close();
+      } catch {
+        // The NDJSON process lifecycle remains authoritative when SDK cleanup fails.
+      }
+    };
+
+    const attachSdkBridge = (nextSessionId) => {
+      if (!nextSessionId || gjcProcess?.hasClosed) {
+        return;
+      }
+      if (
+        (sdkBridge && sdkBridgeSessionId === nextSessionId)
+        || sdkAttachSessionId === nextSessionId
+      ) {
+        return;
+      }
+
+      const generation = ++sdkAttachGeneration;
+      sdkAttachSessionId = nextSessionId;
+      if (sdkBridge) {
+        const previousBridge = sdkBridge;
+        sdkBridge = null;
+        sdkBridgeSessionId = null;
+        if (gjcProcess?.gjcSdkBridge === previousBridge) {
+          gjcProcess.gjcSdkBridge = null;
+        }
+        void previousBridge.close().catch(() => {});
+      }
+
+      void attachGjcSdkBridge({
+        cwd: workingDir,
+        sessionId: nextSessionId,
+        writer,
+      }).then(async (bridge) => {
+        if (!bridge) {
+          return;
+        }
+        if (
+          generation !== sdkAttachGeneration
+          || gjcProcess?.hasClosed
+          || capturedSessionId !== nextSessionId
+        ) {
+          await bridge.close();
+          return;
+        }
+
+        sdkBridge = bridge;
+        sdkBridgeSessionId = nextSessionId;
+        if (gjcProcess) {
+          gjcProcess.gjcSdkBridge = bridge;
+        }
+      }).catch(() => {
+        // SDK v3 is optional; keep the existing NDJSON-only path fail-soft.
+      }).finally(() => {
+        if (generation === sdkAttachGeneration) {
+          sdkAttachSessionId = null;
+        }
+      });
     };
 
     const emitOnce = (key, emit) => {
@@ -243,7 +330,11 @@ function spawnGjc(message, options = {}, writer) {
     };
 
     const registerSession = (nextSessionId) => {
-      if (!nextSessionId || capturedSessionId === nextSessionId) {
+      if (!nextSessionId) {
+        return;
+      }
+      if (capturedSessionId === nextSessionId) {
+        attachSdkBridge(nextSessionId);
         return;
       }
 
@@ -266,6 +357,8 @@ function spawnGjc(message, options = {}, writer) {
           provider: PROVIDER,
         }));
       }
+
+      attachSdkBridge(capturedSessionId);
     };
 
     const finalizeStream = () => {
@@ -471,6 +564,9 @@ function spawnGjc(message, options = {}, writer) {
               emitGjcAssistantError(finalMessage);
             }
           }
+          if (sdkBridge && !sdkUsagePromise) {
+            sdkUsagePromise = sdkBridge.emitTokenBudget();
+          }
           return;
         }
         default:
@@ -579,6 +675,9 @@ function spawnGjc(message, options = {}, writer) {
 
     registerGjcProcessAlias(activeGjcProcesses, processKey, gjcProcess);
     gjcProcess.sessionId = processKey;
+    if (capturedSessionId) {
+      attachSdkBridge(capturedSessionId);
+    }
 
     // Prompt is passed by `@file` (gjc -p ignores piped stdin), so close stdin
     // right away so gjc does not block waiting on it.
@@ -603,9 +702,16 @@ function spawnGjc(message, options = {}, writer) {
     gjcProcess.on('close', async (code) => {
       const finalSessionId = capturedSessionId || sessionId || processKey;
       gjcProcess.hasClosed = true;
+      if (gjcProcess.gjcAbortEscalationTimer) {
+        clearTimeout(gjcProcess.gjcAbortEscalationTimer);
+        gjcProcess.gjcAbortEscalationTimer = null;
+      }
       removeGjcProcessAliases(activeGjcProcesses, gjcProcess);
       cleanupPromptTempFile();
       flushStdoutLineBuffer();
+      // Give optional usage enrichment a short grace window in the background;
+      // NDJSON completion must never await the SDK request timeout.
+      void closeSdkBridge({ flushUsage: true });
 
       // Flush any stream left open by an abrupt exit (the terminal complete also
       // finalizes streaming on the client, so this is belt-and-suspenders).
@@ -613,7 +719,7 @@ function spawnGjc(message, options = {}, writer) {
 
       // Terminal complete — skipped for aborted runs (the websocket abort
       // handler already sent the aborted complete on this run's behalf).
-      if (!completeSent && !gjcProcess.aborted) {
+      if (!completeSent && !gjcProcess.aborted && !gjcProcess.abortPending) {
         completeSent = true;
         writer.send(createCompleteMessage({ provider: PROVIDER, sessionId: finalSessionId, exitCode: code }));
       }
@@ -642,7 +748,14 @@ function spawnGjc(message, options = {}, writer) {
 
     gjcProcess.on('error', async (error) => {
       const finalSessionId = capturedSessionId || sessionId || processKey;
+      gjcProcess.hasClosed = true;
+      if (gjcProcess.gjcAbortEscalationTimer) {
+        clearTimeout(gjcProcess.gjcAbortEscalationTimer);
+        gjcProcess.gjcAbortEscalationTimer = null;
+      }
+      removeGjcProcessAliases(activeGjcProcesses, gjcProcess);
       cleanupPromptTempFile();
+      void closeSdkBridge();
 
       const installed = await providerAuthService.isProviderInstalled(PROVIDER);
       const errorContent = !installed
@@ -655,7 +768,7 @@ function spawnGjc(message, options = {}, writer) {
         sessionId: finalSessionId,
         provider: PROVIDER,
       }));
-      if (!completeSent && !gjcProcess.aborted) {
+      if (!completeSent && !gjcProcess.aborted && !gjcProcess.abortPending) {
         completeSent = true;
         writer.send(createCompleteMessage({ provider: PROVIDER, sessionId: finalSessionId, exitCode: 1 }));
       }
@@ -666,29 +779,74 @@ function spawnGjc(message, options = {}, writer) {
   return Object.assign(runPromise, { abortHandle: processKey });
 }
 
-function abortGjcSession(sessionId) {
-  const gjcProcess = activeGjcProcesses.get(sessionId);
-  if (!gjcProcess || gjcProcess.aborted) {
-    return Boolean(gjcProcess?.aborted);
+function scheduleGjcAbortEscalation(gjcProcess) {
+  if (gjcProcess.hasClosed || gjcProcess.gjcAbortEscalationTimer) {
+    return;
   }
 
-  if (!signalGjcProcess(gjcProcess, 'SIGTERM')) {
-    return false;
-  }
-
-  // The websocket abort handler sends the terminal complete (aborted: true);
-  // flag the process so its close handler does not emit a second one. Keep all
-  // aliases registered until close so both the run handle and provider id work.
-  gjcProcess.aborted = true;
   const escalationTimer = setTimeout(() => {
+    gjcProcess.gjcAbortEscalationTimer = null;
     const killed = signalGjcProcess(gjcProcess, 'SIGKILL');
     if (!killed && !gjcProcess.hasClosed) {
       console.warn('[gjc] Failed to force-stop aborted process group');
     }
   }, ABORT_GRACE_PERIOD_MS);
   escalationTimer.unref?.();
+  gjcProcess.gjcAbortEscalationTimer = escalationTimer;
+}
 
+function abortGjcWithSignal(gjcProcess) {
+  if (!signalGjcProcess(gjcProcess, 'SIGTERM')) {
+    return false;
+  }
+
+  gjcProcess.aborted = true;
+  gjcProcess.abortPending = false;
+  scheduleGjcAbortEscalation(gjcProcess);
   return true;
+}
+
+function abortGjcProcess(gjcProcess) {
+  if (gjcProcess.aborted) {
+    return Promise.resolve(true);
+  }
+  if (gjcProcess.gjcAbortPromise) {
+    return gjcProcess.gjcAbortPromise;
+  }
+
+  // Mark the request before awaiting the SDK so a concurrent child close cannot
+  // emit a non-aborted terminal frame. The websocket handler owns that terminal.
+  gjcProcess.abortPending = true;
+  const attemptPromise = (async () => {
+    if (gjcProcess.gjcSdkBridge) {
+      const abortedBySdk = await gjcProcess.gjcSdkBridge.abort();
+      if (abortedBySdk) {
+        gjcProcess.aborted = true;
+        scheduleGjcAbortEscalation(gjcProcess);
+        return true;
+      }
+    }
+
+    if (gjcProcess.hasClosed) {
+      gjcProcess.aborted = true;
+      return true;
+    }
+    return abortGjcWithSignal(gjcProcess);
+  })();
+  const abortPromise = attemptPromise.finally(() => {
+    gjcProcess.abortPending = false;
+    if (gjcProcess.gjcAbortPromise === abortPromise) {
+      gjcProcess.gjcAbortPromise = null;
+    }
+  });
+
+  gjcProcess.gjcAbortPromise = abortPromise;
+  return abortPromise;
+}
+
+async function abortGjcSession(sessionId) {
+  const gjcProcess = activeGjcProcesses.get(sessionId);
+  return gjcProcess ? abortGjcProcess(gjcProcess) : false;
 }
 
 function isGjcSessionActive(sessionId) {
@@ -702,6 +860,7 @@ function getActiveGjcSessions() {
 export {
   spawnGjc,
   abortGjcSession,
+  abortGjcProcess,
   isGjcSessionActive,
   getActiveGjcSessions,
 };

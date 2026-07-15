@@ -4,7 +4,16 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 
-import { buildPromptArg, registerGjcProcessAlias } from './gjc-cli.js';
+import { abortGjcProcess, buildPromptArg, registerGjcProcessAlias } from './gjc-cli.js';
+
+type TestGjcProcess = {
+  aborted?: boolean;
+  abortPending?: boolean;
+  gjcAbortEscalationTimer?: NodeJS.Timeout;
+  gjcAbortPromise?: Promise<boolean> | null;
+  gjcSdkBridge?: { abort(): Promise<boolean> };
+  kill(signal?: string): boolean;
+};
 
 test('buildPromptArg: every prompt is a private temp file reference', () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'gjc-args-test-'));
@@ -56,4 +65,107 @@ test('registerGjcProcessAlias: spawn handle remains abortable after provider hea
 
   assert.equal(processes.get('run-handle'), child, 'abort can still use the pre-header run handle');
   assert.equal(processes.get('provider-session-id'), child, 'abort can use the provider session id');
+});
+
+test('abortGjcProcess prefers SDK turn.abort without sending a legacy signal', async () => {
+  const signals: string[] = [];
+  let sdkAbortCalls = 0;
+  const child: TestGjcProcess = {
+    gjcSdkBridge: {
+      async abort() {
+        sdkAbortCalls += 1;
+        return true;
+      },
+    },
+    kill(signal: string) {
+      signals.push(signal);
+      return true;
+    },
+  };
+
+  assert.equal(await abortGjcProcess(child), true);
+  assert.equal(sdkAbortCalls, 1);
+  assert.deepEqual(signals, []);
+  assert.equal(child.aborted, true);
+  clearTimeout(child.gjcAbortEscalationTimer);
+});
+
+test('abortGjcProcess preserves SIGTERM fallback when SDK abort is unavailable', async () => {
+  const signals: string[] = [];
+  const child: TestGjcProcess = {
+    gjcSdkBridge: {
+      async abort() {
+        return false;
+      },
+    },
+    kill(signal: string) {
+      signals.push(signal);
+      return true;
+    },
+  };
+
+  assert.equal(await abortGjcProcess(child), true);
+  assert.deepEqual(signals, ['SIGTERM']);
+  assert.equal(child.aborted, true);
+  clearTimeout(child.gjcAbortEscalationTimer);
+});
+
+test('abortGjcProcess keeps the legacy signal path when no SDK bridge attached', async () => {
+  const signals: string[] = [];
+  const child: TestGjcProcess = {
+    kill(signal: string) {
+      signals.push(signal);
+      return true;
+    },
+  };
+
+  assert.equal(await abortGjcProcess(child), true);
+  assert.deepEqual(signals, ['SIGTERM']);
+  clearTimeout(child.gjcAbortEscalationTimer);
+});
+
+test('abortGjcProcess resets pending state when both SDK and signal abort fail', async () => {
+  const child: TestGjcProcess = {
+    gjcSdkBridge: {
+      async abort() {
+        return false;
+      },
+    },
+    kill() {
+      return false;
+    },
+  };
+
+  assert.equal(await abortGjcProcess(child), false);
+  assert.equal(child.abortPending, false);
+  assert.equal(child.aborted, undefined);
+});
+
+test('abortGjcProcess shares one pending SDK abort result across concurrent callers', async () => {
+  let resolveAbort!: (value: boolean) => void;
+  const sdkResult = new Promise<boolean>((resolve) => {
+    resolveAbort = resolve;
+  });
+  let sdkAbortCalls = 0;
+  const child: TestGjcProcess = {
+    gjcSdkBridge: {
+      abort() {
+        sdkAbortCalls += 1;
+        return sdkResult;
+      },
+    },
+    kill() {
+      return false;
+    },
+  };
+
+  const first = abortGjcProcess(child);
+  const second = abortGjcProcess(child);
+  assert.equal(first, second);
+  assert.equal(sdkAbortCalls, 1);
+
+  resolveAbort(false);
+  assert.deepEqual(await Promise.all([first, second]), [false, false]);
+  assert.equal(child.abortPending, false);
+  assert.equal(child.gjcAbortPromise, null);
 });

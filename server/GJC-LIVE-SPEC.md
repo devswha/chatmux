@@ -35,7 +35,8 @@ read-only에 이어 **live**(새 채팅 → gjc headless spawn + 스트리밍 + 
     - error stopReason → writer로 에러 이벤트.
     - `agent_end` → 완료 이벤트 + Map 정리.
   - stderr → 로깅. close/exit → Map 삭제 + writer 종료 신호.
-- `export function abortGjcSession(sessionId)`: `activeGjcProcesses.get(sessionId)?.kill('SIGTERM')` + Map 삭제 (opencode abortOpenCodeSession 미러).
+  - v0.11 SDK v3 discovery가 존재하면 loopback WebSocket sidechannel을 붙여 controlled ask, token usage, `turn.abort`를 사용한다. discovery/handshake 실패 시 기존 NDJSON 경로만 유지한다.
+- `export async function abortGjcSession(sessionId)`: SDK sidechannel이 연결됐으면 `turn.abort`, 아니면 기존 detached process-group `SIGTERM`/`SIGKILL` fallback.
 - `isGjcSessionActive`/`getActiveGjcSessions` (opencode 미러).
 
 ### `server/routes/agent.js` (배선)
@@ -48,7 +49,7 @@ read-only에 이어 **live**(새 채팅 → gjc headless spawn + 스트리밍 + 
 - `abortFns` Record에 `gjc: abortGjcSession` 추가.
 
 ### capabilities
-- `server/modules/providers/services/provider-capabilities.service.ts` gjc: `supportsAbort: true` (live abort 지원). 나머지 read-only 유지(supportsImages는 gjc 이미지 미지원 시 false).
+- `server/modules/providers/services/provider-capabilities.service.ts` gjc: abort, SDK ask permission request, token usage 지원. 이미지는 계속 미지원.
 
 ## 검증
 - 별도 포트 dev(SERVER_PORT=3099) + `GJC_LIVE_SESSION_DIR=/tmp/gjc-live-scratch`(실 홈 세션 무변경) + client(별도 포트).
