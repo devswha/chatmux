@@ -176,6 +176,7 @@ This runs the dependency audit, type checks, all test partitions, lint, identity
 
 ## Project information
 
+- [MVP definition (v1/v2 scope baseline)](docs/MVP.md)
 - [Production installation](docs/INSTALL.md)
 - [Self-hosting and rollback](docs/SELF-HOST.md)
 - [Upstream provenance and selective intake](docs/UPSTREAM.md)
