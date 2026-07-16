@@ -7,7 +7,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const TARGET_NODE_MAJOR = 22;
-const TARGET_GLIBC_VERSION = [2, 35];
+const TARGET_NODE_VERSION = [22, 22, 2];
+const TARGET_GLIBC_VERSION = [2, 35, 0];
 const TARGET_PLATFORM = 'linux';
 const TARGET_ARCH = 'x64';
 const NATIVE_MODULES = ['better-sqlite3', 'bcrypt', 'node-pty'];
@@ -16,13 +17,15 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, '..', '..');
 
 function parseVersion(value) {
-  const match = /^(\d+)\.(\d+)/.exec(value || '');
-  return match ? [Number(match[1]), Number(match[2])] : null;
+  const match = /^(\d+)\.(\d+)(?:\.(\d+))?/u.exec(value || '');
+  return match ? [Number(match[1]), Number(match[2]), Number(match[3] || 0)] : null;
 }
 
 function isAtLeastVersion(actual, minimum) {
-  return actual[0] > minimum[0]
-    || (actual[0] === minimum[0] && actual[1] >= minimum[1]);
+  return actual.some((part, index) => (
+    part > minimum[index] &&
+    actual.slice(0, index).every((value, prior) => value === minimum[prior])
+  )) || actual.every((part, index) => part === minimum[index]);
 }
 
 function assertTargetEnvironment() {
@@ -33,18 +36,26 @@ function assertTargetEnvironment() {
     throw new Error(`Server bundles must be built for ${TARGET_ARCH}; received ${process.arch}.`);
   }
 
-  const nodeMajor = Number.parseInt(process.versions.node.split('.')[0], 10);
-  if (nodeMajor !== TARGET_NODE_MAJOR) {
+  const nodeVersion = parseVersion(process.versions.node);
+  if (
+    !nodeVersion ||
+    nodeVersion[0] !== TARGET_NODE_MAJOR ||
+    !isAtLeastVersion(nodeVersion, TARGET_NODE_VERSION)
+  ) {
     throw new Error(
-      `Server bundles require Node.js ${TARGET_NODE_MAJOR}; received ${process.versions.node}.`,
+      `Server bundles require Node.js ${TARGET_NODE_VERSION.join('.')} or newer within the ${TARGET_NODE_MAJOR}.x line; received ${process.versions.node}.`,
     );
   }
 
   const glibcVersion = process.report?.getReport?.().header?.glibcVersionRuntime;
   const parsedGlibcVersion = parseVersion(glibcVersion);
-  if (!parsedGlibcVersion || !isAtLeastVersion(parsedGlibcVersion, TARGET_GLIBC_VERSION)) {
+  if (
+    !parsedGlibcVersion ||
+    parsedGlibcVersion[0] !== TARGET_GLIBC_VERSION[0] ||
+    parsedGlibcVersion[1] !== TARGET_GLIBC_VERSION[1]
+  ) {
     throw new Error(
-      `Server bundles require glibc ${TARGET_GLIBC_VERSION.join('.')} or newer; received ${glibcVersion || 'unknown'}.`,
+      `Server bundles must be built on glibc ${TARGET_GLIBC_VERSION.slice(0, 2).join('.')} exactly; received ${glibcVersion || 'unknown'}.`,
     );
   }
 }
@@ -70,6 +81,74 @@ function run(command, args, options = {}) {
       else reject(new Error(`${command} ${args.join(' ')} exited with code ${code}`));
     });
   });
+}
+
+function capture(command, args, options = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      stdio: ['ignore', 'pipe', 'inherit'],
+      ...options,
+    });
+    let output = '';
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', (chunk) => {
+      output += chunk;
+    });
+    child.once('error', reject);
+    child.once('exit', (code) => {
+      if (code === 0) resolve(output);
+      else reject(new Error(`${command} ${args.join(' ')} exited with code ${code}`));
+    });
+  });
+}
+
+async function isElfFile(filePath) {
+  const handle = await fs.open(filePath, 'r');
+  try {
+    const magic = Buffer.alloc(4);
+    const { bytesRead } = await handle.read(magic, 0, magic.length, 0);
+    return bytesRead === 4 && magic.equals(Buffer.from([0x7f, 0x45, 0x4c, 0x46]));
+  } finally {
+    await handle.close();
+  }
+}
+
+async function collectElfFiles(directory) {
+  const files = [];
+  const entries = await fs.readdir(directory, { withFileTypes: true });
+  for (const entry of entries) {
+    const entryPath = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...await collectElfFiles(entryPath));
+    } else if (entry.isFile() && await isElfFile(entryPath)) {
+      files.push(entryPath);
+    }
+  }
+  return files;
+}
+
+async function auditGlibcRequirements(stageDir) {
+  const corePath = path.join(stageDir, 'dist-native', 'gajae-core');
+  const elfFiles = await collectElfFiles(path.join(stageDir, 'node_modules', NATIVE_MODULES[0]));
+  for (const moduleName of NATIVE_MODULES.slice(1)) {
+    elfFiles.push(...await collectElfFiles(path.join(stageDir, 'node_modules', moduleName)));
+  }
+  if (!(await isElfFile(corePath))) {
+    throw new Error('dist-native/gajae-core is not a Linux ELF executable.');
+  }
+  elfFiles.push(corePath);
+  for (const filePath of elfFiles) {
+    const versionInfo = await capture('readelf', ['--version-info', '--wide', filePath]);
+    for (const match of versionInfo.matchAll(/\bGLIBC_(\d+)\.(\d+)(?:\.(\d+))?\b/gu)) {
+      const required = [Number(match[1]), Number(match[2]), Number(match[3] || 0)];
+      if (!isAtLeastVersion(TARGET_GLIBC_VERSION, required)) {
+        throw new Error(
+          `${path.relative(stageDir, filePath)} requires GLIBC_${required.join('.')}, newer than the supported ${TARGET_GLIBC_VERSION.slice(0, 2).join('.')} floor.`,
+        );
+      }
+    }
+  }
+  console.log(`Audited glibc symbol requirements for ${elfFiles.length} produced native files.`);
 }
 
 async function pathExists(filePath) {
@@ -125,7 +204,7 @@ async function writeRuntimePackageJson(stageDir, packageJson) {
       'gajae-app': 'scripts/gajae-app-runtime.mjs',
     },
     engines: {
-      node: '22.x',
+      node: '>=22.22.2 <23',
     },
     scripts: {
       start: 'node scripts/gajae-app-runtime.mjs start',
@@ -158,6 +237,7 @@ async function smokeNativeRuntime(stageDir) {
     import { createRequire } from 'node:module';
     import { spawnSync } from 'node:child_process';
 
+    import path from 'node:path';
     const require = createRequire(import.meta.url);
     const Database = require('better-sqlite3');
     const bcrypt = require('bcrypt');
@@ -177,6 +257,13 @@ async function smokeNativeRuntime(stageDir) {
     await access(rgPath, constants.X_OK);
     const ripgrep = spawnSync(rgPath, ['--version'], { encoding: 'utf8' });
     if (ripgrep.status !== 0) throw new Error('ripgrep failed to start.');
+
+    const corePath = path.join(process.cwd(), 'dist-native', 'gajae-core');
+    await access(corePath, constants.X_OK);
+    const core = spawnSync(corePath, ['--version'], { encoding: 'utf8' });
+    if (core.status !== 0 || !core.stdout.startsWith('gajae-core ')) {
+      throw new Error('gajae-core failed to start.');
+    }
 
     await new Promise((resolve, reject) => {
       const terminal = pty.spawn(process.execPath, ['-e', 'process.exit(0)'], {
@@ -236,6 +323,7 @@ const checksumPath = `${archivePath}.sha256`;
 const buildInputs = [
   'dist',
   'dist-server',
+  'dist-native',
   'public',
   'shared',
   'package-lock.json',
@@ -291,6 +379,7 @@ try {
   });
 
   await run(process.execPath, ['scripts/fix-node-pty.js'], { cwd: stageDir });
+  await auditGlibcRequirements(stageDir);
   await smokeNativeRuntime(stageDir);
 
   await fs.rm(path.join(stageDir, 'package-lock.json'), { force: true });

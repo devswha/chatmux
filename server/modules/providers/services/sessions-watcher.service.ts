@@ -4,6 +4,7 @@ import { promises as fsPromises } from 'node:fs';
 
 import chokidar, { type FSWatcher } from 'chokidar';
 
+import { GjcSessionWatcher } from '@/modules/providers/services/gjc-session-watcher.service.js';
 import { projectsDb, sessionsDb } from '@/modules/database/index.js';
 import { sessionSynchronizerService } from '@/modules/providers/services/session-synchronizer.service.js';
 import { WS_OPEN_STATE, connectedClients } from '@/modules/websocket/index.js';
@@ -31,6 +32,11 @@ const PROVIDER_WATCH_PATHS: Array<{ provider: LLMProvider; rootPath: string }> =
   },
 ];
 
+const GJC_WATCH_PATHS = [...new Set([
+  path.join(os.homedir(), '.gjc', 'agent', 'sessions'),
+  path.resolve(process.env.GJC_LIVE_SESSION_DIR || path.join(os.tmpdir(), 'gjc-live-sessions')),
+])];
+
 const WATCHER_IGNORED_PATTERNS = [
   '**/node_modules/**',
   '**/.git/**',
@@ -45,6 +51,15 @@ const PROJECTS_UPDATE_DEBOUNCE_MS = 500;
 const PROJECTS_UPDATE_MAX_WAIT_MS = 2_000;
 
 const watchers: FSWatcher[] = [];
+let gjcWatcher: GjcSessionWatcher | null = null;
+let gjcWatcherStarting: GjcSessionWatcher | null = null;
+const gjcWatcherStartTasks = new Set<Promise<void>>();
+const gjcWatcherStartAbortControllers = new Set<AbortController>();
+let gjcWatcherRestartTimer: ReturnType<typeof setTimeout> | null = null;
+let gjcWatcherRestartDelayMs = 1_000;
+let gjcWatcherGeneration = 0;
+let sessionWatchersClosing = false;
+const GJC_WATCH_RESTART_MAX_MS = 30_000;
 
 type PendingWatcherUpdate = {
   providers: Set<LLMProvider>;
@@ -233,14 +248,25 @@ async function flushPendingWatcherUpdate(): Promise<void> {
 async function onUpdate(
   eventType: WatcherEventType,
   filePath: string,
-  provider: LLMProvider
+  provider: LLMProvider,
+  signal?: AbortSignal
 ): Promise<void> {
+  if (signal?.aborted) {
+    return;
+  }
   if (!isWatcherTargetFile(provider, filePath)) {
     return;
   }
 
   try {
-    const result = await sessionSynchronizerService.synchronizeProviderFile(provider, filePath);
+    const result = await sessionSynchronizerService.synchronizeProviderFile(
+      provider,
+      filePath,
+      signal
+    );
+    if (signal?.aborted) {
+      return;
+    }
     if (!result.indexed) {
       return;
     }
@@ -251,6 +277,9 @@ async function onUpdate(
     });
     queuePendingWatcherUpdate(eventType, provider, result.sessionId);
   } catch (error) {
+    if (signal?.aborted) {
+      return;
+    }
     const message = error instanceof Error ? error.message : String(error);
     console.error(`Session watcher sync failed for provider "${provider}"`, {
       eventType,
@@ -260,11 +289,136 @@ async function onUpdate(
   }
 }
 
+function clearGjcWatcherRestartTimer(): void {
+  if (!gjcWatcherRestartTimer) return;
+  clearTimeout(gjcWatcherRestartTimer);
+  gjcWatcherRestartTimer = null;
+}
+
+function scheduleGjcWatcherRestart(): void {
+  if (sessionWatchersClosing || gjcWatcherRestartTimer) return;
+  const delay = gjcWatcherRestartDelayMs;
+  gjcWatcherRestartDelayMs = Math.min(gjcWatcherRestartDelayMs * 2, GJC_WATCH_RESTART_MAX_MS);
+  gjcWatcherRestartTimer = setTimeout(() => {
+    gjcWatcherRestartTimer = null;
+    void startGjcSessionWatcher(true);
+  }, delay);
+  gjcWatcherRestartTimer.unref?.();
+}
+
+async function runGjcSessionWatcherStart(
+  reconcileAfterStart: boolean,
+  controller: AbortController
+): Promise<void> {
+  const { signal } = controller;
+  if (signal.aborted || sessionWatchersClosing || gjcWatcher || gjcWatcherStarting) return;
+  try {
+    await Promise.all(GJC_WATCH_PATHS.map((rootPath) => (
+      fsPromises.mkdir(rootPath, { recursive: true })
+    )));
+  } catch {
+    if (signal.aborted || sessionWatchersClosing) return;
+    console.error('Failed to prepare GJC native session watcher roots.');
+    scheduleGjcWatcherRestart();
+    return;
+  }
+  if (signal.aborted || sessionWatchersClosing || gjcWatcher || gjcWatcherStarting) return;
+  const generation = ++gjcWatcherGeneration;
+  let failureReported = false;
+  const reportFailure = (): void => {
+    if (failureReported || generation !== gjcWatcherGeneration || sessionWatchersClosing) return;
+    failureReported = true;
+    controller.abort();
+    if (gjcWatcher === watcher) gjcWatcher = null;
+    console.error('GJC native session watcher failed.');
+    void watcher.close()
+      .catch(() => {})
+      .finally(() => {
+        if (gjcWatcherStarting === watcher) gjcWatcherStarting = null;
+        scheduleGjcWatcherRestart();
+      });
+  };
+
+  const watcher = new GjcSessionWatcher({
+    roots: GJC_WATCH_PATHS,
+    onEvent: (event, signal) => onUpdate(event.kind, event.path, 'gjc', signal),
+    onFailure: reportFailure,
+    diagnostic: (message) => console.error(message),
+  });
+  gjcWatcherStarting = watcher;
+
+  try {
+    await watcher.start();
+    if (
+      failureReported
+      || sessionWatchersClosing
+      || generation !== gjcWatcherGeneration
+    ) {
+      await watcher.close();
+      return;
+    }
+    if (gjcWatcherStarting === watcher) gjcWatcherStarting = null;
+    gjcWatcher = watcher;
+    if (reconcileAfterStart) {
+      const reconciliation = await sessionSynchronizerService.reconcileProvider('gjc', signal);
+      if (
+        failureReported
+        || sessionWatchersClosing
+        || generation !== gjcWatcherGeneration
+      ) {
+        if (gjcWatcher === watcher) gjcWatcher = null;
+        await watcher.close();
+        return;
+      }
+      for (const sessionId of reconciliation.sessionIds) {
+        queuePendingWatcherUpdate('change', 'gjc', sessionId);
+      }
+    }
+    if (
+      failureReported
+      || sessionWatchersClosing
+      || generation !== gjcWatcherGeneration
+    ) {
+      if (gjcWatcher === watcher) gjcWatcher = null;
+      await watcher.close();
+      return;
+    }
+    gjcWatcherRestartDelayMs = 1_000;
+  } catch {
+    reportFailure();
+    await watcher.close();
+  }
+}
+
+function startGjcSessionWatcher(reconcileAfterStart = false): Promise<void> {
+  if (sessionWatchersClosing || gjcWatcher || gjcWatcherStarting) {
+    return Promise.resolve();
+  }
+  const controller = new AbortController();
+  gjcWatcherStartAbortControllers.add(controller);
+  const trackedTask = runGjcSessionWatcherStart(reconcileAfterStart, controller);
+  gjcWatcherStartTasks.add(trackedTask);
+  void trackedTask.then(
+    () => {
+      gjcWatcherStartAbortControllers.delete(controller);
+      gjcWatcherStartTasks.delete(trackedTask);
+    },
+    () => {
+      gjcWatcherStartAbortControllers.delete(controller);
+      gjcWatcherStartTasks.delete(trackedTask);
+    }
+  );
+  return trackedTask;
+}
+
 /**
  * Starts provider filesystem watchers and performs initial DB synchronization.
  */
 export async function initializeSessionsWatcher(): Promise<void> {
   console.log('Setting up session watchers');
+  sessionWatchersClosing = false;
+
+  await startGjcSessionWatcher();
 
   const initialSync = await sessionSynchronizerService.synchronizeSessions();
   console.log('Initial session synchronization complete', {
@@ -314,19 +468,40 @@ export async function initializeSessionsWatcher(): Promise<void> {
  * Stops all active provider session watchers.
  */
 export async function closeSessionsWatcher(): Promise<void> {
+  sessionWatchersClosing = true;
+  gjcWatcherGeneration += 1;
+  clearGjcWatcherRestartTimer();
   clearPendingWatcherFlushTimer();
+  for (const controller of gjcWatcherStartAbortControllers) {
+    controller.abort();
+  }
+  const startTasks = [...gjcWatcherStartTasks];
 
-  await Promise.all(
-    watchers.map(async (watcher) => {
+  const nativeWatchers = [...new Set(
+    [gjcWatcher, gjcWatcherStarting].filter(
+      (watcher): watcher is GjcSessionWatcher => watcher !== null
+    )
+  )];
+  gjcWatcher = null;
+  gjcWatcherStarting = null;
+  await Promise.all([
+    ...watchers.map(async (watcher) => {
       try {
         await watcher.close();
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         console.error('Failed to close session watcher', { error: message });
       }
-    })
-  );
+    }),
+    ...nativeWatchers.map((watcher) => watcher.close().catch(() => {
+      console.error('Failed to close GJC native session watcher.');
+    })),
+    ...startTasks.map((task) => task.catch(() => {
+      console.error('Failed to stop GJC native session watcher startup.');
+    })),
+  ]);
   watchers.length = 0;
+  gjcWatcherRestartDelayMs = 1_000;
   pendingWatcherUpdate = null;
   pendingWatcherUpdateStartedAt = null;
   watcherRefreshInFlight = false;

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -139,15 +139,112 @@ test('gjc synchronizer indexes sessions and derives the title from the first use
     await writeGjcTranscript(tempRoot, 'gjc-1', workspacePath, { firstUserMessage: 'Add a gjc provider' });
     await withIsolatedDatabase(async () => {
       const synchronizer = new GjcSessionSynchronizer();
-      const processed = await synchronizer.synchronize();
+      const reconciliation = await synchronizer.reconcile();
 
-      assert.equal(processed, 1);
+      assert.deepEqual(reconciliation, { processed: 1, sessionIds: ['gjc-1'] });
       const indexed = sessionsDb.getSessionById('gjc-1');
       assert.equal(indexed?.provider, 'gjc');
       assert.equal(indexed?.project_path, workspacePath);
       assert.equal(indexed?.custom_name, 'Add a gjc provider');
     });
   } finally {
+    restoreHomeDir();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('gjc reconciliation includes transcripts modified after the shared scan cursor', { concurrency: false }, async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'gjc-session-reconcile-'));
+  const workspacePath = path.join(tempRoot, 'workspace');
+  await mkdir(workspacePath, { recursive: true });
+  const restoreHomeDir = patchHomeDir(tempRoot);
+
+  try {
+    const transcript = await writeGjcTranscript(tempRoot, 'gjc-reconciled', workspacePath);
+    await withIsolatedDatabase(async () => {
+      appConfigDb.set('gjc_initial_scan_done', 'true');
+      const scanCursor = new Date();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      await appendFile(transcript, `${JSON.stringify({
+        type: 'message',
+        id: 'msg-after-gap',
+        timestamp: new Date().toISOString(),
+        message: { role: 'user', content: [{ type: 'text', text: 'Recovered' }] },
+      })}\n`, 'utf8');
+
+      const reconciliation = await new GjcSessionSynchronizer().reconcile(scanCursor);
+
+      assert.deepEqual(reconciliation, {
+        processed: 1,
+        sessionIds: ['gjc-reconciled'],
+      });
+      assert.equal(sessionsDb.getSessionById('gjc-reconciled')?.provider, 'gjc');
+
+      const controller = new AbortController();
+      controller.abort();
+      await assert.rejects(
+        new GjcSessionSynchronizer().reconcile(scanCursor, controller.signal),
+        { name: 'AbortError' }
+      );
+      await assert.rejects(
+        new GjcSessionSynchronizer().synchronizeFile(transcript, controller.signal),
+        { name: 'AbortError' }
+      );
+    });
+  } finally {
+    restoreHomeDir();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('gjc reconciliation purges pending symlinks that escape session roots', { concurrency: false }, async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'gjc-session-reconcile-link-'));
+  const workspacePath = path.join(tempRoot, 'workspace');
+  const sessionRoot = path.join(tempRoot, '.gjc', 'agent', 'sessions', '-workspace');
+  await Promise.all([
+    mkdir(workspacePath, { recursive: true }),
+    mkdir(sessionRoot, { recursive: true }),
+  ]);
+  const restoreHomeDir = patchHomeDir(tempRoot);
+  const restoreLiveSessionDir = patchLiveSessionDir(path.join(tempRoot, 'live-sessions'));
+
+  try {
+    const outsideTranscript = await writeGjcTranscript(
+      tempRoot,
+      'gjc-outside',
+      workspacePath,
+      { sessionsDir: path.join(tempRoot, 'outside') }
+    );
+    const linkedTranscript = path.join(sessionRoot, 'linked.jsonl');
+    await symlink(outsideTranscript, linkedTranscript, 'file');
+
+    await withIsolatedDatabase(async () => {
+      appConfigDb.set('gjc_initial_scan_done', 'true');
+      appConfigDb.set('gjc_pending_session_files', JSON.stringify([{
+        filePath: linkedTranscript,
+        rootPath: sessionRoot,
+      }]));
+
+      const synchronizer = new GjcSessionSynchronizer();
+      const reconciliation = await synchronizer.reconcile(new Date(0));
+
+      assert.deepEqual(reconciliation, { processed: 0, sessionIds: [] });
+      assert.equal(await synchronizer.synchronizeFile(linkedTranscript), null);
+      const internalTarget = await writeGjcTranscript(
+        tempRoot,
+        'gjc-internal-link',
+        workspacePath,
+        { sessionsDir: sessionRoot }
+      );
+      const internalLink = path.join(sessionRoot, 'internal-link.jsonl');
+      await symlink(internalTarget, internalLink, 'file');
+      assert.equal(await synchronizer.synchronizeFile(internalLink), null);
+      assert.equal(sessionsDb.getSessionById('gjc-outside'), null);
+      assert.equal(sessionsDb.getSessionById('gjc-internal-link'), null);
+      assert.equal(appConfigDb.get('gjc_pending_session_files'), '[]');
+    });
+  } finally {
+    restoreLiveSessionDir();
     restoreHomeDir();
     await rm(tempRoot, { recursive: true, force: true });
   }

@@ -35,7 +35,8 @@ Provider-specific models, effort controls, permission modes, session history, sk
 
 ### Requirements
 
-- Node.js 22.x or 24.x
+- Node.js 22.22.2+ (22.x) or 24.15.0+ (24.x)
+- Rust 1.85.1 via rustup for source development; release artifacts include the native core
 - npm and Git
 - At least one supported agent CLI, already installed and authenticated
 
@@ -118,7 +119,7 @@ The Electron app can register remote Gajae App servers. Remote targets require H
 
 ## Production installation
 
-Production is supported on Linux x86_64 with glibc 2.35 or newer, Node.js 22, and a user-level systemd service.
+Production is supported on Linux x86_64 with glibc 2.35 or newer, Node.js 22.22.2 or newer within the 22.x line, and a user-level systemd service.
 
 Use an immutable `gajae-app-server-<version>-linux-x64-node22.tar.gz` artifact from [GitHub Releases](https://github.com/devswha/gajae-app/releases). A supported installation must:
 
@@ -156,7 +157,7 @@ Follow [docs/INSTALL.md](docs/INSTALL.md) for the exact first-install commands a
 | `npm run build` | Build the production client and server |
 | `npm run verify` | Run the complete release gate |
 
-Use Node.js 22 or 24 and run the full gate before submitting changes:
+Use Node.js 22.22.2+ (22.x) or 24.15.0+ (24.x) and run the full gate before submitting changes:
 
 ```bash
 npm run verify

@@ -10,19 +10,32 @@ Implementation progress:
   race, and cleanup tests. Protocol v1 lives in
   `server/gjc-worker-protocol.ts` with strict 64 MiB NDJSON frames, response
   correlation, scope validation, and supplied-secret redaction.
-- **Checkpoint B complete.** Production GJC starts and resumes now cross one
-  long-lived Node/TypeScript worker supervised by `server/gjc-worker-client.ts`.
-  `server/gjc-worker.ts` owns the GJC CLI/SDK runtime; the application process
-  retains browser sockets, application session IDs, replay, persistence,
-  notifications, permission mirrors, restart policy, and terminal reporting.
-- Worker and run process ownership is explicit: the worker is a detached POSIX
-  process group and GJC children remain attached to it. On Windows, a guard
-  proves the live application owner, then creates the worker atomically inside a
-  kill-on-close Job Object with `PROC_THREAD_ATTRIBUTE_JOB_LIST`. Validated
-  tree-kill escalation fails closed before any replacement generation. Graceful
-  shutdown drains active runs before escalation.
-- Claude, Codex, Cursor, and OpenCode remain on their existing paths.
-  **Checkpoint C has not started.**
+- **Checkpoint B complete.** Production GJC starts and resumes cross one
+  long-lived Node/TypeScript worker behind `server/gjc-worker-client.ts`.
+  `server/gjc-worker.ts` owns the GJC CLI/SDK runtime; the application retains
+  browser sockets, application session IDs, replay, persistence, notifications,
+  permission mirrors, restart policy, and terminal reporting.
+- **Checkpoint C slice 1 complete.** `native/gajae-core` is now the mandatory,
+  minimal Rust process host between the application and Node GJC worker. It
+  launches exactly one trusted worker without a shell, preserves Protocol v1
+  bytes, waits for worker exit, and has no direct Node fallback.
+- **Checkpoint C slice 2 complete.** GJC transcript watching now runs through
+  `gajae-core watch` for the persisted and live-session roots. The Rust watcher
+  attaches recursively before its ready frame, emits only bounded, canonically
+  contained `.jsonl` add/change events, and exits with its application-owned stdin.
+  The Node client strictly validates and coalesces those events, cancels queued work
+  during bounded shutdown, restarts with bounded backoff, reconciles GJC after each
+  replacement, and has no Chokidar fallback.
+- Process ownership remains explicit: the Rust core is the detached POSIX
+  process-group leader and the worker/GJC descendants stay attached. On Windows,
+  the existing live-owner guard creates the Rust core atomically inside a
+  kill-on-close Job Object; descendants inherit it. Cleanup failure remains
+  fail-closed before replacement.
+- Source builds require the pinned Rust toolchain. Server release artifacts carry
+  the host-native core executable and require no installed Rust toolchain.
+- Claude, Codex, Cursor, and OpenCode execution and watcher paths remain
+  unchanged. Durable jobs, PTY, Git/worktree, and SQLite migration remain in
+  Checkpoint C.
 
 ## Purpose
 
@@ -30,7 +43,7 @@ Record the agreed direction for evolving Gajae App toward a Codex App-like deskt
 
 ## Confirmed decisions
 
-1. Source development supports Node.js 22 and 24. The immutable production server artifact remains pinned to Node.js 22 until its release contract is changed separately.
+1. Source development supports Node.js 22.22.2+ within 22.x and 24.15.0+ within 24.x. The immutable production server artifact remains pinned to Node.js 22 until its release contract is changed separately.
 2. A full Rust rewrite is not justified solely by Node.js installation or engine-version friction.
 3. Rust is the preferred long-term core for desktop lifecycle, local process supervision, PTY ownership, durable jobs, Git/worktree operations, file watching, and native distribution.
 4. The React UI remains reusable and must communicate through explicit APIs rather than directly owning filesystem, Git, database, or child-process behavior.
@@ -162,11 +175,26 @@ Extraction must preserve the existing observable GJC behavior before responsibil
 - Preserve current browser events and database behavior.
 - Surface worker crashes as explicit failed turns; do not silently fake completion.
 
-### Checkpoint C: introduce the Rust core
+### Checkpoint C: introduce the Rust core — in progress
 
-- Move process supervision, durable job state, PTY lifecycle, Git/worktree operations, and file watching behind a Rust daemon API.
-- Keep the React UI and GJC worker contract stable.
-- Keep non-GJC providers on their existing paths unless separately approved.
+Slices 1 and 2 are complete:
+
+- Route only the GJC Node worker launch through the mandatory Rust process host.
+- Keep Protocol v1 opaque to Rust and authoritative in TypeScript.
+- Package and smoke the native executable with the server artifact.
+- Preserve React, application state, and all non-GJC provider paths.
+- Route GJC persisted/live transcript watching through a separate parent-owned
+  native watcher process with a strict 64 KiB NDJSON protocol and resolved-path
+  containment.
+- Preserve the existing TypeScript synchronizer, database upserts, WebSocket
+  deltas, initial scan, restart reconciliation, and every non-GJC Chokidar watcher.
+
+Remaining slices:
+
+- Move durable job state, PTY lifecycle, Git/worktree operations, and SQLite
+  ownership behind explicit Rust APIs.
+- Define one durable state-machine authority, crash reconciliation, leases, and
+  ordered idempotent replay before moving job persistence.
 
 ### Checkpoint D: thin desktop shell
 

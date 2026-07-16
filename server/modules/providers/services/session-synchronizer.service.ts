@@ -58,14 +58,30 @@ export const sessionSynchronizerService = {
   },
 
   /**
+   * Reconciles one provider without advancing the shared all-provider scan cursor.
+   */
+  async reconcileProvider(
+    provider: LLMProvider,
+    signal?: AbortSignal
+  ): Promise<{ processed: number; sessionIds: string[] }> {
+    const lastScanAt = scanStateDb.getLastScannedAt();
+    const resolvedProvider = providerRegistry.resolveProvider(provider);
+    if (!resolvedProvider.sessionSynchronizer.reconcile) {
+      throw new Error('Provider session reconciliation is unavailable.');
+    }
+    return resolvedProvider.sessionSynchronizer.reconcile(lastScanAt ?? undefined, signal);
+  },
+
+  /**
    * Indexes one provider artifact file without running a full provider rescan.
    */
   async synchronizeProviderFile(
     provider: LLMProvider,
-    filePath: string
+    filePath: string,
+    signal?: AbortSignal
   ): Promise<{ provider: LLMProvider; indexed: boolean; sessionId: string | null }> {
     const resolvedProvider = providerRegistry.resolveProvider(provider);
-    const sessionId = await resolvedProvider.sessionSynchronizer.synchronizeFile(filePath);
+    const sessionId = await resolvedProvider.sessionSynchronizer.synchronizeFile(filePath, signal);
     return {
       provider,
       indexed: Boolean(sessionId),

@@ -71,6 +71,7 @@ type Spawn = (
 export type GjcWorkerSupervisorRuntime = {
   spawn?: Spawn;
   workerPath?: string;
+  corePath?: string;
   compiled?: boolean;
   initializeTimeoutMs?: number;
   requestTimeoutMs?: number;
@@ -203,7 +204,7 @@ function killOwnedRunTree(processId: number): void | Promise<void> {
 
 /** Supervises the private Protocol v1 worker while preserving app-owned lifecycle state. */
 export class GjcWorkerSupervisor {
-  private readonly runtime: Required<Pick<GjcWorkerSupervisorRuntime, 'spawn' | 'initializeTimeoutMs' | 'requestTimeoutMs' | 'createScope' | 'diagnostic' | 'notifyRunStopped' | 'notifyRunFailed' | 'killTree' | 'killProcessTree' | 'platform' | 'environment'>> & Pick<GjcWorkerSupervisorRuntime, 'workerPath' | 'compiled'>;
+  private readonly runtime: Required<Pick<GjcWorkerSupervisorRuntime, 'spawn' | 'initializeTimeoutMs' | 'requestTimeoutMs' | 'createScope' | 'diagnostic' | 'notifyRunStopped' | 'notifyRunFailed' | 'killTree' | 'killProcessTree' | 'platform' | 'environment'>> & Pick<GjcWorkerSupervisorRuntime, 'corePath' | 'workerPath' | 'compiled'>;
   private child?: Child;
   private ready = false;
   private starting?: Promise<void>;
@@ -221,6 +222,7 @@ export class GjcWorkerSupervisor {
   constructor(runtime: GjcWorkerSupervisorRuntime = {}) {
     this.runtime = {
       spawn: runtime.spawn ?? spawnChild as unknown as Spawn,
+      corePath: runtime.corePath,
       workerPath: runtime.workerPath,
       compiled: runtime.compiled,
       initializeTimeoutMs: runtime.initializeTimeoutMs ?? 5_000,
@@ -330,6 +332,16 @@ export class GjcWorkerSupervisor {
     const compiled = this.runtime.compiled ?? !import.meta.url.endsWith('.ts');
     const workerPath = this.runtime.workerPath ?? fileURLToPath(new URL(compiled ? './gjc-worker.js' : './gjc-worker.ts', import.meta.url));
     const workerArgs = compiled ? [workerPath] : ['--import', 'tsx', workerPath];
+    const coreExecutable = this.runtime.platform === 'win32'
+      ? 'gajae-core.exe'
+      : 'gajae-core';
+    const corePath = this.runtime.corePath ?? fileURLToPath(new URL(
+      compiled
+        ? `../../dist-native/${coreExecutable}`
+        : `../dist-native/${coreExecutable}`,
+      import.meta.url,
+    ));
+    const coreArgs = ['--', process.execPath, ...workerArgs];
     const workerEnv = compiled
       ? this.runtime.environment
       : {
@@ -338,14 +350,14 @@ export class GjcWorkerSupervisor {
         };
     const launch = this.runtime.platform === 'win32'
       ? createWindowsJobLaunch(
-          process.execPath,
-          workerArgs,
+          corePath,
+          coreArgs,
           workerEnv,
           process.cwd(),
         )
       : {
-          command: process.execPath,
-          args: workerArgs,
+          command: corePath,
+          args: coreArgs,
           env: workerEnv,
         };
     const child = this.runtime.spawn(launch.command, launch.args, {
@@ -792,6 +804,12 @@ export class GjcWorkerSupervisor {
     return termination;
   }
 
+  private async awaitTermination(): Promise<void> {
+    const termination = this.terminating;
+    if (termination) await termination;
+    if (this.terminationFailure) throw this.terminationFailure;
+  }
+
   shutdown(): Promise<void> {
     if (this.shutdownPromise) return this.shutdownPromise;
     this.shuttingDown = true;
@@ -801,7 +819,10 @@ export class GjcWorkerSupervisor {
 
   private async stopWorker(): Promise<void> {
     const child = this.child;
-    if (!child) return;
+    if (!child) {
+      await this.awaitTermination();
+      return;
+    }
     for (const run of this.runs.values()) run.aborted = true;
     try {
       await this.request(
@@ -813,7 +834,8 @@ export class GjcWorkerSupervisor {
     } catch {
       // Tree termination below remains the shutdown fallback.
     }
-    await this.workerFailed(child);
+    if (child === this.child) await this.workerFailed(child);
+    await this.awaitTermination();
   }
 }
 

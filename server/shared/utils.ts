@@ -1236,13 +1236,15 @@ export async function buildLookupMap(
  */
 export async function extractFirstValidJsonlData<T>(
   filePath: string,
-  extractor: (parsedJson: unknown) => T | null | undefined
+  extractor: (parsedJson: unknown) => T | null | undefined,
+  signal?: AbortSignal
 ): Promise<T | null> {
   try {
-    const fileStream = fs.createReadStream(filePath);
+    const fileStream = fs.createReadStream(filePath, { signal });
     const lineReader = readline.createInterface({ input: fileStream, crlfDelay: Infinity });
 
     for await (const line of lineReader) {
+      signal?.throwIfAborted();
       const trimmed = line.trim();
       if (!trimmed) {
         continue;
@@ -1256,7 +1258,10 @@ export async function extractFirstValidJsonlData<T>(
         return extracted;
       }
     }
-  } catch {
+  } catch (error) {
+    if (signal?.aborted) {
+      throw error;
+    }
     // Ignore malformed or missing artifacts so full scans keep progressing.
   }
 

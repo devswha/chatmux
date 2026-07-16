@@ -1,6 +1,6 @@
 # GJC live provider specification
 
-Status: Checkpoint A and Checkpoint B implemented (2026-07-15)
+Status: Checkpoints A and B complete; Checkpoint C native-host and GJC watcher slices implemented (2026-07-16)
 
 GJC is the only provider routed through an isolated provider worker. Claude,
 Codex, Cursor, and OpenCode retain their existing execution paths.
@@ -34,18 +34,60 @@ gjc -p --mode json --session-dir <dir> [-r <providerSessionId>] [--model <model>
 `server/gjc-worker-client.ts` is the only production GJC execution facade used
 by `server/index.js` and `server/routes/agent.js`. It owns:
 
-- one lazily started, long-lived worker generation;
+- one lazily started, long-lived native-core and worker generation;
 - application session scope and immutable run IDs;
 - browser-facing normalized events, replay sequencing, and provider-session
   persistence through `ChatSessionWriter`;
 - the synchronous mirror of pending controlled questions;
 - run notifications and explicit failed-turn fallback;
-- worker restart, request timeout isolation, graceful shutdown, and process-tree
-  escalation.
+- generation restart, request timeout isolation, graceful shutdown, and
+  process-tree escalation.
+- one supervised native GJC transcript watcher with bounded restart backoff.
 
-There is no direct in-process production fallback to `server/gjc-cli.js`.
-Malformed output or worker exit fails active GJC runs explicitly; a later run
-starts a fresh worker generation.
+There is no direct in-process or direct-Node-worker production fallback. A
+missing or failed native core, malformed output, or worker exit fails active GJC
+runs explicitly; a later run starts a fresh generation only after cleanup is
+proven.
+
+### Native core process
+
+`native/gajae-core` is a minimal Rust runtime with two strict modes. The
+application starts `dist-native/gajae-core -- <worker>` to host exactly one
+trusted Node worker without a shell, and starts `dist-native/gajae-core watch`
+for GJC transcript changes. In process-host mode, the core:
+
+- inherits the application-controlled environment and working directory;
+- forwards application stdin to worker stdin without interpreting Protocol v1;
+- gives the worker byte-transparent stdout/stderr pipes and waits for its exit;
+- propagates deterministic child exit status and emits only fixed diagnostics;
+- has no listener, database, provider logic, persistence, or independent restart
+  policy.
+
+Source development builds the core before startup. Release artifacts contain the
+host-native executable and do not require an installed Rust toolchain. Failure to
+build, locate, or launch the core is fail-closed; Node never launches the worker
+directly.
+
+### Native GJC session watcher
+
+`server/modules/providers/services/gjc-session-watcher.service.ts` starts
+`gajae-core watch` over the persisted `~/.gjc/agent/sessions` root and the
+configured live-session root before the initial provider scan. The watcher:
+
+- rejects missing, relative, duplicate, symlink, or non-directory roots;
+- attaches all roots recursively before emitting its exact ready frame;
+- canonicalizes event targets and emits only UTF-8 `.jsonl` `add`/`change` paths
+  whose resolved filesystem identity remains inside a configured root over a strict
+  64 KiB Protocol 1 NDJSON stream;
+- uses bounded native and Node queues, serial cancellable callback delivery, fixed
+  path-free diagnostics, and stdin EOF for owner shutdown;
+- restarts with bounded exponential backoff, runs a GJC-only reconciliation after
+  each replacement is ready, and never falls back to a Node/Chokidar GJC watcher.
+
+The existing GJC TypeScript synchronizer remains responsible for defense-in-depth
+realpath containment, subagent filtering, JSONL parsing, session database upserts,
+and browser `session_upserted` events. Claude, Codex, Cursor, and OpenCode retain
+their existing Chokidar watchers unchanged.
 
 ### Worker process
 
@@ -104,16 +146,15 @@ redacted recursively by the serializer.
 
 ## Process and terminal lifecycle
 
-- On POSIX, the application starts the worker as a detached process-group
-  leader. GJC children are non-detached members of that group.
-- On Windows, a PowerShell guard opens an exact application-process handle,
-  completes a fixed ready/ack exchange with an exact unbuffered `ReadFile` over
-  inherited stdin, then uses
-  `STARTUPINFOEX` with `PROC_THREAD_ATTRIBUTE_JOB_LIST` to create the worker
-  inside a kill-on-close Job Object from its first instruction. Worker or
-  application crashes therefore close the guard/job and terminate every
-  inherited GJC descendant. Explicit `taskkill /T /F` is a validated escalation
-  path; failed cleanup permanently blocks replacement generations.
+- On POSIX, the application starts the Rust core as a detached process-group
+  leader. The Node worker and GJC children inherit that group.
+- On Windows, the existing PowerShell guard opens an exact
+  application-process handle, completes a fixed ready/ack exchange with an exact
+  unbuffered `ReadFile` over inherited stdin, then uses `STARTUPINFOEX` with
+  `PROC_THREAD_ATTRIBUTE_JOB_LIST` to create the Rust core inside a
+  kill-on-close Job Object from its first instruction. The Node worker and GJC
+  descendants inherit the same Job. Explicit `taskkill /T /F` is a validated
+  escalation path; failed cleanup permanently blocks replacement generations.
 - A start/resume response remains pending until the GJC run settles and all
   earlier worker events have been emitted.
 - `turn.abort` targets `runId`; the worker time-bounds the SDK attempt before
@@ -134,16 +175,21 @@ Focused coverage is in:
 - `server/gjc-cli.test.ts`
 - `server/gjc-sdk-client.test.ts`
 - `server/gjc-sdk-bridge.test.ts`
+- `server/gjc-core-host.test.ts`
+- `server/modules/providers/tests/gjc-session-watcher.test.ts`
+- `native/gajae-core/src/lib.rs`
 - `server/gjc-worker-protocol.test.ts`
 - `server/gjc-worker.test.ts`
 - `server/gjc-windows-job.test.ts`
 - `server/gjc-worker-client.test.ts`
 - `server/modules/websocket/tests/chat-run-registry.test.ts`
 
-Coverage includes start/resume, split and bounded NDJSON, SDK asks and replies,
-timeouts, abort fallbacks, terminal races, malformed worker output, response
-correlation, stale-run isolation, worker restart, real executable
-initialize/shutdown, graceful drain, atomic Windows Job Object launch, failed
-cleanup admission blocking, and process-tree cleanup. Full repository
-verification must continue to pass on supported Node.js 22 and 24 source
-runtimes.
+Coverage includes start/resume, split and bounded worker NDJSON, SDK asks and
+replies, timeouts, abort fallbacks, terminal races, malformed worker output,
+response correlation, stale-run isolation, worker restart, native-core byte
+relay and no-fallback launch behavior, real worker initialize/shutdown through
+Rust, recursive multi-root transcript watching, strict watcher framing,
+coalescing, ready/exit timeouts, bounded drain, graceful process drain, atomic
+Windows Job Object launch, failed cleanup admission blocking, and process-tree
+cleanup. Full repository verification includes Cargo fmt, Clippy, and tests and
+must continue to pass on supported Node.js 22 and 24 source runtimes.

@@ -126,6 +126,8 @@ class FakePeer {
 function runtime(child: FakeChild, scope = 'app-session-1') {
   return {
     spawn: () => child,
+    corePath: '/test/gajae-core',
+    workerPath: '/test/gjc-worker.js',
     compiled: true,
     createScope: () => scope,
     notifyRunStopped: () => {},
@@ -179,7 +181,7 @@ test('launches the Windows worker behind an atomic kill-on-close job guard', asy
   assert.equal(spawnOptions.env?.KEEP_ME, 'yes');
   assert.equal(
     spawnOptions.env?.GAJAE_INTERNAL_JOB_APPLICATION,
-    process.execPath,
+    '/test/gajae-core',
   );
   assert.equal(
     peer.requests.filter((request) => request.method === 'worker.initialize').length,
@@ -212,11 +214,15 @@ test('shares one handshake and sends one start request per concurrent run', asyn
   const child = new FakeChild();
   const peer = new FakePeer(child);
   peer.handle((request) => peer.respond(request));
+  let command = '';
+  let args: string[] = [];
   let detached: boolean | undefined;
   let inheritedEnvironment = false;
   const supervisor = new GjcWorkerSupervisor({
     ...runtime(child),
-    spawn: (_command, _args, options) => {
+    spawn: (workerCommand, workerArgs, options) => {
+      command = workerCommand;
+      args = workerArgs;
       detached = options.detached;
       inheritedEnvironment = options.env === process.env;
       return child;
@@ -235,6 +241,58 @@ test('shares one handshake and sends one start request per concurrent run', asyn
   assert.equal(peer.requests.some((request) => request.method === 'turn.start'), false);
   assert.equal(detached, process.platform !== 'win32');
   assert.equal(inheritedEnvironment, true);
+  assert.equal(command, '/test/gajae-core');
+  assert.deepEqual(args, ['--', process.execPath, '/test/gjc-worker.js']);
+});
+
+test('wraps the source worker command without changing its tsx environment', async () => {
+  const child = new FakeChild();
+  const peer = new FakePeer(child);
+  peer.handle((request) => peer.respond(request));
+  let args: string[] = [];
+  let environment: NodeJS.ProcessEnv | undefined;
+  const supervisor = new GjcWorkerSupervisor({
+    ...runtime(child),
+    compiled: false,
+    workerPath: '/test/gjc-worker.ts',
+    spawn: (_command, workerArgs, options) => {
+      args = workerArgs;
+      environment = options.env;
+      return child;
+    },
+  });
+
+  await supervisor.spawn('source', {}, { send() {} });
+
+  assert.deepEqual(args, [
+    '--',
+    process.execPath,
+    '--import',
+    'tsx',
+    '/test/gjc-worker.ts',
+  ]);
+  assert.match(environment?.TSX_TSCONFIG_PATH ?? '', /server\/tsconfig\.json$/u);
+});
+
+test('fails safely when the native core cannot launch without a Node fallback', async () => {
+  const commands: string[] = [];
+  const supervisor = new GjcWorkerSupervisor({
+    corePath: '/missing/gajae-core',
+    workerPath: '/test/gjc-worker.js',
+    compiled: true,
+    spawn: (command) => {
+      commands.push(command);
+      throw new Error('missing');
+    },
+    notifyRunStopped: () => {},
+    notifyRunFailed: () => {},
+  });
+
+  await assert.rejects(
+    supervisor.spawn('hello', {}, { send() {} }),
+    /GJC worker failed/,
+  );
+  assert.deepEqual(commands, ['/missing/gajae-core']);
 });
 
 test('resumes by provider session and forwards events using immutable run identity', async () => {
@@ -610,4 +668,36 @@ test('graceful shutdown waits for the worker response then terminates its proces
     supervisor.spawn('too-late', {}, { send() {} }),
     /GJC worker failed/,
   );
+});
+
+test('shutdown waits for in-flight exit cleanup and propagates its failure', async () => {
+  const child = new FakeChild();
+  const peer = new FakePeer(child);
+  replyToHandshake(peer);
+  let rejectTermination!: (error: Error) => void;
+  const termination = new Promise<void>((_resolve, reject) => {
+    rejectTermination = reject;
+  });
+  const supervisor = new GjcWorkerSupervisor({
+    ...runtime(child),
+    killTree: () => termination,
+  });
+  const run = supervisor.spawn('hello', {}, { send() {} });
+  const start = await peer.waitFor('session.start');
+  peer.respond(start);
+  await run;
+
+  const shutdownPromise = supervisor.shutdown();
+  await peer.waitFor('worker.shutdown');
+  child.emit('exit', 1);
+  let settled = false;
+  void shutdownPromise.then(
+    () => { settled = true; },
+    () => { settled = true; },
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(settled, false);
+  rejectTermination(new Error('tree still alive'));
+  await assert.rejects(shutdownPromise, /GJC worker failed/);
 });

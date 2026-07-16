@@ -8,9 +8,9 @@ future server artifacts are published only through
 
 ### Source development
 
-- Added Node.js 24 support for dependency installation, development, tests, and
-  builds while retaining Node.js 22 compatibility. Production server artifacts
-  remain pinned to Node.js 22.
+- Added Node.js 24.15.0+ support for dependency installation, development,
+  tests, and builds while retaining Node.js 22.22.2+ compatibility. Production
+  server artifacts remain pinned to the Node.js 22 line.
 - Completed GJC worker Checkpoints A and B: GJC CLI/SDK execution now runs
   behind one supervised Node/TypeScript Protocol v1 worker with strict bounded
   NDJSON, immutable run correlation, controlled-question mirroring, crash
@@ -18,11 +18,25 @@ future server artifacts are published only through
   groups, and atomic Windows kill-on-close Job Object ownership. Browser replay,
   persistence, and notifications remain application
   owned; Claude, Codex, Cursor, and OpenCode routing is unchanged.
+- Started GJC Checkpoint C with a mandatory minimal Rust process host.
+  GJC worker launches now follow application → `gajae-core` → Node worker while
+  preserving Protocol v1 bytes, browser behavior, and existing application
+  state ownership. Source verification builds/tests the pinned Rust toolchain;
+  server artifacts include and smoke the native executable without requiring
+  Rust on the installed host.
+- Added the second Checkpoint C slice: GJC persisted and live transcript roots
+  are now watched by a parent-owned native Rust process with strict bounded
+  events, canonical target containment, queue limits, cancellable graceful drain,
+  failure restart with GJC-only reconciliation, and no Node fallback. Existing
+  TypeScript indexing/database/browser behavior and all non-GJC Chokidar watchers
+  are unchanged.
 
 ### Native server distribution and operations
 
 - Established the Linux x86_64, glibc 2.35+, Node.js 22 server artifact:
-  `gajae-app-server-<version>-linux-x64-node22.tar.gz`.
+  `gajae-app-server-<version>-linux-x64-node22.tar.gz`. Release builds now
+  require a glibc 2.35 builder and audit the Rust core plus rebuilt native
+  modules for GLIBC symbol compatibility before archiving.
 - Established `~/.local/share/gajae-app` as the source-review checkout and
   `~/.gajae-app` as the runtime, release, and persistent-data root.
 - Established the per-user `gajae-app.service`, atomic release cutover, and

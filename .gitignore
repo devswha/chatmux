@@ -12,6 +12,11 @@ dist-server/
 dist-ssr/
 build/
 out/
+dist-native/
+native/**/target/
+
+# Local agent runtime state
+.gjc/
 
 # Environment variables
 .env

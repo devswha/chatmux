@@ -14,4 +14,4 @@ export const REPOSITORY_URL = 'https://github.com/devswha/gajae-app';
 export const ISSUES_URL = 'https://github.com/devswha/gajae-app/issues';
 export const RELEASES_URL = 'https://github.com/devswha/gajae-app/releases';
 export const AUTHOR = 'devswha and Gajae App contributors';
-export const NODE_ENGINE_RANGE = '>=22 <23 || >=24 <25';
+export const NODE_ENGINE_RANGE = '>=22.22.2 <23 || >=24.15.0 <25';

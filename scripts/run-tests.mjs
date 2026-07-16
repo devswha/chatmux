@@ -5,9 +5,15 @@ import { spawnSync } from 'node:child_process';
 const TEST_FILE_PATTERN = /\.(?:test|spec)\.(?:js|ts|tsx)$/;
 const SKIPPED_DIRECTORIES = new Set(['dist', 'dist-server', 'node_modules', 'release']);
 
-const nodeMajor = Number.parseInt(process.versions.node.split('.')[0], 10);
-if (nodeMajor !== 22 && nodeMajor !== 24) {
-  console.error(`[test] Node 22 or 24 is required; current runtime is Node ${process.versions.node}.`);
+const [nodeMajor, nodeMinor, nodePatch] = process.versions.node.split('.').map(Number);
+const meetsMinimumNodeVersion =
+  (nodeMajor === 22 && (nodeMinor > 22 || (nodeMinor === 22 && nodePatch >= 2))) ||
+  (nodeMajor === 24 && (nodeMinor > 15 || (nodeMinor === 15 && nodePatch >= 0)));
+
+if (!meetsMinimumNodeVersion) {
+  console.error(
+    `[test] Node 22.22.2+ (22.x) or 24.15.0+ (24.x) is required; current runtime is Node ${process.versions.node}.`,
+  );
   process.exit(1);
 }
 

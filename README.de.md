@@ -35,7 +35,8 @@ Anbieterspezifische Modelle, Aufwandssteuerungen, Berechtigungsmodi, Sitzungsver
 
 ### Anforderungen
 
-- Node.js 22.x oder 24.x
+- Node.js 22.22.2+ (22.x) oder 24.15.0+ (24.x)
+- Rust 1.85.1 über rustup für die Entwicklung aus dem Quellcode; Release-Artefakte enthalten den nativen Core
 - npm und Git
 - Mindestens eine unterstützte, bereits installierte und authentifizierte Agent-CLI
 
@@ -118,7 +119,7 @@ Die Electron-App kann entfernte Gajae-App-Server registrieren. Entfernte Ziele e
 
 ## Produktionsinstallation
 
-Die Produktion wird unter Linux x86_64 mit glibc 2.35 oder neuer, Node.js 22 und einem systemd-Dienst auf Benutzerebene unterstützt.
+Die Produktion wird unter Linux x86_64 mit glibc 2.35 oder neuer, Node.js 22.22.2 oder neuer innerhalb der 22.x-Reihe und einem systemd-Dienst auf Benutzerebene unterstützt.
 
 Verwenden Sie ein unveränderliches Artefakt `gajae-app-server-<version>-linux-x64-node22.tar.gz` aus [GitHub Releases](https://github.com/devswha/gajae-app/releases). Eine unterstützte Installation muss:
 
@@ -156,7 +157,7 @@ Folgen Sie [docs/INSTALL.md](docs/INSTALL.md) für die genauen Befehle zur Ersti
 | `npm run build` | Produktions-Client und -Server bauen |
 | `npm run verify` | Das vollständige Release-Gate ausführen |
 
-Verwenden Sie Node.js 22 oder 24 und führen Sie vor dem Einreichen von Änderungen das vollständige Gate aus:
+Verwenden Sie Node.js 22.22.2+ (22.x) oder 24.15.0+ (24.x) und führen Sie vor dem Einreichen von Änderungen das vollständige Gate aus:
 
 ```bash
 npm run verify

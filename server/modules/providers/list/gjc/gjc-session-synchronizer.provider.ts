@@ -1,7 +1,7 @@
 import os from 'node:os';
 import path from 'node:path';
 import { createReadStream } from 'node:fs';
-import { realpath, stat } from 'node:fs/promises';
+import { lstat, readdir, realpath, stat } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
 
 import { appConfigDb, sessionsDb } from '@/modules/database/index.js';
@@ -151,32 +151,130 @@ export class GjcSessionSynchronizer implements IProviderSessionSynchronizer {
     appConfigDb.set(GJC_PENDING_SESSION_FILES_KEY, JSON.stringify([...pendingFiles.values()]));
   }
 
-  private async fileExists(filePath: string): Promise<boolean> {
+  private async resolveContainedSessionFile(
+    filePath: string,
+    sessionRoot: string
+  ): Promise<string | null> {
     try {
-      return (await stat(filePath)).isFile();
+      const originalMetadata = await lstat(filePath);
+      if (
+        originalMetadata.isSymbolicLink()
+        || !originalMetadata.isFile()
+        || path.extname(filePath) !== '.jsonl'
+      ) {
+        return null;
+      }
+      const rootMetadata = await lstat(sessionRoot);
+      if (rootMetadata.isSymbolicLink() || !rootMetadata.isDirectory()) {
+        return null;
+      }
+      const [resolvedRoot, resolvedFile] = await Promise.all([
+        realpath(sessionRoot),
+        realpath(filePath),
+      ]);
+      const relative = path.relative(resolvedRoot, resolvedFile);
+      if (
+        !relative
+        || relative === '..'
+        || relative.startsWith(`..${path.sep}`)
+        || path.isAbsolute(relative)
+      ) {
+        return null;
+      }
+      const fileMetadata = await lstat(resolvedFile);
+      return fileMetadata.isFile() && path.extname(resolvedFile) === '.jsonl'
+        ? resolvedFile
+        : null;
     } catch {
-      return false;
+      return null;
     }
+  }
+
+  private async findSessionFilesModifiedAfter(
+    rootDir: string,
+    since: Date | null,
+    files: string[] = [],
+    signal?: AbortSignal
+  ): Promise<string[]> {
+    signal?.throwIfAborted();
+    let entries;
+    try {
+      entries = await readdir(rootDir, { withFileTypes: true });
+    } catch {
+      return files;
+    }
+    for (const entry of entries) {
+      signal?.throwIfAborted();
+      try {
+        const filePath = path.join(rootDir, entry.name);
+        if (entry.isDirectory()) {
+          await this.findSessionFilesModifiedAfter(filePath, since, files, signal);
+          continue;
+        }
+        if (!entry.isFile() || !entry.name.endsWith('.jsonl')) {
+          continue;
+        }
+        if (!since) {
+          files.push(filePath);
+          continue;
+        }
+        const metadata = await stat(filePath);
+        if (metadata.birthtime > since || metadata.mtime > since) {
+          files.push(filePath);
+        }
+      } catch {
+        signal?.throwIfAborted();
+        // A concurrently removed entry must not truncate the remaining scan.
+      }
+    }
+    return files;
   }
 
   /**
    * Scans persisted and live gjc session directories and upserts discovered sessions into DB.
    */
   async synchronize(since?: Date): Promise<number> {
+    return (await this.synchronizeInternal(since, false)).processed;
+  }
+
+  /**
+   * Reconciles a watcher gap and reports every provider-native session refreshed.
+   */
+  async reconcile(
+    since?: Date,
+    signal?: AbortSignal
+  ): Promise<{ processed: number; sessionIds: string[] }> {
+    return this.synchronizeInternal(since, true, signal);
+  }
+
+  private async synchronizeInternal(
+    since: Date | undefined,
+    includeModifiedFiles: boolean,
+    signal?: AbortSignal
+  ): Promise<{ processed: number; sessionIds: string[] }> {
+    signal?.throwIfAborted();
     const initialScanDone = appConfigDb.get(GJC_INITIAL_SCAN_DONE_KEY) === 'true';
     const scanSince = initialScanDone ? since ?? null : null;
     const sessionFiles = new Map<string, SessionFile>();
     const pendingFiles = this.getPendingSessionFiles();
 
     for (const sessionRoot of this.getSessionRoots()) {
-      const files = await findFilesRecursivelyCreatedAfter(sessionRoot, '.jsonl', scanSince);
+      signal?.throwIfAborted();
+      const files = includeModifiedFiles
+        ? await this.findSessionFilesModifiedAfter(sessionRoot, scanSince, [], signal)
+        : await findFilesRecursivelyCreatedAfter(sessionRoot, '.jsonl', scanSince);
       for (const filePath of files) {
         sessionFiles.set(filePath, { filePath, rootPath: sessionRoot });
       }
     }
 
     for (const pendingFile of pendingFiles.values()) {
-      if (await this.fileExists(pendingFile.filePath)) {
+      signal?.throwIfAborted();
+      const resolvedFile = await this.resolveContainedSessionFile(
+        pendingFile.filePath,
+        pendingFile.rootPath
+      );
+      if (resolvedFile) {
         sessionFiles.set(pendingFile.filePath, pendingFile);
       } else {
         pendingFiles.delete(pendingFile.filePath);
@@ -184,25 +282,36 @@ export class GjcSessionSynchronizer implements IProviderSessionSynchronizer {
     }
 
     let processed = 0;
+    const sessionIds = new Set<string>();
     let iterated = 0;
     for (const { filePath, rootPath } of sessionFiles.values()) {
+      signal?.throwIfAborted();
       // Yield to the event loop periodically so a large first-index full sync
       // (thousands of sessions, concurrent with other providers) doesn't starve it.
       if (++iterated % 50 === 0) {
         await new Promise((resolve) => setImmediate(resolve));
+        signal?.throwIfAborted();
       }
-      if (await this.isSubagentTranscript(filePath, rootPath)) {
+      const resolvedFile = await this.resolveContainedSessionFile(filePath, rootPath);
+      if (!resolvedFile) {
         pendingFiles.delete(filePath);
         continue;
       }
-      const parsed = await this.processSessionFile(filePath);
+      if (await this.isSubagentTranscript(resolvedFile, rootPath)) {
+        pendingFiles.delete(filePath);
+        continue;
+      }
+      const parsed = await this.processSessionFile(resolvedFile, signal);
+      signal?.throwIfAborted();
       if (!parsed) {
         // A live transcript can be observed while its header is still being written.
         // Keep it outside the shared scan cursor so a later scan retries it.
-        pendingFiles.set(filePath, { filePath, rootPath });
+        pendingFiles.delete(filePath);
+        pendingFiles.set(resolvedFile, { filePath: resolvedFile, rootPath });
         continue;
       }
       pendingFiles.delete(filePath);
+      pendingFiles.delete(resolvedFile);
 
       const existingSession = sessionsDb.getSessionByProviderSessionId(this.provider, parsed.sessionId)
         ?? sessionsDb.getSessionById(parsed.sessionId);
@@ -217,7 +326,8 @@ export class GjcSessionSynchronizer implements IProviderSessionSynchronizer {
         }
       }
 
-      const timestamps = await readFileTimestamps(filePath);
+      const timestamps = await readFileTimestamps(resolvedFile);
+      signal?.throwIfAborted();
       sessionsDb.createSession(
         parsed.sessionId,
         this.provider,
@@ -225,38 +335,52 @@ export class GjcSessionSynchronizer implements IProviderSessionSynchronizer {
         parsed.sessionName,
         timestamps.createdAt,
         timestamps.updatedAt,
-        filePath
+        resolvedFile
       );
       processed += 1;
+      sessionIds.add(parsed.sessionId);
     }
 
+    signal?.throwIfAborted();
     this.savePendingSessionFiles(pendingFiles);
     if (!initialScanDone && pendingFiles.size === 0) {
       appConfigDb.set(GJC_INITIAL_SCAN_DONE_KEY, 'true');
     }
 
-    return processed;
+    return { processed, sessionIds: [...sessionIds] };
   }
 
   /**
    * Parses and upserts one gjc session JSONL file.
    */
-  async synchronizeFile(filePath: string): Promise<string | null> {
+  async synchronizeFile(
+    filePath: string,
+    signal?: AbortSignal
+  ): Promise<string | null> {
+    signal?.throwIfAborted();
     if (!filePath.endsWith('.jsonl')) {
       return null;
     }
 
     const sessionRoot = await this.getSessionRootForFile(filePath);
-    if (!sessionRoot || await this.isSubagentTranscript(filePath, sessionRoot)) {
+    signal?.throwIfAborted();
+    if (!sessionRoot) {
+      return null;
+    }
+    const resolvedFile = await this.resolveContainedSessionFile(filePath, sessionRoot);
+    signal?.throwIfAborted();
+    if (!resolvedFile || await this.isSubagentTranscript(resolvedFile, sessionRoot)) {
       return null;
     }
 
-    const parsed = await this.processSessionFile(filePath);
+    const parsed = await this.processSessionFile(resolvedFile, signal);
+    signal?.throwIfAborted();
     if (!parsed) {
       return null;
     }
 
-    const timestamps = await readFileTimestamps(filePath);
+    const timestamps = await readFileTimestamps(resolvedFile);
+    signal?.throwIfAborted();
     return sessionsDb.createSession(
       parsed.sessionId,
       this.provider,
@@ -264,14 +388,18 @@ export class GjcSessionSynchronizer implements IProviderSessionSynchronizer {
       parsed.sessionName,
       timestamps.createdAt,
       timestamps.updatedAt,
-      filePath
+      resolvedFile
     );
   }
 
   /**
    * Extracts session metadata from one gjc JSONL session file.
    */
-  private async processSessionFile(filePath: string): Promise<ParsedSession | null> {
+  private async processSessionFile(
+    filePath: string,
+    signal?: AbortSignal
+  ): Promise<ParsedSession | null> {
+    signal?.throwIfAborted();
     const parsed = await extractFirstValidJsonlData(filePath, (rawData) => {
       const data = rawData as Record<string, unknown>;
       // gjc keeps the id/cwd at the top level of the header line, not under `payload`.
@@ -286,7 +414,8 @@ export class GjcSessionSynchronizer implements IProviderSessionSynchronizer {
         sessionId,
         projectPath,
       };
-    });
+    }, signal);
+    signal?.throwIfAborted();
 
     if (!parsed) {
       return null;
@@ -304,7 +433,8 @@ export class GjcSessionSynchronizer implements IProviderSessionSynchronizer {
 
     // gjc has no dedicated title field or session index, so the title is always
     // derived from the first user message (claude/codex-style).
-    const firstUserMessage = await this.extractFirstUserMessageFromStart(filePath);
+    const firstUserMessage = await this.extractFirstUserMessageFromStart(filePath, signal);
+    signal?.throwIfAborted();
     return {
       ...parsed,
       sessionName: normalizeSessionName(firstUserMessage, UNTITLED_GJC_SESSION),
@@ -317,7 +447,10 @@ export class GjcSessionSynchronizer implements IProviderSessionSynchronizer {
    * Only `type:"message"` lines with `role:"user"` are considered, and the
    * text is joined from the message's content parts.
    */
-  private async extractFirstUserMessageFromStart(filePath: string): Promise<string | undefined> {
+  private async extractFirstUserMessageFromStart(
+    filePath: string,
+    signal?: AbortSignal
+  ): Promise<string | undefined> {
     // Stream line-by-line and stop at the first user message instead of reading the
     // whole file. gjc has no title index (unlike claude/codex which read one index
     // file), so title derivation runs per session; a full readFile + split of a large
@@ -325,8 +458,12 @@ export class GjcSessionSynchronizer implements IProviderSessionSynchronizer {
     // hog. The first user message is near the top, so this reads only a few lines.
     let rl: ReturnType<typeof createInterface> | undefined;
     try {
-      rl = createInterface({ input: createReadStream(filePath, 'utf8'), crlfDelay: Infinity });
+      rl = createInterface({
+        input: createReadStream(filePath, { encoding: 'utf8', signal }),
+        crlfDelay: Infinity,
+      });
       for await (const rawLine of rl) {
+        signal?.throwIfAborted();
         const line = rawLine.trim();
         if (!line) {
           continue;
@@ -354,7 +491,10 @@ export class GjcSessionSynchronizer implements IProviderSessionSynchronizer {
           return text;
         }
       }
-    } catch {
+    } catch (error) {
+      if (signal?.aborted) {
+        throw error;
+      }
       // Ignore missing/unreadable files so sync can continue.
     } finally {
       rl?.close();

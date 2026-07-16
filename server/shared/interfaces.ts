@@ -165,7 +165,16 @@ export interface IProviderSessionSynchronizer {
   synchronize(since?: Date): Promise<number>;
 
   /**
+   * Reconciles a non-durable watcher gap and returns provider-native ids whose
+   * persisted metadata was refreshed. Only providers with restart recovery need it.
+   */
+  reconcile?(
+    since?: Date,
+    signal?: AbortSignal
+  ): Promise<{ processed: number; sessionIds: string[] }>;
+
+  /**
    * Parses and upserts one provider artifact file without running a full scan.
    */
-  synchronizeFile(filePath: string): Promise<string | null>;
+  synchronizeFile(filePath: string, signal?: AbortSignal): Promise<string | null>;
 }
