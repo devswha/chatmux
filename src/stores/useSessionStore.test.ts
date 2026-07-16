@@ -284,3 +284,50 @@ test('a request protects a newly created slot before saturated LRU trimming', as
     globalThis.fetch = originalFetch;
   }
 });
+
+// Regression: the store signals changes by bumping an internal tick (a
+// re-render) while its object identity stays stable, so consumers must read
+// getMessages() fresh on every render instead of memoizing on the store
+// identity. The chat pane once froze on its pre-fetch empty window because a
+// useMemo keyed on [sessionId, sessionStore] never recomputed after the
+// fetch landed. These assertions pin the two halves of that contract.
+test('getMessages reflects a completed fetch and keeps empty reads identity-stable', async () => {
+  const originalFetch = globalThis.fetch;
+  let resolveRequest: ((response: Response) => void) | undefined;
+  globalThis.fetch = (() => new Promise<Response>((resolve) => {
+    resolveRequest = resolve;
+  })) as typeof fetch;
+
+  try {
+    const store = createStore();
+    store.setActiveSession('session');
+
+    // Empty reads (unknown session, pre-fetch) share one stable identity so
+    // per-render reads do not churn downstream memos.
+    assert.equal(store.getMessages('missing'), store.getMessages('missing'));
+    const preFetch = store.getMessages('session');
+    assert.equal(preFetch.length, 0);
+    assert.equal(store.getMessages('session'), preFetch);
+
+    const request = store.fetchFromServer('session', { limit: 20, offset: 0 });
+    assert.ok(resolveRequest);
+    resolveRequest(response({
+      messages: [
+        { id: 'm-1', sessionId: 'session', timestamp: '2026-01-01T00:00:00Z', kind: 'text', role: 'user', content: 'hi', provider: 'gjc' },
+        { id: 'm-2', sessionId: 'session', timestamp: '2026-01-01T00:01:00Z', kind: 'text', role: 'assistant', content: 'hello', provider: 'gjc' },
+      ],
+      total: 2,
+      hasMore: false,
+    }));
+    await request;
+
+    // A fresh read after the fetch settles must expose the loaded window —
+    // no other invalidation signal exists for render-time consumers.
+    const postFetch = store.getMessages('session');
+    assert.equal(postFetch.length, 2);
+    assert.equal(postFetch[0]?.id, 'm-1');
+    assert.notEqual(postFetch, preFetch, 'loaded window replaces the empty identity');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

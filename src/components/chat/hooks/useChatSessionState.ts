@@ -12,6 +12,8 @@ import { normalizedToChatMessages } from './useChatMessages';
 
 const MESSAGES_PER_PAGE = 20;
 const INITIAL_VISIBLE_MESSAGES = 100;
+// Identity-stable empty window so per-render reads don't churn downstream memos.
+const EMPTY_MESSAGES: NormalizedMessage[] = [];
 
 interface UseChatSessionStateArgs {
   selectedProject: Project | null;
@@ -260,10 +262,14 @@ export function useChatSessionState({
     setPendingUserMessage(null);
   }, [activeSessionId, pendingUserMessage, sessionStore]);
 
-  const storeMessages = useMemo(
-    () => (activeSessionId ? sessionStore.getMessages(activeSessionId) : []),
-    [activeSessionId, sessionStore],
-  );
+  // Read fresh on every render — NEVER memoize this on [activeSessionId,
+  // sessionStore]. The store notifies changes by bumping a tick state (a
+  // re-render), while its object identity stays stable, so a useMemo keyed on
+  // those deps caches the pre-fetch empty window forever and the chat pane
+  // never leaves its empty state. `getMessages` returns the slot's `merged`
+  // array whose identity only changes when content changes, so downstream
+  // memos still hit their caches.
+  const storeMessages = activeSessionId ? sessionStore.getMessages(activeSessionId) : EMPTY_MESSAGES;
 
   // Reset viewHiddenCount when store messages change
   const prevStoreLenRef = useRef(0);

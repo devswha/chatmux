@@ -933,9 +933,13 @@ export function useSessionStore() {
 
   /**
    * Get merged messages for a session (for rendering).
+   *
+   * Callers read this on every render (the store signals changes via a tick
+   * re-render, not a new store identity), so the empty result must be
+   * identity-stable to keep downstream memos from recomputing on no-ops.
    */
   const getMessages = useCallback((sessionId: string): NormalizedMessage[] => {
-    return storeRef.current.get(sessionId)?.merged ?? [];
+    return storeRef.current.get(sessionId)?.merged ?? EMPTY;
   }, []);
 
   /**
