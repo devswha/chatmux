@@ -14,6 +14,13 @@ future server artifacts are published only through
   suggestions at all. Suggestions complete in the style being typed, both
   consumers normalize to the same home-relative form, and absolute paths
   outside `$HOME` still fail closed.
+- Settings → About now shows a read-only "Remote access address (tailscale)"
+  card: when a `tailscale serve` HTTPS front proxies this server, that address
+  is promoted (with a copy button) as THE address for other devices — plain
+  HTTP tailnet IPs are deliberately never suggested because they downgrade
+  PWA install. When tailscale runs without a front, the card offers the
+  one-line setup command to copy; the app itself never configures the tailnet
+  (auto-exposing an unauthenticated server stays an explicit-opt-in matter).
 
 ## 1.1.0 (2026-07-17)
 

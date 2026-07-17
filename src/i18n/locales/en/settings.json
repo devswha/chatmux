@@ -563,5 +563,14 @@
     "installAriaLabel": "Plugin git repository URL",
     "tab": "tab",
     "runningStatus": "running"
+  },
+  "about": {
+    "remoteAccess": {
+      "title": "Remote access address (tailscale)",
+      "copy": "Copy address",
+      "copyCommand": "Copy command",
+      "httpsHint": "Use this HTTPS address from other devices (including your phone) — browser app install (PWA) only works properly here.",
+      "setupHint": "tailscale is running, but no HTTPS address points at this server yet. Run this one line in the server terminal to create one (visible to your tailnet only):"
+    }
   }
 }

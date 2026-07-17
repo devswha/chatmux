@@ -481,5 +481,14 @@
     "installAriaLabel": "플러그인 git 저장소 URL",
     "tab": "탭",
     "runningStatus": "실행 중"
+  },
+  "about": {
+    "remoteAccess": {
+      "title": "원격 접속 주소 (tailscale)",
+      "copy": "주소 복사",
+      "copyCommand": "명령 복사",
+      "httpsHint": "다른 기기(폰 포함)에서는 이 HTTPS 주소를 쓰세요 — 브라우저의 앱 설치(PWA)도 여기서만 제대로 동작합니다.",
+      "setupHint": "tailscale이 실행 중이지만 이 서버로 향하는 HTTPS 접속 주소가 아직 없습니다. 서버 터미널에서 아래 한 줄을 실행하면 생깁니다 (tailnet 내부에만 공개됩니다):"
+    }
   }
 }

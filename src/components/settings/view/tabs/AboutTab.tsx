@@ -13,6 +13,8 @@ import {
 } from '../../../../constants/branding';
 import { useVersionCheck } from '../../../../hooks/useVersionCheck';
 
+import RemoteAccessCard from './RemoteAccessCard';
+
 function GitHubIcon({ className }: { className?: string }) {
   return (
     <svg className={className} fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
@@ -70,6 +72,9 @@ export default function AboutTab() {
           </p>
         </div>
       </div>
+
+      {/* Remote access address (tailscale, read-only detection) */}
+      <RemoteAccessCard />
 
       {/* Star on GitHub button */}
       <a

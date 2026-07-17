@@ -5,6 +5,8 @@ import path from 'node:path';
 
 import express, { type Request, type Response, type Router } from 'express';
 
+import { getTailscaleAccessInfo, type TailscaleAccessInfo } from './tailscale-access.js';
+
 /**
  * One-click self-update (관제탑 큐 #282).
  *
@@ -149,7 +151,7 @@ async function launchViaSystemdRun(unitName: string, script: string): Promise<vo
   });
 }
 
-/** `/api/system` router: self-update trigger + status. */
+/** `/api/system` router: self-update trigger + status, tailscale access info. */
 export function createSystemRouter(options: SystemRouterOptions): Router {
   const router = express.Router();
   const mode = options.mode ?? detectInstallMode(options.appRoot);
@@ -157,6 +159,22 @@ export function createSystemRouter(options: SystemRouterOptions): Router {
   const now = options.now ?? Date.now;
   const logPath = path.join(homedir(), '.gajae-app', 'self-update.log');
   let inFlight: SelfUpdateState = null;
+  // Access info is a subprocess probe; settings opens shouldn't hammer it.
+  let accessCache: { at: number; info: TailscaleAccessInfo } | null = null;
+  const ACCESS_CACHE_MS = 30_000;
+
+  router.get('/access-info', (_req: Request, res: Response) => {
+    void (async () => {
+      if (!accessCache || now() - accessCache.at > ACCESS_CACHE_MS) {
+        accessCache = { at: now(), info: await getTailscaleAccessInfo(options.serverPort) };
+      }
+      res.json(accessCache.info);
+    })().catch(() => {
+      if (!res.headersSent) {
+        res.json({ installed: false, running: false, dnsName: null, httpsUrls: [], suggestedCommand: null });
+      }
+    });
+  });
 
   router.get('/update/status', (_req: Request, res: Response) => {
     res.json({
