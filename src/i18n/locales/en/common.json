@@ -251,11 +251,17 @@
     "updateCompleted": "Update completed successfully!",
     "restartServer": "Please restart the server to apply changes.",
     "updateFailed": "Update failed",
+    "confirmRestartWarning": "The server pulls the update, rebuilds, and restarts itself — this view drops for a couple of minutes and a failed health check rolls back automatically. tmux agent sessions keep running; only an in-flight web-run turn would be interrupted.",
+    "waitingRestart": "Updating — pulling, building, and restarting the server. This page reloads by itself when the new version answers.",
+    "updateSucceeded": "Updated — the new server is answering. Reloading…",
+    "updateTimedOut": "The update did not come back in time — deploy.sh may have rolled back to the previous version. Check the log:",
+    "releaseModeManual": "Release-artifact installs update via the checksum-verified cutover in docs/SELF-HOST.md — one-click update is intentionally not offered.",
     "buttons": {
       "close": "Close",
       "later": "Later",
       "copyCommand": "Copy Command",
       "updateNow": "Update Now",
+      "confirmUpdate": "Update and restart",
       "updating": "Updating..."
     },
     "ariaLabels": {

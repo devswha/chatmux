@@ -1,4 +1,4 @@
-import { useCallback, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useTranslation } from "react-i18next";
@@ -17,6 +17,38 @@ interface VersionUpgradeModalProps {
     installMode: InstallMode;
 }
 
+/**
+ * Self-update phases. The trigger hands the real work to the server's detached
+ * updater (deploy.sh: candidate build → restart → health check → auto-rollback),
+ * so after `waiting` this page's only job is to poll /health until the bootId
+ * changes — that is the restarted process answering. Version alone cannot signal
+ * success (a source update may not bump package.json).
+ */
+type UpdatePhase =
+    | { kind: 'idle' }
+    | { kind: 'confirm' }
+    | { kind: 'starting' }
+    | { kind: 'waiting'; sinceMs: number }
+    | { kind: 'success' }
+    | { kind: 'failed'; message: string };
+
+/** Pure: has the server come back as a NEW process since the update started? */
+export function hasServerRebooted(initialBootId: string | null, health: { bootId?: unknown } | null): boolean {
+    return Boolean(
+        initialBootId
+        && health
+        && typeof health.bootId === 'string'
+        && health.bootId.length > 0
+        && health.bootId !== initialBootId,
+    );
+}
+
+/** Give the pull + optional npm ci + build + restart + health check ample room. */
+export const UPDATE_POLL_TIMEOUT_MS = 12 * 60 * 1000;
+const UPDATE_POLL_INTERVAL_MS = 5_000;
+
+const SOURCE_UPGRADE_COMMAND = 'git pull --ff-only && npm ci && npm run build && systemctl --user restart gajae-app.service';
+
 export function VersionUpgradeModal({
     isOpen,
     onClose,
@@ -26,50 +58,83 @@ export function VersionUpgradeModal({
     installMode
 }: VersionUpgradeModalProps) {
     const { t } = useTranslation('common');
-    const upgradeCommand = installMode === 'npm'
-        ? t('versionUpdate.npmUpgradeCommand')
-        : 'git checkout main && git pull && npm install';
-    const [isUpdating, setIsUpdating] = useState(false);
-    const [updateOutput, setUpdateOutput] = useState('');
-    const [updateError, setUpdateError] = useState('');
+    const [phase, setPhase] = useState<UpdatePhase>({ kind: 'idle' });
+    const initialBootIdRef = useRef<string | null>(null);
+    const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const logPathRef = useRef<string | null>(null);
 
-    const handleUpdateNow = useCallback(async () => {
-        setIsUpdating(true);
-        setUpdateOutput('Starting update...\n');
-        setUpdateError('');
-
-        try {
-            // Call the backend API to run the update command
-            const response = await authenticatedFetch('/api/system/update', {
-                method: 'POST',
-            });
-
-            const data = await response.json();
-
-            if (response.ok) {
-                setUpdateOutput(prev => prev + data.output + '\n');
-                setUpdateOutput(prev => prev + '\n✅ Update completed successfully!\n');
-                setUpdateOutput(prev => prev + 'Please restart the server to apply changes.' + '\n');
-            } else {
-                setUpdateError(data.error || 'Update failed');
-                setUpdateOutput(prev => prev + '\n❌ Update failed: ' + (data.error || 'Unknown error') + '\n');
-            }
-        } catch (error: any) {
-            setUpdateError(error.message);
-            setUpdateOutput(prev => prev + '\n❌ Update failed: ' + error.message + '\n');
-        } finally {
-            setIsUpdating(false);
+    const stopPolling = useCallback(() => {
+        if (pollTimerRef.current) {
+            clearInterval(pollTimerRef.current);
+            pollTimerRef.current = null;
         }
     }, []);
 
+    useEffect(() => stopPolling, [stopPolling]);
+
+    const beginPolling = useCallback((startedAtMs: number) => {
+        stopPolling();
+        pollTimerRef.current = setInterval(async () => {
+            if (Date.now() - startedAtMs > UPDATE_POLL_TIMEOUT_MS) {
+                stopPolling();
+                setPhase({
+                    kind: 'failed',
+                    message: t('versionUpdate.updateTimedOut', {
+                        defaultValue: 'The update did not come back in time — deploy.sh may have rolled back to the previous version. Check the log:',
+                    }) + (logPathRef.current ? ` ${logPathRef.current}` : ''),
+                });
+                return;
+            }
+            try {
+                const response = await fetch('/health');
+                const health = await response.json();
+                if (hasServerRebooted(initialBootIdRef.current, health)) {
+                    stopPolling();
+                    setPhase({ kind: 'success' });
+                    // The restarted server serves the NEW frontend bundle; reload to load it.
+                    setTimeout(() => window.location.reload(), 2_000);
+                }
+            } catch {
+                // Mid-restart the server is briefly unreachable — that is expected; keep polling.
+            }
+        }, UPDATE_POLL_INTERVAL_MS);
+    }, [stopPolling, t]);
+
+    const handleUpdateNow = useCallback(async () => {
+        setPhase({ kind: 'starting' });
+        try {
+            const healthResponse = await fetch('/health');
+            const health = await healthResponse.json();
+            initialBootIdRef.current = typeof health.bootId === 'string' ? health.bootId : null;
+
+            const response = await authenticatedFetch('/api/system/update', { method: 'POST' });
+            const data = await response.json().catch(() => null);
+            if (!response.ok || !data?.started) {
+                setPhase({
+                    kind: 'failed',
+                    message: (typeof data?.error === 'string' && data.error) || `Update failed to start (HTTP ${response.status})`,
+                });
+                return;
+            }
+            logPathRef.current = typeof data.logPath === 'string' ? data.logPath : null;
+            const startedAtMs = Date.now();
+            setPhase({ kind: 'waiting', sinceMs: startedAtMs });
+            beginPolling(startedAtMs);
+        } catch (error) {
+            setPhase({ kind: 'failed', message: error instanceof Error ? error.message : 'Update failed to start' });
+        }
+    }, [beginPolling]);
+
     if (!isOpen) return null;
+
+    const busy = phase.kind === 'starting' || phase.kind === 'waiting';
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
-            {/* Backdrop */}
+            {/* Backdrop — kept inert while an update is in flight so the progress view stays visible */}
             <button
                 className="fixed inset-0 bg-black/50 backdrop-blur-sm"
-                onClick={onClose}
+                onClick={busy ? undefined : onClose}
                 aria-label={t('versionUpdate.ariaLabels.closeModal')}
             />
 
@@ -90,14 +155,16 @@ export function VersionUpgradeModal({
                             </p>
                         </div>
                     </div>
-                    <button
-                        onClick={onClose}
-                        className="rounded-md p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-300"
-                    >
-                        <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                    </button>
+                    {!busy && (
+                        <button
+                            onClick={onClose}
+                            className="rounded-md p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-300"
+                        >
+                            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                    )}
                 </div>
 
                 {/* Version Info */}
@@ -113,7 +180,7 @@ export function VersionUpgradeModal({
                 </div>
 
                 {/* Changelog */}
-                {releaseInfo?.body && (
+                {phase.kind !== 'waiting' && releaseInfo?.body && (
                     <div className="space-y-3">
                         <div className="flex items-center justify-between">
                             <h3 className="text-sm font-medium text-gray-900 dark:text-white">{t('versionUpdate.whatsNew')}</h3>
@@ -141,30 +208,53 @@ export function VersionUpgradeModal({
                     </div>
                 )}
 
-                {/* Update Output */}
-                {(updateOutput || updateError) && (
-                    <div className="space-y-2">
-                        <h3 className="text-sm font-medium text-gray-900 dark:text-white">{t('versionUpdate.updateProgress')}</h3>
-                        <div className="max-h-48 overflow-y-auto rounded-lg border border-gray-700 bg-gray-900 p-4 dark:bg-gray-950">
-                            <pre className="whitespace-pre-wrap font-mono text-xs text-green-400">{updateOutput}</pre>
-                        </div>
-                        {updateError && (
-                            <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-200">
-                                {updateError}
-                            </div>
-                        )}
+                {/* Phase surfaces */}
+                {phase.kind === 'confirm' && (
+                    <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200">
+                        {t('versionUpdate.confirmRestartWarning', {
+                            defaultValue: 'The server pulls the update, rebuilds, and restarts itself — this view drops for a couple of minutes and a failed health check rolls back automatically. tmux agent sessions keep running; only an in-flight web-run turn would be interrupted.',
+                        })}
                     </div>
                 )}
 
-                {/* Upgrade Instructions */}
-                {!isUpdating && !updateOutput && (
+                {(phase.kind === 'starting' || phase.kind === 'waiting') && (
+                    <div className="flex items-center gap-3 rounded-md border border-blue-200 bg-blue-50 px-3 py-3 text-sm text-blue-800 dark:border-blue-900/40 dark:bg-blue-900/20 dark:text-blue-200">
+                        <div className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
+                        {t('versionUpdate.waitingRestart', {
+                            defaultValue: 'Updating — pulling, building, and restarting the server. This page reloads by itself when the new version answers.',
+                        })}
+                    </div>
+                )}
+
+                {phase.kind === 'success' && (
+                    <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:border-emerald-900/40 dark:bg-emerald-900/20 dark:text-emerald-200">
+                        {t('versionUpdate.updateSucceeded', { defaultValue: 'Updated — the new server is answering. Reloading…' })}
+                    </div>
+                )}
+
+                {phase.kind === 'failed' && (
+                    <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-200">
+                        {phase.message}
+                    </div>
+                )}
+
+                {/* Manual path */}
+                {(phase.kind === 'idle' || phase.kind === 'failed') && (
                     <div className="space-y-3">
                         <h3 className="text-sm font-medium text-gray-900 dark:text-white">{t('versionUpdate.manualUpgrade')}</h3>
-                        <div className="rounded-lg border bg-gray-100 p-3 dark:bg-gray-800">
-                            <code className="font-mono text-sm text-gray-800 dark:text-gray-200">
-                                {upgradeCommand}
-                            </code>
-                        </div>
+                        {installMode === 'release' ? (
+                            <p className="rounded-lg border bg-gray-100 p-3 text-sm text-gray-800 dark:bg-gray-800 dark:text-gray-200">
+                                {t('versionUpdate.releaseModeManual', {
+                                    defaultValue: 'Release-artifact installs update via the checksum-verified cutover in docs/SELF-HOST.md — one-click update is intentionally not offered.',
+                                })}
+                            </p>
+                        ) : (
+                            <div className="rounded-lg border bg-gray-100 p-3 dark:bg-gray-800">
+                                <code className="font-mono text-sm text-gray-800 dark:text-gray-200">
+                                    {SOURCE_UPGRADE_COMMAND}
+                                </code>
+                            </div>
+                        )}
                         <p className="text-xs text-gray-600 dark:text-gray-400">
                             {t('versionUpdate.manualUpgradeHint')}
                         </p>
@@ -173,35 +263,37 @@ export function VersionUpgradeModal({
 
                 {/* Actions */}
                 <div className="flex gap-2 pt-2">
-                    <button
-                        onClick={onClose}
-                        className="flex-1 rounded-md bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
-                    >
-                        {updateOutput ? t('versionUpdate.buttons.close') : t('versionUpdate.buttons.later')}
-                    </button>
-                    {!updateOutput && (
-                        <>
-                            <button
-                                onClick={() => copyTextToClipboard(upgradeCommand)}
-                                className="flex-1 rounded-md bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
-                            >
-                                {t('versionUpdate.buttons.copyCommand')}
-                            </button>
-                            <button
-                                onClick={handleUpdateNow}
-                                disabled={isUpdating}
-                                className="flex flex-1 items-center justify-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-400"
-                            >
-                                {isUpdating ? (
-                                    <>
-                                        <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                                        {t('versionUpdate.buttons.updating')}
-                                    </>
-                                ) : (
-                                    t('versionUpdate.buttons.updateNow')
-                                )}
-                            </button>
-                        </>
+                    {!busy && phase.kind !== 'success' && (
+                        <button
+                            onClick={onClose}
+                            className="flex-1 rounded-md bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
+                        >
+                            {t('versionUpdate.buttons.later')}
+                        </button>
+                    )}
+                    {(phase.kind === 'idle' || phase.kind === 'failed') && installMode !== 'release' && (
+                        <button
+                            onClick={() => copyTextToClipboard(SOURCE_UPGRADE_COMMAND)}
+                            className="flex-1 rounded-md bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
+                        >
+                            {t('versionUpdate.buttons.copyCommand')}
+                        </button>
+                    )}
+                    {phase.kind === 'idle' && installMode === 'source' && (
+                        <button
+                            onClick={() => setPhase({ kind: 'confirm' })}
+                            className="flex flex-1 items-center justify-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
+                        >
+                            {t('versionUpdate.buttons.updateNow')}
+                        </button>
+                    )}
+                    {phase.kind === 'confirm' && (
+                        <button
+                            onClick={() => void handleUpdateNow()}
+                            className="flex flex-1 items-center justify-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
+                        >
+                            {t('versionUpdate.buttons.confirmUpdate', { defaultValue: 'Update and restart' })}
+                        </button>
                     )}
                 </div>
             </div>

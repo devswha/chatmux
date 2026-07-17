@@ -251,11 +251,17 @@
     "updateCompleted": "업데이트가 완료되었습니다!",
     "restartServer": "업데이트를 적용하려면 Gajae App을 다시 시작하세요.",
     "updateFailed": "업데이트 실패",
+    "confirmRestartWarning": "서버가 업데이트를 받아 다시 빌드하고 스스로 재시작합니다 — 화면이 몇 분간 끊기며, 헬스체크 실패 시 이전 버전으로 자동 롤백됩니다. tmux 에이전트 세션은 계속 돌아가고, 웹 구동 중이던 턴만 중단될 수 있습니다.",
+    "waitingRestart": "업데이트 중 — 받아서 빌드하고 서버를 재시작합니다. 새 버전이 응답하면 이 페이지가 자동으로 새로고침됩니다.",
+    "updateSucceeded": "업데이트 완료 — 새 서버가 응답합니다. 새로고침 중…",
+    "updateTimedOut": "업데이트가 제시간에 돌아오지 않았습니다 — deploy.sh가 이전 버전으로 롤백했을 수 있습니다. 로그 확인:",
+    "releaseModeManual": "릴리스 아티팩트 설치는 docs/SELF-HOST.md의 체크섬 검증 cutover 절차로 업데이트합니다 — 원클릭 업데이트는 의도적으로 제공되지 않습니다.",
     "buttons": {
       "close": "닫기",
       "later": "나중에",
       "copyCommand": "명령어 복사",
       "updateNow": "지금 업데이트",
+      "confirmUpdate": "업데이트하고 재시작",
       "updating": "업데이트 중..."
     },
     "ariaLabels": {

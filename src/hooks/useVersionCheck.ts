@@ -22,13 +22,13 @@ const compareVersions = (v1: string, v2: string) => {
   return 0;
 };
 
-export type InstallMode = 'git' | 'npm';
+export type InstallMode = 'source' | 'release' | 'unknown';
 
 export const useVersionCheck = (owner: string, repo: string) => {
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [latestVersion, setLatestVersion] = useState<string | null>(null);
   const [releaseInfo, setReleaseInfo] = useState<ReleaseInfo | null>(null);
-  const [installMode, setInstallMode] = useState<InstallMode>('git');
+  const [installMode, setInstallMode] = useState<InstallMode>('unknown');
   const [runningVersion, setRunningVersion] = useState<string | null>(null);
   const [restartRequired, setRestartRequired] = useState(false);
 
@@ -37,7 +37,7 @@ export const useVersionCheck = (owner: string, repo: string) => {
       try {
         const response = await fetch('/health');
         const data = await response.json();
-        if (data.installMode === 'npm' || data.installMode === 'git') {
+        if (data.installMode === 'source' || data.installMode === 'release') {
           setInstallMode(data.installMode);
         }
         // `data.version` is the version the server process is actually running.

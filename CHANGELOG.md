@@ -18,6 +18,20 @@ future server artifacts are published only through
   tighter predicate so a stray "gjc" token (e.g. `man gjc`) can never surface
   an actionable row.
 
+### Self-update
+
+- Source-checkout installs can now update from the version modal with one
+  click (관제탑 큐 #282). The button launches the already-verified
+  `scripts/deploy.sh` machinery (candidate build → service restart → health
+  check → automatic rollback) in a detached systemd transient unit, so the
+  updater survives the restart it triggers; the UI then polls `/health` for a
+  changed `bootId` — the restarted process answering — and reloads itself.
+  Fail-closed at every step: release-artifact installs are refused toward the
+  checksum-verified manual cutover (docs/SELF-HOST.md), only one update may
+  run at a time, a build failure never touches the running service, and a
+  missing detached launcher refuses instead of risking a half-applied update.
+  `/health` now reports `installMode` and a per-process `bootId`.
+
 ### Source development
 
 - Made the test suite pass on macOS (arm64): temp-dir tests canonicalize

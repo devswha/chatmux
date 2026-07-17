@@ -25,6 +25,7 @@ import { createWebSocketServer } from '@/modules/websocket/index.js';
 import { getConnectableHost } from '../shared/networkHosts.js';
 
 import { findAppRoot, getModuleDir } from './utils/runtime-paths.js';
+import { createSystemRouter, detectInstallMode } from './self-update.js';
 import {
     queryClaudeSDK,
     abortClaudeSDKSession,
@@ -94,6 +95,12 @@ const RUNNING_VERSION = (() => {
         return null;
     }
 })();
+// Fresh per server process — the self-update flow polls /health for a change
+// of this id to learn that the restarted process is serving (version alone is
+// not enough: a source update may not bump package.json).
+const SERVER_BOOT_ID = randomUUID();
+// How this install was deployed — decides whether one-click self-update is offered.
+const INSTALL_MODE = detectInstallMode(APP_ROOT);
 const MAX_FILE_UPLOAD_SIZE_MB = 200;
 const MAX_FILE_UPLOAD_SIZE_BYTES = MAX_FILE_UPLOAD_SIZE_MB * 1024 * 1024;
 const MAX_FILE_UPLOAD_COUNT = 20;
@@ -186,7 +193,9 @@ app.get('/health', (req, res) => {
         product: 'gajae-app',
         protocolVersion: 1,
         timestamp: new Date().toISOString(),
-        version: RUNNING_VERSION
+        version: RUNNING_VERSION,
+        bootId: SERVER_BOOT_ID,
+        installMode: INSTALL_MODE
     });
 });
 
@@ -241,6 +250,13 @@ app.use('/api/providers', authenticateToken, providerRoutes);
 app.use('/api/agent', agentRoutes);
 
 app.use('/api/voice', authenticateToken, voiceRoutes);
+
+// System routes (self-update trigger + status, protected)
+app.use('/api/system', authenticateToken, createSystemRouter({
+    appRoot: APP_ROOT,
+    serverPort: Number(process.env.SERVER_PORT || 3001),
+    bootId: SERVER_BOOT_ID,
+}));
 
 // Serve public files (like api-docs.html)
 app.use(express.static(path.join(APP_ROOT, 'public')));
