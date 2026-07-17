@@ -1,5 +1,7 @@
 import { spawn } from 'node:child_process';
 import { open, readdir, readFile, realpath, stat } from 'node:fs/promises';
+import { homedir, tmpdir } from 'node:os';
+import { basename, join } from 'node:path';
 
 import { parsePsTree } from './external-cli-sessions.service.js';
 
@@ -9,7 +11,8 @@ import { parsePsTree } from './external-cli-sessions.service.js';
  * A gjc session is "live" when a running gjc process has its transcript file open.
  * For the "작동 중" fleet view we also map each live session id → the tmux session
  * NAME it runs in (omg / stock / flask / …), by PROCESS LINEAGE:
- *   - lsof (-c gjc -F pn) → {session-id uuid, holder pid} for open session files
+ *   - lsof over the gjc session roots → {session-id uuid, holder pid} for open
+ *     transcript files (holder argv confirmed gjc; comm is unreliable under bun/node)
  *   - /proc/<pid>/stat    → the holder's ancestor pid chain
  *   - tmux list-panes     → {session_name, pane_pid, pane cwd (realpath)}
  *   - a pane_pid found in the holder's ancestor chain → that pane's tmux name (0 ambiguity)
@@ -73,6 +76,29 @@ export const IDLE_GJC_ID_PREFIX = 'idle-gjc:';
 // Matches live-send/tower tmux-name discipline; unsafe names get no synthetic row
 // (they could not be killed/relayed anyway).
 const IDLE_TMUX_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+
+/**
+ * True when a process's argv belongs to gjc — whether it runs as a native `gjc`
+ * binary or under an interpreter (`bun /path/to/gjc`, `node …/coding-agent/…`).
+ * The command NAME (comm) is unreliable for interpreter launches (it reads
+ * 'bun'/'node'), so argv is authoritative. `cmdline` is the raw NUL-separated
+ * /proc/<pid>/cmdline.
+ */
+export function isGjcCommandLine(cmdline: string): boolean {
+  if (!cmdline) {
+    return false;
+  }
+  const argv = cmdline.split('\0').filter(Boolean);
+  return argv.some((token) => basename(token) === 'gjc') || cmdline.includes('@gajae-code/coding-agent');
+}
+
+/** Roots gjc writes transcripts under; a live transcript sits in one of them. */
+export function gjcSessionRoots(): string[] {
+  return [
+    join(homedir(), '.gjc', 'agent', 'sessions'),
+    process.env.GJC_LIVE_SESSION_DIR || join(tmpdir(), 'gjc-live-sessions'),
+  ];
+}
 
 /**
  * Classifies a pane's foreground command for a pane KNOWN to contain a gjc
@@ -683,6 +709,37 @@ export async function getLiveGjcSessionsDetailed(): Promise<LiveGjcScanResult> {
   return scanShared();
 }
 
+/** True when the pid holding a transcript is itself a gjc process (not e.g. this server). */
+async function isGjcHolderPid(pid: number): Promise<boolean> {
+  try {
+    return isGjcCommandLine(await readFile(`/proc/${pid}/cmdline`, 'utf8'));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Lists open files under the gjc session roots in `lsof -F pn` format. `+D`
+ * aborts entirely if ANY path argument is missing, so absent roots are dropped
+ * first; with no root present we fall back to the legacy comm selector.
+ */
+async function runLsofOverSessionRoots(): Promise<string> {
+  const roots: string[] = [];
+  for (const root of gjcSessionRoots()) {
+    try {
+      if ((await stat(root)).isDirectory()) {
+        roots.push(root);
+      }
+    } catch {
+      // absent root — skip so lsof +D does not abort
+    }
+  }
+  const args = roots.length > 0
+    ? ['-F', 'pn', ...roots.flatMap((root) => ['+D', root])]
+    : ['-c', 'gjc', '-F', 'pn'];
+  return runCommand('lsof', args);
+}
+
 async function scanLiveGjcSessions(): Promise<LiveGjcScanResult> {
   let tmuxOutput: string;
   try {
@@ -698,17 +755,24 @@ async function scanLiveGjcSessions(): Promise<LiveGjcScanResult> {
     panes.push({ name: pane.name, sid: pane.sid, pid: pane.pid, cmd: pane.cmd, cwd: (await safeRealpath(pane.cwd)) ?? pane.cwd });
   }
 
-  // Transcript lane (lsof). A transient lsof failure must not blank the whole
-  // fleet: fall through with zero transcript-backed sessions and let the idle
-  // lane still report gjc panes.
+  // Transcript lane (lsof). Selection is interpreter-agnostic: a gjc session is a
+  // running process holding its transcript open, whether it runs as a native
+  // `gjc` binary or under bun/node (comm = 'bun'/'node'). We list open files under
+  // the gjc session roots, then keep only gjc-argv holders. A transient lsof
+  // failure must not blank the whole fleet — the idle lane still reports panes.
   let lsofOutput = '';
   try {
-    lsofOutput = await runCommand('lsof', ['-c', 'gjc', '-F', 'pn']);
+    lsofOutput = await runLsofOverSessionRoots();
   } catch {
     lsofOutput = '';
   }
   const sessions: Array<{ id: string; pidChain: number[]; cwd: string | null }> = [];
   for (const { id, pid } of parseLsofPidSessions(lsofOutput)) {
+    // lsof over the session roots also lists non-gjc holders (e.g. this server
+    // process tailing transcripts). Keep only holders whose argv is gjc itself.
+    if (pid === process.pid || !(await isGjcHolderPid(pid))) {
+      continue;
+    }
     sessions.push({
       id,
       pidChain: await buildPidChain(pid),
