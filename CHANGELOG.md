@@ -4,7 +4,7 @@ All notable changes to Gajae App are documented in this file. Current and
 future server artifacts are published only through
 [GitHub Releases](https://github.com/devswha/gajae-app/releases).
 
-## Unreleased
+## 1.2.0 (2026-07-18)
 
 ### Live sessions
 
