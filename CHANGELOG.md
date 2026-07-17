@@ -6,6 +6,18 @@ future server artifacts are published only through
 
 ## Unreleased
 
+### Live sessions
+
+- Live GJC detection is now interpreter-agnostic: a gjc installed as a
+  bun/npm package runs with process comm `bun`/`node`, so the comm-keyed
+  transcript lane (`lsof -c gjc`), idle/subtree lane, and pane-kind badge all
+  missed it and the fleet sidebar stayed empty (#1). The transcript lane now
+  selects open transcripts under the gjc session roots and keeps only
+  gjc-argv holders (contributed by @Yoonwoo-Ha in #2); the idle/subtree lane
+  and pane-kind classification apply the same argv-anchored treatment, with a
+  tighter predicate so a stray "gjc" token (e.g. `man gjc`) can never surface
+  an actionable row.
+
 ### Source development
 
 - Made the test suite pass on macOS (arm64): temp-dir tests canonicalize

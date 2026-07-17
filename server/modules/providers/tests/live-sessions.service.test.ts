@@ -8,6 +8,8 @@ import {
   IDLE_GJC_ID_PREFIX,
   gjcSessionRoots,
   isGjcCommandLine,
+  isGjcProcessArgs,
+  parsePsArgsTree,
   parseLastModelChange,
   parseTurnActivity,
   parseLsofPidSessions,
@@ -247,7 +249,7 @@ test('findIdleGjcTmuxSessions: a foreground-gjc pane with no live claim surfaces
   // misses it entirely; the idle lane must still list the tmux session.
   const result = findIdleGjcTmuxSessions({
     panes: [{ name: 'pane-alpha', sid: '$10', pid: 100, cmd: 'gjc' }],
-    procs: [{ pid: 100, ppid: 1, comm: 'gjc' }],
+    procs: [{ pid: 100, ppid: 1, args: '/usr/local/bin/gjc' }],
     excludedNames: new Set(),
   });
   assert.deepEqual(result, [{ name: 'pane-alpha', sid: '$10', kind: 'interactive' }]);
@@ -257,8 +259,8 @@ test('findIdleGjcTmuxSessions: gjc as a pane DESCENDANT (shell foreground) surfa
   const result = findIdleGjcTmuxSessions({
     panes: [{ name: 'pane-beta', sid: '$11', pid: 200, cmd: 'zsh' }],
     procs: [
-      { pid: 200, ppid: 1, comm: 'zsh' },
-      { pid: 201, ppid: 200, comm: 'gjc' },
+      { pid: 200, ppid: 1, args: '-zsh' },
+      { pid: 201, ppid: 200, args: '/usr/local/bin/gjc' },
     ],
     excludedNames: new Set(),
   });
@@ -268,7 +270,7 @@ test('findIdleGjcTmuxSessions: gjc as a pane DESCENDANT (shell foreground) surfa
 test('findIdleGjcTmuxSessions: a surfaced pane with no cmd falls back to kind=null', () => {
   const result = findIdleGjcTmuxSessions({
     panes: [{ name: 'pane-alpha', sid: '$10', pid: 100 }],
-    procs: [{ pid: 100, ppid: 1, comm: 'gjc' }],
+    procs: [{ pid: 100, ppid: 1, args: '/usr/local/bin/gjc' }],
     excludedNames: new Set(),
   });
   assert.deepEqual(result, [{ name: 'pane-alpha', sid: '$10', kind: null }]);
@@ -283,8 +285,8 @@ test('findIdleGjcTmuxSessions: names claimed by a LINEAGE row are excluded (one 
       { name: 'available-pane', sid: '$13', pid: 400, cmd: 'gjc' },
     ],
     procs: [
-      { pid: 300, ppid: 1, comm: 'gjc' },
-      { pid: 400, ppid: 1, comm: 'gjc' },
+      { pid: 300, ppid: 1, args: '/usr/local/bin/gjc' },
+      { pid: 400, ppid: 1, args: '/usr/local/bin/gjc' },
     ],
     excludedNames: new Set(['claimed-pane']),
   });
@@ -298,9 +300,9 @@ test('findIdleGjcTmuxSessions: non-gjc panes (claude/codex/ssh) never surface he
       { name: 'pane-beta', sid: '$15', pid: 600, cmd: 'node' },
     ],
     procs: [
-      { pid: 500, ppid: 1, comm: 'claude' },
-      { pid: 600, ppid: 1, comm: 'node' },
-      { pid: 601, ppid: 600, comm: 'codex' },
+      { pid: 500, ppid: 1, args: '/usr/local/bin/claude' },
+      { pid: 600, ppid: 1, args: '/usr/bin/node /srv/devserver/index.js' },
+      { pid: 601, ppid: 600, args: '/usr/local/bin/codex' },
     ],
     excludedNames: new Set(),
   });
@@ -315,9 +317,9 @@ test('findIdleGjcTmuxSessions: unsafe tmux names are dropped (kill/relay discipl
       { name: '-leading-dash', sid: '$18', pid: 900, cmd: 'gjc' },
     ],
     procs: [
-      { pid: 700, ppid: 1, comm: 'gjc' },
-      { pid: 800, ppid: 1, comm: 'gjc' },
-      { pid: 900, ppid: 1, comm: 'gjc' },
+      { pid: 700, ppid: 1, args: '/usr/local/bin/gjc' },
+      { pid: 800, ppid: 1, args: '/usr/local/bin/gjc' },
+      { pid: 900, ppid: 1, args: '/usr/local/bin/gjc' },
     ],
     excludedNames: new Set(),
   });
@@ -332,9 +334,9 @@ test('findIdleGjcTmuxSessions: sorted and deduped across multiple panes of one s
       { name: 'zeta', sid: '$20', pid: 1200, cmd: 'gjc' },
     ],
     procs: [
-      { pid: 1000, ppid: 1, comm: 'gjc' },
-      { pid: 1100, ppid: 1, comm: 'gjc' },
-      { pid: 1200, ppid: 1, comm: 'gjc' },
+      { pid: 1000, ppid: 1, args: '/usr/local/bin/gjc' },
+      { pid: 1100, ppid: 1, args: '/usr/local/bin/gjc' },
+      { pid: 1200, ppid: 1, args: '/usr/local/bin/gjc' },
     ],
     excludedNames: new Set(),
   });
@@ -349,6 +351,60 @@ test('IDLE_GJC_ID_PREFIX cannot collide with transcript uuids (client contract)'
   // uuid-ish token and can never start with it.
   assert.equal(IDLE_GJC_ID_PREFIX, 'idle-gjc:');
   assert.ok(!/^[0-9a-fA-F-]+$/.test(IDLE_GJC_ID_PREFIX));
+});
+
+// ─── interpreter-agnostic idle/subtree detection (#1 follow-up) ──────────────
+
+test('findIdleGjcTmuxSessions: a bun-launched gjc pane (comm=bun) surfaces as interactive', () => {
+  // Real-world shape from #1: pane_current_command reads 'bun', the process
+  // argv is `bun …/gjc`. Both the subtree match and the kind classification
+  // must be interpreter-agnostic.
+  const result = findIdleGjcTmuxSessions({
+    panes: [{ name: 'bun-pane', sid: '$30', pid: 2000, cmd: 'bun' }],
+    procs: [{ pid: 2000, ppid: 1, args: '/home/u/.bun/bin/bun /home/u/.bun/bin/gjc' }],
+    excludedNames: new Set(),
+  });
+  assert.deepEqual(result, [{ name: 'bun-pane', sid: '$30', kind: 'interactive' }]);
+});
+
+test('findIdleGjcTmuxSessions: a stray "gjc" token deeper in argv never qualifies (kill/relay discipline)', () => {
+  // `man gjc` / an editor on a file named gjc must not surface an actionable
+  // idle row — only argv[0], or argv[1] behind a bun/node interpreter, counts.
+  const result = findIdleGjcTmuxSessions({
+    panes: [
+      { name: 'man-pane', sid: '$31', pid: 2100, cmd: 'man' },
+      { name: 'editor-pane', sid: '$32', pid: 2200, cmd: 'vi' },
+    ],
+    procs: [
+      { pid: 2100, ppid: 1, args: 'man gjc' },
+      { pid: 2200, ppid: 1, args: 'vi /tmp/notes/gjc' },
+    ],
+    excludedNames: new Set(),
+  });
+  assert.deepEqual(result, []);
+});
+
+test('isGjcProcessArgs: argv-anchored — native, bun/node entry, package path; rejects lookalikes', () => {
+  assert.equal(isGjcProcessArgs('/usr/local/bin/gjc --resume 019f'), true);
+  assert.equal(isGjcProcessArgs('/home/u/.bun/bin/bun /home/u/.bun/bin/gjc'), true);
+  assert.equal(isGjcProcessArgs('/usr/bin/node /opt/node_modules/@gajae-code/coding-agent/bin/gjc.js'), true);
+  assert.equal(isGjcProcessArgs('man gjc'), false);
+  assert.equal(isGjcProcessArgs('vi /tmp/notes/gjc'), false);
+  assert.equal(isGjcProcessArgs('/usr/bin/node /srv/devserver/index.js'), false);
+  assert.equal(isGjcProcessArgs(''), false);
+});
+
+test('parsePsArgsTree parses pid,ppid + space-containing args and tolerates the header', () => {
+  const rows = parsePsArgsTree([
+    '    PID    PPID COMMAND',
+    '    100       1 /usr/local/bin/gjc --resume 019f',
+    '    200     100 bun /home/u/.bun/bin/gjc',
+    'garbage line',
+  ].join('\n'));
+  assert.deepEqual(rows, [
+    { pid: 100, ppid: 1, args: '/usr/local/bin/gjc --resume 019f' },
+    { pid: 200, ppid: 100, args: 'bun /home/u/.bun/bin/gjc' },
+  ]);
 });
 
 test('pickPaneReceipt picks the newest receipt matching the pane cwd', () => {

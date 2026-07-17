@@ -3,8 +3,6 @@ import { open, readdir, readFile, realpath, stat } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 
-import { parsePsTree } from './external-cli-sessions.service.js';
-
 /**
  * Live gjc session detection + tmux-session naming.
  *
@@ -101,17 +99,59 @@ export function gjcSessionRoots(): string[] {
 }
 
 /**
+ * True when a `ps -eo args` command line belongs to a gjc process — native
+ * `gjc`, or bun/node running the gjc entry. Deliberately TIGHTER than
+ * isGjcCommandLine: an idle-row match grants kill/relay affordances without
+ * the transcript-holder anchor, so a stray "gjc" token deeper in argv
+ * (e.g. `man gjc`, an editor on a file named gjc) must not qualify — only
+ * argv[0], or argv[1] behind a bun/node interpreter, counts.
+ */
+export function isGjcProcessArgs(args: string): boolean {
+  const tokens = args.split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) {
+    return false;
+  }
+  const head = basename(tokens[0]);
+  if (head === 'gjc') {
+    return true;
+  }
+  if ((head === 'bun' || head === 'node') && tokens.length > 1) {
+    return basename(tokens[1]) === 'gjc' || tokens[1].includes('@gajae-code/coding-agent');
+  }
+  return false;
+}
+
+/** Parses `ps -eo pid,ppid,args` rows (args may contain spaces); tolerates the header. */
+export function parsePsArgsTree(output: string): Array<{ pid: number; ppid: number; args: string }> {
+  const rows: Array<{ pid: number; ppid: number; args: string }> = [];
+  for (const line of output.split(/\r?\n/)) {
+    const match = /^\s*(\d+)\s+(\d+)\s+(.+)$/.exec(line);
+    if (match) {
+      rows.push({ pid: Number(match[1]), ppid: Number(match[2]), args: match[3] });
+    }
+  }
+  return rows;
+}
+
+/** Foreground comms that can BE gjc when the pane subtree proves gjc is inside. */
+const GJC_INTERPRETER_COMMS = new Set(['bun', 'node']);
+
+/**
  * Classifies a pane's foreground command for a pane KNOWN to contain a gjc
- * process (lineage/subtree). 'interactive' when gjc is the foreground command,
- * 'batch' when gjc is only a descendant, null when the command is unknown
- * (fallback — the UI treats the row exactly as before). Never affects
- * kill/relay eligibility.
+ * process (lineage/subtree). 'interactive' when the foreground command is gjc
+ * itself OR a bun/node interpreter (an interpreter-launched gjc TUI reports
+ * comm 'bun'/'node' — #1); 'batch' when gjc is only a descendant of a shell;
+ * null when the command is unknown (fallback — the UI treats the row exactly
+ * as before). Trade-off: a pane whose foreground is an unrelated bun/node
+ * process with a background gjc is mislabelled 'interactive' — presentational
+ * only, and rarer than the interpreter-TUI case. Never affects kill/relay
+ * eligibility.
  */
 function paneKind(cmd: string | null | undefined): 'interactive' | 'batch' | null {
   if (!cmd) {
     return null;
   }
-  return cmd === 'gjc' ? 'interactive' : 'batch';
+  return cmd === 'gjc' || GJC_INTERPRETER_COMMS.has(cmd) ? 'interactive' : 'batch';
 }
 
 /**
@@ -126,11 +166,12 @@ function paneKind(cmd: string | null | undefined): 'interactive' | 'batch' | nul
  */
 export function findIdleGjcTmuxSessions(args: {
   panes: Array<{ name: string; sid: string; pid: number; cmd?: string }>;
-  procs: Array<{ pid: number; ppid: number; comm: string }>;
+  /** From `ps -eo pid,ppid,args` — argv, not comm: an interpreter-launched gjc reports comm 'bun'/'node' (#1). */
+  procs: Array<{ pid: number; ppid: number; args: string }>;
   excludedNames: ReadonlySet<string>;
 }): Array<{ name: string; sid: string; kind: 'interactive' | 'batch' | null }> {
   const children = new Map<number, number[]>();
-  const commByPid = new Map<number, string>();
+  const argsByPid = new Map<number, string>();
   for (const proc of args.procs) {
     const siblings = children.get(proc.ppid);
     if (siblings) {
@@ -138,7 +179,7 @@ export function findIdleGjcTmuxSessions(args: {
     } else {
       children.set(proc.ppid, [proc.pid]);
     }
-    commByPid.set(proc.pid, proc.comm);
+    argsByPid.set(proc.pid, proc.args);
   }
 
   const subtreeHasGjc = (rootPid: number): boolean => {
@@ -150,7 +191,7 @@ export function findIdleGjcTmuxSessions(args: {
         continue;
       }
       seen.add(pid);
-      if (commByPid.get(pid) === 'gjc') {
+      if (isGjcProcessArgs(argsByPid.get(pid) ?? '')) {
         return true;
       }
       for (const child of children.get(pid) ?? []) {
@@ -788,10 +829,10 @@ async function scanLiveGjcSessions(): Promise<LiveGjcScanResult> {
   // is LINEAGE names only — a cwd label must not hide a subtree-proven pane.
   let idlePanes: Array<{ name: string; sid: string; kind: 'interactive' | 'batch' | null }> = [];
   try {
-    const psOutput = await runCommand('ps', ['-eo', 'pid,ppid,comm']);
+    const psOutput = await runCommand('ps', ['-eo', 'pid,ppid,args']);
     idlePanes = findIdleGjcTmuxSessions({
       panes,
-      procs: parsePsTree(psOutput),
+      procs: parsePsArgsTree(psOutput),
       excludedNames: new Set(
         named.flatMap((session) => (session.claim === 'lineage' && session.tmuxName ? [session.tmuxName] : [])),
       ),
