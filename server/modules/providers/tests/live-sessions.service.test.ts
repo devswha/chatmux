@@ -6,6 +6,8 @@ import {
   extractSessionPathsFromLsof,
   findIdleGjcTmuxSessions,
   IDLE_GJC_ID_PREFIX,
+  gjcSessionRoots,
+  isGjcCommandLine,
   parseLastModelChange,
   parseTurnActivity,
   parseLsofPidSessions,
@@ -425,4 +427,36 @@ test('parseTurnActivity: no turn-relevant record in the window returns null (fai
   assert.equal(parseTurnActivity(''), null);
   assert.equal(parseTurnActivity(JSON.stringify({ type: 'session' })), null);
   assert.equal(parseTurnActivity(JSON.stringify({ type: 'message', message: { role: 'system' } })), null);
+});
+
+test('isGjcCommandLine matches gjc as a native binary AND under bun/node interpreters (comm-agnostic)', () => {
+  // native binary: comm would read "gjc"
+  assert.equal(isGjcCommandLine('/usr/local/bin/gjc\0--resume\0019f6f27\0'), true);
+  // bun launcher — real-world case where comm reads "bun" (the regression this fixes)
+  assert.equal(isGjcCommandLine('/home/u/.bun/bin/bun\0/home/u/.bun/bin/gjc\0--resume\0019f6f27'), true);
+  // node launching the packaged entry (basename is gjc.js — matched via the package path)
+  assert.equal(isGjcCommandLine('/usr/bin/node\0/opt/node_modules/@gajae-code/coding-agent/bin/gjc.js\0start'), true);
+  // NOT gjc: the app server and its native watcher must never be mistaken for a session holder
+  assert.equal(isGjcCommandLine('/usr/bin/node\0/home/u/.gajae-app/current/scripts/gajae-app-runtime.mjs\0start'), false);
+  assert.equal(isGjcCommandLine('/home/u/.gajae-app/current/dist-native/gajae-core\0watch\0--root\0/home/u/.gjc/agent/sessions'), false);
+  assert.equal(isGjcCommandLine(''), false);
+});
+
+test('gjcSessionRoots honours GJC_LIVE_SESSION_DIR and otherwise defaults to <tmp>/gjc-live-sessions', () => {
+  const original = process.env.GJC_LIVE_SESSION_DIR;
+  try {
+    process.env.GJC_LIVE_SESSION_DIR = '/custom/live';
+    const roots = gjcSessionRoots();
+    assert.equal(roots.length, 2);
+    assert.ok(roots[0].endsWith('/.gjc/agent/sessions'));
+    assert.equal(roots[1], '/custom/live');
+    delete process.env.GJC_LIVE_SESSION_DIR;
+    assert.ok(gjcSessionRoots()[1].endsWith('/gjc-live-sessions'));
+  } finally {
+    if (original === undefined) {
+      delete process.env.GJC_LIVE_SESSION_DIR;
+    } else {
+      process.env.GJC_LIVE_SESSION_DIR = original;
+    }
+  }
 });
