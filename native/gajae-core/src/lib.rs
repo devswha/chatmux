@@ -1,4 +1,5 @@
 #![forbid(unsafe_code)]
+pub mod jobs;
 pub mod watcher;
 
 use std::ffi::OsString;
@@ -15,6 +16,7 @@ pub enum Command {
     Watch {
         roots: Vec<PathBuf>,
     },
+    Jobs,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -45,6 +47,7 @@ where
             None => Err(ParseError),
         },
         Some(command) if command == "watch" => parse_watch_args(args),
+        Some(command) if command == "jobs" && args.next().is_none() => Ok(Command::Jobs),
         _ => Err(ParseError),
     }
 }

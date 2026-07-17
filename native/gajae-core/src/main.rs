@@ -4,11 +4,12 @@ use std::io::{self, Read, Write};
 use std::process::{Child, Command, ExitCode, ExitStatus, Stdio};
 use std::thread;
 
-use gajae_core::{Command as CliCommand, map_exit_status, parse_args, watcher};
+use gajae_core::{Command as CliCommand, jobs, map_exit_status, parse_args, watcher};
 
 const USAGE_ERROR: &[u8] = b"gajae-core: usage error\n";
 const SPAWN_ERROR: &[u8] = b"gajae-core: spawn failed\n";
 const PROXY_ERROR: &[u8] = b"gajae-core: proxy failed\n";
+const JOBS_ERROR: &[u8] = b"gajae-core: jobs protocol failed\n";
 
 fn main() -> ExitCode {
     match parse_args(std::env::args_os().skip(1)) {
@@ -22,6 +23,13 @@ fn main() -> ExitCode {
                 ExitCode::SUCCESS
             } else {
                 ExitCode::FAILURE
+            }
+        }
+        Ok(CliCommand::Jobs) => {
+            if jobs::run(io::stdin().lock(), io::stdout().lock()) {
+                ExitCode::SUCCESS
+            } else {
+                fail(JOBS_ERROR)
             }
         }
         Err(_) => fail(USAGE_ERROR),

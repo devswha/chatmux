@@ -1,6 +1,6 @@
 # GJC live provider specification
 
-Status: Checkpoints A and B complete; Checkpoint C native-host and GJC watcher slices implemented (2026-07-16)
+Status: Checkpoints A and B complete; Checkpoint C native-host, GJC watcher, and job-authority slices implemented (2026-07-17)
 
 GJC is the only provider routed through an isolated provider worker. Claude,
 Codex, Cursor, and OpenCode retain their existing execution paths.
@@ -88,6 +88,16 @@ The existing GJC TypeScript synchronizer remains responsible for defense-in-dept
 realpath containment, subagent filtering, JSONL parsing, session database upserts,
 and browser `session_upserted` events. Claude, Codex, Cursor, and OpenCode retain
 their existing Chokidar watchers unchanged.
+
+### Native job authority
+
+`gajae-core jobs` is a separate strict 64 KiB Protocol 1 NDJSON API and the
+single state-machine authority for the next durable-job migration. It currently
+holds state in memory: explicit transitions are fenced by monotonically
+generated owner leases, replacement reconciliation moves active jobs to
+`interrupted`, and event IDs provide ordered idempotent replay. Durable
+persistence, PTY, Git/worktree, and SQLite ownership have not moved. Worker
+Protocol v1 and all React behavior are unchanged.
 
 ### Worker process
 

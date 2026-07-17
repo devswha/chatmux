@@ -26,6 +26,11 @@ Implementation progress:
   The Node client strictly validates and coalesces those events, cancels queued work
   during bounded shutdown, restarts with bounded backoff, reconciles GJC after each
   replacement, and has no Chokidar fallback.
+- **Checkpoint C slice 3 complete.** `gajae-core jobs` defines the single
+  in-memory job state-machine authority before persistence moves: fenced lease
+  generations guard mutations, transitions are explicit, active jobs reconcile
+  to `interrupted` after authority replacement, and event append/replay is ordered
+  and idempotent.
 - Process ownership remains explicit: the Rust core is the detached POSIX
   process-group leader and the worker/GJC descendants stay attached. On Windows,
   the existing live-owner guard creates the Rust core atomically inside a
@@ -34,8 +39,8 @@ Implementation progress:
 - Source builds require the pinned Rust toolchain. Server release artifacts carry
   the host-native core executable and require no installed Rust toolchain.
 - Claude, Codex, Cursor, and OpenCode execution and watcher paths remain
-  unchanged. Durable jobs, PTY, Git/worktree, and SQLite migration remain in
-  Checkpoint C.
+  unchanged. Durable persistence, PTY, Git/worktree, and SQLite migration remain
+  in Checkpoint C.
 
 ## Purpose
 
@@ -177,7 +182,7 @@ Extraction must preserve the existing observable GJC behavior before responsibil
 
 ### Checkpoint C: introduce the Rust core — in progress
 
-Slices 1 and 2 are complete:
+Slices 1 through 3 are complete:
 
 - Route only the GJC Node worker launch through the mandatory Rust process host.
 - Keep Protocol v1 opaque to Rust and authoritative in TypeScript.
@@ -188,13 +193,15 @@ Slices 1 and 2 are complete:
   containment.
 - Preserve the existing TypeScript synchronizer, database upserts, WebSocket
   deltas, initial scan, restart reconciliation, and every non-GJC Chokidar watcher.
+- Define the native in-memory job authority through a separate strict 64 KiB
+  NDJSON API, without changing worker Protocol v1 or application persistence.
 
 Remaining slices:
 
-- Move durable job state, PTY lifecycle, Git/worktree operations, and SQLite
-  ownership behind explicit Rust APIs.
-- Define one durable state-machine authority, crash reconciliation, leases, and
-  ordered idempotent replay before moving job persistence.
+- Move durable job persistence, PTY lifecycle, Git/worktree operations, and
+  SQLite ownership behind explicit Rust APIs. The state-machine authority,
+  crash reconciliation, fenced leases, and ordered idempotent replay semantics
+  are defined; persistence must preserve them.
 
 ### Checkpoint D: thin desktop shell
 

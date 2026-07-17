@@ -283,3 +283,52 @@ test('native core carries the real worker initialize and shutdown protocol', asy
   assert.deepEqual(responses.map((response) => response.id), ['initialize', 'shutdown']);
   assert.equal(diagnostics, '');
 });
+
+test('native job authority enforces leases and idempotent ordered replay', async () => {
+  const lease = { owner: 'worker-a', generation: 1 };
+  const frames = [
+    { protocolVersion: 1, id: 'create', method: 'job.create', jobId: 'job-1' },
+    { protocolVersion: 1, id: 'acquire', method: 'lease.acquire', jobId: 'job-1', owner: 'worker-a' },
+    { protocolVersion: 1, id: 'start', method: 'job.transition', jobId: 'job-1', lease, state: 'running' },
+    {
+      protocolVersion: 1,
+      id: 'event-1',
+      method: 'event.append',
+      jobId: 'job-1',
+      lease,
+      eventId: 'message-1',
+      payload: { text: 'hello' },
+    },
+    {
+      protocolVersion: 1,
+      id: 'event-1-retry',
+      method: 'event.append',
+      jobId: 'job-1',
+      lease,
+      eventId: 'message-1',
+      payload: { text: 'hello' },
+    },
+    { protocolVersion: 1, id: 'replay', method: 'event.replay', jobId: 'job-1', after: 0 },
+    { protocolVersion: 1, id: 'reconcile', method: 'job.reconcile' },
+  ];
+  const result = await runCore(
+    ['jobs'],
+    [Buffer.from(frames.map((frame) => JSON.stringify(frame)).join('\n') + '\n')],
+  );
+
+  assert.equal(result.code, 0);
+  assert.equal(result.signal, null);
+  assert.equal(result.stderr.length, 0);
+  const responses = result.stdout.toString('utf8').trim().split('\n').map((line) => JSON.parse(line));
+  assert.deepEqual(responses.map((response) => response.id), frames.map((frame) => frame.id));
+  assert.deepEqual(responses[1].result, lease);
+  assert.equal(responses[2].result.state, 'running');
+  assert.deepEqual(responses[3].result, responses[4].result);
+  assert.deepEqual(responses[5].result, [{
+    sequence: 1,
+    eventId: 'message-1',
+    payload: { text: 'hello' },
+  }]);
+  assert.equal(responses[6].result[0].state, 'interrupted');
+  assert.equal(responses[6].result[0].lease, null);
+});

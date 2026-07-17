@@ -88,6 +88,10 @@ future server artifacts are published only through
   failure restart with GJC-only reconciliation, and no Node fallback. Existing
   TypeScript indexing/database/browser behavior and all non-GJC Chokidar watchers
   are unchanged.
+- Added the next Checkpoint C slice: `gajae-core jobs` is the single in-memory
+  job state-machine authority, with fenced owner leases, explicit transitions,
+  crash reconciliation to `interrupted`, and ordered idempotent event replay.
+  Persistence, PTY, Git/worktree, SQLite, Protocol v1, and React remain unchanged.
 
 ### Native server distribution and operations
 
