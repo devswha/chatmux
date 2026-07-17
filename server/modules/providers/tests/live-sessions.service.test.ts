@@ -7,6 +7,7 @@ import {
   findIdleGjcTmuxSessions,
   IDLE_GJC_ID_PREFIX,
   parseLastModelChange,
+  parseTurnActivity,
   parseLsofPidSessions,
   parseTmuxPanes,
   pickPaneReceipt,
@@ -390,4 +391,38 @@ test('pickPaneReceipt requires a session id and an existing transcript path', ()
 test('pickPaneReceipt tolerates a null receipt cwd (older gjc builds) but never a mismatch', () => {
   const receipts = [{ sessionId: 'null-cwd', cwd: null, sessionFile: '/t/n.jsonl', mtimeMs: 4 }];
   assert.equal(pickPaneReceipt({ paneCwd: '/ws', paneStartMs: null, receipts })?.sessionId, 'null-cwd');
+});
+
+// ─── parseTurnActivity (턴 진행 중 판정 — RUN/LIVE 배지) ─────────────────────
+
+const turnLine = (role: string, stopReason?: string) =>
+  JSON.stringify({ type: 'message', id: 'x', message: { role, content: [], ...(stopReason ? { stopReason } : {}) } });
+
+test('parseTurnActivity: the LAST turn-relevant record decides (실측 gjc 스키마)', () => {
+  // assistant stop = turn finished
+  assert.equal(parseTurnActivity([turnLine('user'), turnLine('assistant', 'toolUse'), turnLine('assistant', 'stop')].join('\n')), false);
+  // assistant error = turn finished
+  assert.equal(parseTurnActivity([turnLine('user'), turnLine('assistant', 'error')].join('\n')), false);
+  // trailing user message = turn requested, in progress
+  assert.equal(parseTurnActivity([turnLine('assistant', 'stop'), turnLine('user')].join('\n')), true);
+  // trailing toolUse = mid tool loop
+  assert.equal(parseTurnActivity([turnLine('user'), turnLine('assistant', 'toolUse')].join('\n')), true);
+  // trailing toolResult = mid tool loop
+  assert.equal(parseTurnActivity([turnLine('assistant', 'toolUse'), turnLine('toolResult')].join('\n')), true);
+});
+
+test('parseTurnActivity: non-message and foreign lines are skipped, partial lines tolerated', () => {
+  const tail = [
+    turnLine('user'),
+    JSON.stringify({ type: 'model_change', model: 'claude-fable-5' }),
+    JSON.stringify({ type: 'custom', message: 'not-a-turn-record' }),
+    '{"type":"message","message":{"role":"assist', // mid-write partial
+  ].join('\n');
+  assert.equal(parseTurnActivity(tail), true, 'falls through to the last complete user record');
+});
+
+test('parseTurnActivity: no turn-relevant record in the window returns null (fail-safe LIVE)', () => {
+  assert.equal(parseTurnActivity(''), null);
+  assert.equal(parseTurnActivity(JSON.stringify({ type: 'session' })), null);
+  assert.equal(parseTurnActivity(JSON.stringify({ type: 'message', message: { role: 'system' } })), null);
 });

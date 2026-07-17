@@ -58,6 +58,13 @@ export type LiveGjcSession = {
    */
   kind: 'interactive' | 'batch' | null;
   model: string | null;
+  /**
+   * Whether the transcript tail shows a turn in progress (assistant answering
+   * or tool loop running). null = undeterminable (no transcript yet, no
+   * turn-relevant record in the scan window, or a read failure) — the UI then
+   * shows the plain LIVE badge. Purely presentational.
+   */
+  running: boolean | null;
 };
 
 /** Synthetic id prefix for gjc panes that opened no transcript yet (first message pending). */
@@ -503,6 +510,75 @@ export function parseLastModelChange(tailText: string): string | null {
   return null;
 }
 
+/**
+ * Whether a transcript tail shows a turn IN PROGRESS (실측 gjc 스키마 — the
+ * same records the live turn monitor keys off). Scanned backwards; the LAST
+ * turn-relevant record decides:
+ * - assistant with stopReason 'stop' | 'error'  → turn finished (false)
+ * - assistant with any other stopReason (toolUse) → mid-turn (true)
+ * - user message → turn just requested (true)
+ * - toolResult → tool loop in progress (true)
+ * Returns null when the window holds no turn-relevant record (fail-safe: the
+ * UI then shows the plain LIVE badge, never a wrong RUN).
+ */
+export function parseTurnActivity(tailText: string): boolean | null {
+  const lines = tailText.split(/\r?\n/);
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    if (!lines[i].includes('"message"') || !lines[i].includes('"role"')) {
+      continue;
+    }
+    try {
+      const record = JSON.parse(lines[i]) as { type?: unknown; message?: { role?: unknown; stopReason?: unknown } };
+      if (record.type !== 'message' || !record.message || typeof record.message !== 'object') {
+        continue;
+      }
+      const { role, stopReason } = record.message;
+      if (role === 'assistant') {
+        return !(stopReason === 'stop' || stopReason === 'error');
+      }
+      if (role === 'user' || role === 'toolResult') {
+        return true;
+      }
+    } catch {
+      // partial first line of the tail window — keep scanning
+    }
+  }
+  return null;
+}
+
+const ACTIVITY_SCAN_WINDOW_BYTES = 64 * 1024;
+
+/**
+ * Per-transcript activity cache. Transcripts are append-only, so an unchanged
+ * size means an unchanged verdict; any growth re-reads only the fixed tail
+ * window (turn-relevant records are dense — one window is plenty).
+ */
+const activityCache = new Map<string, { size: number; running: boolean | null }>();
+
+/** Whether the session's transcript shows a turn in progress. null on any failure. */
+async function readTurnActivityFromFile(path: string): Promise<boolean | null> {
+  try {
+    const { size } = await stat(path);
+    const cached = activityCache.get(path);
+    if (cached && cached.size === size) {
+      return cached.running;
+    }
+    let running: boolean | null = null;
+    if (size > 0) {
+      const tail = await readRange(path, Math.max(0, size - ACTIVITY_SCAN_WINDOW_BYTES), size);
+      // Only COMPLETE lines: a record being written mid-scan is re-read next poll.
+      const lastNewline = tail.lastIndexOf(0x0a);
+      if (lastNewline >= 0) {
+        running = parseTurnActivity(tail.subarray(0, lastNewline + 1).toString('utf8'));
+      }
+    }
+    activityCache.set(path, { size, running });
+    return running;
+  } catch {
+    return null;
+  }
+}
+
 const MODEL_SCAN_WINDOW_BYTES = 512 * 1024;
 const MODEL_SCAN_OVERLAP_BYTES = 2 * 1024;
 
@@ -701,11 +777,16 @@ async function scanLiveGjcSessions(): Promise<LiveGjcScanResult> {
     (session) => !(session.tmuxName === null && upgradedRows.some((upgraded) => upgraded.id === session.id)),
   );
 
-  // Enrich with the current model (last model_change in the transcript tail).
+  // Enrich with the current model (last model_change) and turn activity
+  // (running vs waiting) from the transcript tail.
   const enriched = await Promise.all(
     [...namedFinal, ...upgradedRows].map(async (session) => {
       const path = sessionPaths.get(session.id);
-      return { ...session, model: path ? await readLastModelFromFile(path) : null };
+      return {
+        ...session,
+        model: path ? await readLastModelFromFile(path) : null,
+        running: path ? await readTurnActivityFromFile(path) : null,
+      };
     }),
   );
   return {
@@ -720,6 +801,7 @@ async function scanLiveGjcSessions(): Promise<LiveGjcScanResult> {
         claim: 'lineage' as const,
         kind,
         model: null,
+        running: null,
       })),
     ],
     transcriptPaths: sessionPaths,

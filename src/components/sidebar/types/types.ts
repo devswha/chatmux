@@ -53,6 +53,9 @@ export type SidebarProps = {
   // Foreground-command classification per live id ('interactive' | 'batch').
   // Presentational badge only — never gates tmux actions.
   liveSessionKinds: ReadonlyMap<string, string>;
+  // Session ids with a turn in progress (transcript tail evidence) — drives
+  // the green RUN badge. Presentational only.
+  liveSessionRunning: ReadonlySet<string>;
   onProjectSelect: (project: Project) => void;
   onSessionSelect: (session: ProjectSession) => void;
   onNewSession: (project: Project) => void;

@@ -156,6 +156,7 @@ type SidebarContentProps = {
   liveSessionLineage: ReadonlySet<string>;
   liveSessionTmuxIds: ReadonlyMap<string, string>;
   liveSessionKinds: ReadonlyMap<string, string>;
+  liveSessionRunning: ReadonlySet<string>;
   onExternalTerminalOpen: (target: ExternalTerminalTarget) => void;
   t: TFunction;
 };
@@ -199,6 +200,7 @@ export default function SidebarContent({
   liveSessionLineage,
   liveSessionTmuxIds,
   liveSessionKinds,
+  liveSessionRunning,
   onExternalTerminalOpen,
   t,
 }: SidebarContentProps) {
@@ -294,6 +296,7 @@ export default function SidebarContent({
               liveSessionLineage={liveSessionLineage}
               liveSessionTmuxIds={liveSessionTmuxIds}
               liveSessionKinds={liveSessionKinds}
+              liveSessionRunning={liveSessionRunning}
             />
           )}
         </ScrollArea>

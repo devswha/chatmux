@@ -373,6 +373,9 @@ export function useProjectsState({
   // a batch gjc descendant under a shell is badged apart from an interactive
   // gjc TUI. Presentational only — never gates tmux actions.
   const [liveSessionKinds, setLiveSessionKinds] = useState<Map<string, string>>(new Map());
+  // Session ids whose transcript tail shows a turn in progress (assistant
+  // answering / tool loop). Presentational only — drives the RUN badge.
+  const [liveSessionRunning, setLiveSessionRunning] = useState<Set<string>>(new Set());
   // `$N` tmux generation token per session id — sent with kill/relay so the
   // server can refuse a same-named session recreated after this snapshot.
   const [liveSessionTmuxIds, setLiveSessionTmuxIds] = useState<Map<string, string>>(new Map());
@@ -399,7 +402,7 @@ export function useProjectsState({
     let cancelled = false;
     let generation = 0;
     let applied = 0;
-    let prevRows = new Map<string, { tmuxName: string | null; tmuxId: string | null; model: string | null; lineage: boolean; kind: string | null }>();
+    let prevRows = new Map<string, { tmuxName: string | null; tmuxId: string | null; model: string | null; lineage: boolean; kind: string | null; running: boolean | null }>();
     let missedOnce = new Set<string>();
     const poll = async () => {
       const myGeneration = ++generation;
@@ -407,14 +410,14 @@ export function useProjectsState({
         const response = await api.liveSessions();
         if (!response.ok) return;
         const body = await response.json();
-        const liveSessions: Array<{ id: string; tmuxName?: string | null; tmuxId?: string | null; model?: string | null; claim?: string | null; kind?: string | null }> =
+        const liveSessions: Array<{ id: string; tmuxName?: string | null; tmuxId?: string | null; model?: string | null; claim?: string | null; kind?: string | null; running?: boolean | null }> =
           body?.data?.liveSessions ?? body?.liveSessions ?? [];
         if (cancelled || myGeneration <= applied) {
           return; // a newer response already landed
         }
         applied = myGeneration;
 
-        const rows = new Map<string, { tmuxName: string | null; tmuxId: string | null; model: string | null; lineage: boolean; kind: string | null }>();
+        const rows = new Map<string, { tmuxName: string | null; tmuxId: string | null; model: string | null; lineage: boolean; kind: string | null; running: boolean | null }>();
         for (const session of liveSessions) {
           rows.set(session.id, {
             tmuxName: session.tmuxName ?? null,
@@ -422,6 +425,7 @@ export function useProjectsState({
             model: session.model ?? null,
             lineage: session.claim === 'lineage',
             kind: session.kind ?? null,
+            running: session.running ?? null,
           });
         }
         // Removal debounce: keep a previously seen row for one missing snapshot.
@@ -442,6 +446,7 @@ export function useProjectsState({
         const models = new Map<string, string>();
         const lineage = new Set<string>();
         const kinds = new Map<string, string>();
+        const runningIds = new Set<string>();
         for (const [id, row] of rows) {
           if (row.tmuxName) {
             names.set(id, row.tmuxName);
@@ -458,6 +463,9 @@ export function useProjectsState({
           if (row.kind) {
             kinds.set(id, row.kind);
           }
+          if (row.running === true) {
+            runningIds.add(id);
+          }
         }
         setLiveSessionIds(new Set(rows.keys()));
         setLiveSessionNames(names);
@@ -465,6 +473,7 @@ export function useProjectsState({
         setLiveSessionModels(models);
         setLiveSessionLineage(lineage);
         setLiveSessionKinds(kinds);
+        setLiveSessionRunning(runningIds);
       } catch {
         // ignore — live detection is best-effort; last snapshot stays (fail-closed
         // for read-only protection).
@@ -1145,6 +1154,7 @@ export function useProjectsState({
       liveSessionLineage,
       liveSessionTmuxIds,
       liveSessionKinds,
+      liveSessionRunning,
       onProjectSelect: handleProjectSelect,
       onSessionSelect: handleSessionSelect,
       onNewSession: handleNewSession,
@@ -1167,6 +1177,7 @@ export function useProjectsState({
       liveSessionLineage,
       liveSessionTmuxIds,
       liveSessionKinds,
+      liveSessionRunning,
       handleNewSession,
       handleProjectDelete,
       handleProjectSelect,

@@ -44,6 +44,12 @@ future server artifacts are published only through
   poll promotes the row to LIVE once gjc opens its transcript. Send failures
   and a promotion that never materializes fail closed back to an editable
   composer with the reason.
+- Live sessions whose transcript tail shows a turn in progress (assistant
+  answering or tool loop running) now carry a green RUN badge instead of the
+  blue LIVE badge, so a working agent is distinguishable from one waiting for
+  input at a glance. Detection reads the same turn-terminator records the
+  live-turn notification monitor keys off; when the state is undeterminable
+  the badge stays LIVE (fail-safe).
 
 ### Authentication
 

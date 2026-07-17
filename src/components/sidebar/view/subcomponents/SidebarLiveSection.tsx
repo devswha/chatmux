@@ -24,6 +24,9 @@ type SidebarLiveSectionProps = {
   // gjc (a background/child gjc under a shell) is badged apart from an
   // interactive gjc TUI. Presentational only — kill/relay still key off lineage.
   liveSessionKinds: ReadonlyMap<string, string>;
+  // Ids whose transcript tail shows a turn in progress — RUN (green) instead
+  // of LIVE (blue). Presentational only.
+  liveSessionRunning: ReadonlySet<string>;
   selectedSession: ProjectSession | null;
   onSessionSelect: SidebarProjectListProps['onSessionSelect'];
 };
@@ -67,6 +70,7 @@ export default function SidebarLiveSection({
   liveSessionLineage,
   liveSessionTmuxIds,
   liveSessionKinds,
+  liveSessionRunning,
   selectedSession,
   onSessionSelect,
 }: SidebarLiveSectionProps) {
@@ -242,10 +246,27 @@ export default function SidebarLiveSection({
                   className="flex min-w-0 flex-1 flex-col gap-0.5 px-2 py-1.5 text-left"
                 >
                   <span className="flex items-center gap-2">
-                    <span className="inline-flex h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-blue-500" aria-hidden />
-                    <span className="shrink-0 rounded bg-blue-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-blue-600 dark:text-blue-400">
-                      LIVE
-                    </span>
+                    {liveSessionRunning.has(session.id) ? (
+                      <>
+                        <span className="inline-flex h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-emerald-500" aria-hidden />
+                        <span
+                          className="shrink-0 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400"
+                          title="턴 진행 중 — 에이전트가 응답/도구 실행 중입니다"
+                        >
+                          RUN
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="inline-flex h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-blue-500" aria-hidden />
+                        <span
+                          className="shrink-0 rounded bg-blue-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-blue-600 dark:text-blue-400"
+                          title="세션 감지됨 — 다음 지시 대기 중"
+                        >
+                          LIVE
+                        </span>
+                      </>
+                    )}
                     {liveSessionKinds.get(session.id) === 'batch' && (
                       <span
                         className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400"
@@ -277,13 +298,13 @@ export default function SidebarLiveSection({
                 <div className="flex min-w-0 flex-1 flex-col gap-0.5 px-2 py-1.5 text-left">
                   <span className="flex items-center gap-2">
                     <span
-                      className={`inline-flex h-1.5 w-1.5 shrink-0 rounded-full ${isIdle ? 'bg-muted-foreground/50' : 'animate-pulse bg-blue-500'}`}
+                      className={`inline-flex h-1.5 w-1.5 shrink-0 rounded-full ${isIdle ? 'bg-muted-foreground/50' : liveSessionRunning.has(id) ? 'animate-pulse bg-emerald-500' : 'animate-pulse bg-blue-500'}`}
                       aria-hidden
                     />
                     <span
-                      className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${isIdle ? 'bg-muted text-muted-foreground' : 'bg-blue-500/15 text-blue-600 dark:text-blue-400'}`}
+                      className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${isIdle ? 'bg-muted text-muted-foreground' : liveSessionRunning.has(id) ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' : 'bg-blue-500/15 text-blue-600 dark:text-blue-400'}`}
                     >
-                      {isIdle ? '대기' : 'LIVE'}
+                      {isIdle ? '대기' : liveSessionRunning.has(id) ? 'RUN' : 'LIVE'}
                     </span>
                     {liveSessionKinds.get(id) === 'batch' && (
                       <span
