@@ -61,6 +61,20 @@ v1이 에러/버그 없이 돌아간 뒤에만 시작한다.
 5. **씬 데스크톱 셸** — Electron vs Tauri 실측 재평가 (Checkpoint D).
 6. 프로젝트 마법사(clone 등) 부가 기능 복권. control tower 동봉/내장 결정.
 
+### 외부 프로젝트 활용 원칙 (2026-07-17)
+
+- **Paseo(getpaseo/paseo, AGPLv3)**: 코드 이식 금지(AGPL 전염). 설계 문서만
+  참고 — `agent-lifecycle`/`timeline-sync`/`data-model`(→ 2번),
+  `providers`/`custom-providers`(→ 3번), `architecture`/`terminal-performance`
+  (→ 5번).
+- **Codex(openai/codex, Apache-2.0)**: 부분 이식 허용(NOTICE/어트리뷰션 준수).
+  `codex-rs` app-server JSON-RPC는 3번 codex 구조화 send·라이브 뷰와 Protocol
+  v1 진화의 레퍼런스, sandbox/PTY/Git 조각은 4번 `gajae-core` 확장 재료.
+  외부 codex 세션 "보기"는 `~/.codex/sessions` rollout JSONL을
+  `gajae-core watch` 루트로 추가하는 경로를 우선 검토한다.
+- 어느 쪽도 확정된 Rust core + GJC worker 레인을 **대체**하는 용도로 쓰지
+  않는다 (로드맵 confirmed decision 위반).
+
 ## 버저닝 정책 (2026-07-16 확정)
 
 - Gajae App 자체 semver 라인은 `1.0.0`부터 시작. 업스트림(claudecodeui) `1.36.x`
@@ -77,3 +91,4 @@ v1이 에러/버그 없이 돌아간 뒤에만 시작한다.
 | 2026-07-16 | 자체 버전 라인 `1.0.0` 시작, 업스트림 넘버 폐기 |
 | 2026-07-16 | 무로그인 기본 (`GAJAE_AUTH=none`) + fail-closed exposure guard 구현 |
 | 2026-07-16 | GJC worker/Rust core 격리(Checkpoint A/B/C 슬라이스 1·2)는 완성 자산으로 존치, 이후 러스트 투자는 v2로 이연 |
+| 2026-07-17 | 외부 프로젝트 활용 원칙 확정: Paseo(AGPLv3)는 설계 참고만·코드 이식 금지, openai/codex(Apache-2.0)는 app-server 프로토콜·Rust 조각 부분 이식 허용 |
