@@ -7,6 +7,7 @@ import { api } from '../../../../utils/api';
 import { getAllSessions, getSessionTime } from '../../utils/utils';
 
 import type { SidebarProjectListProps } from './SidebarProjectList';
+import SidebarIdleComposer from './SidebarIdleComposer';
 
 type SidebarLiveSectionProps = {
   projects: Project[];
@@ -298,12 +299,19 @@ export default function SidebarLiveSection({
                   </span>
                   <span className="truncate pl-[1.375rem] text-[11px] text-muted-foreground">
                     {isIdle
-                      ? '아직 대화가 없습니다 — 첫 메시지 후 열람할 수 있습니다'
+                      ? '아직 대화가 없습니다 — 아래에서 첫 메시지를 보낼 수 있습니다'
                       : '대화 미로딩 — 해당 프로젝트를 열면 제목이 표시됩니다'}
                   </span>
                 </div>
                 {tmuxName && liveSessionLineage.has(id) && killButton(id, tmuxName)}
               </div>
+              {isIdle && tmuxName && liveSessionLineage.has(id) && (
+                <SidebarIdleComposer
+                  key={`composer-${id}`}
+                  tmuxName={tmuxName}
+                  tmuxId={liveSessionTmuxIds.get(id) ?? null}
+                />
+              )}
               {tmuxName && liveSessionLineage.has(id) && killStrip(id, tmuxName)}
             </div>
           );

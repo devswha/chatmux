@@ -38,6 +38,12 @@ future server artifacts are published only through
   auth token that never exists under `GAJAE_AUTH=none`, so the socket was
   never even attempted. WebSocket authentication is server-side (auth cookie
   or implicit owner), so the client-side token gate is gone.
+- '대기' (idle, pre-transcript) gjc sessions in the sidebar now take their
+  first message directly from the UI: an inline composer relays it through the
+  control tower's send, shows an explicit promotion-wait state, and the live
+  poll promotes the row to LIVE once gjc opens its transcript. Send failures
+  and a promotion that never materializes fail closed back to an editable
+  composer with the reason.
 
 ### Authentication
 
