@@ -1,9 +1,16 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import test from 'node:test';
+import test, { after } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { GjcSessionWatcher, type GjcSessionWatcherOptions } from '../services/gjc-session-watcher.service.js';
+
+// The watcher service intentionally unrefs its internal timers so a shutting-down
+// owner is never kept alive. Tests that await only those timers would let the
+// event loop drain before they fire (observed on macOS), so hold one referenced
+// handle for the lifetime of this file.
+const keepAlive = setInterval(() => {}, 60_000);
+after(() => clearInterval(keepAlive));
 
 class FakeChild extends EventEmitter {
   readonly stdin = new EventEmitter() as EventEmitter & { end(): void };

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { appendFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -65,7 +65,7 @@ test('native core reports its pinned binary identity', async () => {
 });
 
 test('native core recursively watches multiple roots and filters non-transcript files', async () => {
-  const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), 'gajae-core-watch-'));
+  const temporaryRoot = await realpath(await mkdtemp(path.join(os.tmpdir(), 'gajae-core-watch-')));
   const firstRoot = path.join(temporaryRoot, 'first');
   const secondRoot = path.join(temporaryRoot, 'second');
   await Promise.all([

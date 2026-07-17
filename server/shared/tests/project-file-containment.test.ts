@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { lstat, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -12,7 +12,7 @@ import {
 } from '@/shared/project-file-containment.js';
 
 test('project file containment rejects symlink escapes while allowing canonical project paths', async () => {
-  const tempDir = await mkdtemp(path.join(os.tmpdir(), 'project-file-containment-'));
+  const tempDir = await realpath(await mkdtemp(path.join(os.tmpdir(), 'project-file-containment-')));
   const projectRoot = path.join(tempDir, 'project');
   const projectRootLink = path.join(tempDir, 'decoy-project');
   const outsideRoot = path.join(tempDir, 'outside');
@@ -71,7 +71,7 @@ test('project file containment rejects symlink escapes while allowing canonical 
   }
 });
 test('project file containment validates nested new paths from the nearest existing ancestor', async () => {
-  const tempDir = await mkdtemp(path.join(os.tmpdir(), 'project-file-containment-'));
+  const tempDir = await realpath(await mkdtemp(path.join(os.tmpdir(), 'project-file-containment-')));
   const projectRoot = path.join(tempDir, 'project');
   const outsideRoot = path.join(tempDir, 'outside');
 
@@ -98,7 +98,7 @@ test('project file containment validates nested new paths from the nearest exist
 });
 
 test('project file writes use the same regular file object that passed validation', async () => {
-  const tempDir = await mkdtemp(path.join(os.tmpdir(), 'project-file-containment-'));
+  const tempDir = await realpath(await mkdtemp(path.join(os.tmpdir(), 'project-file-containment-')));
   const projectRoot = path.join(tempDir, 'project');
   const outsideRoot = path.join(tempDir, 'outside');
   const insideFile = path.join(projectRoot, 'inside.txt');

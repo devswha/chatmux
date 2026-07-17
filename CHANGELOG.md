@@ -4,6 +4,17 @@ All notable changes to Gajae App are documented in this file. Current and
 future server artifacts are published only through
 [GitHub Releases](https://github.com/devswha/gajae-app/releases).
 
+## Unreleased
+
+### Source development
+
+- Made the test suite pass on macOS (arm64): temp-dir tests canonicalize
+  `os.tmpdir()` before building expectations (macOS `/var` resolves to
+  `/private/var`, which the containment and native-watcher code correctly
+  returns), and the GJC session-watcher tests hold one referenced event-loop
+  handle because the watcher service intentionally unrefs its internal timers.
+  Product behavior is unchanged.
+
 ## 1.0.0 (2026-07-17)
 
 ### Versioning

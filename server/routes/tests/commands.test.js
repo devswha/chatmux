@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -84,7 +84,7 @@ test('models command falls back to claude for unsupported providers', async () =
   }
 });
 test('custom command resolution rejects symlinks outside the canonical command directory', async () => {
-  const tempDir = await mkdtemp(path.join(os.tmpdir(), 'commands-route-'));
+  const tempDir = await realpath(await mkdtemp(path.join(os.tmpdir(), 'commands-route-')));
   const projectRoot = path.join(tempDir, 'project');
   const commandsDir = path.join(projectRoot, '.claude', 'commands');
   const outsideFile = path.join(tempDir, 'outside.md');
