@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { api } from '../../utils/api';
+import { formatSuggestionLike, toHomeRelative } from '../homePath';
 
 type HomeDirInputProps = {
   value: string;
@@ -13,14 +14,19 @@ type HomeDirInputProps = {
 const DEBOUNCE_MS = 200;
 
 /**
- * Home-relative directory input with server-backed autocomplete
- * (/api/providers/fs/dir-suggestions). Suggestions render below the input;
- * click or Tab (first match) completes. Best-effort — endpoint errors just
- * hide the dropdown.
+ * Home-anchored directory input with server-backed autocomplete
+ * (/api/providers/fs/dir-suggestions). Accepts bare home-relative, '~/', and
+ * absolute-under-home input; suggestions complete in the same style the user
+ * is typing (previously '~/' and absolute input silently got NO suggestions —
+ * the endpoint takes home-relative prefixes only). Click or Tab (first match)
+ * completes. Best-effort — endpoint errors just hide the dropdown.
  */
 export default function HomeDirInput({ value, onChange, onSubmit, placeholder, className }: HomeDirInputProps) {
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [open, setOpen] = useState(false);
+  // Absolute HOME path, learned from the endpoint (every response carries it).
+  // Needed to normalize absolute input into the endpoint's home-relative form.
+  const [home, setHome] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const requestSeqRef = useRef(0);
 
@@ -28,20 +34,42 @@ export default function HomeDirInput({ value, onChange, onSubmit, placeholder, c
     if (debounceRef.current) {
       clearTimeout(debounceRef.current);
     }
-    if (!value.trim()) {
+    const relative = toHomeRelative(value, home);
+    if (relative === null) {
       setSuggestions([]);
+      // An absolute path was typed before we learned HOME — fetch it once and
+      // let the state update re-run this effect with the same input.
+      if (home === null && value.trim().startsWith('/')) {
+        void (async () => {
+          try {
+            const response = await api.dirSuggestions('');
+            const body = await response.json();
+            const learnedHome = body?.data?.home;
+            if (typeof learnedHome === 'string' && learnedHome) {
+              setHome(learnedHome);
+            }
+          } catch {
+            // best-effort
+          }
+        })();
+      }
       return undefined;
     }
     const seq = ++requestSeqRef.current;
     debounceRef.current = setTimeout(async () => {
       try {
-        const response = await api.dirSuggestions(value.trim());
+        const response = await api.dirSuggestions(relative);
         if (!response.ok) return;
         const body = await response.json();
+        const learnedHome = body?.data?.home;
+        if (typeof learnedHome === 'string' && learnedHome) {
+          setHome(learnedHome);
+        }
         const list: string[] = body?.data?.suggestions ?? [];
         if (seq === requestSeqRef.current) {
+          const styled = list.map((entry) => formatSuggestionLike(value, learnedHome ?? home, entry));
           // Typing the exact suggestion should collapse the dropdown.
-          setSuggestions(list.filter((entry) => entry !== value.trim()));
+          setSuggestions(styled.filter((entry) => entry !== value.trim()));
         }
       } catch {
         // best-effort
@@ -52,7 +80,7 @@ export default function HomeDirInput({ value, onChange, onSubmit, placeholder, c
         clearTimeout(debounceRef.current);
       }
     };
-  }, [value]);
+  }, [value, home]);
 
   const pick = (suggestion: string) => {
     onChange(`${suggestion}/`);

@@ -4,6 +4,7 @@ import { FolderOpen, Pencil, X } from 'lucide-react';
 import type { Project } from '../../../../types/app';
 import { api } from '../../../../utils/api';
 import HomeDirInput from '../../../../shared/view/HomeDirInput';
+import { toHomeRelative } from '../../../../shared/homePath';
 import FileTree from '../../../file-tree/view/FileTree';
 
 type FilesPanelProps = {
@@ -43,7 +44,7 @@ export default function FilesPanel({ onFileOpen, onClose }: FilesPanelProps) {
   const rootRequestIdRef = useRef(0);
   const root = state.root;
 
-  const resolveRoot = useCallback(async (relativeRoot: string) => {
+  const resolveRoot = useCallback(async (requestedRoot: string) => {
     const requestId = ++rootRequestIdRef.current;
     const publishIfCurrent = (nextState: PanelState) => {
       if (requestId === rootRequestIdRef.current) {
@@ -51,17 +52,29 @@ export default function FilesPanel({ onFileOpen, onClose }: FilesPanelProps) {
       }
     };
 
-    setState({ kind: 'loading', root: relativeRoot });
+    setState({ kind: 'loading', root: requestedRoot });
     try {
       // The dir-suggestions endpoint also reports the absolute HOME path.
       const homeResponse = await api.dirSuggestions('');
       const homeBody = await homeResponse.json();
       const home: string = homeBody?.data?.home ?? '';
       if (!home) {
-        publishIfCurrent({ kind: 'error', root: relativeRoot, text: '홈 경로를 확인할 수 없습니다' });
+        publishIfCurrent({ kind: 'error', root: requestedRoot, text: '홈 경로를 확인할 수 없습니다' });
         return;
       }
-      const absolutePath = `${home}/${relativeRoot.replace(/\/+$/, '')}`;
+      // Accept bare-relative, '~/', and absolute-under-home styles alike;
+      // everything below (and localStorage) uses the home-relative form.
+      const relativeRoot = toHomeRelative(requestedRoot.replace(/\/+$/, ''), home);
+      if (relativeRoot === null || relativeRoot === '') {
+        publishIfCurrent({ kind: 'error', root: requestedRoot, text: '홈 아래 경로만 지원합니다 (예: ~/workspace)' });
+        return;
+      }
+      try {
+        localStorage.setItem(ROOT_STORAGE_KEY, relativeRoot);
+      } catch {
+        // storage errors are non-fatal
+      }
+      const absolutePath = `${home}/${relativeRoot}`;
 
       const toProject = (row: Record<string, unknown>): Project => ({
         projectId: String(row.project_id ?? row.projectId ?? ''),
@@ -88,7 +101,7 @@ export default function FilesPanel({ onFileOpen, onClose }: FilesPanelProps) {
       }
       publishIfCurrent({ kind: 'error', root: relativeRoot, text: '폴더를 열 수 없습니다 — 경로를 확인하세요' });
     } catch {
-      publishIfCurrent({ kind: 'error', root: relativeRoot, text: '폴더를 열 수 없습니다 — 경로를 확인하세요' });
+      publishIfCurrent({ kind: 'error', root: requestedRoot, text: '폴더를 열 수 없습니다 — 경로를 확인하세요' });
     }
   }, []);
 
@@ -99,11 +112,8 @@ export default function FilesPanel({ onFileOpen, onClose }: FilesPanelProps) {
   const applyDraftRoot = () => {
     const next = draftRoot.trim().replace(/\/+$/, '');
     if (!next) return;
-    try {
-      localStorage.setItem(ROOT_STORAGE_KEY, next);
-    } catch {
-      // storage errors are non-fatal
-    }
+    // resolveRoot normalizes the style ('~/', absolute, bare) and persists
+    // the canonical home-relative form on success.
     setEditingRoot(false);
     void resolveRoot(next);
   };
@@ -143,7 +153,7 @@ export default function FilesPanel({ onFileOpen, onClose }: FilesPanelProps) {
               value={draftRoot}
               onChange={setDraftRoot}
               onSubmit={applyDraftRoot}
-              placeholder="홈 하위 경로 (예: workspace)"
+              placeholder="예: ~/workspace (절대경로 가능)"
             />
           </div>
           <button

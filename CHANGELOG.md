@@ -4,6 +4,17 @@ All notable changes to Gajae App are documented in this file. Current and
 future server artifacts are published only through
 [GitHub Releases](https://github.com/devswha/gajae-app/releases).
 
+## Unreleased
+
+### Web interface
+
+- The workspace-path autocomplete (새 세션 작업 폴더, 파일 패널 루트) now
+  accepts and completes `~/` and absolute-under-home paths in addition to the
+  bare home-relative form — previously those styles silently produced no
+  suggestions at all. Suggestions complete in the style being typed, both
+  consumers normalize to the same home-relative form, and absolute paths
+  outside `$HOME` still fail closed.
+
 ## 1.1.0 (2026-07-17)
 
 ### Live sessions
