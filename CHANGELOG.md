@@ -6,6 +6,19 @@ future server artifacts are published only through
 
 ## Unreleased
 
+### Live sessions
+
+- 찔러주기 (send / spawn / kill) now works out of the box on installs without
+  a control tower: when the tower cannot be reached, a built-in relay performs
+  the tmux operation directly — paste-buffer injection (literal bytes,
+  bracketed paste) for messages, `new-session` + gjc boot for spawn,
+  exact-name `kill-session` for kill. Previously every control action failed
+  permanently with "관제탑 미가동" because the tower is an external component
+  self-host installs do not have. The tower stays first-priority whenever
+  reachable, a tower refusal is never bypassed, the route-level lineage and
+  generation-token gates guard both paths, and `GAJAE_BUILTIN_RELAY=0`
+  restores the strict tower-only behavior.
+
 ### Web interface
 
 - The workspace-path autocomplete (새 세션 작업 폴더, 파일 패널 루트) now

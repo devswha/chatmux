@@ -1,12 +1,18 @@
 /**
  * Relays a message from the app into a live tmux gjc session via the control
- * tower's send endpoint — the app never injects into the conversation directly.
- * The tower owns outbox/queueing, paste injection, and send verification; we only
- * proxy `POST {TOWER_URL}/send` (form: session=<tmux name>&msg=<text>).
+ * tower's send endpoint — the app never injects into the conversation directly
+ * while a tower is present. The tower owns outbox/queueing, paste injection,
+ * and send verification; we proxy `POST {TOWER_URL}/send`.
  *
- * Tower dependence is ISOLATED here. If the tower is unreachable the caller gets
- * `{ ok: false, reachable: false }` so the UI can degrade gracefully.
+ * Tower dependence is ISOLATED here. When the tower cannot be REACHED (self-
+ * host installs have none — the tower is an external component), the built-in
+ * relay performs the tmux operation directly instead (결정 #290 ②), so 찔러주기
+ * works out of the box. A tower REFUSAL is authoritative and never falls back.
+ * `GAJAE_BUILTIN_RELAY=0` restores the strict tower-only degradation
+ * (`{ ok: false, reachable: false }`).
  */
+
+import { builtinKill, builtinRelayEnabled, builtinSend, builtinSpawn } from './builtin-relay.service.js';
 
 const DEFAULT_TOWER_URL = 'http://127.0.0.1:3019';
 
@@ -48,6 +54,9 @@ export async function sendToLiveSession(tmuxName: string, message: string): Prom
       signal: AbortSignal.timeout(6000),
     });
   } catch {
+    if (builtinRelayEnabled()) {
+      return builtinSend(tmuxName, message);
+    }
     return { ok: false, reachable: false, queued: false, detail: 'control tower is not reachable' };
   }
   const text = await response.text().catch(() => '');
@@ -100,6 +109,9 @@ export async function spawnLiveSession(name: string, cwd: string): Promise<LiveS
       signal: AbortSignal.timeout(10000),
     });
   } catch {
+    if (builtinRelayEnabled()) {
+      return builtinSpawn(name, normalizeSpawnCwd(cwd));
+    }
     return { ok: false, reachable: false, conflict: false, detail: 'control tower is not reachable' };
   }
   const text = await response.text().catch(() => '');
@@ -133,6 +145,9 @@ export async function killLiveSession(tmuxName: string): Promise<LiveKillResult>
       signal: AbortSignal.timeout(10000),
     });
   } catch {
+    if (builtinRelayEnabled()) {
+      return builtinKill(tmuxName);
+    }
     return { ok: false, reachable: false, protected: false, unknown: false, detail: 'control tower is not reachable' };
   }
   const text = await response.text().catch(() => '');
