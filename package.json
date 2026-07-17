@@ -1,7 +1,7 @@
 {
   "name": "gajae-app",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.1.0",
   "desktopVersion": "0.2.0",
   "productName": "Gajae App",
   "description": "A self-hosted web and desktop interface for GJC, Claude Code, Cursor, Codex, and OpenCode",
