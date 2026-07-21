@@ -33,7 +33,10 @@ export type AppTab = 'chat' | 'files' | 'shell' | 'git' | 'tasks' | 'browser' | 
 export type ExternalTerminalTarget = {
   tmuxName: string;
   kind: string;
+  cliKind: 'claude' | 'codex' | 'ssh';
   project: Project;
+  /** Opens the structured transcript instead of attaching a terminal. */
+  transcriptSessionId?: string;
 };
 
 export interface ProjectSession {

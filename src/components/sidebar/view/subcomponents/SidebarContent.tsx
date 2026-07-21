@@ -17,6 +17,7 @@ import SidebarProjectList, { type SidebarProjectListProps } from './SidebarProje
 import SidebarLiveSection from './SidebarLiveSection';
 import SidebarExternalSection from './SidebarExternalSection';
 import SidebarSpawnSession from './SidebarSpawnSession';
+import SidebarCodexSpawnSession from './SidebarCodexSpawnSession';
 
 function HighlightedSnippet({ snippet, highlights }: { snippet: string; highlights: { start: number; end: number }[] }) {
   const parts: ReactNode[] = [];
@@ -205,7 +206,7 @@ export default function SidebarContent({
   t,
 }: SidebarContentProps) {
   const [topTab, setTopTab] = useState<'live' | 'external' | 'archive'>('live');
-  const externalSessions = useExternalCliSessions();
+  const { sessions: externalSessions, refresh: refreshExternalSessions } = useExternalCliSessions();
   const showConversationSearch = searchMode === 'conversations' && searchFilter.trim().length >= 2;
   const hasPartialResults = conversationResults && conversationResults.results.length > 0;
   const groupedArchivedSessions = groupArchivedSessionsByProject(archivedSessions);
@@ -302,7 +303,13 @@ export default function SidebarContent({
         </ScrollArea>
       ) : topTab === 'external' ? (
         <ScrollArea className="flex-1 overflow-y-auto overscroll-contain md:px-1.5 md:py-2">
-          <SidebarExternalSection sessions={externalSessions} projects={projects} onOpen={onExternalTerminalOpen} />
+          <SidebarCodexSpawnSession onCreated={refreshExternalSessions} />
+          <SidebarExternalSection
+            sessions={externalSessions}
+            projects={projects}
+            onOpen={onExternalTerminalOpen}
+            onChanged={refreshExternalSessions}
+          />
         </ScrollArea>
       ) : (
       <ScrollArea className="flex-1 overflow-y-auto overscroll-contain md:px-1.5 md:py-2">

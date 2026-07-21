@@ -26,6 +26,7 @@ interface ToolGroupContainerProps {
   showThinking?: boolean;
   selectedProject?: Project | null;
   provider: Provider | string;
+  transcriptView?: boolean;
 }
 
 function parseToolInput(toolInput: unknown): unknown {
@@ -69,6 +70,7 @@ export default function ToolGroupContainer({
   showThinking,
   selectedProject,
   provider,
+  transcriptView = false,
 }: ToolGroupContainerProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const config = getToolConfig(group.toolName).input;
@@ -135,6 +137,7 @@ export default function ToolGroupContainer({
               showThinking={showThinking}
               selectedProject={selectedProject}
               provider={provider}
+              transcriptView={transcriptView}
             />
           ))}
         </div>

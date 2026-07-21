@@ -107,6 +107,23 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(tmuxId ? { tmuxName, tmuxId, message } : { tmuxName, message }),
     }),
+  // Relay a prompt or numeric approval selection into a native Codex tmux TUI.
+  externalCodexSessionSend: (tmuxName, sessionId, message) =>
+    authenticatedFetch('/api/providers/sessions/external/send', {
+      method: 'POST',
+      body: JSON.stringify({ tmuxName, sessionId, message }),
+    }),
+  // Create/stop native Codex tmux sessions directly from the External CLI tab.
+  externalCodexSessionSpawn: (name, cwd) =>
+    authenticatedFetch('/api/providers/sessions/external/spawn', {
+      method: 'POST',
+      body: JSON.stringify({ name, cwd }),
+    }),
+  externalCodexSessionKill: (tmuxName) =>
+    authenticatedFetch('/api/providers/sessions/external/kill', {
+      method: 'POST',
+      body: JSON.stringify({ tmuxName }),
+    }),
   // Spawn a new tmux gjc session via the control tower (POST /spawn).
   liveSessionSpawn: (name, cwd) =>
     authenticatedFetch('/api/providers/sessions/live/spawn', {

@@ -2,17 +2,22 @@ import { useEffect, useState } from 'react';
 
 import { api } from '../../../utils/api';
 
-export type ExternalCliSession = { tmuxName: string; kind: 'claude' | 'codex' | 'ssh' };
+export type ExternalCliSession = {
+  tmuxName: string;
+  kind: 'claude' | 'codex' | 'ssh';
+  transcriptSessionId?: string;
+};
 
-const POLL_INTERVAL_MS = 10000;
+const POLL_INTERVAL_MS = 5000;
 
 /**
- * Polls /sessions/external (10s, best-effort) for claude/codex tmux sessions.
+ * Polls /sessions/external (5s, best-effort) for claude/codex tmux sessions.
  * Self-contained so the gjc live lane (useProjectsState's live poll) stays
  * untouched; gjc sessions are excluded server-side. [] on any failure.
  */
-export function useExternalCliSessions(): ExternalCliSession[] {
+export function useExternalCliSessions(): { sessions: ExternalCliSession[]; refresh: () => void } {
   const [sessions, setSessions] = useState<ExternalCliSession[]>([]);
+  const [refreshToken, setRefreshToken] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -41,7 +46,10 @@ export function useExternalCliSessions(): ExternalCliSession[] {
       cancelled = true;
       clearInterval(timer);
     };
-  }, []);
+  }, [refreshToken]);
 
-  return sessions;
+  return {
+    sessions,
+    refresh: () => setRefreshToken((value) => value + 1),
+  };
 }

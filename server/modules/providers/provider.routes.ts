@@ -1,5 +1,6 @@
 import express, { type Request, type Response } from 'express';
 
+import { sessionsDb } from '@/modules/database/index.js';
 import { providerAuthService } from '@/modules/providers/services/provider-auth.service.js';
 import { providerCapabilitiesService } from '@/modules/providers/services/provider-capabilities.service.js';
 import { providerMcpService } from '@/modules/providers/services/mcp.service.js';
@@ -7,8 +8,17 @@ import { providerModelsService } from '@/modules/providers/services/provider-mod
 import { providerSkillsService } from '@/modules/providers/services/skills.service.js';
 import { sessionConversationsSearchService } from '@/modules/providers/services/session-conversations-search.service.js';
 import { sessionsService } from '@/modules/providers/services/sessions.service.js';
+import { sessionSynchronizerService } from '@/modules/providers/services/session-synchronizer.service.js';
 import { getLiveGjcSessions, IDLE_GJC_ID_PREFIX } from '@/modules/providers/services/live-sessions.service.js';
-import { getExternalCliSessions } from '@/modules/providers/services/external-cli-sessions.service.js';
+import {
+  getCurrentTmuxSessionName,
+  getExternalCliSessions,
+  killExternalCodexSession,
+  resolveCodexRolloutPath,
+  resolveExternalCodexCwd,
+  sendToExternalCodexSession,
+  spawnExternalCodexSession,
+} from '@/modules/providers/services/external-cli-sessions.service.js';
 import { getHomeDir, getHomeDirSuggestions } from '@/modules/providers/services/home-dirs.service.js';
 import { isValidTmuxName, sendToLiveSession, isValidSpawnName, spawnLiveSession, killLiveSession } from '@/modules/providers/services/live-send.service.js';
 import { listLiveGjcCommands } from '@/modules/providers/services/live-commands.service.js';
@@ -593,8 +603,135 @@ router.get(
     // pane's real claude/codex session from this lane. Such a name may then
     // legitimately appear in BOTH tabs — a gjc conversation row and an
     // attachable terminal row are different, both-true views.
-    const externalSessions = await getExternalCliSessions();
+    const externalSessions = await Promise.all((await getExternalCliSessions()).map(async (session) => {
+      if (session.kind !== 'codex' || !session.codexThreadId) {
+        return session;
+      }
+      let appSession = sessionsDb.getSessionByProviderSessionId('codex', session.codexThreadId);
+      if (!appSession) {
+        const rolloutPath = await resolveCodexRolloutPath(session.codexThreadId);
+        if (rolloutPath) {
+          await sessionSynchronizerService.synchronizeProviderFile('codex', rolloutPath).catch(() => null);
+          appSession = sessionsDb.getSessionByProviderSessionId('codex', session.codexThreadId);
+        }
+      }
+      if (!appSession) {
+        return { tmuxName: session.tmuxName, kind: session.kind };
+      }
+      return {
+        tmuxName: session.tmuxName,
+        kind: session.kind,
+        transcriptSessionId: appSession.session_id,
+      };
+    }));
     res.json(createApiSuccessResponse({ externalSessions }));
+  }),
+);
+
+router.post(
+  '/sessions/external/spawn',
+  asyncHandler(async (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as { name?: unknown; cwd?: unknown };
+    if (!isValidSpawnName(body.name)) {
+      throw new AppError('A valid session name is required (alphanumeric, not "company").', {
+        code: 'INVALID_SPAWN_NAME',
+        statusCode: 400,
+      });
+    }
+    const cwdInput = typeof body.cwd === 'string' ? body.cwd.trim() : '';
+    if (!cwdInput) {
+      throw new AppError('cwd is required.', { code: 'EMPTY_CWD', statusCode: 400 });
+    }
+    const cwd = await resolveExternalCodexCwd(cwdInput);
+    if (!cwd) {
+      throw new AppError('cwd must be an existing directory under HOME.', {
+        code: 'INVALID_CWD',
+        statusCode: 400,
+      });
+    }
+    try {
+      await spawnExternalCodexSession(body.name, cwd);
+    } catch {
+      throw new AppError('Codex session could not be created; the tmux name may already exist.', {
+        code: 'EXTERNAL_CODEX_SPAWN_FAILED',
+        statusCode: 409,
+      });
+    }
+    res.status(201).json(createApiSuccessResponse({ ok: true, tmuxName: body.name, cwd }));
+  }),
+);
+
+router.post(
+  '/sessions/external/kill',
+  asyncHandler(async (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as { tmuxName?: unknown };
+    if (!isValidTmuxName(body.tmuxName)) {
+      throw new AppError('A valid tmuxName is required.', { code: 'INVALID_TMUX_NAME', statusCode: 400 });
+    }
+    if (body.tmuxName === await getCurrentTmuxSessionName()) {
+      throw new AppError('The tmux session hosting Gajae App is protected.', {
+        code: 'EXTERNAL_CODEX_SESSION_PROTECTED',
+        statusCode: 403,
+      });
+    }
+    const target = (await getExternalCliSessions()).find(
+      (session) => session.tmuxName === body.tmuxName && session.kind === 'codex',
+    );
+    if (!target) {
+      throw new AppError('The selected tmux session is no longer a running Codex session.', {
+        code: 'EXTERNAL_CODEX_SESSION_MISMATCH',
+        statusCode: 409,
+      });
+    }
+    try {
+      await killExternalCodexSession(body.tmuxName);
+    } catch {
+      throw new AppError('The Codex tmux session could not be stopped.', {
+        code: 'EXTERNAL_CODEX_KILL_FAILED',
+        statusCode: 409,
+      });
+    }
+    res.json(createApiSuccessResponse({ ok: true }));
+  }),
+);
+
+router.post(
+  '/sessions/external/send',
+  asyncHandler(async (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as { tmuxName?: unknown; sessionId?: unknown; message?: unknown };
+    if (!isValidTmuxName(body.tmuxName)) {
+      throw new AppError('A valid tmuxName is required.', { code: 'INVALID_TMUX_NAME', statusCode: 400 });
+    }
+    const sessionId = typeof body.sessionId === 'string' ? body.sessionId : null;
+    const message = typeof body.message === 'string' ? body.message : '';
+    if (sessionId !== null && !SESSION_ID_PATTERN.test(sessionId)) {
+      throw new AppError('A valid sessionId is required.', { code: 'INVALID_SESSION_ID', statusCode: 400 });
+    }
+    if (!message.trim()) {
+      throw new AppError('message is required.', { code: 'EMPTY_MESSAGE', statusCode: 400 });
+    }
+
+    const external = (await getExternalCliSessions()).find(
+      (session) => session.tmuxName === body.tmuxName && session.kind === 'codex',
+    );
+    if (!external) {
+      throw new AppError('Codex tmux session changed; reopen it from External CLI.', {
+        code: 'EXTERNAL_CODEX_SESSION_MISMATCH',
+        statusCode: 409,
+      });
+    }
+    const mapped = sessionId && external.codexThreadId
+      ? sessionsDb.getSessionByProviderSessionId('codex', external.codexThreadId)
+      : null;
+    if (sessionId && (!mapped || mapped.session_id !== sessionId)) {
+      throw new AppError('Codex tmux session changed; reopen it from External CLI.', {
+        code: 'EXTERNAL_CODEX_SESSION_MISMATCH',
+        statusCode: 409,
+      });
+    }
+
+    await sendToExternalCodexSession(body.tmuxName, message);
+    res.json(createApiSuccessResponse({ ok: true }));
   }),
 );
 

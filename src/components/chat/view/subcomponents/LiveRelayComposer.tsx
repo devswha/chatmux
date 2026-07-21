@@ -81,11 +81,15 @@ export default function LiveRelayComposer({
   tmuxId = null,
   model = null,
   workspacePath = null,
+  relayKind = 'gjc',
+  sessionId = null,
 }: {
   tmuxName: string;
   tmuxId?: string | null;
   model?: string | null;
   workspacePath?: string | null;
+  relayKind?: 'gjc' | 'codex';
+  sessionId?: string | null;
 }) {
   const [input, setInput] = useState('');
   const [status, setStatus] = useState<RelayStatus>({ kind: 'idle' });
@@ -100,6 +104,10 @@ export default function LiveRelayComposer({
   // Load the invokable slash commands for this session once per target. Failure
   // (no gjc home / tower / commands) degrades silently to a plain relay box.
   useEffect(() => {
+    if (relayKind !== 'gjc') {
+      setCommands([]);
+      return undefined;
+    }
     let cancelled = false;
     void (async () => {
       try {
@@ -119,7 +127,7 @@ export default function LiveRelayComposer({
     return () => {
       cancelled = true;
     };
-  }, [workspacePath]);
+  }, [workspacePath, relayKind]);
 
   const closeCommandMenu = useCallback(() => {
     setShowCommandMenu(false);
@@ -176,7 +184,9 @@ export default function LiveRelayComposer({
     }
     setStatus({ kind: 'sending' });
     try {
-      const response = await api.liveSessionSend(tmuxName, message, tmuxId);
+      const response = relayKind === 'codex'
+        ? await api.externalCodexSessionSend(tmuxName, sessionId, message)
+        : await api.liveSessionSend(tmuxName, message, tmuxId);
       const body = await response.json().catch(() => null);
       const data = (body?.data ?? body ?? {}) as { ok?: boolean; reachable?: boolean; queued?: boolean; detail?: string };
       // ok === false covers "tower reachable but refused/failed" (server wraps a
@@ -194,7 +204,7 @@ export default function LiveRelayComposer({
     } catch {
       setStatus({ kind: 'error', text: '전송 실패' });
     }
-  }, [input, status.kind, tmuxName, tmuxId]);
+  }, [input, status.kind, tmuxName, tmuxId, relayKind, sessionId]);
 
   const handleKeyDown = useCallback(
     (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -267,7 +277,7 @@ export default function LiveRelayComposer({
             onKeyDown={handleKeyDown}
             onClick={(event) => syncCommandMenu(input, event.currentTarget.selectionStart ?? input.length)}
             rows={1}
-            placeholder={`${tmuxName}에 지시… ( / 명령, Enter 전송, Shift+Enter 줄바꿈)`}
+            placeholder={`${tmuxName}에 지시… (${relayKind === 'gjc' ? ' / 명령, ' : ''}Enter 전송, Shift+Enter 줄바꿈)`}
             className="max-h-40 min-h-9 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm outline-none"
           />
           <button
