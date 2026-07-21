@@ -11,6 +11,7 @@ import {
   isGjcProcessArgs,
   parsePsArgsTree,
   parseLastModelChange,
+  parseTerminalSessionReceipt,
   parseTurnActivity,
   parseLsofPidSessions,
   parseTmuxPanes,
@@ -449,6 +450,22 @@ test('pickPaneReceipt requires a session id and an existing transcript path', ()
 test('pickPaneReceipt tolerates a null receipt cwd (older gjc builds) but never a mismatch', () => {
   const receipts = [{ sessionId: 'null-cwd', cwd: null, sessionFile: '/t/n.jsonl', mtimeMs: 4 }];
   assert.equal(pickPaneReceipt({ paneCwd: '/ws', paneStartMs: null, receipts })?.sessionId, 'null-cwd');
+});
+
+test('parseTerminalSessionReceipt maps gjc 0.11 tmux receipt to its transcript id', () => {
+  assert.deepEqual(
+    parseTerminalSessionReceipt(
+      '/workspace/project\n/home/user/.gjc/agent/sessions/v2-scope/2026-07-17T17-28-17_019f711f-31f5-7000-9e7e-31f808b9ba71.jsonl\n',
+      1234,
+    ),
+    {
+      sessionId: '019f711f-31f5-7000-9e7e-31f808b9ba71',
+      cwd: '/workspace/project',
+      sessionFile: '/home/user/.gjc/agent/sessions/v2-scope/2026-07-17T17-28-17_019f711f-31f5-7000-9e7e-31f808b9ba71.jsonl',
+      mtimeMs: 1234,
+    },
+  );
+  assert.equal(parseTerminalSessionReceipt('/workspace/project\n/not-a-session.txt\n', 1234), null);
 });
 
 // ─── parseTurnActivity (턴 진행 중 판정 — RUN/LIVE 배지) ─────────────────────

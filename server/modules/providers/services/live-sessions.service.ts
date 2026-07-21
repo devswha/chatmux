@@ -79,14 +79,16 @@ const IDLE_TMUX_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
  * True when a process's argv belongs to gjc — whether it runs as a native `gjc`
  * binary or under an interpreter (`bun /path/to/gjc`, `node …/coding-agent/…`).
  * The command NAME (comm) is unreliable for interpreter launches (it reads
- * 'bun'/'node'), so argv is authoritative. `cmdline` is the raw NUL-separated
- * /proc/<pid>/cmdline.
+ * 'bun'/'node'), so argv is authoritative. `cmdline` may be raw NUL-separated
+ * /proc/<pid>/cmdline or the whitespace-separated `ps args` representation.
  */
 export function isGjcCommandLine(cmdline: string): boolean {
   if (!cmdline) {
     return false;
   }
-  const argv = cmdline.split('\0').filter(Boolean);
+  const argv = cmdline.includes('\0')
+    ? cmdline.split('\0').filter(Boolean)
+    : cmdline.trim().split(/\s+/).filter(Boolean);
   return argv.some((token) => basename(token) === 'gjc') || cmdline.includes('@gajae-code/coding-agent');
 }
 
@@ -453,6 +455,19 @@ export type RuntimeReceipt = {
   mtimeMs: number;
 };
 
+/** Parses the two-line receipt written by gjc 0.11+ for a tmux pane. */
+export function parseTerminalSessionReceipt(content: string, mtimeMs: number): RuntimeReceipt | null {
+  const [cwd, sessionFile] = content.split(/\r?\n/);
+  if (!cwd || !sessionFile) {
+    return null;
+  }
+  const match = SESSION_FILE_RE.exec(sessionFile);
+  if (!match) {
+    return null;
+  }
+  return { sessionId: match[1], cwd, sessionFile, mtimeMs };
+}
+
 /** Pure pick: newest receipt for this pane, guarded by cwd match + pane-start floor. */
 export function pickPaneReceipt(args: {
   paneCwd: string;
@@ -515,6 +530,33 @@ async function readPaneRuntimeReceipts(paneCwd: string): Promise<RuntimeReceipt[
     }
   }
   return receipts;
+}
+
+/** Reads gjc 0.11+'s pane-specific `terminal-sessions/tmux-%N` receipt. */
+async function readPaneTerminalReceipt(panePid: number): Promise<RuntimeReceipt | null> {
+  try {
+    const environment = await readFile(`/proc/${panePid}/environ`, 'utf8');
+    const paneValue = environment
+      .split('\0')
+      .find((entry) => entry.startsWith('TMUX_PANE='))
+      ?.slice('TMUX_PANE='.length);
+    if (!paneValue || !/^%\d+$/.test(paneValue)) {
+      return null;
+    }
+    const receiptPath = join(homedir(), '.gjc', 'agent', 'terminal-sessions', `tmux-${paneValue}`);
+    const [content, meta] = await Promise.all([readFile(receiptPath, 'utf8'), stat(receiptPath)]);
+    const receipt = parseTerminalSessionReceipt(content, meta.mtimeMs);
+    if (!receipt?.sessionFile) {
+      return null;
+    }
+    await stat(receipt.sessionFile);
+    return {
+      ...receipt,
+      cwd: receipt.cwd ? ((await safeRealpath(receipt.cwd)) ?? receipt.cwd) : null,
+    };
+  } catch {
+    return null;
+  }
 }
 
 /** /proc/<pid> dir mtime ≈ process start — the cheap stale-receipt floor. */
@@ -854,10 +896,14 @@ async function scanLiveGjcSessions(): Promise<LiveGjcScanResult> {
   for (const idle of idlePanes) {
     let bound = false;
     for (const pane of panes.filter((candidate) => candidate.sid === idle.sid)) {
+      const terminalReceipt = await readPaneTerminalReceipt(pane.pid);
       const receipt = pickPaneReceipt({
         paneCwd: pane.cwd,
         paneStartMs: await processStartMs(pane.pid),
-        receipts: await readPaneRuntimeReceipts(pane.cwd),
+        receipts: [
+          ...(terminalReceipt ? [terminalReceipt] : []),
+          ...await readPaneRuntimeReceipts(pane.cwd),
+        ],
       });
       if (!receipt || claimedIds.has(receipt.sessionId)) {
         continue;
