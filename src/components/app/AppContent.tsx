@@ -92,15 +92,128 @@ function AppContentInner() {
   // selecting any project/session or starting a new chat clears it via the
   // wrapped sidebar handlers below.
   const [externalTerminal, setExternalTerminal] = useState<ExternalTerminalTarget | null>(null);
+  const [externalTranscript, setExternalTranscript] = useState<ExternalTerminalTarget | null>(null);
 
   const openExternalTerminal = useCallback((target: ExternalTerminalTarget) => {
+    if (target.cliKind !== 'gjc' && target.transcriptSessionId) {
+      setExternalTerminal(null);
+      setExternalTranscript(target);
+      setActiveTab('chat');
+      navigate(`/session/${target.transcriptSessionId}`);
+      setSidebarOpen(false);
+      return;
+    }
+    setExternalTranscript(null);
     setExternalTerminal(target);
     setSidebarOpen(false);
-  }, [setSidebarOpen]);
+  }, [navigate, setActiveTab, setSidebarOpen]);
 
   const closeExternalTerminal = useCallback(() => {
     setExternalTerminal(null);
   }, []);
+
+  useEffect(() => {
+    if (externalTerminal?.cliKind !== 'codex' || externalTerminal.transcriptSessionId) return undefined;
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const response = await api.externalSessions();
+        if (!response.ok || cancelled) return;
+        const body = await response.json();
+        const sessions = body?.data?.externalSessions ?? [];
+        const ready = sessions.find((session: { tmuxName?: unknown; transcriptSessionId?: unknown }) => (
+          session.tmuxName === externalTerminal.tmuxName
+          && typeof session.transcriptSessionId === 'string'
+        ));
+        if (!cancelled && ready) {
+          openExternalTerminal({
+            ...externalTerminal,
+            transcriptSessionId: ready.transcriptSessionId,
+          });
+        }
+      } catch {
+        // Best-effort: the sidebar poll can still complete the same handoff.
+      }
+    };
+    void poll();
+    const timer = window.setInterval(() => void poll(), 2000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [externalTerminal, openExternalTerminal]);
+
+  useEffect(() => {
+    if (externalTerminal?.cliKind !== 'gjc') return undefined;
+    let cancelled = false;
+    let resolving = false;
+    const poll = async () => {
+      if (resolving) return;
+      try {
+        const response = await api.liveSessions();
+        if (!response.ok || cancelled) return;
+        const body = await response.json();
+        const sessions = (body?.data?.liveSessions ?? body?.liveSessions ?? []) as Array<{
+          id?: unknown;
+          tmuxName?: unknown;
+          tmuxId?: unknown;
+        }>;
+        const ready = sessions.find((session) => (
+          typeof session.id === 'string'
+          && !session.id.startsWith('idle-gjc:')
+          && session.tmuxName === externalTerminal.tmuxName
+          && (externalTerminal.tmuxId === null || session.tmuxId === externalTerminal.tmuxId)
+        ));
+        if (!ready || typeof ready.id !== 'string') return;
+
+        resolving = true;
+        const detailsResponse = await api.sessionDetails(ready.id);
+        const detailsBody = await detailsResponse.json().catch(() => null);
+        const session = detailsBody?.data?.session as {
+          sessionId?: unknown;
+          provider?: unknown;
+          summary?: unknown;
+          projectId?: unknown;
+          createdAt?: unknown;
+          updatedAt?: unknown;
+        } | undefined;
+        const projectId = typeof session?.projectId === 'string' ? session.projectId : '';
+        const project = sidebarSharedProps.projects.find((candidate) => candidate.projectId === projectId);
+        if (
+          cancelled
+          || !detailsResponse.ok
+          || session?.sessionId !== ready.id
+          || session.provider !== 'gjc'
+          || !project
+        ) {
+          resolving = false;
+          return;
+        }
+
+        setExternalTerminal(null);
+        setExternalTranscript(null);
+        setActiveTab('chat');
+        sidebarSharedProps.onProjectSelect(project);
+        sidebarSharedProps.onSessionSelect({
+          id: ready.id,
+          summary: typeof session.summary === 'string' ? session.summary : '',
+          createdAt: typeof session.createdAt === 'string' ? session.createdAt : undefined,
+          updated_at: typeof session.updatedAt === 'string' ? session.updatedAt : undefined,
+          __provider: 'gjc',
+          __projectId: project.projectId,
+        });
+      } catch {
+        resolving = false;
+        // Best-effort: the next poll retries transcript discovery/indexing.
+      }
+    };
+    void poll();
+    const timer = window.setInterval(() => void poll(), 2000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [externalTerminal, setActiveTab, sidebarSharedProps]);
 
   // Wrap navigation-ish sidebar handlers so leaving for a session/project/new
   // chat drops the terminal takeover — without modifying the originals.
@@ -108,18 +221,26 @@ function AppContentInner() {
     ...sidebarSharedProps,
     onProjectSelect: (...args: Parameters<typeof sidebarSharedProps.onProjectSelect>) => {
       setExternalTerminal(null);
+      setExternalTranscript(null);
       return sidebarSharedProps.onProjectSelect(...args);
     },
     onSessionSelect: (...args: Parameters<typeof sidebarSharedProps.onSessionSelect>) => {
       setExternalTerminal(null);
+      setExternalTranscript(null);
       return sidebarSharedProps.onSessionSelect(...args);
     },
     onNewSession: (...args: Parameters<typeof sidebarSharedProps.onNewSession>) => {
       setExternalTerminal(null);
+      setExternalTranscript(null);
       return sidebarSharedProps.onNewSession(...args);
     },
     onExternalTerminalOpen: openExternalTerminal,
   }), [sidebarSharedProps, openExternalTerminal]);
+
+  const activeExternalTranscript = externalTranscript?.cliKind !== 'gjc'
+    && externalTranscript?.transcriptSessionId === sessionId
+    ? externalTranscript
+    : null;
 
   // Queued messages for sessions that finish while another session (or none)
   // is being viewed are sent from here; the viewed session's composer handles
@@ -280,13 +401,16 @@ function AppContentInner() {
         <MainContent
           selectedProject={selectedProject}
           selectedSession={selectedSession}
-          isSessionReadOnly={Boolean(selectedSession && sidebarSharedProps.liveSessionIds.has(selectedSession.id))}
+          isSessionReadOnly={Boolean(
+            selectedSession
+            && (sidebarSharedProps.liveSessionIds.has(selectedSession.id) || activeExternalTranscript),
+          )}
           liveSessionTmuxName={
             // Relay (tower /send types into the tmux pane) only for LINEAGE
             // claims — a cwd-fallback label points at someone else's pane.
             selectedSession && sidebarSharedProps.liveSessionLineage.has(selectedSession.id)
               ? (sidebarSharedProps.liveSessionNames.get(selectedSession.id) ?? null)
-              : null
+              : activeExternalTranscript?.tmuxName ?? null
           }
           liveSessionTmuxId={
             selectedSession && sidebarSharedProps.liveSessionLineage.has(selectedSession.id)
@@ -294,6 +418,11 @@ function AppContentInner() {
               : null
           }
           liveSessionModel={selectedSession ? (liveSessionModels.get(selectedSession.id) ?? null) : null}
+          liveSessionKind={activeExternalTranscript
+            ? 'codex'
+            : selectedSession && sidebarSharedProps.liveSessionLineage.has(selectedSession.id)
+              ? 'gjc'
+              : null}
           activeTab={activeTab}
           setActiveTab={setActiveTab}
           ws={ws}

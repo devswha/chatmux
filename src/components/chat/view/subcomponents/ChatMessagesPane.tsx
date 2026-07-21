@@ -65,6 +65,7 @@ interface ChatMessagesPaneProps {
   showRawParameters?: boolean;
   showThinking?: boolean;
   selectedProject: Project;
+  transcriptView?: boolean;
 }
 
 function ChatMessagesPane({
@@ -113,6 +114,7 @@ function ChatMessagesPane({
   showRawParameters,
   showThinking,
   selectedProject,
+  transcriptView = false,
 }: ChatMessagesPaneProps) {
   const { t } = useTranslation('chat');
   const groupedVisibleMessages = useMemo(
@@ -265,6 +267,7 @@ function ChatMessagesPane({
                     showThinking={showThinking}
                     selectedProject={selectedProject}
                     provider={provider}
+                    transcriptView={transcriptView}
                   />
                 );
               }
@@ -285,6 +288,7 @@ function ChatMessagesPane({
                   showThinking={showThinking}
                   selectedProject={selectedProject}
                   provider={provider}
+                  transcriptView={transcriptView}
                 />
               );
             });

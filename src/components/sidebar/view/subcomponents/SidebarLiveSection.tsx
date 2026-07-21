@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
 
-import type { Project, ProjectSession } from '../../../../types/app';
+import type { ExternalTerminalTarget, Project, ProjectSession } from '../../../../types/app';
 import { cn } from '../../../../lib/utils';
 import { api } from '../../../../utils/api';
 import { getAllSessions, getSessionTime } from '../../utils/utils';
@@ -28,7 +28,9 @@ type SidebarLiveSectionProps = {
   // of LIVE (blue). Presentational only.
   liveSessionRunning: ReadonlySet<string>;
   selectedSession: ProjectSession | null;
+  onProjectSelect: SidebarProjectListProps['onProjectSelect'];
   onSessionSelect: SidebarProjectListProps['onSessionSelect'];
+  onExternalTerminalOpen?: (target: ExternalTerminalTarget) => void;
 };
 
 /** Per-row kill flow state (2-step confirm before the tower is asked to kill). */
@@ -72,12 +74,16 @@ export default function SidebarLiveSection({
   liveSessionKinds,
   liveSessionRunning,
   selectedSession,
+  onProjectSelect,
   onSessionSelect,
+  onExternalTerminalOpen,
 }: SidebarLiveSectionProps) {
   // Session ids killed in this component instance — hidden immediately; the 5s
   // live poll is the source of truth and will drop them for real.
   const [killedIds, setKilledIds] = useState<ReadonlySet<string>>(new Set());
   const [killStatus, setKillStatus] = useState<Map<string, KillStatus>>(new Map());
+  const [openingId, setOpeningId] = useState<string | null>(null);
+  const [openError, setOpenError] = useState<Map<string, string>>(new Map());
 
   // Reconcile row-local state with each authoritative snapshot (리뷰 반영):
   // ids the poll no longer reports drop their killed/confirm/error state, so a
@@ -127,6 +133,51 @@ export default function SidebarLiveSection({
       }
       return next;
     });
+  };
+
+  const openOrphan = async (sessionId: string) => {
+    if (openingId) return;
+    setOpeningId(sessionId);
+    setOpenError((previous) => {
+      const next = new Map(previous);
+      next.delete(sessionId);
+      return next;
+    });
+    try {
+      const response = await api.sessionDetails(sessionId);
+      const body = await response.json().catch(() => null);
+      const session = body?.data?.session as {
+        sessionId?: unknown;
+        provider?: unknown;
+        summary?: unknown;
+        projectId?: unknown;
+        createdAt?: unknown;
+        updatedAt?: unknown;
+      } | undefined;
+      if (!response.ok || session?.sessionId !== sessionId || session.provider !== 'gjc') {
+        throw new Error(body?.error?.message ?? '이전 대화를 불러오지 못했습니다');
+      }
+      const projectId = typeof session.projectId === 'string' ? session.projectId : '';
+      const project = projects.find((candidate) => candidate.projectId === projectId);
+      if (!project) {
+        throw new Error('연결된 프로젝트를 찾지 못했습니다. 목록을 새로고침해 주세요.');
+      }
+      onProjectSelect(project);
+      onSessionSelect({
+        id: sessionId,
+        summary: typeof session.summary === 'string' ? session.summary : '',
+        createdAt: typeof session.createdAt === 'string' ? session.createdAt : undefined,
+        updated_at: typeof session.updatedAt === 'string' ? session.updatedAt : undefined,
+        __provider: 'gjc',
+      }, project.projectId);
+    } catch (error) {
+      setOpenError((previous) => new Map(previous).set(
+        sessionId,
+        error instanceof Error ? error.message : '이전 대화를 불러오지 못했습니다',
+      ));
+    } finally {
+      setOpeningId(null);
+    }
   };
 
   const kill = async (sessionId: string, tmuxName: string) => {
@@ -292,40 +343,71 @@ export default function SidebarLiveSection({
           // Server-synthetic row: a gjc TUI runs in this tmux session but has no
           // transcript yet (gjc creates it at the FIRST message) — waiting, not live.
           const isIdle = id.startsWith('idle-gjc:');
+          const content = (
+            <>
+              <span className="flex items-center gap-2">
+                <span
+                  className={`inline-flex h-1.5 w-1.5 shrink-0 rounded-full ${isIdle ? 'bg-muted-foreground/50' : liveSessionRunning.has(id) ? 'animate-pulse bg-emerald-500' : 'animate-pulse bg-blue-500'}`}
+                  aria-hidden
+                />
+                <span
+                  className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${isIdle ? 'bg-muted text-muted-foreground' : liveSessionRunning.has(id) ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' : 'bg-blue-500/15 text-blue-600 dark:text-blue-400'}`}
+                >
+                  {isIdle ? '대기' : liveSessionRunning.has(id) ? 'RUN' : 'LIVE'}
+                </span>
+                {liveSessionKinds.get(id) === 'batch' && (
+                  <span
+                    className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400"
+                    title="이 tmux pane의 전면 명령이 gjc가 아닙니다 — gjc는 배치(백그라운드) 자손으로 실행 중"
+                  >
+                    배치
+                  </span>
+                )}
+                <span className="truncate text-sm font-medium text-foreground">
+                  {tmuxName ?? '이름 미확인 세션'}
+                </span>
+              </span>
+              <span className="truncate pl-[1.375rem] text-[11px] text-muted-foreground">
+                {isIdle
+                  ? '눌러서 첫 대화 시작'
+                  : openingId === id
+                    ? '이전 대화 불러오는 중…'
+                    : '눌러서 이전 대화 열기'}
+              </span>
+            </>
+          );
           return (
             <div key={id} className="rounded-md transition-colors hover:bg-muted/50">
               <div className="flex items-start">
-                <div className="flex min-w-0 flex-1 flex-col gap-0.5 px-2 py-1.5 text-left">
-                  <span className="flex items-center gap-2">
-                    <span
-                      className={`inline-flex h-1.5 w-1.5 shrink-0 rounded-full ${isIdle ? 'bg-muted-foreground/50' : liveSessionRunning.has(id) ? 'animate-pulse bg-emerald-500' : 'animate-pulse bg-blue-500'}`}
-                      aria-hidden
-                    />
-                    <span
-                      className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${isIdle ? 'bg-muted text-muted-foreground' : liveSessionRunning.has(id) ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' : 'bg-blue-500/15 text-blue-600 dark:text-blue-400'}`}
-                    >
-                      {isIdle ? '대기' : liveSessionRunning.has(id) ? 'RUN' : 'LIVE'}
-                    </span>
-                    {liveSessionKinds.get(id) === 'batch' && (
-                      <span
-                        className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400"
-                        title="이 tmux pane의 전면 명령이 gjc가 아닙니다 — gjc는 배치(백그라운드) 자손으로 실행 중"
-                      >
-                        배치
-                      </span>
-                    )}
-                    <span className="truncate text-sm font-medium text-foreground">
-                      {tmuxName ?? '이름 미확인 세션'}
-                    </span>
-                  </span>
-                  <span className="truncate pl-[1.375rem] text-[11px] text-muted-foreground">
-                    {isIdle
-                      ? '아직 대화가 없습니다 — 아래에서 첫 메시지를 보낼 수 있습니다'
-                      : '대화 미로딩 — 해당 프로젝트를 열면 제목이 표시됩니다'}
-                  </span>
-                </div>
+                {isIdle ? (
+                  <button
+                    type="button"
+                    onClick={() => tmuxName && onExternalTerminalOpen?.({
+                      tmuxName,
+                      tmuxId: liveSessionTmuxIds.get(id) ?? null,
+                      kind: 'GJC',
+                      cliKind: 'gjc',
+                    })}
+                    className="flex min-w-0 flex-1 flex-col gap-0.5 px-2 py-1.5 text-left"
+                    title={tmuxName ? `tmux 세션 '${tmuxName}'에서 첫 대화 시작` : undefined}
+                  >
+                    {content}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={openingId !== null}
+                    onClick={() => void openOrphan(id)}
+                    className="flex min-w-0 flex-1 flex-col gap-0.5 px-2 py-1.5 text-left disabled:opacity-60"
+                  >
+                    {content}
+                  </button>
+                )}
                 {tmuxName && liveSessionLineage.has(id) && killButton(id, tmuxName)}
               </div>
+              {openError.has(id) && (
+                <p className="px-2 pb-1.5 pl-[1.375rem] text-[11px] text-red-500">{openError.get(id)}</p>
+              )}
               {isIdle && tmuxName && liveSessionLineage.has(id) && (
                 <SidebarIdleComposer
                   key={`composer-${id}`}

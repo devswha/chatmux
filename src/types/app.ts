@@ -33,7 +33,16 @@ export type AppTab = 'chat' | 'files' | 'shell' | 'git' | 'tasks' | 'browser' | 
 export type ExternalTerminalTarget = {
   tmuxName: string;
   kind: string;
+  cliKind: 'claude' | 'codex' | 'ssh';
   project: Project;
+  /** Opens the structured transcript instead of attaching a terminal. */
+  transcriptSessionId?: string;
+} | {
+  /** A freshly opened GJC pane has no transcript id until its first message. */
+  tmuxName: string;
+  tmuxId: string | null;
+  kind: 'GJC';
+  cliKind: 'gjc';
 };
 
 export interface ProjectSession {

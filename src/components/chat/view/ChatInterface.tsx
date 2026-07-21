@@ -25,6 +25,7 @@ function ChatInterface({
   liveSessionTmuxName,
   liveSessionTmuxId,
   liveSessionModel,
+  liveSessionKind,
   ws,
   sendMessage,
   onFileOpen,
@@ -389,6 +390,7 @@ function ChatInterface({
           showRawParameters={showRawParameters}
           showThinking={showThinking}
           selectedProject={selectedProject}
+          transcriptView={liveSessionKind === 'codex'}
         />
 
         <div className="relative flex-shrink-0">
@@ -417,7 +419,15 @@ function ChatInterface({
             liveSessionTmuxName ? (
               // key: remount per tmux target — a draft/in-flight status typed
               // for session A must never survive a switch to target B (리뷰 반영).
-              <LiveRelayComposer key={liveSessionTmuxName} tmuxName={liveSessionTmuxName} tmuxId={liveSessionTmuxId} model={liveSessionModel} workspacePath={selectedProject.fullPath || selectedProject.path} />
+              <LiveRelayComposer
+                key={`${liveSessionKind ?? 'gjc'}:${liveSessionTmuxName}`}
+                tmuxName={liveSessionTmuxName}
+                tmuxId={liveSessionTmuxId}
+                model={liveSessionModel}
+                workspacePath={selectedProject.fullPath || selectedProject.path}
+                relayKind={liveSessionKind ?? 'gjc'}
+                sessionId={selectedSession?.id ?? null}
+              />
             ) : (
               <div className="chat-composer-shell relative flex-shrink-0 px-2 pb-3 pt-2 sm:px-4">
                 <div className="mx-auto flex max-w-[54.25rem] items-center gap-2 rounded-xl border border-blue-500/30 bg-blue-500/10 px-4 py-3 text-sm text-blue-700 dark:text-blue-300">

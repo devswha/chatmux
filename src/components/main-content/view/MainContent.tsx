@@ -1,5 +1,5 @@
 import React, { lazy, Suspense, useCallback, useEffect, useState } from 'react';
-import { Menu, SquareTerminal, X } from 'lucide-react';
+import { Menu, MessageSquare, SquareTerminal, X } from 'lucide-react';
 
 import type { MainContentProps } from '../types/types';
 import { useTaskMaster } from '../../../contexts/TaskMasterContext';
@@ -9,6 +9,7 @@ import { useUiPreferences } from '../../../hooks/useUiPreferences';
 import { useFileOpenResolver } from '../../../hooks/useFileOpenResolver';
 import { authenticatedFetch } from '../../../utils/api';
 import { useEditorSidebar } from '../../code-editor/hooks/useEditorSidebar';
+import LiveRelayComposer from '../../chat/view/subcomponents/LiveRelayComposer';
 import type { Project } from '../../../types/app';
 
 import MainContentHeader from './subcomponents/MainContentHeader';
@@ -45,6 +46,7 @@ function MainContent({
   liveSessionTmuxName,
   liveSessionTmuxId,
   liveSessionModel,
+  liveSessionKind,
   activeTab,
   setActiveTab,
   ws,
@@ -170,6 +172,56 @@ function MainContent({
     return <MainContentStateView mode="loading" isMobile={isMobile} onMenuClick={onMenuClick} />;
   }
 
+  // Fresh Codex/GJC panes have no transcript id until their first turn. Keep
+  // them in the transcript-style surface from the start; the first prompt is
+  // relayed to tmux, then AppContent switches this view to the real transcript.
+  if (externalTerminal?.cliKind === 'codex' || externalTerminal?.cliKind === 'gjc') {
+    const isGjc = externalTerminal.cliKind === 'gjc';
+    return (
+      <div className="flex h-full min-h-0 flex-col">
+        <div className="flex flex-shrink-0 items-center justify-between border-b border-border/50 px-3 py-2">
+          <div className="flex min-w-0 items-center gap-2">
+            {isMobile && (
+              <button
+                type="button"
+                onClick={onMenuClick}
+                className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+                aria-label="Open sidebar"
+              >
+                <Menu className="h-4 w-4" />
+              </button>
+            )}
+            <MessageSquare className="h-4 w-4 shrink-0 text-emerald-500" aria-hidden />
+            <span className="truncate text-sm font-semibold text-foreground">{externalTerminal.tmuxName}</span>
+            <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">
+              {isGjc ? 'GJC transcript 준비 중' : 'Codex transcript 준비 중'}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={onExternalTerminalClose}
+            title={`${isGjc ? 'GJC' : 'Codex'} 화면 닫기`}
+            className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-4">
+          <div className="mx-auto flex h-full max-w-[54.25rem] items-center justify-center text-center text-sm text-muted-foreground">
+            첫 지시를 보내면 {isGjc ? 'GJC' : 'Codex'} transcript가 생성되어 이 화면에 자동으로 연결됩니다.
+          </div>
+        </div>
+        <LiveRelayComposer
+          key={`pending-${externalTerminal.cliKind}:${externalTerminal.tmuxName}`}
+          tmuxName={externalTerminal.tmuxName}
+          tmuxId={isGjc ? externalTerminal.tmuxId : null}
+          workspacePath={isGjc ? null : (externalTerminal.project.fullPath || externalTerminal.project.path)}
+          relayKind={isGjc ? 'gjc' : 'codex'}
+        />
+      </div>
+    );
+  }
+
   // External CLI (claude/codex) tmux terminal takes over the whole main area —
   // same footprint as a gjc session. Rendered before the no-project empty state
   // because the target carries its own project (PTY cwd only).
@@ -259,6 +311,7 @@ function MainContent({
                   liveSessionTmuxName={liveSessionTmuxName}
                   liveSessionTmuxId={liveSessionTmuxId}
                   liveSessionModel={liveSessionModel}
+                  liveSessionKind={liveSessionKind}
                   ws={ws}
                   sendMessage={sendMessage}
                   onFileOpen={handleFileOpen}
