@@ -36,7 +36,7 @@ const clearAuthCookie = (req, res) => {
 // remain claimable while every request already acts as the implicit owner.
 const rejectWhenAuthDisabled = (req, res, next) => {
   if (isAuthDisabled()) {
-    return res.status(404).json({ error: 'Authentication is disabled (GAJAE_AUTH=none).' });
+    return res.status(404).json({ error: 'Authentication is disabled (CHATMUX_AUTH=none).' });
   }
   next();
 };

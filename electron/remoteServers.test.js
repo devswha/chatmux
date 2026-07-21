@@ -20,7 +20,7 @@ function jsonResponse(body, status = 200) {
 }
 
 async function createStore(options = {}) {
-  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'gajae-app-remote-servers-'));
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'chatmux-remote-servers-'));
   const storePath = path.join(directory, 'remote-servers.json');
   return {
     directory,
@@ -132,14 +132,14 @@ test('health probes are explicit, credentialless, redirect-safe, and fail closed
       requestedOptions = options;
       return jsonResponse({
         status: 'ok',
-        product: 'gajae-app',
+        product: 'chatmux',
         protocolVersion: 1,
         version: '1.2.3',
       });
     },
   });
 
-  assert.deepEqual(health, { status: 'ok', product: 'gajae-app', protocolVersion: 1, version: '1.2.3' });
+  assert.deepEqual(health, { status: 'ok', product: 'chatmux', protocolVersion: 1, version: '1.2.3' });
   assert.equal(requestedUrl, 'https://probe.example/health');
   assert.equal(requestedOptions.method, 'GET');
   assert.equal(requestedOptions.credentials, 'omit');
@@ -157,13 +157,13 @@ test('health probes are explicit, credentialless, redirect-safe, and fail closed
     fetchImpl: async () => jsonResponse('{bad JSON'),
   }), /malformed JSON/);
   await assert.rejects(probeRemoteServer('https://probe.example/', {
-    fetchImpl: async () => jsonResponse({ status: 'ok', product: 'gajae-app', protocolVersion: 1 }),
+    fetchImpl: async () => jsonResponse({ status: 'ok', product: 'chatmux', protocolVersion: 1 }),
   }), /unexpected server identity/);
   await assert.rejects(probeRemoteServer('https://probe.example/', {
-    fetchImpl: async () => jsonResponse({ status: 'ok', product: 'gajae-app', protocolVersion: '1', version: '1.2.3' }),
+    fetchImpl: async () => jsonResponse({ status: 'ok', product: 'chatmux', protocolVersion: '1', version: '1.2.3' }),
   }), /unexpected server identity/);
   await assert.rejects(probeRemoteServer('https://probe.example/', {
-    fetchImpl: async () => jsonResponse({ status: 'ok', product: 'gajae-app', protocolVersion: 1, version: ' ' }),
+    fetchImpl: async () => jsonResponse({ status: 'ok', product: 'chatmux', protocolVersion: 1, version: ' ' }),
   }), /unexpected server identity/);
   await assert.rejects(probeRemoteServer('https://probe.example/', {
     fetchImpl: async () => jsonResponse('x'.repeat(REMOTE_HEALTH_MAX_RESPONSE_BYTES + 1)),

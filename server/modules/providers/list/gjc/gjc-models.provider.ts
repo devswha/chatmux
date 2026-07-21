@@ -13,7 +13,7 @@ import {
 /**
  * Static model catalog for gjc.
  *
- * gjc does not yet expose a queryable model catalog to Gajae App, so a minimal
+ * gjc does not yet expose a queryable model catalog to ChatMux, so a minimal
  * static fallback is returned. This keeps the model picker functional and can
  * be replaced by a real catalog reader when the source is integrated.
  */

@@ -669,7 +669,7 @@ router.post(
       throw new AppError('A valid tmuxName is required.', { code: 'INVALID_TMUX_NAME', statusCode: 400 });
     }
     if (body.tmuxName === await getCurrentTmuxSessionName()) {
-      throw new AppError('The tmux session hosting Gajae App is protected.', {
+      throw new AppError('The tmux session hosting ChatMux is protected.', {
         code: 'EXTERNAL_CODEX_SESSION_PROTECTED',
         statusCode: 403,
       });

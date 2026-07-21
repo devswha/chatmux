@@ -333,7 +333,7 @@ test('OpenCode sessions provider strips <images_input> from user turns and expos
 
     // Rewrite the user text part with the tagged prompt the runtime sends.
     const taggedPrompt = appendImagesInputTag('Look at this screenshot.', [
-      { path: 'C:/Users/x/.gajae-app/assets/shot.png' },
+      { path: 'C:/Users/x/.chatmux/assets/shot.png' },
     ]);
     const db = new Database(path.join(tempRoot, '.local', 'share', 'opencode', 'opencode.db'));
     try {
@@ -350,7 +350,7 @@ test('OpenCode sessions provider strips <images_input> from user turns and expos
     const userMessage = history.messages.find((message) => message.kind === 'text' && message.role === 'user');
 
     assert.equal(userMessage?.content, 'Look at this screenshot.');
-    assert.deepEqual(userMessage?.images, [{ path: 'C:/Users/x/.gajae-app/assets/shot.png' }]);
+    assert.deepEqual(userMessage?.images, [{ path: 'C:/Users/x/.chatmux/assets/shot.png' }]);
   } finally {
     restoreHomeDir();
     await rm(tempRoot, { recursive: true, force: true });
@@ -478,7 +478,7 @@ test('OpenCode synchronizer titles app-created sessions from the first user mess
 
   try {
     // Stored title differs from the first message so we can prove the first
-    // message wins for sessions started from Gajae App.
+    // message wins for sessions started from ChatMux.
     await seedOpenCodeSession(tempRoot, workspacePath, {
       sessionId: 'oc-app-1',
       title: 'OpenCode generated title',

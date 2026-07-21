@@ -1,13 +1,13 @@
 # Manual selective upstream intake
 
-Gajae App accepts upstream changes only through a deliberate, reviewable
+ChatMux accepts upstream changes only through a deliberate, reviewable
 intake. There is no scheduled mirror, automatic synchronization, bulk merge,
 or automatic source rewrite.
 
 The historical upstream repository, `CloudCLI UI`, is
 `https://github.com/siteboon/claudecodeui`. Both identifiers are provenance
-only; it is not a Gajae App release source. Gajae App server artifacts are
-published only through [GitHub Releases](https://github.com/devswha/gajae-app/releases).
+only; it is not a ChatMux release source. ChatMux server artifacts are
+published only through [GitHub Releases](https://github.com/devswha/chatmux/releases).
 
 ## Intake record
 
@@ -18,7 +18,7 @@ For every candidate, create a review record containing:
 - original author and commit attribution;
 - applicable license and notice obligations;
 - focused test evidence and identity-scan result; and
-- the resulting Gajae App commit identifier.
+- the resulting ChatMux commit identifier.
 
 Do not begin from a branch tip, a moving tag, or an unreviewed aggregate of
 changes. Select the smallest set of commits that addresses the approved need.
@@ -30,7 +30,7 @@ configure its `upstream` remote to the historical source. Fetching is allowed
 for inspection; it does not authorize integration.
 
 ```sh
-CHECKOUT="$HOME/.local/share/gajae-app"
+CHECKOUT="$HOME/.local/share/chatmux"
 UPSTREAM_COMMIT=<reviewed-full-commit>
 
 cd "$CHECKOUT"
@@ -56,10 +56,10 @@ Before applying a candidate:
 2. Preserve original commit attribution. When a commit is accepted unchanged,
    use `git cherry-pick -x` so its source identifier remains in history.
 3. Inspect every changed public name, endpoint, release reference, artifact
-   name, service unit name, and user-facing path. Gajae App identity is
-   `gajae-app`, `gajae-app.service`,
-   `gajae-app-server-<version>-linux-x64-node22.tar.gz`, and
-   `https://github.com/devswha/gajae-app/releases`.
+   name, service unit name, and user-facing path. ChatMux identity is
+   `chatmux`, `chatmux.service`,
+   `chatmux-server-<version>-linux-x64-node22.tar.gz`, and
+   `https://github.com/devswha/chatmux/releases`.
 4. Run the repository identity scanner for the candidate diff. Treat any
    non-provenance legacy product, service, package, or release reference as a
    blocker until it is intentionally removed or documented as provenance.
@@ -88,7 +88,7 @@ A conflict is a review event, not permission to copy surrounding upstream
 changes. Resolve only the approved behavior; otherwise abort the intake and
 record why it was rejected.
 
-After review, add a new Gajae App changelog entry above the historical
+After review, add a new ChatMux changelog entry above the historical
 provenance section. Do not rewrite historical links or entries. Publishing a
 new server artifact remains a separate release review and uses GitHub Releases
 only.

@@ -10,9 +10,9 @@ import { TabsController } from './tabs.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const APP_NAME = 'Gajae App';
-const APP_USER_MODEL_ID = 'gajae-app';
-const APP_PROTOCOL = 'gajae-app';
+const APP_NAME = 'ChatMux';
+const APP_USER_MODEL_ID = 'chatmux';
+const APP_PROTOCOL = 'chatmux';
 
 const tabs = new TabsController();
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
@@ -185,7 +185,7 @@ async function copyDiagnostics() {
   await dialog.showMessageBox(desktopWindow?.getMainWindow() || undefined, {
     type: 'info',
     title: 'Diagnostics copied',
-    message: 'Gajae App diagnostics were copied to the clipboard.',
+    message: 'ChatMux diagnostics were copied to the clipboard.',
   });
 }
 
@@ -194,7 +194,7 @@ async function copyLocalWebUrl() {
   const localUrl = localServer.getLocalServerUrl();
 
   if (!localUrl) {
-    throw new Error('Local Gajae App URL is not available yet.');
+    throw new Error('Local ChatMux URL is not available yet.');
   }
 
   clipboard.writeText(localUrl);
@@ -211,7 +211,7 @@ async function openLocalWebUi() {
   await localServer.ensureLocalServer();
   const url = localServer.getShareableWebUrl() || localServer.getLocalServerUrl();
   if (!url) {
-    throw new Error('Local Gajae App URL is not available yet.');
+    throw new Error('Local ChatMux URL is not available yet.');
   }
 
   await openExternalUrl(url);
@@ -345,13 +345,13 @@ async function selectTarget(targetId) {
 
 async function showTargetPicker() {
   const targetState = getRemoteServersState();
-  const choices = ['Local Gajae App', ...targetState.servers.map((target) => target.name)];
+  const choices = ['Local ChatMux', ...targetState.servers.map((target) => target.name)];
   const response = await dialog.showMessageBox(desktopWindow?.getMainWindow(), {
     type: 'question',
     buttons: [...choices, 'Cancel'],
     defaultId: 0,
     cancelId: choices.length,
-    title: 'Switch Gajae App target',
+    title: 'Switch ChatMux target',
     message: 'Choose where this desktop window should connect.',
   });
 
@@ -468,40 +468,40 @@ function ipcResponse(handler) {
 }
 
 function registerIpcHandlers() {
-  ipcMain.handle('gajae-app-desktop:state:get', ipcResponse(() => getDesktopState()));
-  ipcMain.handle('gajae-app-desktop:copy-diagnostics', ipcResponse(() => copyDiagnostics()));
-  ipcMain.handle('gajae-app-desktop:copy-local-web-url', ipcResponse(() => copyLocalWebUrl()));
-  ipcMain.handle('gajae-app-desktop:local:open', ipcResponse(() => openLocalTarget()));
-  ipcMain.handle('gajae-app-desktop:open-local-web-ui', ipcResponse(() => openLocalWebUi()));
-  ipcMain.handle('gajae-app-desktop:reload-active-tab', ipcResponse(() => desktopWindow.reloadActiveTab()));
-  ipcMain.handle('gajae-app-desktop:show-target-picker', ipcResponse(() => showTargetPicker()));
-  ipcMain.handle('gajae-app-desktop:show-launcher', ipcResponse(async () => {
+  ipcMain.handle('chatmux-desktop:state:get', ipcResponse(() => getDesktopState()));
+  ipcMain.handle('chatmux-desktop:copy-diagnostics', ipcResponse(() => copyDiagnostics()));
+  ipcMain.handle('chatmux-desktop:copy-local-web-url', ipcResponse(() => copyLocalWebUrl()));
+  ipcMain.handle('chatmux-desktop:local:open', ipcResponse(() => openLocalTarget()));
+  ipcMain.handle('chatmux-desktop:open-local-web-ui', ipcResponse(() => openLocalWebUi()));
+  ipcMain.handle('chatmux-desktop:reload-active-tab', ipcResponse(() => desktopWindow.reloadActiveTab()));
+  ipcMain.handle('chatmux-desktop:show-target-picker', ipcResponse(() => showTargetPicker()));
+  ipcMain.handle('chatmux-desktop:show-launcher', ipcResponse(async () => {
     await desktopWindow.showLauncher();
     return getDesktopState();
   }));
-  ipcMain.handle('gajae-app-desktop:show-desktop-settings', ipcResponse(() => desktopWindow.showDesktopSettings()));
-  ipcMain.handle('gajae-app-desktop:show-local-settings', ipcResponse(() => desktopWindow.showLocalSettings()));
-  ipcMain.handle('gajae-app-desktop:close-settings-window', ipcResponse(() => {
+  ipcMain.handle('chatmux-desktop:show-desktop-settings', ipcResponse(() => desktopWindow.showDesktopSettings()));
+  ipcMain.handle('chatmux-desktop:show-local-settings', ipcResponse(() => desktopWindow.showLocalSettings()));
+  ipcMain.handle('chatmux-desktop:close-settings-window', ipcResponse(() => {
     desktopWindow.closeSettingsWindow();
     return getDesktopState();
   }));
-  ipcMain.handle('gajae-app-desktop:switch-tab', ipcResponse((_event, tabId) => desktopWindow.switchDesktopTab(tabId)));
-  ipcMain.handle('gajae-app-desktop:close-tab', ipcResponse((_event, tabId) => desktopWindow.closeDesktopTab(tabId)));
-  ipcMain.handle('gajae-app-desktop:update-setting', ipcResponse((_event, key, value) => updateDesktopSetting(key, value)));
+  ipcMain.handle('chatmux-desktop:switch-tab', ipcResponse((_event, tabId) => desktopWindow.switchDesktopTab(tabId)));
+  ipcMain.handle('chatmux-desktop:close-tab', ipcResponse((_event, tabId) => desktopWindow.closeDesktopTab(tabId)));
+  ipcMain.handle('chatmux-desktop:update-setting', ipcResponse((_event, key, value) => updateDesktopSetting(key, value)));
 
-  ipcMain.handle('gajae-app-desktop:remote-servers:list', ipcResponse(async () => {
+  ipcMain.handle('chatmux-desktop:remote-servers:list', ipcResponse(async () => {
     const state = await remoteServers.getState();
     return { servers: state.servers, selectedId: state.selectedId };
   }));
-  ipcMain.handle('gajae-app-desktop:remote-servers:create', ipcResponse((_event, input) => saveTarget(input)));
-  ipcMain.handle('gajae-app-desktop:remote-servers:update', ipcResponse((_event, input) => {
+  ipcMain.handle('chatmux-desktop:remote-servers:create', ipcResponse((_event, input) => saveTarget(input)));
+  ipcMain.handle('chatmux-desktop:remote-servers:update', ipcResponse((_event, input) => {
     const { id, ...changes } = input ?? {};
     return updateTarget(id, changes);
   }));
-  ipcMain.handle('gajae-app-desktop:remote-servers:delete', ipcResponse((_event, targetId) => deleteTarget(targetId)));
-  ipcMain.handle('gajae-app-desktop:remote-servers:select', ipcResponse((_event, targetId) => selectTarget(targetId)));
-  ipcMain.handle('gajae-app-desktop:remote-servers:test', ipcResponse((_event, targetId) => testTarget(targetId)));
-  ipcMain.handle('gajae-app-desktop:remote-servers:open', ipcResponse((_event, targetId) => openTarget(targetId)));
+  ipcMain.handle('chatmux-desktop:remote-servers:delete', ipcResponse((_event, targetId) => deleteTarget(targetId)));
+  ipcMain.handle('chatmux-desktop:remote-servers:select', ipcResponse((_event, targetId) => selectTarget(targetId)));
+  ipcMain.handle('chatmux-desktop:remote-servers:test', ipcResponse((_event, targetId) => testTarget(targetId)));
+  ipcMain.handle('chatmux-desktop:remote-servers:open', ipcResponse((_event, targetId) => openTarget(targetId)));
 }
 
 function registerAppEvents() {
@@ -650,7 +650,7 @@ registerEarlyOpenUrlHandler();
 
 if (registerSingleInstance()) {
   bootstrap().catch(async (error) => {
-    await showError('Gajae App failed to start', error);
+    await showError('ChatMux failed to start', error);
     app.quit();
   });
 }

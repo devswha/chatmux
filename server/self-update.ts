@@ -34,8 +34,8 @@ export type InstallMode = 'source' | 'release' | 'unknown';
 /** How the running app was installed, from its resolved app root. */
 export function detectInstallMode(appRoot: string, home: string = homedir()): InstallMode {
   const root = path.resolve(appRoot);
-  const releasesRoot = path.resolve(home, '.gajae-app', 'releases') + path.sep;
-  if (root.startsWith(releasesRoot) || root === path.resolve(home, '.gajae-app', 'current')) {
+  const releasesRoot = path.resolve(home, '.chatmux', 'releases') + path.sep;
+  if (root.startsWith(releasesRoot) || root === path.resolve(home, '.chatmux', 'current')) {
     return 'release';
   }
   if (existsSync(path.join(root, '.git')) && existsSync(path.join(root, 'scripts', 'deploy.sh'))) {
@@ -157,7 +157,7 @@ export function createSystemRouter(options: SystemRouterOptions): Router {
   const mode = options.mode ?? detectInstallMode(options.appRoot);
   const launch = options.launch ?? launchViaSystemdRun;
   const now = options.now ?? Date.now;
-  const logPath = path.join(homedir(), '.gajae-app', 'self-update.log');
+  const logPath = path.join(homedir(), '.chatmux', 'self-update.log');
   let inFlight: SelfUpdateState = null;
   // Access info is a subprocess probe; settings opens shouldn't hammer it.
   let accessCache: { at: number; info: TailscaleAccessInfo } | null = null;
@@ -193,7 +193,7 @@ export function createSystemRouter(options: SystemRouterOptions): Router {
         res.status(plan.statusCode).json({ error: plan.error, mode });
         return;
       }
-      const unitName = `gajae-app-self-update-${now()}`;
+      const unitName = `chatmux-self-update-${now()}`;
       const healthUrl = `http://127.0.0.1:${options.serverPort}/`;
       const script = buildSelfUpdateScript(options.appRoot, healthUrl, logPath);
       try {

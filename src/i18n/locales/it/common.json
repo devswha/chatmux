@@ -246,7 +246,7 @@
     "viewFullRelease": "Vedi release completa",
     "updateProgress": "Progresso aggiornamento:",
     "manualUpgrade": "Aggiornamento:",
-    "npmUpgradeCommand": "scripts/gajae-app.sh update",
+    "npmUpgradeCommand": "scripts/chatmux.sh update",
     "manualUpgradeHint": "Scarica l'ultima versione da GitHub Releases oppure esegui questo comando di aggiornamento.",
     "updateCompleted": "Aggiornamento completato con successo!",
     "restartServer": "Riavvia il server per applicare le modifiche.",

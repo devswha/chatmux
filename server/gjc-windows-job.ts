@@ -1,13 +1,13 @@
 import path from 'node:path';
 import { gzipSync } from 'node:zlib';
 
-const APPLICATION_ENV = 'GAJAE_INTERNAL_JOB_APPLICATION';
-const COMMAND_LINE_ENV = 'GAJAE_INTERNAL_JOB_COMMAND_LINE';
-const WORKING_DIRECTORY_ENV = 'GAJAE_INTERNAL_JOB_WORKING_DIRECTORY';
-const OWNER_PROCESS_ENV = 'GAJAE_INTERNAL_JOB_OWNER_PROCESS';
+const APPLICATION_ENV = 'CHATMUX_INTERNAL_JOB_APPLICATION';
+const COMMAND_LINE_ENV = 'CHATMUX_INTERNAL_JOB_COMMAND_LINE';
+const WORKING_DIRECTORY_ENV = 'CHATMUX_INTERNAL_JOB_WORKING_DIRECTORY';
+const OWNER_PROCESS_ENV = 'CHATMUX_INTERNAL_JOB_OWNER_PROCESS';
 
-export const GJC_WINDOWS_JOB_GUARD_READY = 'gajae-job-guard-ready-v1';
-export const GJC_WINDOWS_JOB_GUARD_ACK = 'gajae-job-guard-ack-v1';
+export const GJC_WINDOWS_JOB_GUARD_READY = 'chatmux-job-guard-ready-v1';
+export const GJC_WINDOWS_JOB_GUARD_ACK = 'chatmux-job-guard-ack-v1';
 
 const WINDOWS_JOB_GUARD_SCRIPT = String.raw`
 $ErrorActionPreference = 'Stop'
@@ -17,7 +17,7 @@ using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Text;
 
-public static class GajaeWindowsJobGuard
+public static class ChatMuxWindowsJobGuard
 {
     private const uint CREATE_NO_WINDOW = 0x08000000;
     private const uint EXTENDED_STARTUPINFO_PRESENT = 0x00080000;
@@ -348,16 +348,16 @@ if ([String]::IsNullOrWhiteSpace($application) -or [String]::IsNullOrWhiteSpace(
 }
 $ownerHandle = [IntPtr]::Zero
 try {
-    $ownerHandle = [GajaeWindowsJobGuard]::OpenOwner([UInt32]$ownerProcessId)
+    $ownerHandle = [ChatMuxWindowsJobGuard]::OpenOwner([UInt32]$ownerProcessId)
     [Console]::Out.WriteLine('${GJC_WINDOWS_JOB_GUARD_READY}')
     [Console]::Out.Flush()
-    if (![GajaeWindowsJobGuard]::ReadAcknowledgement('${GJC_WINDOWS_JOB_GUARD_ACK}')) {
+    if (![ChatMuxWindowsJobGuard]::ReadAcknowledgement('${GJC_WINDOWS_JOB_GUARD_ACK}')) {
         throw 'Invalid job guard acknowledgement.'
     }
-    $exitCode = [GajaeWindowsJobGuard]::Run($application, $commandLine, $workingDirectory, $ownerHandle)
+    $exitCode = [ChatMuxWindowsJobGuard]::Run($application, $commandLine, $workingDirectory, $ownerHandle)
     exit $exitCode
 } finally {
-    [GajaeWindowsJobGuard]::CloseOwner($ownerHandle)
+    [ChatMuxWindowsJobGuard]::CloseOwner($ownerHandle)
 }
 `.trim();
 

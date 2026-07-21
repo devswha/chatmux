@@ -29,10 +29,10 @@ import { APP_CONFIG_TABLE_SCHEMA_SQL } from '@/modules/database/schema.js';
  *
  * Priority:
  *   1. DATABASE_PATH environment variable (set by cli.js or load-env.js)
- *   2. ~/.gajae-app/auth.db
+ *   2. ~/.chatmux/auth.db
  */
 function resolveDatabasePath(): string {
-  return process.env.DATABASE_PATH || path.join(os.homedir(), '.gajae-app', 'auth.db');
+  return process.env.DATABASE_PATH || path.join(os.homedir(), '.chatmux', 'auth.db');
 }
 // ---------------------------------------------------------------------------
 // Directory helpers

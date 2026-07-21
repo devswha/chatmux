@@ -4,18 +4,18 @@ use std::io::{self, Read, Write};
 use std::process::{Child, Command, ExitCode, ExitStatus, Stdio};
 use std::thread;
 
-use gajae_core::{Command as CliCommand, jobs, map_exit_status, parse_args, pty, watcher};
+use chatmux_core::{Command as CliCommand, jobs, map_exit_status, parse_args, pty, watcher};
 
-const USAGE_ERROR: &[u8] = b"gajae-core: usage error\n";
-const SPAWN_ERROR: &[u8] = b"gajae-core: spawn failed\n";
-const PROXY_ERROR: &[u8] = b"gajae-core: proxy failed\n";
-const JOBS_ERROR: &[u8] = b"gajae-core: jobs protocol failed\n";
-const PTY_ERROR: &[u8] = b"gajae-core: pty protocol failed\n";
+const USAGE_ERROR: &[u8] = b"chatmux-core: usage error\n";
+const SPAWN_ERROR: &[u8] = b"chatmux-core: spawn failed\n";
+const PROXY_ERROR: &[u8] = b"chatmux-core: proxy failed\n";
+const JOBS_ERROR: &[u8] = b"chatmux-core: jobs protocol failed\n";
+const PTY_ERROR: &[u8] = b"chatmux-core: pty protocol failed\n";
 
 fn main() -> ExitCode {
     match parse_args(std::env::args_os().skip(1)) {
         Ok(CliCommand::Version) => {
-            println!("gajae-core {}", env!("CARGO_PKG_VERSION"));
+            println!("chatmux-core {}", env!("CARGO_PKG_VERSION"));
             ExitCode::SUCCESS
         }
         Ok(CliCommand::Proxy { program, args }) => run_proxy(program, args),
@@ -64,7 +64,7 @@ fn run_proxy(program: std::ffi::OsString, args: Vec<std::ffi::OsString>) -> Exit
         }
     };
     let copier = thread::Builder::new()
-        .name("gajae-core-stdin".into())
+        .name("chatmux-core-stdin".into())
         .spawn(move || copy_stdin(child_stdin));
 
     let copier = match copier {

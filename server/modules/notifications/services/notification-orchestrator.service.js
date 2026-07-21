@@ -173,7 +173,7 @@ function buildNotificationPayload(event) {
   const message = CODE_MAP[normalizedEvent.code] || 'You have a new notification';
 
   return {
-    title: sessionName || 'Gajae App',
+    title: sessionName || 'ChatMux',
     body: `${providerLabel}: ${message}`,
     data: {
       sessionId: normalizedEvent.sessionId || null,

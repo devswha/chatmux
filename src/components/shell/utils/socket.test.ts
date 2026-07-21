@@ -7,7 +7,7 @@ type MinimalWindow = { location: { protocol: string; host: string } };
 
 // Regression: the shell socket URL was gated on a localStorage auth token,
 // but a WebSocket handshake cannot carry custom headers — authentication is
-// server-side (auth cookie, or the implicit owner when GAJAE_AUTH=none).
+// server-side (auth cookie, or the implicit owner when CHATMUX_AUTH=none).
 // In no-login mode there IS no stored token, so every terminal attach
 // (외부 CLI / Shell) silently rendered a black screen without ever opening
 // the socket. The URL builder must not consult client-side credentials —

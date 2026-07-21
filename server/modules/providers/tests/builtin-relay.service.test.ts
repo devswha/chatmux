@@ -37,9 +37,9 @@ test('builtinSend: paste-buffer injection (literal bytes, bracketed paste) then 
   assert.equal(result.ok, true);
   assert.equal(result.reachable, true);
   assert.deepEqual(calls[0].args, ['has-session', '-t', '=omg']);
-  assert.deepEqual(calls[1].args, ['load-buffer', '-b', 'gajae-app-relay', '-']);
+  assert.deepEqual(calls[1].args, ['load-buffer', '-b', 'chatmux-relay', '-']);
   assert.equal(calls[1].stdin, '멀티라인\n메시지 -Enter 같은 텍스트', 'exact bytes go through stdin, never argv/shell');
-  assert.deepEqual(calls[2].args, ['paste-buffer', '-d', '-p', '-b', 'gajae-app-relay', '-t', '=omg:']);
+  assert.deepEqual(calls[2].args, ['paste-buffer', '-d', '-p', '-b', 'chatmux-relay', '-t', '=omg:']);
   assert.deepEqual(calls[3].args, ['send-keys', '-t', '=omg:', 'Enter']);
 });
 
@@ -114,8 +114,8 @@ test('builtinKill: company* protected, unknown surfaced, exact-name kill otherwi
   assert.deepEqual(alive.calls[1].args, ['kill-session', '-t', '=victim']);
 });
 
-test('builtinRelayEnabled: on by default, GAJAE_BUILTIN_RELAY=0 restores tower-only mode', () => {
+test('builtinRelayEnabled: on by default, CHATMUX_BUILTIN_RELAY=0 restores tower-only mode', () => {
   assert.equal(builtinRelayEnabled({}), true);
-  assert.equal(builtinRelayEnabled({ GAJAE_BUILTIN_RELAY: '0' }), false);
-  assert.equal(builtinRelayEnabled({ GAJAE_BUILTIN_RELAY: '1' }), true);
+  assert.equal(builtinRelayEnabled({ CHATMUX_BUILTIN_RELAY: '0' }), false);
+  assert.equal(builtinRelayEnabled({ CHATMUX_BUILTIN_RELAY: '1' }), true);
 });

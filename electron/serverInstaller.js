@@ -2,12 +2,12 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-const DEFAULT_CHECKOUT_ROOT = path.join(os.homedir(), '.local', 'share', 'gajae-app');
-const DEFAULT_STATE_ROOT = path.join(os.homedir(), '.gajae-app');
+const DEFAULT_CHECKOUT_ROOT = path.join(os.homedir(), '.local', 'share', 'chatmux');
+const DEFAULT_STATE_ROOT = path.join(os.homedir(), '.chatmux');
 const SERVER_ENTRY_RELATIVE_PATH = path.join('dist-server', 'server', 'index.js');
 
 /**
- * Resolves the server built from the current Gajae App checkout.
+ * Resolves the server built from the current ChatMux checkout.
  *
  * Desktop source runs never download or install a separate server bundle. The
  * repository lifecycle manager owns installation; this class only verifies
@@ -15,7 +15,7 @@ const SERVER_ENTRY_RELATIVE_PATH = path.join('dist-server', 'server', 'index.js'
  */
 export class ServerInstaller {
   constructor({
-    appRoot = process.env.GAJAE_APP_INSTALL_DIR || DEFAULT_CHECKOUT_ROOT,
+    appRoot = process.env.CHATMUX_INSTALL_DIR || DEFAULT_CHECKOUT_ROOT,
     stateRoot = DEFAULT_STATE_ROOT,
     onLog,
   } = {}) {
@@ -59,13 +59,13 @@ export class ServerInstaller {
   async ensureInstalled() {
     const state = await this.getInstallationState();
     if (state.ready) {
-      this.onLog(`Using Gajae App server from ${state.serverEntry}`);
+      this.onLog(`Using ChatMux server from ${state.serverEntry}`);
       return state.serverEntry;
     }
 
     throw new Error([
-      `Gajae App server is not built at ${state.serverEntry}.`,
-      `Build the current checkout at ${state.appRoot} with \`npm run build:server\` before opening Gajae App Local.`,
+      `ChatMux server is not built at ${state.serverEntry}.`,
+      `Build the current checkout at ${state.appRoot} with \`npm run build:server\` before opening ChatMux Local.`,
     ].join(' '));
   }
 }

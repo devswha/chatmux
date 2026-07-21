@@ -133,7 +133,7 @@ export class CodexSessionSynchronizer implements IProviderSessionSynchronizer {
       };
     }
 
-    // Sessions started by sending a message from Gajae App carry a distinct
+    // Sessions started by sending a message from ChatMux carry a distinct
     // app-allocated session_id mapped to the provider id. For these we title the
     // conversation from the first user message the user typed, instead of the
     // generic "Untitled Codex Session" placeholder. Sessions discovered purely
@@ -162,7 +162,7 @@ export class CodexSessionSynchronizer implements IProviderSessionSynchronizer {
 
   /**
    * Returns the first user message text in a Codex transcript, used to title
-   * app-created sessions from the prompt the user sent from Gajae App.
+   * app-created sessions from the prompt the user sent from ChatMux.
    *
    * Reads the `event_msg`/`user_message` payload rather than the raw
    * `response_item` user turn so injected `<environment_context>` boilerplate is

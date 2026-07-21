@@ -130,7 +130,7 @@ export class OpenCodeSessionSynchronizer implements IProviderSessionSynchronizer
       ?? sessionsDb.getSessionById(sessionId);
     const existingName = existingSession?.custom_name;
 
-    // Sessions started by sending a message from Gajae App carry a distinct
+    // Sessions started by sending a message from ChatMux carry a distinct
     // app-allocated session_id mapped to the provider id. For these we title the
     // conversation from the first user message the user typed, matching how the
     // app titles a brand-new conversation. Sessions discovered purely by

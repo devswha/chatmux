@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import {
   BRAND_NAME,
   DOCUMENTATION_URL,
-  GAJAE_APP_WORDMARK_FONT_FAMILY,
+  CHATMUX_WORDMARK_FONT_FAMILY,
   GITHUB_REPOSITORY_NAME,
   GITHUB_REPOSITORY_OWNER,
   GITHUB_REPOSITORY_URL,
@@ -43,7 +43,7 @@ export default function AboutTab() {
           <div className="flex items-center gap-2">
             <span
               className="text-base font-semibold text-foreground"
-              style={{ fontFamily: GAJAE_APP_WORDMARK_FONT_FAMILY }}
+              style={{ fontFamily: CHATMUX_WORDMARK_FONT_FAMILY }}
             >
               {BRAND_NAME}
             </span>

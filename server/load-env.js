@@ -28,7 +28,7 @@ try {
 
 // Keep the default database in a stable user-level location so rebuilding dist-server
 // never changes where the backend stores auth.db when DATABASE_PATH is not set explicitly.
-const DEFAULT_DATABASE_PATH = path.join(os.homedir(), '.gajae-app', 'auth.db');
+const DEFAULT_DATABASE_PATH = path.join(os.homedir(), '.chatmux', 'auth.db');
 
 if (!process.env.DATABASE_PATH) {
   process.env.DATABASE_PATH = DEFAULT_DATABASE_PATH;

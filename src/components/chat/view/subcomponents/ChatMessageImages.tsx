@@ -14,7 +14,7 @@ type ChatMessageImagesProps = {
  * Resolves one chat image to a displayable src. Inline data URLs are used
  * directly; path-based attachments are fetched as blobs (a bare <img src>
  * cannot carry the auth header) — first from the global assets route
- * (`~/.gajae-app/assets`), then from the project files route as a fallback for
+ * (`~/.chatmux/assets`), then from the project files route as a fallback for
  * sessions recorded before attachments moved to the global store.
  */
 function useChatImageSrc(image: ChatImage, projectId?: string | null): { src: string | null; failed: boolean } {

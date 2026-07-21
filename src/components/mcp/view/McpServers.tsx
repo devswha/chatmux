@@ -51,10 +51,10 @@ const getServerKey = (server: ProviderMcpServer): string => (
   `${server.provider}:${server.scope}:${server.workspacePath || 'global'}:${server.name}`
 );
 
-// Servers prefixed with `gajae-app-` are written and removed automatically by a
-// Gajae App feature toggle (e.g. the Browser tab), not added by the user. They are
+// Servers prefixed with `chatmux-` are written and removed automatically by a
+// ChatMux feature toggle (e.g. the Browser tab), not added by the user. They are
 // shown read-only so users don't edit/delete them out of sync with the feature.
-const isManagedServer = (server: ProviderMcpServer): boolean => server.name.startsWith('gajae-app-');
+const isManagedServer = (server: ProviderMcpServer): boolean => server.name.startsWith('chatmux-');
 
 function ConfigLine({ label, children }: { label: string; children: string }) {
   if (!children) {
@@ -212,7 +212,7 @@ export default function McpServers({ selectedProvider, currentProjects }: McpSer
                     {managed && (
                       <div className="text-xs text-muted-foreground">
                         {t('mcpServers.managed.hint', {
-                          defaultValue: 'Gajae App manages this server.',
+                          defaultValue: 'ChatMux manages this server.',
                         })}
                       </div>
                     )}

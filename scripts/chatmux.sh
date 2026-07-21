@@ -1,22 +1,22 @@
 #!/usr/bin/env bash
-# Repository-owned lifecycle manager for a local Gajae App deployment.
+# Repository-owned lifecycle manager for a local ChatMux deployment.
 set -euo pipefail
 
-readonly DEFAULT_REPOSITORY="https://github.com/devswha/gajae-app.git"
+readonly DEFAULT_REPOSITORY="https://github.com/devswha/chatmux.git"
 readonly DEFAULT_REF="main"
-readonly SERVICE_NAME="gajae-app.service"
+readonly SERVICE_NAME="chatmux.service"
 
 usage() {
   printf '%s\n' "Usage: $0 install|update|status [--json] [--ref <branch|tag|sha>] [--port <1-65535>] [--install-dir <absolute-path>]" >&2
 }
 
 die() {
-  printf 'gajae-app: %s\n' "$*" >&2
+  printf 'chatmux: %s\n' "$*" >&2
   exit 1
 }
 
 warn() {
-  printf 'gajae-app: warning: %s\n' "$*" >&2
+  printf 'chatmux: warning: %s\n' "$*" >&2
 }
 
 COMMAND="${1:-}"
@@ -26,11 +26,11 @@ case "$COMMAND" in
 esac
 
 JSON=false
-REF="${GAJAE_APP_REF:-$DEFAULT_REF}"
+REF="${CHATMUX_REF:-$DEFAULT_REF}"
 PORT=""
-INSTALL_DIR="${GAJAE_APP_INSTALL_DIR:-$HOME/.local/share/gajae-app}"
-REPOSITORY="${GAJAE_APP_REPOSITORY:-$DEFAULT_REPOSITORY}"
-SYSTEMCTL="${GAJAE_APP_SYSTEMCTL:-systemctl}"
+INSTALL_DIR="${CHATMUX_INSTALL_DIR:-$HOME/.local/share/chatmux}"
+REPOSITORY="${CHATMUX_REPOSITORY:-$DEFAULT_REPOSITORY}"
+SYSTEMCTL="${CHATMUX_SYSTEMCTL:-systemctl}"
 
 while (($#)); do
   case "$1" in
@@ -98,9 +98,9 @@ require_prerequisites() {
 }
 
 NODE_BIN=""
-UNIT_DIR="${GAJAE_APP_SYSTEMD_USER_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user}"
+UNIT_DIR="${CHATMUX_SYSTEMD_USER_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user}"
 UNIT_FILE="$UNIT_DIR/$SERVICE_NAME"
-STATE_DIR="$HOME/.gajae-app/deployment"
+STATE_DIR="$HOME/.chatmux/deployment"
 STATE_FILE="$STATE_DIR/deployment.env"
 LOCK_DIR="$STATE_DIR/lock"
 
@@ -229,7 +229,7 @@ unit_quote() {
 
 render_unit() {
   local app_root="$1" destination="$2" template content host port
-  template="$app_root/packaging/systemd/gajae-app.service"
+  template="$app_root/packaging/systemd/chatmux.service"
   [[ -f "$template" ]] || die "unit template is missing from deployment: $template"
   host="$(configured_host "$app_root")"
   port="$(configured_port "$app_root")"

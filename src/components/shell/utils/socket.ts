@@ -5,7 +5,7 @@ export function getShellWebSocketUrl(): string {
 
   // No client-side token pre-check: a WebSocket handshake cannot carry custom
   // headers, so authentication happens server-side (auth cookie, or the
-  // implicit owner when GAJAE_AUTH=none). Gating on the localStorage token
+  // implicit owner when CHATMUX_AUTH=none). Gating on the localStorage token
   // here silently broke every terminal attach in no-login mode — the socket
   // was never even attempted (외부 CLI/Shell 검은 화면).
   return `${protocol}//${window.location.host}/shell`;

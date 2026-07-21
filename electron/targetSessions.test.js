@@ -41,7 +41,7 @@ function createSession() {
 
 test('dedicated partitions prevent Local and remote targets from sharing state', () => {
   assert.equal(getTargetPartition({ kind: 'local', id: 'local' }), LOCAL_TARGET_PARTITION);
-  assert.equal(getTargetPartition(TARGET_A), 'persist:gajae-app-target-c6d51c92-5f1a-4e0b-a113-c34f56ddf2da');
+  assert.equal(getTargetPartition(TARGET_A), 'persist:chatmux-target-c6d51c92-5f1a-4e0b-a113-c34f56ddf2da');
   assert.notEqual(getTargetPartition(TARGET_A), getTargetPartition(TARGET_B));
   assert.throws(() => getTargetPartition({ kind: 'remote', id: 'not-an-opaque-id' }));
 });

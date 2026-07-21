@@ -89,7 +89,7 @@ export function isGjcCommandLine(cmdline: string): boolean {
   const argv = cmdline.includes('\0')
     ? cmdline.split('\0').filter(Boolean)
     : cmdline.trim().split(/\s+/).filter(Boolean);
-  return argv.some((token) => basename(token) === 'gjc') || cmdline.includes('@gajae-code/coding-agent');
+  return argv.some((token) => basename(token) === 'gjc') || cmdline.includes('@chatmux-code/coding-agent');
 }
 
 /** Roots gjc writes transcripts under; a live transcript sits in one of them. */
@@ -118,7 +118,7 @@ export function isGjcProcessArgs(args: string): boolean {
     return true;
   }
   if ((head === 'bun' || head === 'node') && tokens.length > 1) {
-    return basename(tokens[1]) === 'gjc' || tokens[1].includes('@gajae-code/coding-agent');
+    return basename(tokens[1]) === 'gjc' || tokens[1].includes('@chatmux-code/coding-agent');
   }
   return false;
 }

@@ -43,7 +43,7 @@ type ProviderModelsCacheFile = {
 
 const getProviderModelsCachePath = (): string => path.join(
   os.homedir(),
-  '.gajae-app',
+  '.chatmux',
   'provider-models-cache.json',
 );
 

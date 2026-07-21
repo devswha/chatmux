@@ -1,3 +1,3 @@
 // Express router mounted at /api/assets by server/index.js (upload + serving
-// of chat image attachments stored in the global ~/.gajae-app/assets folder).
+// of chat image attachments stored in the global ~/.chatmux/assets folder).
 export { default as assetsRoutes } from './assets.routes.js';

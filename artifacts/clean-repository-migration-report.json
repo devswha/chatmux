@@ -4,7 +4,7 @@
   "reportType": "clean-repository-migration",
   "status": "passed",
   "date": "2026-07-15",
-  "repository": "https://github.com/devswha/gajae-app",
+  "repository": "https://github.com/devswha/chatmux",
   "authorization": "Hako explicitly authorized migration to a clean new repository and autonomous commit and push after verification.",
   "preMigration": {
     "githubRepositoryWasFork": false,
@@ -19,7 +19,7 @@
     "releaseCount": 0
   },
   "safety": {
-    "backupBundle": "/tmp/gajae-app-pre-clean-history-20260715.bundle",
+    "backupBundle": "/tmp/chatmux-pre-clean-history-20260715.bundle",
     "backupVerification": "passed: bundle records the complete pre-migration history",
     "legalFilesPreserved": [
       "LICENSE",
@@ -54,7 +54,7 @@
       "troubleshooting"
     ],
     "supportedAgents": [
-      "Gajae Code (GJC)",
+      "ChatMux Code (GJC)",
       "Claude Code",
       "Cursor",
       "Codex",

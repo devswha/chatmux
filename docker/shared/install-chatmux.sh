@@ -1,10 +1,10 @@
 #!/bin/bash
 set -euo pipefail
 
-APP_ROOT="${1:-/opt/gajae-app}"
+APP_ROOT="${1:-/opt/chatmux}"
 
 fail() {
-  printf 'Gajae App sandbox build failed: %s\n' "$*" >&2
+  printf 'ChatMux sandbox build failed: %s\n' "$*" >&2
   exit 1
 }
 
@@ -33,9 +33,9 @@ case "$(uname -s)/$(uname -m)" in
   *) fail "Linux x64 is required; found $(uname -s)/$(uname -m)" ;;
 esac
 
-install -d -m 0755 -o agent -g agent /home/agent/.gajae-app/logs
-cat > /usr/local/bin/gajae-app <<'EOF'
+install -d -m 0755 -o agent -g agent /home/agent/.chatmux/logs
+cat > /usr/local/bin/chatmux <<'EOF'
 #!/bin/sh
-exec node /opt/gajae-app/dist-server/server/cli.js "$@"
+exec node /opt/chatmux/dist-server/server/cli.js "$@"
 EOF
-chmod 0755 /usr/local/bin/gajae-app
+chmod 0755 /usr/local/bin/chatmux

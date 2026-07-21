@@ -117,7 +117,7 @@ export class GjcSessionWatcher {
   start(): Promise<void> {
     if (this.closed) return Promise.reject(new Error(FAILURE_MESSAGE));
     if (this.starting) return this.starting;
-    const executable = this.options.platform === 'win32' ? 'gajae-core.exe' : 'gajae-core';
+    const executable = this.options.platform === 'win32' ? 'chatmux-core.exe' : 'chatmux-core';
     const compiled = this.options.compiled ?? !import.meta.url.endsWith('.ts');
     const corePath = this.options.corePath ?? fileURLToPath(new URL(
       compiled ? `../../../../../dist-native/${executable}` : `../../../../dist-native/${executable}`,

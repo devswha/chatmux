@@ -3,7 +3,7 @@ const { pathToFileURL } = require('node:url');
 
 const { contextBridge, ipcRenderer } = require('electron');
 
-const IPC_PREFIX = 'gajae-app-desktop:';
+const IPC_PREFIX = 'chatmux-desktop:';
 
 function invoke(action, ...args) {
   return ipcRenderer.invoke(`${IPC_PREFIX}${action}`, ...args);
@@ -45,7 +45,7 @@ function isCanonicalLauncherDocument() {
 
 
 if (isCanonicalLauncherDocument()) {
-  contextBridge.exposeInMainWorld('gajaeAppDesktop', {
+  contextBridge.exposeInMainWorld('chatmuxAppDesktop', {
     getState: () => invoke('state:get'),
     onStateChanged,
     openLocal: () => invoke('local:open'),

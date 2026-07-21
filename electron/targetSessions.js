@@ -1,5 +1,5 @@
 export const LOCAL_TARGET_ID = 'local';
-export const LOCAL_TARGET_PARTITION = 'persist:gajae-app-local';
+export const LOCAL_TARGET_PARTITION = 'persist:chatmux-local';
 
 const OPAQUE_TARGET_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -31,7 +31,7 @@ export function getTargetPartition(target) {
   if (target?.kind === 'local') {
     return LOCAL_TARGET_PARTITION;
   }
-  return `persist:gajae-app-target-${requireOpaqueTargetId(target)}`;
+  return `persist:chatmux-target-${requireOpaqueTargetId(target)}`;
 }
 
 export function getTargetOrigin(target) {

@@ -28,7 +28,7 @@ const PROVIDER_META: { id: LLMProvider; name: string }[] = [
   { id: "codex", name: "OpenAI" },
   { id: "cursor", name: "Cursor" },
   { id: "opencode", name: "OpenCode" },
-  { id: "gjc", name: "Gajae Code" },
+  { id: "gjc", name: "ChatMux Code" },
 ];
 
 const MOD_KEY =
@@ -318,7 +318,7 @@ export default function ProviderSelectionEmptyState({
                   defaultValue: "Ready with OpenCode {{model}}",
                 }),
                 gjc: t("providerSelection.readyPrompt.gjc", {
-                  defaultValue: "Ready with Gajae Code",
+                  defaultValue: "Ready with ChatMux Code",
                 }),
               }[provider]
             }

@@ -64,13 +64,13 @@ test('auth mode none: any non-loopback bind is blocked regardless of users', () 
             const r = evaluateExposure({ host, hasUsers, authMode: 'none' });
             assert.equal(r.level, 'block', `${host} hasUsers=${hasUsers}`);
             assert.equal(r.reason, 'unauthenticated-remote');
-            assert.match(r.message, /GAJAE_AUTH=none/);
-            assert.match(r.message, /GAJAE_ALLOW_UNAUTH_REMOTE=1/);
+            assert.match(r.message, /CHATMUX_AUTH=none/);
+            assert.match(r.message, /CHATMUX_ALLOW_UNAUTH_REMOTE=1/);
         }
     }
 });
 
-test('auth mode none: GAJAE_ALLOW_UNAUTH_REMOTE=1 downgrades the block to a loud warning', () => {
+test('auth mode none: CHATMUX_ALLOW_UNAUTH_REMOTE=1 downgrades the block to a loud warning', () => {
     const r = evaluateExposure({ host: '100.123.228.51', hasUsers: true, authMode: 'none', allowUnauthRemote: true });
     assert.equal(r.level, 'warn');
     assert.equal(r.reason, 'unauthenticated-remote-override');

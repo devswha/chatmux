@@ -114,21 +114,21 @@ export class DesktopWindowManager {
   emitTargetState() {
     const state = this.getTargetState();
     if (this.mainWindow && !this.mainWindow.webContents.isDestroyed()) {
-      this.mainWindow.webContents.send('gajae-app-desktop:state:changed', state);
+      this.mainWindow.webContents.send('chatmux-desktop:state:changed', state);
     }
     if (this.settingsWindow && !this.settingsWindow.webContents.isDestroyed()) {
-      this.settingsWindow.webContents.send('gajae-app-desktop:state:changed', state);
+      this.settingsWindow.webContents.send('chatmux-desktop:state:changed', state);
     }
   }
 
   emitLauncherCommand(command) {
     if (!this.mainWindow || this.mainWindow.webContents.isDestroyed()) return;
-    this.mainWindow.webContents.send('gajae-app-desktop:launcher-command', command);
+    this.mainWindow.webContents.send('chatmux-desktop:launcher-command', command);
   }
 
   emitSettingsCommand(command) {
     if (!this.settingsWindow || this.settingsWindow.webContents.isDestroyed()) return;
-    this.settingsWindow.webContents.send('gajae-app-desktop:launcher-command', command);
+    this.settingsWindow.webContents.send('chatmux-desktop:launcher-command', command);
   }
 
   syncSettingsWindowBounds() {

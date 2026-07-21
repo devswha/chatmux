@@ -128,13 +128,13 @@ async function collectElfFiles(directory) {
 }
 
 async function auditGlibcRequirements(stageDir) {
-  const corePath = path.join(stageDir, 'dist-native', 'gajae-core');
+  const corePath = path.join(stageDir, 'dist-native', 'chatmux-core');
   const elfFiles = await collectElfFiles(path.join(stageDir, 'node_modules', NATIVE_MODULES[0]));
   for (const moduleName of NATIVE_MODULES.slice(1)) {
     elfFiles.push(...await collectElfFiles(path.join(stageDir, 'node_modules', moduleName)));
   }
   if (!(await isElfFile(corePath))) {
-    throw new Error('dist-native/gajae-core is not a Linux ELF executable.');
+    throw new Error('dist-native/chatmux-core is not a Linux ELF executable.');
   }
   elfFiles.push(corePath);
   for (const filePath of elfFiles) {
@@ -194,20 +194,20 @@ async function writeInstallPackageJson(stageDir, packageJson) {
 
 async function writeRuntimePackageJson(stageDir, packageJson) {
   const runtimePackageJson = {
-    name: 'gajae-app-server',
+    name: 'chatmux-server',
     version: packageJson.version,
     private: true,
-    description: 'Gajae App server runtime',
+    description: 'ChatMux server runtime',
     type: 'module',
     main: 'dist-server/server/index.js',
     bin: {
-      'gajae-app': 'scripts/gajae-app-runtime.mjs',
+      'chatmux': 'scripts/chatmux-runtime.mjs',
     },
     engines: {
       node: '>=22.22.2 <23',
     },
     scripts: {
-      start: 'node scripts/gajae-app-runtime.mjs start',
+      start: 'node scripts/chatmux-runtime.mjs start',
     },
     dependencies: packageJson.dependencies,
     license: packageJson.license,
@@ -249,8 +249,8 @@ async function smokeNativeRuntime(stageDir) {
     database.close();
     if (result.value !== 22) throw new Error('better-sqlite3 query failed.');
 
-    const hash = bcrypt.hashSync('gajae-app-smoke', 4);
-    if (!bcrypt.compareSync('gajae-app-smoke', hash)) {
+    const hash = bcrypt.hashSync('chatmux-smoke', 4);
+    if (!bcrypt.compareSync('chatmux-smoke', hash)) {
       throw new Error('bcrypt verification failed.');
     }
 
@@ -258,11 +258,11 @@ async function smokeNativeRuntime(stageDir) {
     const ripgrep = spawnSync(rgPath, ['--version'], { encoding: 'utf8' });
     if (ripgrep.status !== 0) throw new Error('ripgrep failed to start.');
 
-    const corePath = path.join(process.cwd(), 'dist-native', 'gajae-core');
+    const corePath = path.join(process.cwd(), 'dist-native', 'chatmux-core');
     await access(corePath, constants.X_OK);
     const core = spawnSync(corePath, ['--version'], { encoding: 'utf8' });
-    if (core.status !== 0 || !core.stdout.startsWith('gajae-core ')) {
-      throw new Error('gajae-core failed to start.');
+    if (core.status !== 0 || !core.stdout.startsWith('chatmux-core ')) {
+      throw new Error('chatmux-core failed to start.');
     }
 
     await new Promise((resolve, reject) => {
@@ -315,7 +315,7 @@ const packageJson = JSON.parse(
   await fs.readFile(path.join(rootDir, 'package.json'), 'utf8'),
 );
 const version = packageJson.version;
-const bundleName = `gajae-app-server-${version}-linux-x64-node22.tar.gz`;
+const bundleName = `chatmux-server-${version}-linux-x64-node22.tar.gz`;
 const bundleRoot = path.join(rootDir, 'release', 'server');
 const stageDir = path.join(bundleRoot, `.stage-${version}`);
 const archivePath = path.join(bundleRoot, bundleName);
@@ -328,15 +328,15 @@ const buildInputs = [
   'shared',
   'package-lock.json',
   'scripts/fix-node-pty.js',
-  'scripts/gajae-app-runtime.mjs',
-  'packaging/systemd/gajae-app.service',
+  'scripts/chatmux-runtime.mjs',
+  'packaging/systemd/chatmux.service',
   'docs/SELF-HOST.md',
   'docs/INSTALL.md',
   'docker/README.md',
   'docker/claude-code/Dockerfile',
   'docker/codex/Dockerfile',
-  'docker/shared/install-gajae-app.sh',
-  'docker/shared/start-gajae-app.sh',
+  'docker/shared/install-chatmux.sh',
+  'docker/shared/start-chatmux.sh',
   'LICENSE',
   'NOTICE',
 ];
@@ -384,7 +384,7 @@ try {
 
   await fs.rm(path.join(stageDir, 'package-lock.json'), { force: true });
   await fs.rm(path.join(stageDir, 'scripts', 'fix-node-pty.js'), { force: true });
-  await fs.chmod(path.join(stageDir, 'scripts', 'gajae-app-runtime.mjs'), 0o755);
+  await fs.chmod(path.join(stageDir, 'scripts', 'chatmux-runtime.mjs'), 0o755);
   await writeRuntimePackageJson(stageDir, packageJson);
 
   await createDeterministicArchive(stageDir, archivePath, sourceDateEpoch());

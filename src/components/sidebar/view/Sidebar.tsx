@@ -53,7 +53,7 @@ function Sidebar({
   const { isPWA } = useDeviceSettings({ trackMobile: false });
   const { updateAvailable, restartRequired, latestVersion, currentVersion, releaseInfo, installMode } = useVersionCheck(
     'devswha',
-    'gajae-app',
+    'chatmux',
   );
   const { preferences, setPreference } = useUiPreferences();
   const { sidebarVisible } = preferences;

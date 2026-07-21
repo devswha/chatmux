@@ -46,7 +46,7 @@ function isLoopbackHost(hostname) {
 function isExpectedHealthResponse(value) {
   return isPlainObject(value)
     && value.status === 'ok'
-    && value.product === 'gajae-app'
+    && value.product === 'chatmux'
     && typeof value.protocolVersion === 'number'
     && Number.isSafeInteger(value.protocolVersion)
     && value.protocolVersion === 1

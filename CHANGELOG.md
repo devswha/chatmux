@@ -1,8 +1,8 @@
-# Gajae App changelog
+# ChatMux changelog
 
-All notable changes to Gajae App are documented in this file. Current and
+All notable changes to ChatMux are documented in this file. Current and
 future server artifacts are published only through
-[GitHub Releases](https://github.com/devswha/gajae-app/releases).
+[GitHub Releases](https://github.com/devswha/chatmux/releases).
 
 ## 1.2.0 (2026-07-18)
 
@@ -16,7 +16,7 @@ future server artifacts are published only through
   permanently with "관제탑 미가동" because the tower is an external component
   self-host installs do not have. The tower stays first-priority whenever
   reachable, a tower refusal is never bypassed, the route-level lineage and
-  generation-token gates guard both paths, and `GAJAE_BUILTIN_RELAY=0`
+  generation-token gates guard both paths, and `CHATMUX_BUILTIN_RELAY=0`
   restores the strict tower-only behavior.
 
 ### Web interface
@@ -76,12 +76,12 @@ future server artifacts are published only through
 
 ### Versioning
 
-- Started Gajae App's own semantic version line at `1.0.0`, marking the current
+- Started ChatMux's own semantic version line at `1.0.0`, marking the current
   MVP as the first stable cut. The inherited upstream `1.36.x` package version
   is retired; upstream numbers below remain historical provenance only and are
-  never reused as Gajae App versions. Releases are cut from this line: the
+  never reused as ChatMux versions. Releases are cut from this line: the
   release commit tags `v<version>`, publishes
-  `gajae-app-server-<version>-linux-x64-node22.tar.gz`, and converts this
+  `chatmux-server-<version>-linux-x64-node22.tar.gz`, and converts this
   `Unreleased` section into the dated version heading. The running server
   reports its version at `/health`; the desktop shell keeps its independent
   `desktopVersion` line.
@@ -103,7 +103,7 @@ future server artifacts are published only through
   `~/` prefix instead of a bare relative path.
 - Fixed the 외부 CLI / Shell terminal rendering a black screen in no-login
   mode: the shell WebSocket URL builder required a client-side localStorage
-  auth token that never exists under `GAJAE_AUTH=none`, so the socket was
+  auth token that never exists under `CHATMUX_AUTH=none`, so the socket was
   never even attempted. WebSocket authentication is server-side (auth cookie
   or implicit owner), so the client-side token gate is gone.
 - '대기' (idle, pre-transcript) gjc sessions in the sidebar now take their
@@ -121,12 +121,12 @@ future server artifacts are published only through
 
 ### Authentication
 
-- Login is no longer required by default (`GAJAE_AUTH=none`): every request and
+- Login is no longer required by default (`CHATMUX_AUTH=none`): every request and
   WebSocket upgrade acts as the single implicit owner account, and the login,
-  registration, and setup screens are skipped. `GAJAE_AUTH=password` restores
+  registration, and setup screens are skipped. `CHATMUX_AUTH=password` restores
   the original single-account JWT/cookie flow unchanged.
 - The fail-closed exposure guard now refuses to start an unauthenticated server
-  on a non-loopback bind; `GAJAE_ALLOW_UNAUTH_REMOTE=1` downgrades that to a
+  on a non-loopback bind; `CHATMUX_ALLOW_UNAUTH_REMOTE=1` downgrades that to a
   loud warning for trusted private networks (VPN/tailnet). Loopback binds are
   unaffected.
 - `/api/auth/login` and `/api/auth/register` return 404 while authentication is
@@ -145,7 +145,7 @@ future server artifacts are published only through
   persistence, and notifications remain application
   owned; Claude, Codex, Cursor, and OpenCode routing is unchanged.
 - Started GJC Checkpoint C with a mandatory minimal Rust process host.
-  GJC worker launches now follow application → `gajae-core` → Node worker while
+  GJC worker launches now follow application → `chatmux-core` → Node worker while
   preserving Protocol v1 bytes, browser behavior, and existing application
   state ownership. Source verification builds/tests the pinned Rust toolchain;
   server artifacts include and smoke the native executable without requiring
@@ -156,7 +156,7 @@ future server artifacts are published only through
   failure restart with GJC-only reconciliation, and no Node fallback. Existing
   TypeScript indexing/database/browser behavior and all non-GJC Chokidar watchers
   are unchanged.
-- Added the next Checkpoint C slice: `gajae-core jobs` is the single in-memory
+- Added the next Checkpoint C slice: `chatmux-core jobs` is the single in-memory
   job state-machine authority, with fenced owner leases, explicit transitions,
   crash reconciliation to `interrupted`, and ordered idempotent event replay.
   Persistence, PTY, Git/worktree, SQLite, Protocol v1, and React remain unchanged.
@@ -173,12 +173,12 @@ future server artifacts are published only through
 ### Native server distribution and operations
 
 - Established the Linux x86_64, glibc 2.35+, Node.js 22 server artifact:
-  `gajae-app-server-<version>-linux-x64-node22.tar.gz`. Release builds now
+  `chatmux-server-<version>-linux-x64-node22.tar.gz`. Release builds now
   require a glibc 2.35 builder and audit the Rust core plus rebuilt native
   modules for GLIBC symbol compatibility before archiving.
-- Established `~/.local/share/gajae-app` as the source-review checkout and
-  `~/.gajae-app` as the runtime, release, and persistent-data root.
-- Established the per-user `gajae-app.service`, atomic release cutover, and
+- Established `~/.local/share/chatmux` as the source-review checkout and
+  `~/.chatmux` as the runtime, release, and persistent-data root.
+- Established the per-user `chatmux.service`, atomic release cutover, and
   rollback guidance.
 - Documented manual, selective upstream intake with attribution, legal,
   focused-test, and identity-scan requirements. Automated synchronization is
@@ -187,7 +187,7 @@ future server artifacts are published only through
 ## Historical upstream provenance
 
 The entries and links below are preserved historical provenance from the
-original upstream. They are not Gajae App release locations or active
+original upstream. They are not ChatMux release locations or active
 installation, service, or publication instructions.
 
 <!-- historical-upstream-provenance:start -->

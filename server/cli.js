@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * Gajae App CLI
+ * ChatMux CLI
  *
- * Provides command-line utilities for managing Gajae App.
+ * Provides command-line utilities for managing ChatMux.
  *
  * Commands:
  *   (no args)     - Start the server (default)
@@ -55,9 +55,9 @@ const c = {
 // Load package.json for version info
 const packageJsonPath = path.join(APP_ROOT, 'package.json');
 const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
-// Match the default in load-env.js so "gajae-app status" reports the same
+// Match the default in load-env.js so "chatmux status" reports the same
 // database location that the backend uses without DATABASE_PATH.
-const DEFAULT_DATABASE_PATH = path.join(os.homedir(), '.gajae-app', 'auth.db');
+const DEFAULT_DATABASE_PATH = path.join(os.homedir(), '.chatmux', 'auth.db');
 
 // Load environment variables from .env file if it exists
 function loadEnvFile() {
@@ -91,7 +91,7 @@ function getInstallDir() {
 
 // Show status command
 function showStatus() {
-    console.log(`\n${c.bright('Gajae App - Status')}\n`);
+    console.log(`\n${c.bright('ChatMux - Status')}\n`);
     console.log(c.dim('═'.repeat(60)));
 
     // Version info
@@ -138,9 +138,9 @@ function showStatus() {
 
     console.log('\n' + c.dim('═'.repeat(60)));
     console.log(`\n${c.tip('[TIP]')} Hints:`);
-    console.log(`      ${c.dim('>')} Use ${c.bright('gajae-app --port 8080')} to run on a custom port`);
-    console.log(`      ${c.dim('>')} Use ${c.bright('gajae-app --database-path /path/to/db')} for custom database`);
-    console.log(`      ${c.dim('>')} Run ${c.bright('gajae-app help')} for all options`);
+    console.log(`      ${c.dim('>')} Use ${c.bright('chatmux --port 8080')} to run on a custom port`);
+    console.log(`      ${c.dim('>')} Use ${c.bright('chatmux --database-path /path/to/db')} for custom database`);
+    console.log(`      ${c.dim('>')} Run ${c.bright('chatmux help')} for all options`);
     console.log(`      ${c.dim('>')} Access the UI at http://localhost:${process.env.SERVER_PORT || '3001'}\n`);
 }
 
@@ -148,14 +148,14 @@ function showStatus() {
 function showHelp() {
     console.log(`
 ╔═══════════════════════════════════════════════════════════════╗
-║              Gajae App - Command Line Tool                    ║
+║              ChatMux - Command Line Tool                    ║
 ╚═══════════════════════════════════════════════════════════════╝
 
 Usage:
-  gajae-app [command] [options]
+  chatmux [command] [options]
 
 Commands:
-  start            Start the Gajae App server (default)
+  start            Start the ChatMux server (default)
   sandbox          Manage Docker sandbox environments
   browser-use-mcp  Run the Browser MCP stdio server
   status           Show configuration and data locations
@@ -170,11 +170,11 @@ Options:
   -v, --version               Show version information
 
 Examples:
-  $ gajae-app                        # Start with defaults
-  $ gajae-app --port 8080            # Start on port 8080
-  $ gajae-app --host 0.0.0.0         # Expose on the network (auth required — see below)
-  $ gajae-app sandbox ~/my-project   # Run in a Docker sandbox
-  $ gajae-app status                 # Show configuration
+  $ chatmux                        # Start with defaults
+  $ chatmux --port 8080            # Start on port 8080
+  $ chatmux --host 0.0.0.0         # Expose on the network (auth required — see below)
+  $ chatmux sandbox ~/my-project   # Run in a Docker sandbox
+  $ chatmux status                 # Show configuration
 
 Environment Variables:
   SERVER_PORT         Set server port (default: 3001)
@@ -185,10 +185,10 @@ Environment Variables:
   ALLOW_REMOTE_SETUP  Set to 1 to allow first-run setup on a non-loopback HOST (trusted networks only)
 
 Documentation:
-  ${packageJson.homepage || 'https://github.com/devswha/gajae-app'}
+  ${packageJson.homepage || 'https://github.com/devswha/chatmux'}
 
 Report Issues:
-  ${packageJson.bugs?.url || 'https://github.com/devswha/gajae-app/issues'}
+  ${packageJson.bugs?.url || 'https://github.com/devswha/chatmux/issues'}
 `);
 }
 
@@ -201,8 +201,8 @@ function showVersion() {
 // ── Sandbox command ─────────────────────────────────────────
 
 const SANDBOX_TEMPLATES = {
-    claude: 'gajae-app-sandbox:claude-code',
-    codex: 'gajae-app-sandbox:codex',
+    claude: 'chatmux-sandbox:claude-code',
+    codex: 'chatmux-sandbox:codex',
 };
 
 const SANDBOX_SECRETS = {
@@ -267,11 +267,11 @@ function parseSandboxArgs(args) {
 
 function showSandboxHelp() {
     console.log(`
-${c.bright('Gajae App Sandbox')} — Run Gajae App inside Docker Sandboxes
+${c.bright('ChatMux Sandbox')} — Run ChatMux inside Docker Sandboxes
 
 Usage:
-  gajae-app sandbox <workspace>            Create and start a sandbox
-  gajae-app sandbox <subcommand> [name]    Manage sandboxes
+  chatmux sandbox <workspace>            Create and start a sandbox
+  chatmux sandbox <subcommand> [name]    Manage sandboxes
 
 Subcommands:
   ${c.bright('(default)')}    Create a sandbox and start the web UI
@@ -279,7 +279,7 @@ Subcommands:
   ${c.bright('start')}        Restart a stopped sandbox and re-launch the web UI
   ${c.bright('stop')}         Stop a sandbox (preserves state)
   ${c.bright('rm')}           Remove a sandbox
-  ${c.bright('logs')}         Show Gajae App server logs
+  ${c.bright('logs')}         Show ChatMux server logs
   ${c.bright('help')}         Show this help
 
 Options:
@@ -290,13 +290,13 @@ Options:
       --port <port>         Host port for the web UI (default: 3001)
 
 Examples:
-  $ gajae-app sandbox ~/my-project
-  $ gajae-app sandbox ~/my-project --agent codex --port 8080
-  $ gajae-app sandbox ~/my-project --env SERVER_PORT=8080 --env HOST=0.0.0.0
-  $ gajae-app sandbox ls
-  $ gajae-app sandbox stop my-project
-  $ gajae-app sandbox start my-project
-  $ gajae-app sandbox rm my-project
+  $ chatmux sandbox ~/my-project
+  $ chatmux sandbox ~/my-project --agent codex --port 8080
+  $ chatmux sandbox ~/my-project --env SERVER_PORT=8080 --env HOST=0.0.0.0
+  $ chatmux sandbox ls
+  $ chatmux sandbox stop my-project
+  $ chatmux sandbox start my-project
+  $ chatmux sandbox rm my-project
 
 Prerequisites:
   1. Install sbx CLI: https://docs.docker.com/ai/sandboxes/get-started/
@@ -309,8 +309,8 @@ Advanced usage:
   For branch mode, multiple workspaces, memory limits, network policies,
   or passing prompts to the agent, use sbx directly with the template:
 
-    sbx run --template gajae-app-sandbox:claude-code claude ~/my-project --branch my-feature
-    sbx run --template gajae-app-sandbox:claude-code claude ~/project ~/libs:ro --memory 8g
+    sbx run --template chatmux-sandbox:claude-code claude ~/my-project --branch my-feature
+    sbx run --template chatmux-sandbox:claude-code claude ~/project ~/libs:ro --memory 8g
 
   Full Docker Sandboxes docs: https://docs.docker.com/ai/sandboxes/usage/
 `);
@@ -361,7 +361,7 @@ async function sandboxCommand(args) {
 
         case 'stop':
             if (!opts.name) {
-                console.error(`\n${c.error('❌')} Sandbox name required: gajae-app sandbox stop <name>\n`);
+                console.error(`\n${c.error('❌')} Sandbox name required: chatmux sandbox stop <name>\n`);
                 process.exit(1);
             }
             sbx(['stop', opts.name], { inherit: true });
@@ -369,7 +369,7 @@ async function sandboxCommand(args) {
 
         case 'rm':
             if (!opts.name) {
-                console.error(`\n${c.error('❌')} Sandbox name required: gajae-app sandbox rm <name>\n`);
+                console.error(`\n${c.error('❌')} Sandbox name required: chatmux sandbox rm <name>\n`);
                 process.exit(1);
             }
             sbx(['rm', opts.name], { inherit: true });
@@ -377,11 +377,11 @@ async function sandboxCommand(args) {
 
         case 'logs':
             if (!opts.name) {
-                console.error(`\n${c.error('❌')} Sandbox name required: gajae-app sandbox logs <name>\n`);
+                console.error(`\n${c.error('❌')} Sandbox name required: chatmux sandbox logs <name>\n`);
                 process.exit(1);
             }
             try {
-                sbx(['exec', opts.name, 'bash', '-c', 'cat /tmp/gajae-app-ui.log'], { inherit: true });
+                sbx(['exec', opts.name, 'bash', '-c', 'cat /tmp/chatmux-ui.log'], { inherit: true });
             } catch (e) {
                 console.error(`\n${c.error('❌')} Could not read logs: ${e.message || 'Is the sandbox running?'}\n`);
             }
@@ -389,7 +389,7 @@ async function sandboxCommand(args) {
 
         case 'start': {
             if (!opts.name) {
-                console.error(`\n${c.error('❌')} Sandbox name required: gajae-app sandbox start <name>\n`);
+                console.error(`\n${c.error('❌')} Sandbox name required: chatmux sandbox start <name>\n`);
                 process.exit(1);
             }
             console.log(`\n${c.info('▶')} Starting sandbox ${c.bright(opts.name)}...`);
@@ -400,8 +400,8 @@ async function sandboxCommand(args) {
             restartRun.unref();
             await new Promise(resolve => setTimeout(resolve, 5000));
 
-            console.log(`${c.info('▶')} Launching Gajae App web server...`);
-            sbx(['exec', opts.name, 'bash', '-c', 'nohup gajae-app start --port 3001 > /tmp/gajae-app-ui.log 2>&1 & disown']);
+            console.log(`${c.info('▶')} Launching ChatMux web server...`);
+            sbx(['exec', opts.name, 'bash', '-c', 'nohup chatmux start --port 3001 > /tmp/chatmux-ui.log 2>&1 & disown']);
 
             console.log(`${c.info('▶')} Forwarding port ${opts.port} → 3001...`);
             try {
@@ -423,15 +423,15 @@ async function sandboxCommand(args) {
                 }
             }
 
-            console.log(`\n${c.ok('✔')} ${c.bright('Gajae App is ready!')}`);
+            console.log(`\n${c.ok('✔')} ${c.bright('ChatMux is ready!')}`);
             console.log(`  ${c.info('→')} ${c.bright(`http://localhost:${opts.port}`)}\n`);
             break;
         }
 
         case 'create': {
             if (!opts.workspace) {
-                console.error(`\n${c.error('❌')} Workspace path required: gajae-app sandbox <path>\n`);
-                console.log(`   Example: ${c.bright('gajae-app sandbox ~/my-project')}\n`);
+                console.error(`\n${c.error('❌')} Workspace path required: chatmux sandbox <path>\n`);
+                console.log(`   Example: ${c.bright('chatmux sandbox ~/my-project')}\n`);
                 process.exit(1);
             }
 
@@ -456,7 +456,7 @@ async function sandboxCommand(args) {
                 }
             } catch { /* sbx secret ls not available, skip check */ }
 
-            console.log(`\n${c.bright('Gajae App Sandbox')}`);
+            console.log(`\n${c.bright('ChatMux Sandbox')}`);
             console.log(c.dim('─'.repeat(50)));
             console.log(`  Agent:     ${c.info(opts.agent)} ${c.dim(`(${secret} credentials)`)}`);
             console.log(`  Workspace: ${c.dim(workspace)}`);
@@ -498,9 +498,9 @@ async function sandboxCommand(args) {
                 }
             }
 
-            // Step 3: Start Gajae App inside the sandbox
-            console.log(`${c.info('▶')} Launching Gajae App web server...`);
-            sbx(['exec', opts.name, 'bash', '-c', 'nohup gajae-app start --port 3001 > /tmp/gajae-app-ui.log 2>&1 & disown']);
+            // Step 3: Start ChatMux inside the sandbox
+            console.log(`${c.info('▶')} Launching ChatMux web server...`);
+            sbx(['exec', opts.name, 'bash', '-c', 'nohup chatmux start --port 3001 > /tmp/chatmux-ui.log 2>&1 & disown']);
 
             // Step 4: Forward port
             console.log(`${c.info('▶')} Forwarding port ${opts.port} → 3001...`);
@@ -524,14 +524,14 @@ async function sandboxCommand(args) {
             }
 
             // Done
-            console.log(`\n${c.ok('✔')} ${c.bright('Gajae App is ready!')}`);
+            console.log(`\n${c.ok('✔')} ${c.bright('ChatMux is ready!')}`);
             console.log(`  ${c.info('→')} Open ${c.bright(`http://localhost:${opts.port}`)}`);
             console.log(`\n${c.dim('  Manage with:')}`);
             console.log(`  ${c.dim('$')} sbx ls`);
             console.log(`  ${c.dim('$')} sbx stop ${opts.name}`);
             console.log(`  ${c.dim('$')} sbx start ${opts.name}`);
             console.log(`  ${c.dim('$')} sbx rm ${opts.name}`);
-            console.log(`\n${c.dim('  Run this sandbox with:')} gajae-app sandbox start ${opts.name}\n`);
+            console.log(`\n${c.dim('  Run this sandbox with:')} chatmux sandbox start ${opts.name}\n`);
             break;
         }
 
@@ -628,7 +628,7 @@ async function main() {
             break;
         default:
             console.error(`\n❌ Unknown command: ${command}`);
-            console.log('   Run "gajae-app help" for usage information.\n');
+            console.log('   Run "chatmux help" for usage information.\n');
             process.exit(1);
     }
 }

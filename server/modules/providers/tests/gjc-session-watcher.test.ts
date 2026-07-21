@@ -63,10 +63,10 @@ async function ready(watcher: GjcSessionWatcher, child: FakeChild): Promise<void
 }
 
 test('spawns the native watcher directly with all roots and no detached process', async () => {
-  const { watcher, child, calls } = setup({ corePath: '/native/gajae-core', environment: { SAFE: '1' } });
+  const { watcher, child, calls } = setup({ corePath: '/native/chatmux-core', environment: { SAFE: '1' } });
   await ready(watcher, child);
   assert.deepEqual(calls, [{
-    command: '/native/gajae-core',
+    command: '/native/chatmux-core',
     args: ['watch', '--root', '/one', '--root', '/two'],
     options: { detached: false, env: { SAFE: '1' }, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true },
   }]);
@@ -75,10 +75,10 @@ test('spawns the native watcher directly with all roots and no detached process'
 test('resolves source and compiled native core layouts', async () => {
   const source = setup({ compiled: false, platform: 'linux' });
   await ready(source.watcher, source.child);
-  assert.equal(source.calls[0].command, fileURLToPath(new URL('../../../../dist-native/gajae-core', import.meta.url)));
+  assert.equal(source.calls[0].command, fileURLToPath(new URL('../../../../dist-native/chatmux-core', import.meta.url)));
   const compiled = setup({ compiled: true, platform: 'win32' });
   await ready(compiled.watcher, compiled.child);
-  assert.equal(compiled.calls[0].command, fileURLToPath(new URL('../../../../../dist-native/gajae-core.exe', import.meta.url)));
+  assert.equal(compiled.calls[0].command, fileURLToPath(new URL('../../../../../dist-native/chatmux-core.exe', import.meta.url)));
 });
 
 test('decodes fragmented UTF-8 CRLF frames and coalesces paths in insertion order', async () => {

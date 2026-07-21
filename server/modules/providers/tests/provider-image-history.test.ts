@@ -81,9 +81,9 @@ test('codex history: user_message payload images become path attachments', () =>
       type: 'user_message',
       message: 'can u see attached image?',
       images: [],
-      local_images: ['C:\\proj\\.gajae-app\\assets\\a.png'],
+      local_images: ['C:\\proj\\.chatmux\\assets\\a.png'],
     }),
-    [{ path: 'C:/proj/.gajae-app/assets/a.png' }],
+    [{ path: 'C:/proj/.chatmux/assets/a.png' }],
   );
   assert.deepEqual(
     extractCodexUserImages({ type: 'user_message', message: 'hi', images: ['/proj/b.jpg'] }),
@@ -112,7 +112,7 @@ test('codex history: normalized user entries keep their images', () => {
     {
       timestamp: '2026-07-03T10:00:00.000Z',
       message: { role: 'user', content: 'Look at this' },
-      images: [{ path: '.gajae-app/assets/a.png' }],
+      images: [{ path: '.chatmux/assets/a.png' }],
     },
     SESSION_ID,
   );
@@ -120,14 +120,14 @@ test('codex history: normalized user entries keep their images', () => {
   assert.equal(messages.length, 1);
   assert.equal(messages[0].role, 'user');
   assert.equal(messages[0].content, 'Look at this');
-  assert.deepEqual(messages[0].images, [{ path: '.gajae-app/assets/a.png' }]);
+  assert.deepEqual(messages[0].images, [{ path: '.chatmux/assets/a.png' }]);
 });
 
 // ---------------------------------------------------------------- Cursor
 
 test('cursor history: <images_input> inside user_query is stripped and attached', () => {
   const provider = new CursorSessionsProvider();
-  const taggedPrompt = appendImagesInputTag('Fix the layout bug', [{ path: '.gajae-app/assets/shot.png' }]);
+  const taggedPrompt = appendImagesInputTag('Fix the layout bug', [{ path: '.chatmux/assets/shot.png' }]);
   const blobs = [
     {
       id: 'blob1',
@@ -154,7 +154,7 @@ test('cursor history: <images_input> inside user_query is stripped and attached'
   assert.equal(messages.length, 2);
   assert.equal(messages[0].role, 'user');
   assert.equal(messages[0].content, 'Fix the layout bug');
-  assert.deepEqual(messages[0].images, [{ path: '.gajae-app/assets/shot.png' }]);
+  assert.deepEqual(messages[0].images, [{ path: '.chatmux/assets/shot.png' }]);
   assert.equal(messages[1].role, 'assistant');
   assert.equal(messages[1].images, undefined);
 });

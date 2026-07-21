@@ -190,7 +190,7 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.get('/health', (req, res) => {
     res.json({
         status: 'ok',
-        product: 'gajae-app',
+        product: 'chatmux',
         protocolVersion: 1,
         timestamp: new Date().toISOString(),
         version: RUNNING_VERSION,
@@ -208,7 +208,7 @@ app.use('/api/auth', authRoutes);
 // Projects API Routes (protected)
 app.use('/api/projects', authenticateToken, projectModuleRoutes);
 
-// Chat image asset upload/serving (global ~/.gajae-app/assets store, protected)
+// Chat image asset upload/serving (global ~/.chatmux/assets store, protected)
 app.use('/api/assets', authenticateToken, assetsRoutes);
 
 // Git API Routes (protected)
@@ -905,7 +905,7 @@ app.delete('/api/projects/:projectId/files', authenticateToken, async (req, res)
 const uploadFilesHandler = async (req, res) => {
     // Dynamic import of multer
     const multer = (await import('multer')).default;
-    const uploadStagingRoot = path.join(os.tmpdir(), 'gajae-app-uploads');
+    const uploadStagingRoot = path.join(os.tmpdir(), 'chatmux-uploads');
     await fsPromises.mkdir(uploadStagingRoot, { recursive: true, mode: 0o700 });
     await fsPromises.chmod(uploadStagingRoot, 0o700);
     const stagingDir = await fsPromises.mkdtemp(path.join(uploadStagingRoot, 'request-'));
@@ -1089,7 +1089,7 @@ const uploadFilesHandler = async (req, res) => {
 app.post('/api/projects/:projectId/files/upload', authenticateToken, uploadFilesHandler);
 
 // Chat image uploads moved to POST /api/assets/images (server/modules/assets),
-// which stores them in the global ~/.gajae-app/assets folder.
+// which stores them in the global ~/.chatmux/assets folder.
 
 // Get token usage for a specific session. `projectId` is the DB primary key;
 // the Claude branch below resolves it to an absolute path via the DB.
@@ -1563,7 +1563,7 @@ const SERVER_PORT = process.env.SERVER_PORT || 3001;
 const HOST = process.env.HOST || '127.0.0.1';
 const DISPLAY_HOST = getConnectableHost(HOST);
 const VITE_PORT = process.env.VITE_PORT || 5173;
-const LOCAL_SERVER_MARKER_PATH = path.join(os.homedir(), '.gajae-app', 'local-server.json');
+const LOCAL_SERVER_MARKER_PATH = path.join(os.homedir(), '.chatmux', 'local-server.json');
 
 async function writeLocalServerMarker() {
     const marker = {
@@ -1605,13 +1605,13 @@ async function startServer() {
 
         // Fail-closed exposure guard: refuse non-loopback listen while no
         // account exists (first /register would be claimable network-wide) or
-        // while GAJAE_AUTH=none leaves the port without any login at all.
+        // while CHATMUX_AUTH=none leaves the port without any login at all.
         const exposure = evaluateExposure({
             host: HOST,
             hasUsers: userDb.hasUsers(),
             allowRemoteSetup: process.env.ALLOW_REMOTE_SETUP === '1',
             authMode: AUTH_MODE,
-            allowUnauthRemote: process.env.GAJAE_ALLOW_UNAUTH_REMOTE === '1',
+            allowUnauthRemote: process.env.CHATMUX_ALLOW_UNAUTH_REMOTE === '1',
         });
         if (exposure.level === 'block') {
             console.error(`${c.warn('[SECURITY]')} ${exposure.message}`);
@@ -1646,12 +1646,12 @@ async function startServer() {
 
             console.log('');
             console.log(c.dim('═'.repeat(63)));
-            console.log(`  ${c.bright('Gajae App Server - Ready')}`);
+            console.log(`  ${c.bright('ChatMux Server - Ready')}`);
             console.log(c.dim('═'.repeat(63)));
             console.log('');
             console.log(`${c.info('[INFO]')} Server URL:  ${c.bright('http://' + DISPLAY_HOST + ':' + SERVER_PORT)}`);
             console.log(`${c.info('[INFO]')} App root: ${c.dim(appRoot)}`);
-            console.log(`${c.tip('[TIP]')}  Run "gajae-app status" for full configuration details`);
+            console.log(`${c.tip('[TIP]')}  Run "chatmux status" for full configuration details`);
             console.log('');
 
             // Start watching the projects folder for changes
@@ -1659,7 +1659,7 @@ async function startServer() {
 
             // Notify on tmux-driven gjc turn completions (transcript delta →
             // assistant stopReason). Server-side so web push works with every
-            // tab closed. Kill switch: GAJAE_APP_LIVE_NOTIFY=0.
+            // tab closed. Kill switch: CHATMUX_LIVE_NOTIFY=0.
             startLiveTurnMonitor();
 
             // Start server-side plugin processes for enabled plugins

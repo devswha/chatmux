@@ -47,7 +47,7 @@ export function hasServerRebooted(initialBootId: string | null, health: { bootId
 export const UPDATE_POLL_TIMEOUT_MS = 12 * 60 * 1000;
 const UPDATE_POLL_INTERVAL_MS = 5_000;
 
-const SOURCE_UPGRADE_COMMAND = 'git pull --ff-only && npm ci && npm run build && systemctl --user restart gajae-app.service';
+const SOURCE_UPGRADE_COMMAND = 'git pull --ff-only && npm ci && npm run build && systemctl --user restart chatmux.service';
 
 export function VersionUpgradeModal({
     isOpen,

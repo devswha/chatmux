@@ -33,13 +33,13 @@ const readOptionalString = (value: unknown): string | undefined =>
 const readNumber = (value: unknown): number | undefined =>
   typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 
-const apiUrl = (process.env.GAJAE_APP_BROWSER_USE_API_URL || 'http://127.0.0.1:3001/api/browser-use-mcp').replace(/\/$/, '');
-const apiToken = process.env.GAJAE_APP_BROWSER_USE_MCP_TOKEN || '';
-const API_TIMEOUT_MS = Number.parseInt(process.env.GAJAE_APP_BROWSER_USE_API_TIMEOUT_MS || '60000', 10);
+const apiUrl = (process.env.CHATMUX_BROWSER_USE_API_URL || 'http://127.0.0.1:3001/api/browser-use-mcp').replace(/\/$/, '');
+const apiToken = process.env.CHATMUX_BROWSER_USE_MCP_TOKEN || '';
+const API_TIMEOUT_MS = Number.parseInt(process.env.CHATMUX_BROWSER_USE_API_TIMEOUT_MS || '60000', 10);
 
 async function callBrowserUseApi(toolName: string, input: Record<string, unknown>) {
   if (!apiToken) {
-    throw new Error('GAJAE_APP_BROWSER_USE_MCP_TOKEN is not configured.');
+    throw new Error('CHATMUX_BROWSER_USE_MCP_TOKEN is not configured.');
   }
 
   const response = await fetch(`${apiUrl}/tools/${encodeURIComponent(toolName)}`, {
@@ -302,7 +302,7 @@ async function handleMessage(message: JsonRpcRequest) {
     return {
       protocolVersion: '2024-11-05',
       capabilities: { tools: {} },
-      serverInfo: { name: 'gajae-app-browser', version: '1.0.0' },
+      serverInfo: { name: 'chatmux-browser', version: '1.0.0' },
     };
   }
 

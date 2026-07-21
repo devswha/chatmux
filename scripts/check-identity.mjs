@@ -44,7 +44,7 @@ const UPSTREAM_NAME = `Cloud${'CLI'} UI`;
 const UPSTREAM_URL = `https://github.com/${LEGACY_COORDINATE}`;
 const UPSTREAM_LINEAGE = [
   '<!-- upstream-lineage:start -->',
-  `Upstream lineage: Gajae App is derived from [${UPSTREAM_NAME}](${UPSTREAM_URL}). Required attribution and license terms are preserved in [LICENSE](LICENSE) and [NOTICE](NOTICE).`,
+  `Upstream lineage: ChatMux is derived from [${UPSTREAM_NAME}](${UPSTREAM_URL}). Required attribution and license terms are preserved in [LICENSE](LICENSE) and [NOTICE](NOTICE).`,
   '<!-- upstream-lineage:end -->',
 ].join('\n');
 const LEGACY_MATCHERS = [

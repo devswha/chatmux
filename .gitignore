@@ -157,6 +157,6 @@ tasks/
 /.desktop-build/
 /release/
 /electron/server-bundle-config.json
-gajae-app-source.tar.gz
-gajae-app-sidebar.html
+chatmux-source.tar.gz
+chatmux-sidebar.html
 electron/*.tar.gz

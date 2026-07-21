@@ -189,11 +189,11 @@ export function createLiveTurnMonitor(deps: MonitorDeps) {
 const DEFAULT_INTERVAL_MS = 5000;
 
 /**
- * Starts the production monitor. Disabled with GAJAE_APP_LIVE_NOTIFY=0.
+ * Starts the production monitor. Disabled with CHATMUX_LIVE_NOTIFY=0.
  * Self-host is single-user: events route to the first user.
  */
 export function startLiveTurnMonitor(intervalMs = DEFAULT_INTERVAL_MS): (() => void) | null {
-  if (process.env.GAJAE_APP_LIVE_NOTIFY === '0') {
+  if (process.env.CHATMUX_LIVE_NOTIFY === '0') {
     return null;
   }
   const monitor = createLiveTurnMonitor({

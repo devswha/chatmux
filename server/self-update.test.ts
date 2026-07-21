@@ -25,9 +25,9 @@ test('detectInstallMode: git checkout with deploy tooling is source', () => {
   assert.equal(detectInstallMode(root, tempRoot()), 'source');
 });
 
-test('detectInstallMode: an unpacked release under ~/.gajae-app/releases is release', () => {
+test('detectInstallMode: an unpacked release under ~/.chatmux/releases is release', () => {
   const home = tempRoot();
-  const releaseRoot = path.join(home, '.gajae-app', 'releases', '1.0.0');
+  const releaseRoot = path.join(home, '.chatmux', 'releases', '1.0.0');
   mkdirSync(releaseRoot, { recursive: true });
   // Even with git/deploy.sh present, the release location wins — the artifact
   // contract (checksum-verified cutover) must not be bypassed by one click.
@@ -73,22 +73,22 @@ test('planSelfUpdate: single-flight rejects a concurrent start but a stale marke
 });
 
 test('buildSelfUpdateScript: ff-only pull, conditional npm ci, deploy.sh with the health url', () => {
-  const script = buildSelfUpdateScript('/srv/app dir', 'http://127.0.0.1:3021/', '/home/u/.gajae-app/self-update.log');
+  const script = buildSelfUpdateScript('/srv/app dir', 'http://127.0.0.1:3021/', '/home/u/.chatmux/self-update.log');
   assert.ok(script.includes("cd '/srv/app dir'"), 'app root is shell-quoted');
   assert.ok(script.includes('git pull --ff-only origin main'), 'never merges or rebases on its own');
   assert.ok(/if ! git diff --quiet .* -- package-lock\.json; then npm ci; fi/.test(script),
     'node_modules is only reinstalled when the pull changed dependencies');
   assert.ok(script.includes("DEPLOY_HEALTH_URL='http://127.0.0.1:3021/' scripts/deploy.sh"),
     'hands over to the verified deploy machinery (build → restart → health → rollback)');
-  assert.ok(script.startsWith("exec >>'/home/u/.gajae-app/self-update.log' 2>&1"), 'output lands in the log file');
+  assert.ok(script.startsWith("exec >>'/home/u/.chatmux/self-update.log' 2>&1"), 'output lands in the log file');
   assert.ok(script.includes('set -euo pipefail'), 'any failing step stops the update');
   assert.ok(script.includes('export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"'),
     'the transient unit must reach cargo for the native-core build (실측 ENOENT)');
 });
 
 test('buildSystemdRunArgs: detached transient unit with the caller PATH', () => {
-  const args = buildSystemdRunArgs('gajae-app-self-update-1', 'echo hi', '/usr/bin:/bin');
-  assert.deepEqual(args.slice(0, 3), ['--user', '--collect', '--unit=gajae-app-self-update-1']);
+  const args = buildSystemdRunArgs('chatmux-self-update-1', 'echo hi', '/usr/bin:/bin');
+  assert.deepEqual(args.slice(0, 3), ['--user', '--collect', '--unit=chatmux-self-update-1']);
   assert.ok(args.includes('--setenv=PATH=/usr/bin:/bin'), 'nvm-provided node must be reachable in the unit');
   assert.deepEqual(args.slice(-3), ['bash', '-c', 'echo hi']);
 });

@@ -86,7 +86,7 @@
     "openInEditor": "エディタで開く"
   },
   "mainContent": {
-    "loading": "Gajae App を読み込んでいます",
+    "loading": "ChatMux を読み込んでいます",
     "settingUpWorkspace": "ワークスペースを準備しています...",
     "chooseProject": "プロジェクトを選択",
     "selectProjectDescription": "サイドバーからプロジェクトを選択して、Claudeとコーディングを始めましょう。各プロジェクトにはチャットセッションとファイル履歴が含まれています。",
@@ -246,10 +246,10 @@
     "viewFullRelease": "GitHub Releases を見る",
     "updateProgress": "アップデートの進捗:",
     "manualUpgrade": "更新方法:",
-    "npmUpgradeCommand": "scripts/gajae-app.sh update",
+    "npmUpgradeCommand": "scripts/chatmux.sh update",
     "manualUpgradeHint": "GitHub Releases でリリースノートと最新バージョンを確認できます。",
     "updateCompleted": "アップデートが完了しました！",
-    "restartServer": "更新を適用するには Gajae App を再起動してください。",
+    "restartServer": "更新を適用するには ChatMux を再起動してください。",
     "updateFailed": "アップデートに失敗しました",
     "buttons": {
       "close": "閉じる",

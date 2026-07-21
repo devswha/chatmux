@@ -63,7 +63,7 @@ pub fn run(program: OsString, args: Vec<OsString>) -> bool {
     let reader_output = Arc::clone(&output_lock);
     let reader_failed = Arc::clone(&failed);
     let reader_thread = thread::Builder::new()
-        .name("gajae-core-pty-reader".into())
+        .name("chatmux-core-pty-reader".into())
         .spawn(move || {
             let mut buffer = [0_u8; 16 * 1024];
             loop {
@@ -97,7 +97,7 @@ pub fn run(program: OsString, args: Vec<OsString>) -> bool {
     let wait_output = Arc::clone(&output_lock);
     let wait_failed = Arc::clone(&failed);
     let wait_thread = thread::Builder::new()
-        .name("gajae-core-pty-wait".into())
+        .name("chatmux-core-pty-wait".into())
         .spawn(move || match child.wait() {
             Ok(status) => {
                 if !write_frame(

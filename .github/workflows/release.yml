@@ -1,4 +1,4 @@
-name: Release Gajae App Server
+name: Release ChatMux Server
 
 on:
   workflow_dispatch:
@@ -57,7 +57,7 @@ jobs:
             *) echo "The release artifact must be built on glibc 2.35." >&2; exit 1 ;;
           esac
           VERSION="$(node -p "require('./package.json').version")"
-          ASSET_NAME="gajae-app-server-${VERSION}-linux-x64-node22.tar.gz"
+          ASSET_NAME="chatmux-server-${VERSION}-linux-x64-node22.tar.gz"
           {
             echo "artifact_name=$ASSET_NAME"
             echo "release_tag=v$VERSION"
@@ -119,16 +119,16 @@ jobs:
           mkdir extracted
           tar -xzf "release-assets/$ASSET_NAME" -C extracted
           test -f extracted/package.json
-          expected_version="${ASSET_NAME#gajae-app-server-}"
+          expected_version="${ASSET_NAME#chatmux-server-}"
           expected_version="${expected_version%-linux-x64-node22.tar.gz}"
           actual_version="$(node -p "require('./extracted/package.json').version")"
           test "$actual_version" = "$expected_version"
-          node extracted/scripts/gajae-app-runtime.mjs --help
+          node extracted/scripts/chatmux-runtime.mjs --help
 
       - name: Upload canonical server release assets
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: gajae-app-server-release
+          name: chatmux-server-release
           path: release-assets/*
           if-no-files-found: error
 
@@ -148,7 +148,7 @@ jobs:
       - name: Download canonical server release assets
         uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
         with:
-          name: gajae-app-server-release
+          name: chatmux-server-release
           path: release-assets
 
       - name: Verify checksum and smoke extracted artifact
@@ -171,19 +171,19 @@ jobs:
           mkdir extracted
           tar -xzf "release-assets/$ASSET_NAME" -C extracted
           test -f extracted/package.json
-          expected_version="${ASSET_NAME#gajae-app-server-}"
+          expected_version="${ASSET_NAME#chatmux-server-}"
           expected_version="${expected_version%-linux-x64-node22.tar.gz}"
           actual_version="$(node -p "require('./extracted/package.json').version")"
           test "$actual_version" = "$expected_version"
-          node extracted/scripts/gajae-app-runtime.mjs --help
+          node extracted/scripts/chatmux-runtime.mjs --help
           (
             cd extracted
             node -e "const Database=require('better-sqlite3'); const bcrypt=require('bcrypt'); const pty=require('node-pty'); const db=new Database(':memory:'); db.exec('select 1'); db.close(); const hash=bcrypt.hashSync('smoke',4); if(!bcrypt.compareSync('smoke',hash)) process.exit(1); const child=pty.spawn(process.execPath,['-e','process.exit(0)']); child.onExit(() => process.exit(0)); setTimeout(() => process.exit(1),5000)"
             node -e "const {spawnSync}=require('node:child_process'); const rg=require('@vscode/ripgrep').rgPath; const result=spawnSync(rg,['--version'],{stdio:'inherit'}); process.exit(result.status ?? 1)"
           )
-          export HOME="$RUNNER_TEMP/gajae-app-home"
+          export HOME="$RUNNER_TEMP/chatmux-home"
           mkdir -p "$HOME"
-          SERVER_PORT=39001 HOST=127.0.0.1 node extracted/scripts/gajae-app-runtime.mjs start >"$RUNNER_TEMP/gajae-app-server.log" 2>&1 &
+          SERVER_PORT=39001 HOST=127.0.0.1 node extracted/scripts/chatmux-runtime.mjs start >"$RUNNER_TEMP/chatmux-server.log" 2>&1 &
           server_pid=$!
           trap 'kill "$server_pid" 2>/dev/null || true' EXIT
           for _ in {1..30}; do
@@ -211,7 +211,7 @@ jobs:
       - name: Download canonical server release assets
         uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
         with:
-          name: gajae-app-server-release
+          name: chatmux-server-release
           path: release-assets
 
       - name: Verify publish inputs
@@ -243,5 +243,5 @@ jobs:
             "release-assets/$ASSET_NAME" \
             "release-assets/$ASSET_NAME.sha256" \
             --target "$GITHUB_SHA" \
-            --title "Gajae App $RELEASE_TAG" \
+            --title "ChatMux $RELEASE_TAG" \
             --generate-notes

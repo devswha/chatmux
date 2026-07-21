@@ -1,14 +1,14 @@
 {
-  "name": "gajae-app",
+  "name": "chatmux",
   "private": true,
   "version": "1.2.0",
   "desktopVersion": "0.2.0",
-  "productName": "Gajae App",
+  "productName": "ChatMux",
   "description": "A self-hosted web and desktop interface for GJC, Claude Code, Cursor, Codex, and OpenCode",
   "type": "module",
   "main": "dist-server/server/index.js",
   "bin": {
-    "gajae-app": "dist-server/server/cli.js"
+    "chatmux": "dist-server/server/cli.js"
   },
   "files": [
     "electron/",
@@ -21,13 +21,13 @@
     "scripts/",
     "README.md"
   ],
-  "homepage": "https://github.com/devswha/gajae-app",
+  "homepage": "https://github.com/devswha/chatmux",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/devswha/gajae-app.git"
+    "url": "git+https://github.com/devswha/chatmux.git"
   },
   "bugs": {
-    "url": "https://github.com/devswha/gajae-app/issues"
+    "url": "https://github.com/devswha/chatmux/issues"
   },
   "scripts": {
     "dev": "concurrently --kill-others \"npm run server:dev\" \"npm run client\"",
@@ -56,7 +56,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p server/tsconfig.json",
     "check:identity": "node scripts/check-identity.mjs",
     "audit": "npm audit --audit-level=high",
-    "check:core": "cargo fmt --manifest-path native/gajae-core/Cargo.toml -- --check && cargo clippy --locked --manifest-path native/gajae-core/Cargo.toml --all-targets -- -D warnings && cargo test --locked --manifest-path native/gajae-core/Cargo.toml",
+    "check:core": "cargo fmt --manifest-path native/chatmux-core/Cargo.toml -- --check && cargo clippy --locked --manifest-path native/chatmux-core/Cargo.toml --all-targets -- -D warnings && cargo test --locked --manifest-path native/chatmux-core/Cargo.toml",
     "test": "node scripts/run-tests.mjs",
     "pretest": "npm run build:core:dev",
     "lint": "eslint src/ server/ electron/ shared/ scripts/ vite.config.js tailwind.config.js",
@@ -67,11 +67,11 @@
     "prepare": "husky"
   },
   "build": {
-    "appId": "app.gajae.desktop",
-    "productName": "Gajae App",
+    "appId": "app.chatmux.desktop",
+    "productName": "ChatMux",
     "asar": false,
-    "executableName": "gajae-app",
-    "artifactName": "gajae-app-desktop-${version}-${os}-${arch}.${ext}",
+    "executableName": "chatmux",
+    "artifactName": "chatmux-desktop-${version}-${os}-${arch}.${ext}",
     "directories": {
       "output": "release/desktop"
     },
@@ -91,9 +91,9 @@
     ],
     "protocols": [
       {
-        "name": "Gajae App",
+        "name": "ChatMux",
         "schemes": [
-          "gajae-app"
+          "chatmux"
         ]
       }
     ],
@@ -105,13 +105,13 @@
         "dmg"
       ],
       "extendInfo": {
-        "CFBundleName": "Gajae App",
-        "CFBundleDisplayName": "Gajae App",
+        "CFBundleName": "ChatMux",
+        "CFBundleDisplayName": "ChatMux",
         "CFBundleURLTypes": [
           {
-            "CFBundleURLName": "Gajae App",
+            "CFBundleURLName": "ChatMux",
             "CFBundleURLSchemes": [
-              "gajae-app"
+              "chatmux"
             ]
           }
         ]
@@ -127,7 +127,7 @@
       "icon": "public/icons/icon-512x512.png",
       "category": "Development",
       "maintainer": "devswha <devswha@gmail.com>",
-      "synopsis": "Gajae App desktop app",
+      "synopsis": "ChatMux desktop app",
       "target": [
         "AppImage",
         "deb"
@@ -135,7 +135,7 @@
     }
   },
   "keywords": [
-    "gajae-app",
+    "chatmux",
     "claude code",
     "claude-code",
     "claude-code-ui",
@@ -150,7 +150,7 @@
     "ui",
     "mobile IDE"
   ],
-  "author": "devswha and Gajae App contributors",
+  "author": "devswha and ChatMux contributors",
   "license": "AGPL-3.0-or-later",
   "engines": {
     "node": ">=22.22.2 <23 || >=24.15.0 <25"

@@ -44,7 +44,7 @@ const upload = multer({
 });
 
 /**
- * Stores chat image attachments in the global `~/.gajae-app/assets` folder and
+ * Stores chat image attachments in the global `~/.chatmux/assets` folder and
  * returns their absolute paths for use in provider prompts and chat history.
  */
 router.post('/images', (req, res) => {

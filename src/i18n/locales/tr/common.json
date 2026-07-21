@@ -246,7 +246,7 @@
     "viewFullRelease": "Tam sürüm notlarını gör",
     "updateProgress": "Güncelleme İlerlemesi:",
     "manualUpgrade": "GitHub Releases'den indirin veya komut satırından güncelleyin:",
-    "npmUpgradeCommand": "scripts/gajae-app.sh update",
+    "npmUpgradeCommand": "scripts/chatmux.sh update",
     "manualUpgradeHint": "Güncellemeyi otomatik başlatmak için \"Şimdi Güncelle\"ye tıklayın.",
     "updateCompleted": "Güncelleme başarıyla tamamlandı!",
     "restartServer": "Değişikliklerin uygulanması için sunucuyu yeniden başlat.",

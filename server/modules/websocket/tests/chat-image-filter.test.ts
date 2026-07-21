@@ -5,7 +5,7 @@ import test from 'node:test';
 
 import { filterImagesToUploadStore } from '@/modules/websocket/services/chat-websocket.service.js';
 
-const STORE = path.join(os.tmpdir(), '.gajae-app', 'assets');
+const STORE = path.join(os.tmpdir(), '.chatmux', 'assets');
 
 test('images inside the upload store pass through', () => {
   const inside = path.join(STORE, 'shot.png');

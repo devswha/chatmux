@@ -72,12 +72,12 @@ test('projectsDb.createProjectPath returns active_conflict for active duplicates
     assert.equal(conflict.project?.isArchived, 0);
   });
 });
-test('uses the gajae-app root and leaves the populated old root untouched without DATABASE_PATH', async () => {
+test('uses the chatmux root and leaves the populated old root untouched without DATABASE_PATH', async () => {
   const previousDatabasePath = process.env.DATABASE_PATH;
   const previousHome = process.env.HOME;
   const temporaryHome = await mkdtemp(path.join(tmpdir(), 'projects-db-home-'));
   const oldDatabasePath = path.join(temporaryHome, `.${['cloud', 'cli'].join('')}`, 'auth.db');
-  const databasePath = path.join(temporaryHome, '.gajae-app', 'auth.db');
+  const databasePath = path.join(temporaryHome, '.chatmux', 'auth.db');
 
   await mkdir(path.dirname(oldDatabasePath), { recursive: true });
   const oldDatabase = new Database(oldDatabasePath);

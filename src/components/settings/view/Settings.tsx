@@ -19,7 +19,7 @@ import { useSettingsController } from '../hooks/useSettingsController';
 import { useWebPush } from '../../../hooks/useWebPush';
 import type { SettingsProps } from '../types/types';
 
-type GajaeAppDesktopNotificationsState = {
+type ChatMuxAppDesktopNotificationsState = {
   enabled: boolean;
   supported: boolean;
   connectedCount?: number;
@@ -27,32 +27,32 @@ type GajaeAppDesktopNotificationsState = {
   lastError?: string | null;
 };
 
-type GajaeAppDesktopNotificationsSnapshot = {
-  desktopNotifications?: GajaeAppDesktopNotificationsState;
+type ChatMuxAppDesktopNotificationsSnapshot = {
+  desktopNotifications?: ChatMuxAppDesktopNotificationsState;
 };
 
-type GajaeAppDesktopNotificationsBridge = {
-  getState: () => Promise<GajaeAppDesktopNotificationsSnapshot | null | undefined>;
+type ChatMuxAppDesktopNotificationsBridge = {
+  getState: () => Promise<ChatMuxAppDesktopNotificationsSnapshot | null | undefined>;
   onStateUpdated?: (
-    handler: (state: GajaeAppDesktopNotificationsSnapshot | null | undefined) => void,
+    handler: (state: ChatMuxAppDesktopNotificationsSnapshot | null | undefined) => void,
   ) => (() => void) | undefined;
   update: (
-    notificationSettings: Pick<GajaeAppDesktopNotificationsState, 'enabled'>,
-  ) => Promise<GajaeAppDesktopNotificationsSnapshot | null | undefined>;
+    notificationSettings: Pick<ChatMuxAppDesktopNotificationsState, 'enabled'>,
+  ) => Promise<ChatMuxAppDesktopNotificationsSnapshot | null | undefined>;
 };
 
-type GajaeAppWindow = Window & {
-  gajaeAppDesktopNotifications?: GajaeAppDesktopNotificationsBridge;
+type ChatMuxAppWindow = Window & {
+  chatmuxAppDesktopNotifications?: ChatMuxAppDesktopNotificationsBridge;
 };
 
 function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }: SettingsProps) {
   const { t } = useTranslation('settings');
-  const gajaeAppDesktopNotificationsBridge = useMemo<GajaeAppDesktopNotificationsBridge | null>(() => (
+  const chatmuxAppDesktopNotificationsBridge = useMemo<ChatMuxAppDesktopNotificationsBridge | null>(() => (
     typeof window === 'undefined'
       ? null
-      : (window as GajaeAppWindow).gajaeAppDesktopNotifications ?? null
+      : (window as ChatMuxAppWindow).chatmuxAppDesktopNotifications ?? null
   ), []);
-  const [gajaeAppDesktopNotificationsState, setGajaeAppDesktopNotificationsState] = useState<GajaeAppDesktopNotificationsState | null>(null);
+  const [chatmuxAppDesktopNotificationsState, setChatMuxAppDesktopNotificationsState] = useState<ChatMuxAppDesktopNotificationsState | null>(null);
   const {
     activeTab,
     setActiveTab,
@@ -107,28 +107,28 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }: Set
   };
 
   useEffect(() => {
-    if (!gajaeAppDesktopNotificationsBridge) return undefined;
+    if (!chatmuxAppDesktopNotificationsBridge) return undefined;
     let mounted = true;
-    gajaeAppDesktopNotificationsBridge.getState().then((state) => {
+    chatmuxAppDesktopNotificationsBridge.getState().then((state) => {
       if (mounted) {
-        setGajaeAppDesktopNotificationsState(state?.desktopNotifications ?? null);
+        setChatMuxAppDesktopNotificationsState(state?.desktopNotifications ?? null);
       }
     }).catch(() => {});
-    const unsubscribe = gajaeAppDesktopNotificationsBridge.onStateUpdated?.((state) => {
+    const unsubscribe = chatmuxAppDesktopNotificationsBridge.onStateUpdated?.((state) => {
       if (mounted) {
-        setGajaeAppDesktopNotificationsState(state?.desktopNotifications ?? null);
+        setChatMuxAppDesktopNotificationsState(state?.desktopNotifications ?? null);
       }
     });
     return () => {
       mounted = false;
       unsubscribe?.();
     };
-  }, [gajaeAppDesktopNotificationsBridge]);
+  }, [chatmuxAppDesktopNotificationsBridge]);
 
   const handleEnableDesktopNotifications = async () => {
-    if (!gajaeAppDesktopNotificationsBridge) return;
-    const state = await gajaeAppDesktopNotificationsBridge.update({ enabled: true });
-    setGajaeAppDesktopNotificationsState(state?.desktopNotifications ?? null);
+    if (!chatmuxAppDesktopNotificationsBridge) return;
+    const state = await chatmuxAppDesktopNotificationsBridge.update({ enabled: true });
+    setChatMuxAppDesktopNotificationsState(state?.desktopNotifications ?? null);
     setNotificationPreferences({
       ...notificationPreferences,
       channels: { ...notificationPreferences.channels, desktop: true },
@@ -136,9 +136,9 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }: Set
   };
 
   const handleDisableDesktopNotifications = async () => {
-    if (!gajaeAppDesktopNotificationsBridge) return;
-    const state = await gajaeAppDesktopNotificationsBridge.update({ enabled: false });
-    setGajaeAppDesktopNotificationsState(state?.desktopNotifications ?? null);
+    if (!chatmuxAppDesktopNotificationsBridge) return;
+    const state = await chatmuxAppDesktopNotificationsBridge.update({ enabled: false });
+    setChatMuxAppDesktopNotificationsState(state?.desktopNotifications ?? null);
     setNotificationPreferences({
       ...notificationPreferences,
       channels: { ...notificationPreferences.channels, desktop: false },
@@ -220,8 +220,8 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }: Set
                   isPushLoading={isPushLoading}
                   onEnablePush={handleEnablePush}
                   onDisablePush={handleDisablePush}
-                  isDesktop={Boolean(gajaeAppDesktopNotificationsBridge)}
-                  desktopNotifications={gajaeAppDesktopNotificationsState}
+                  isDesktop={Boolean(chatmuxAppDesktopNotificationsBridge)}
+                  desktopNotifications={chatmuxAppDesktopNotificationsState}
                   onEnableDesktopNotifications={handleEnableDesktopNotifications}
                   onDisableDesktopNotifications={handleDisableDesktopNotifications}
                 />

@@ -1,11 +1,11 @@
-# Contributing to Gajae App
+# Contributing to ChatMux
 
-Thanks for your interest in contributing to Gajae App! Before you start, please take a moment to read through this guide.
+Thanks for your interest in contributing to ChatMux! Before you start, please take a moment to read through this guide.
 
 ## Before You Start
 
-- **Search first.** Check [existing issues](https://github.com/devswha/gajae-app/issues) and [pull requests](https://github.com/devswha/gajae-app/pulls) to avoid duplicating work.
-- **Discuss first** for new features. Open an [issue](https://github.com/devswha/gajae-app/issues/new) to discuss your idea before investing time in implementation. We may already have plans or opinions on how it should work.
+- **Search first.** Check [existing issues](https://github.com/devswha/chatmux/issues) and [pull requests](https://github.com/devswha/chatmux/pulls) to avoid duplicating work.
+- **Discuss first** for new features. Open an [issue](https://github.com/devswha/chatmux/issues/new) to discuss your idea before investing time in implementation. We may already have plans or opinions on how it should work.
 - **Bug fixes are always welcome.** If you spot a bug, feel free to open a PR directly.
 
 ## Prerequisites
@@ -16,11 +16,11 @@ Thanks for your interest in contributing to Gajae App! Before you start, please 
 
 ## Getting Started
 
-1. Fork the [repository](https://github.com/devswha/gajae-app).
+1. Fork the [repository](https://github.com/devswha/chatmux).
 2. Clone your fork:
    ```bash
-   git clone https://github.com/<your-username>/gajae-app.git
-   cd gajae-app
+   git clone https://github.com/<your-username>/chatmux.git
+   cd chatmux
    ```
 3. Install dependencies:
    ```bash
@@ -38,7 +38,7 @@ Thanks for your interest in contributing to Gajae App! Before you start, please 
 ## Project Structure
 
 ```
-gajae-app/
+chatmux/
 ├── src/              # React frontend (Vite + Tailwind)
 │   ├── components/   # UI components
 │   ├── contexts/     # React context providers
@@ -141,8 +141,8 @@ feat!: redesign settings page layout
 Maintainers publish approved repository revisions through the repository-owned self-hosting lifecycle. Use an immutable commit SHA for installations and updates; do not rely on a global package or a moving branch.
 
 ```bash
-./scripts/gajae-app.sh status
-./scripts/gajae-app.sh update --ref <approved-full-commit-sha>
+./scripts/chatmux.sh status
+./scripts/chatmux.sh update --ref <approved-full-commit-sha>
 ```
 
 See the [self-hosting guide](docs/SELF-HOST.md) for installation, updates, rollback, and service operations.

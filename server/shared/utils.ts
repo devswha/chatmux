@@ -532,13 +532,13 @@ const PROVIDER_SESSION_ACTIVE_MODEL_CHANGE_CACHE_VERSION = 1;
  * Resolves the backend-owned cache file used for session-scoped resume model
  * overrides.
  *
- * The file lives under `~/.gajae-app` because these overrides are an application
+ * The file lives under `~/.chatmux` because these overrides are an application
  * concern rather than a provider-native config file. Providers, routes, and
  * runtime command launchers should all use this helper instead of re-creating
  * the path so the storage location stays consistent.
  */
 export function getProviderSessionActiveModelChangesPath(): string {
-  return path.join(os.homedir(), '.gajae-app', 'provider-session-active-model-changes.json');
+  return path.join(os.homedir(), '.chatmux', 'provider-session-active-model-changes.json');
 }
 
 const buildProviderSessionActiveModelChangeKey = (

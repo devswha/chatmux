@@ -1,11 +1,11 @@
-# Self-hosting Gajae App
+# Self-hosting ChatMux
 
-Gajae App is self-hosted from the **GitHub Releases** server artifact only:
+ChatMux is self-hosted from the **GitHub Releases** server artifact only:
 
-<https://github.com/devswha/gajae-app/releases>
+<https://github.com/devswha/chatmux/releases>
 
 The canonical artifact is
-`gajae-app-server-<version>-linux-x64-node22.tar.gz`, accompanied by an
+`chatmux-server-<version>-linux-x64-node22.tar.gz`, accompanied by an
 artifact with the same name plus `.sha256`. Do not substitute a package
 registry, container image, desktop delivery, or an unverified source build.
 
@@ -16,14 +16,14 @@ newer and a Node.js 22 runtime. It is a server artifact only.
 
 | Path | Purpose |
 |---|---|
-| `~/.local/share/gajae-app` | Canonical Git checkout for source review and manual upstream intake. It is not a release payload. |
-| `~/.gajae-app/releases/<version>` | Immutable unpacked server artifacts. |
-| `~/.gajae-app/current` | Symlink to the release used by the service. |
-| `~/.gajae-app/data` | Persistent application data, including user-managed database, assets, and cache paths. |
-| `~/.config/systemd/user/gajae-app.service` | Per-user systemd service. |
+| `~/.local/share/chatmux` | Canonical Git checkout for source review and manual upstream intake. It is not a release payload. |
+| `~/.chatmux/releases/<version>` | Immutable unpacked server artifacts. |
+| `~/.chatmux/current` | Symlink to the release used by the service. |
+| `~/.chatmux/data` | Persistent application data, including user-managed database, assets, and cache paths. |
+| `~/.config/systemd/user/chatmux.service` | Per-user systemd service. |
 
 A release deployment must never create, replace, or delete the checkout.
-Likewise, replacing a release must not delete `~/.gajae-app/data`.
+Likewise, replacing a release must not delete `~/.chatmux/data`.
 
 Before the first deployment, confirm the host contract:
 
@@ -35,18 +35,18 @@ node --version              # requires v22
 ```
 
 Use the release-install procedure in [INSTALL.md](INSTALL.md) to verify the
-checksum, unpack a versioned release, install `gajae-app.service`, and activate
+checksum, unpack a versioned release, install `chatmux.service`, and activate
 the initial `current` link.
 
 ## Service operations
 
-Gajae App runs as the per-user `gajae-app.service`; root privileges and a
+ChatMux runs as the per-user `chatmux.service`; root privileges and a
 system-wide unit are not required.
 
 ```sh
-systemctl --user status gajae-app.service
-systemctl --user restart gajae-app.service
-journalctl --user -u gajae-app.service -f
+systemctl --user status chatmux.service
+systemctl --user restart chatmux.service
+journalctl --user -u chatmux.service -f
 curl --fail http://127.0.0.1:3001/health
 ```
 
@@ -69,14 +69,14 @@ Download and checksum-verify the next artifact exactly as described in
 
 1. Record the active release before touching `current`.
 2. Unpack the verified artifact into its new
-   `~/.gajae-app/releases/<version>` directory.
+   `~/.chatmux/releases/<version>` directory.
 3. Confirm that the expected server entry point is present.
 4. Atomically replace `current`, restart the service, and check both systemd
    state and the health endpoint.
 5. Keep the prior release directory until the new release is accepted.
 
 ```sh
-RUNTIME="$HOME/.gajae-app"
+RUNTIME="$HOME/.chatmux"
 VERSION=<approved-version>
 RELEASE_DIR="$RUNTIME/releases/$VERSION"
 PREVIOUS="$(readlink -f "$RUNTIME/current")"
@@ -86,8 +86,8 @@ printf '%s\n' "$PREVIOUS" > "$RUNTIME/previous-release"
 ln -s "$RELEASE_DIR" "$RUNTIME/current.next"
 mv -Tf "$RUNTIME/current.next" "$RUNTIME/current"
 
-systemctl --user restart gajae-app.service
-systemctl --user --no-pager --full status gajae-app.service
+systemctl --user restart chatmux.service
+systemctl --user --no-pager --full status chatmux.service
 curl --fail http://127.0.0.1:3001/health
 ```
 
@@ -100,7 +100,7 @@ than troubleshooting against a partially accepted release.
 Validate it is an installed release before atomically restoring it.
 
 ```sh
-RUNTIME="$HOME/.gajae-app"
+RUNTIME="$HOME/.chatmux"
 PREVIOUS="$(<"$RUNTIME/previous-release")"
 
 case "$PREVIOUS" in
@@ -111,8 +111,8 @@ test -f "$PREVIOUS/dist-server/server/index.js"
 
 ln -s "$PREVIOUS" "$RUNTIME/current.rollback"
 mv -Tf "$RUNTIME/current.rollback" "$RUNTIME/current"
-systemctl --user restart gajae-app.service
-systemctl --user --no-pager --full status gajae-app.service
+systemctl --user restart chatmux.service
+systemctl --user --no-pager --full status chatmux.service
 curl --fail http://127.0.0.1:3001/health
 ```
 
@@ -124,20 +124,20 @@ Do not remove either release until the rollback health check succeeds.
 To remove the service and release payload while preserving user data:
 
 ```sh
-systemctl --user disable --now gajae-app.service
-rm -f "$HOME/.config/systemd/user/gajae-app.service"
+systemctl --user disable --now chatmux.service
+rm -f "$HOME/.config/systemd/user/chatmux.service"
 systemctl --user daemon-reload
-rm -rf "$HOME/.gajae-app/releases"
-rm -f "$HOME/.gajae-app/current" "$HOME/.gajae-app/previous-release"
+rm -rf "$HOME/.chatmux/releases"
+rm -f "$HOME/.chatmux/current" "$HOME/.chatmux/previous-release"
 ```
 
-This intentionally leaves `~/.gajae-app/data` and
-`~/.local/share/gajae-app` untouched. Back up or remove either path only
+This intentionally leaves `~/.chatmux/data` and
+`~/.local/share/chatmux` untouched. Back up or remove either path only
 through an explicit, separately reviewed data-retention decision.
 
 ## Source and upstream boundaries
 
-The checkout at `~/.local/share/gajae-app` is for source review and deliberate
+The checkout at `~/.local/share/chatmux` is for source review and deliberate
 maintenance work. It is never the service working directory and is never
 updated as part of a release cutover. Follow [UPSTREAM.md](UPSTREAM.md) for
 manual, selective upstream intake; automated mirroring or synchronization is

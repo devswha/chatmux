@@ -210,7 +210,7 @@ export class ViewHost {
 
   reloadActiveView() {
     const view = this.getActiveView();
-    if (!view || !isTargetUrlAllowed(view.__gajaeTarget, view.webContents.getURL())) return false;
+    if (!view || !isTargetUrlAllowed(view.__chatmuxTarget, view.webContents.getURL())) return false;
     view.webContents.reloadIgnoringCache();
     return true;
   }
@@ -251,18 +251,18 @@ export class ViewHost {
       throw new Error('Tab id does not match the target id.');
     }
     if (
-      view.__gajaeTarget
+      view.__chatmuxTarget
       && (
-        view.__gajaeTarget.id !== normalizedTarget.id
-        || view.__gajaeTarget.kind !== normalizedTarget.kind
-        || view.__gajaeTarget.url !== normalizedTarget.url
-        || view.__gajaePartition !== normalizedTarget.partition
+        view.__chatmuxTarget.id !== normalizedTarget.id
+        || view.__chatmuxTarget.kind !== normalizedTarget.kind
+        || view.__chatmuxTarget.url !== normalizedTarget.url
+        || view.__chatmuxPartition !== normalizedTarget.partition
       )
     ) {
       throw new Error('A tab view cannot be rebound to another target or origin.');
     }
 
-    view.__gajaeTarget = normalizedTarget;
+    view.__chatmuxTarget = normalizedTarget;
     return normalizedTarget;
   }
 
@@ -292,13 +292,13 @@ export class ViewHost {
         partition: normalizedTarget.partition,
       },
     });
-    view.__gajaeTarget = normalizedTarget;
-    view.__gajaePartition = normalizedTarget.partition;
-    view.__gajaeAllowPlaceholderNavigation = false;
+    view.__chatmuxTarget = normalizedTarget;
+    view.__chatmuxPartition = normalizedTarget.partition;
+    view.__chatmuxAllowPlaceholderNavigation = false;
     this.configureChildWebContents(
       view.webContents,
-      () => view.__gajaeTarget,
-      (url) => view.__gajaeAllowPlaceholderNavigation
+      () => view.__chatmuxTarget,
+      (url) => view.__chatmuxAllowPlaceholderNavigation
         && String(url).startsWith('data:text/html;charset=utf-8,'),
     );
     this.tabViews.set(tabId, view);
@@ -307,11 +307,11 @@ export class ViewHost {
 
   async loadPlaceholder(view, html) {
     const url = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
-    view.__gajaeAllowPlaceholderNavigation = true;
+    view.__chatmuxAllowPlaceholderNavigation = true;
     try {
       await view.webContents.loadURL(url);
     } finally {
-      view.__gajaeAllowPlaceholderNavigation = false;
+      view.__chatmuxAllowPlaceholderNavigation = false;
     }
   }
 
@@ -342,47 +342,47 @@ export class ViewHost {
   async showTabPlaceholder(tabId, target, message) {
     const view = this.getOrCreateTabView(tabId, target);
     this.attach(view);
-    const html = buildPlaceholderHtml(view.__gajaeTarget.name || this.appName, message);
+    const html = buildPlaceholderHtml(view.__chatmuxTarget.name || this.appName, message);
     await this.loadPlaceholder(view, html);
-    view.__gajaeStartupHtml = html;
-    view.__gajaeLoadedOrigin = null;
+    view.__chatmuxStartupHtml = html;
+    view.__chatmuxLoadedOrigin = null;
   }
 
   async showLocalStartupTarget(tabId, target, logs) {
     const view = this.getOrCreateTabView(tabId, target);
-    if (view.__gajaeLoadingOrigin) return;
+    if (view.__chatmuxLoadingOrigin) return;
     this.attach(view);
-    const html = buildPlaceholderHtml(view.__gajaeTarget.name || this.appName, 'Starting Gajae App Local...', logs);
-    if (view.__gajaeStartupHtml === html) return;
+    const html = buildPlaceholderHtml(view.__chatmuxTarget.name || this.appName, 'Starting ChatMux Local...', logs);
+    if (view.__chatmuxStartupHtml === html) return;
     await this.loadPlaceholder(view, html);
-    view.__gajaeStartupHtml = html;
-    view.__gajaeLoadedOrigin = null;
+    view.__chatmuxStartupHtml = html;
+    view.__chatmuxLoadedOrigin = null;
   }
 
   async showContentTarget(tabId, target) {
     const view = this.getOrCreateTabView(tabId, target);
-    const targetOrigin = view.__gajaeTarget.url;
+    const targetOrigin = view.__chatmuxTarget.url;
     this.attach(view);
 
-    if (view.__gajaeLoadedOrigin !== targetOrigin) {
-      view.__gajaeLoadingOrigin = targetOrigin;
+    if (view.__chatmuxLoadedOrigin !== targetOrigin) {
+      view.__chatmuxLoadingOrigin = targetOrigin;
       try {
         await loadUrlWithTimeout(view.webContents, targetOrigin);
         const loadedUrl = view.webContents.getURL();
-        if (!isTargetUrlAllowed(view.__gajaeTarget, loadedUrl)) {
+        if (!isTargetUrlAllowed(view.__chatmuxTarget, loadedUrl)) {
           throw new Error(`Refusing navigation outside the registered target origin: ${loadedUrl}`);
         }
-        view.__gajaeLoadedOrigin = targetOrigin;
-        view.__gajaeStartupHtml = null;
+        view.__chatmuxLoadedOrigin = targetOrigin;
+        view.__chatmuxStartupHtml = null;
       } finally {
-        if (view.__gajaeLoadingOrigin === targetOrigin) {
-          view.__gajaeLoadingOrigin = null;
+        if (view.__chatmuxLoadingOrigin === targetOrigin) {
+          view.__chatmuxLoadingOrigin = null;
         }
       }
     }
 
     const currentUrl = view.webContents.getURL();
-    if (!isTargetUrlAllowed(view.__gajaeTarget, currentUrl)) {
+    if (!isTargetUrlAllowed(view.__chatmuxTarget, currentUrl)) {
       throw new Error(`Refusing navigation outside the registered target origin: ${currentUrl}`);
     }
     return currentUrl;
@@ -393,7 +393,7 @@ export class ViewHost {
     if (
       !view
       || view.webContents.isDestroyed()
-      || !isTargetUrlAllowed(view.__gajaeTarget, view.webContents.getURL())
+      || !isTargetUrlAllowed(view.__chatmuxTarget, view.webContents.getURL())
     ) return false;
     view.webContents.reloadIgnoringCache();
     return true;
@@ -401,16 +401,16 @@ export class ViewHost {
 
   async navigateActiveView(url) {
     const view = this.getActiveView();
-    if (!view || !isTargetUrlAllowed(view.__gajaeTarget, url)) {
+    if (!view || !isTargetUrlAllowed(view.__chatmuxTarget, url)) {
       throw new Error('Refusing navigation outside the active target origin.');
     }
     await loadUrlWithTimeout(view.webContents, url);
     const loadedUrl = view.webContents.getURL();
-    if (!isTargetUrlAllowed(view.__gajaeTarget, loadedUrl)) {
+    if (!isTargetUrlAllowed(view.__chatmuxTarget, loadedUrl)) {
       throw new Error(`Refusing navigation outside the registered target origin: ${loadedUrl}`);
     }
-    view.__gajaeLoadedOrigin = view.__gajaeTarget.url;
-    view.__gajaeStartupHtml = null;
+    view.__chatmuxLoadedOrigin = view.__chatmuxTarget.url;
+    view.__chatmuxStartupHtml = null;
     return true;
   }
 

@@ -367,7 +367,7 @@ function extractTokenBudget(sdkMessage) {
  * Plain text turns pass the string through unchanged. Turns with image
  * attachments use the SDK's streaming-input mode: a single SDKUserMessage
  * whose content carries the prompt text plus one base64 `image` block per
- * attachment (read from the global `~/.gajae-app/assets` folder).
+ * attachment (read from the global `~/.chatmux/assets` folder).
  *
  * @param {string} command - User prompt
  * @param {Array} images - Image descriptors ({ path, name?, mimeType? })

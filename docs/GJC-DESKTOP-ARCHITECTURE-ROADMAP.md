@@ -15,18 +15,18 @@ Implementation progress:
   `server/gjc-worker.ts` owns the GJC CLI/SDK runtime; the application retains
   browser sockets, application session IDs, replay, persistence, notifications,
   permission mirrors, restart policy, and terminal reporting.
-- **Checkpoint C slice 1 complete.** `native/gajae-core` is now the mandatory,
+- **Checkpoint C slice 1 complete.** `native/chatmux-core` is now the mandatory,
   minimal Rust process host between the application and Node GJC worker. It
   launches exactly one trusted worker without a shell, preserves Protocol v1
   bytes, waits for worker exit, and has no direct Node fallback.
 - **Checkpoint C slice 2 complete.** GJC transcript watching now runs through
-  `gajae-core watch` for the persisted and live-session roots. The Rust watcher
+  `chatmux-core watch` for the persisted and live-session roots. The Rust watcher
   attaches recursively before its ready frame, emits only bounded, canonically
   contained `.jsonl` add/change events, and exits with its application-owned stdin.
   The Node client strictly validates and coalesces those events, cancels queued work
   during bounded shutdown, restarts with bounded backoff, reconciles GJC after each
   replacement, and has no Chokidar fallback.
-- **Checkpoint C slice 3 complete.** `gajae-core jobs` defines the single
+- **Checkpoint C slice 3 complete.** `chatmux-core jobs` defines the single
   in-memory job state-machine authority before persistence moves: fenced lease
   generations guard mutations, transitions are explicit, active jobs reconcile
   to `interrupted` after authority replacement, and event append/replay is ordered
@@ -36,7 +36,7 @@ Implementation progress:
   Rust exclusively owns its sequential schema migrations; startup rejects
   unknown versions or invalid paths, atomically persists each mutation, and
   reconciles active jobs after process replacement.
-- **Checkpoint C slice 5 complete.** `gajae-core pty` owns one native PTY child
+- **Checkpoint C slice 5 complete.** `chatmux-core pty` owns one native PTY child
   without a shell and exposes bounded base64 input/output, validated resize, exit,
   EOF cleanup, and explicit shutdown over a separate strict 64 KiB NDJSON API.
 - Process ownership remains explicit: the Rust core is the detached POSIX
@@ -52,7 +52,7 @@ Implementation progress:
 
 ## Purpose
 
-Record the agreed direction for evolving Gajae App toward a Codex App-like desktop product without turning the recent Node.js compatibility fix into an unnecessary full rewrite.
+Record the agreed direction for evolving ChatMux toward a Codex App-like desktop product without turning the recent Node.js compatibility fix into an unnecessary full rewrite.
 
 ## Confirmed decisions
 
@@ -101,7 +101,7 @@ The desktop shell must stay thin. Closing a window must not implicitly destroy a
 
 ### Application server/core owns
 
-- Gajae App authentication and authorization.
+- ChatMux authentication and authorization.
 - Application session IDs and provider-session ID mapping.
 - Database writes and migrations.
 - Browser WebSocket connections and replay sequencing.
@@ -111,7 +111,7 @@ The desktop shell must stay thin. Closing a window must not implicitly destroy a
 
 ### Worker must not own
 
-- Direct writes to the Gajae App database.
+- Direct writes to the ChatMux database.
 - Browser authentication or browser-facing sockets.
 - Product-wide provider registration.
 - Claude, Codex, Cursor, or OpenCode behavior.

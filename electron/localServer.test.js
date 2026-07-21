@@ -5,7 +5,7 @@ import test from 'node:test';
 import {
   HEALTH_MAX_RESPONSE_BYTES,
   LocalServerController,
-  isGajaeAppServer,
+  isChatMuxAppServer,
   requestJson,
 } from './localServer.js';
 
@@ -45,10 +45,10 @@ function createController(options = {}) {
   });
 }
 
-test('health checks require the complete Gajae App identity', async () => {
+test('health checks require the complete ChatMux identity', async () => {
   const probe = async (body) => {
     const transport = fakeHttpGet();
-    const result = isGajaeAppServer('http://127.0.0.1:3001', {
+    const result = isChatMuxAppServer('http://127.0.0.1:3001', {
       httpGet: (url, callback) => {
         callback(transport.response);
         queueMicrotask(() => transport.response.emit('data', JSON.stringify(body)));
@@ -61,13 +61,13 @@ test('health checks require the complete Gajae App identity', async () => {
 
   assert.equal(await probe({
     status: 'ok',
-    product: 'gajae-app',
+    product: 'chatmux',
     protocolVersion: 1,
     version: '1.0.0',
   }), true);
   assert.equal(await probe({ status: 'ok' }), false);
-  assert.equal(await probe({ status: 'ok', product: 'gajae-app', protocolVersion: '1' }), false);
-  assert.equal(await probe({ status: 'ok', product: 'gajae-app', protocolVersion: 1, version: ' ' }), false);
+  assert.equal(await probe({ status: 'ok', product: 'chatmux', protocolVersion: '1' }), false);
+  assert.equal(await probe({ status: 'ok', product: 'chatmux', protocolVersion: 1, version: ' ' }), false);
 });
 
 test('health requests abort both streams on an absolute deadline and response cap', async () => {

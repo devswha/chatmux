@@ -6,7 +6,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 
 import SessionProviderLogo from './SessionProviderLogo';
 
-test('gjc renders the distinct gajae mascot mark, not the reused Claude logo', () => {
+test('gjc renders the distinct chatmux mascot mark, not the reused Claude logo', () => {
   const gjc = renderToStaticMarkup(createElement(SessionProviderLogo, { provider: 'gjc' }));
   const claude = renderToStaticMarkup(createElement(SessionProviderLogo, { provider: 'claude' }));
 

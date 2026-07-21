@@ -245,7 +245,7 @@ function ChatInterface({
     });
   }, [selectedProject, selectedSession, sendMessage, sessionStore]);
 
-  // A live (tmux-driven) session grows from an EXTERNAL gjc process, so Gajae App
+  // A live (tmux-driven) session grows from an EXTERNAL gjc process, so ChatMux
   // gets no realtime WS push for it — the open read-only view would otherwise stay
   // frozen until the user leaves and re-enters. While such a session is open, poll
   // a bounded refresh (same reconcile as the reconnect/external path) so a relayed

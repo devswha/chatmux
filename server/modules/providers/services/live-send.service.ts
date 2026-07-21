@@ -8,7 +8,7 @@
  * host installs have none — the tower is an external component), the built-in
  * relay performs the tmux operation directly instead (결정 #290 ②), so 찔러주기
  * works out of the box. A tower REFUSAL is authoritative and never falls back.
- * `GAJAE_BUILTIN_RELAY=0` restores the strict tower-only degradation
+ * `CHATMUX_BUILTIN_RELAY=0` restores the strict tower-only degradation
  * (`{ ok: false, reachable: false }`).
  */
 

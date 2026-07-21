@@ -388,7 +388,7 @@ test('findIdleGjcTmuxSessions: a stray "gjc" token deeper in argv never qualifie
 test('isGjcProcessArgs: argv-anchored — native, bun/node entry, package path; rejects lookalikes', () => {
   assert.equal(isGjcProcessArgs('/usr/local/bin/gjc --resume 019f'), true);
   assert.equal(isGjcProcessArgs('/home/u/.bun/bin/bun /home/u/.bun/bin/gjc'), true);
-  assert.equal(isGjcProcessArgs('/usr/bin/node /opt/node_modules/@gajae-code/coding-agent/bin/gjc.js'), true);
+  assert.equal(isGjcProcessArgs('/usr/bin/node /opt/node_modules/@chatmux-code/coding-agent/bin/gjc.js'), true);
   assert.equal(isGjcProcessArgs('man gjc'), false);
   assert.equal(isGjcProcessArgs('vi /tmp/notes/gjc'), false);
   assert.equal(isGjcProcessArgs('/usr/bin/node /srv/devserver/index.js'), false);
@@ -512,10 +512,10 @@ test('isGjcCommandLine matches gjc as a native binary AND under bun/node interpr
   // bun launcher — real-world case where comm reads "bun" (the regression this fixes)
   assert.equal(isGjcCommandLine(cmdline('/home/u/.bun/bin/bun', '/home/u/.bun/bin/gjc', '--resume', '019f6f27')), true);
   // node launching the packaged entry (basename is gjc.js — matched via the package path)
-  assert.equal(isGjcCommandLine(cmdline('/usr/bin/node', '/opt/node_modules/@gajae-code/coding-agent/bin/gjc.js', 'start')), true);
+  assert.equal(isGjcCommandLine(cmdline('/usr/bin/node', '/opt/node_modules/@chatmux-code/coding-agent/bin/gjc.js', 'start')), true);
   // NOT gjc: the app server and its native watcher must never be mistaken for a session holder
-  assert.equal(isGjcCommandLine(cmdline('/usr/bin/node', '/home/u/.gajae-app/current/scripts/gajae-app-runtime.mjs', 'start')), false);
-  assert.equal(isGjcCommandLine(cmdline('/home/u/.gajae-app/current/dist-native/gajae-core', 'watch', '--root', '/home/u/.gjc/agent/sessions')), false);
+  assert.equal(isGjcCommandLine(cmdline('/usr/bin/node', '/home/u/.chatmux/current/scripts/chatmux-runtime.mjs', 'start')), false);
+  assert.equal(isGjcCommandLine(cmdline('/home/u/.chatmux/current/dist-native/chatmux-core', 'watch', '--root', '/home/u/.gjc/agent/sessions')), false);
   assert.equal(isGjcCommandLine(''), false);
 });
 

@@ -183,7 +183,7 @@ export class DesktopNotificationsController {
     if (!Notification.isSupported()) return false;
 
     const notification = new Notification({
-      title: payload.title || target.name || 'Gajae App',
+      title: payload.title || target.name || 'ChatMux',
       body: payload.body || '',
       silent: false,
     });

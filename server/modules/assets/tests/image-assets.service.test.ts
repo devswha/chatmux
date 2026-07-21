@@ -9,7 +9,7 @@ import {
   resolveImageAssetFile,
 } from '@/modules/assets/services/image-assets.service.js';
 
-const ASSETS_DIR = path.join(os.homedir(), '.gajae-app', 'assets');
+const ASSETS_DIR = path.join(os.homedir(), '.chatmux', 'assets');
 
 test('isAllowedImageMimeType accepts image formats and rejects the rest', () => {
   assert.equal(isAllowedImageMimeType('image/png'), true);

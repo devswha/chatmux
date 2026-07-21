@@ -3,8 +3,8 @@ import type { TFunction } from 'i18next';
 
 import type { ReleaseInfo } from '../../../../types/sharedTypes';
 
-const GITHUB_ISSUES_URL = 'https://github.com/devswha/gajae-app/issues/new';
-const GITHUB_REPO_URL = 'https://github.com/devswha/gajae-app';
+const GITHUB_ISSUES_URL = 'https://github.com/devswha/chatmux/issues/new';
+const GITHUB_REPO_URL = 'https://github.com/devswha/chatmux';
 
 const DISCORD_INVITE_URL = 'https://discord.gg/dskZax5JPh';
 
@@ -151,7 +151,7 @@ export default function SidebarFooter({
           rel="noopener noreferrer"
           className="text-[10px] text-muted-foreground/40 transition-colors hover:text-muted-foreground"
         >
-          Gajae App v{currentVersion} – {t('branding.openSource')}
+          ChatMux v{currentVersion} – {t('branding.openSource')}
         </a>
       </div>
 

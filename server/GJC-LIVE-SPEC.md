@@ -17,7 +17,7 @@ gjc -p --mode json --session-dir <dir> [-r <providerSessionId>] [--model <model>
 - The prompt is written to an owner-readable temporary file and passed by
   `@file`; it is never placed verbatim in the process list.
 - `GJC_NOTIFICATIONS=0` disables notifications from the ephemeral CLI harness.
-  Gajae App remains the notification owner.
+  ChatMux remains the notification owner.
 - `--session-dir` isolates session writes. Authentication and configuration
   still come from the user's normal GJC configuration.
 - Stdout is byte-bounded NDJSON. Stderr is diagnostic only and is not forwarded
@@ -51,9 +51,9 @@ proven.
 
 ### Native core process
 
-`native/gajae-core` is a minimal Rust runtime with two strict modes. The
-application starts `dist-native/gajae-core -- <worker>` to host exactly one
-trusted Node worker without a shell, and starts `dist-native/gajae-core watch`
+`native/chatmux-core` is a minimal Rust runtime with two strict modes. The
+application starts `dist-native/chatmux-core -- <worker>` to host exactly one
+trusted Node worker without a shell, and starts `dist-native/chatmux-core watch`
 for GJC transcript changes. In process-host mode, the core:
 
 - inherits the application-controlled environment and working directory;
@@ -71,7 +71,7 @@ directly.
 ### Native GJC session watcher
 
 `server/modules/providers/services/gjc-session-watcher.service.ts` starts
-`gajae-core watch` over the persisted `~/.gjc/agent/sessions` root and the
+`chatmux-core watch` over the persisted `~/.gjc/agent/sessions` root and the
 configured live-session root before the initial provider scan. The watcher:
 
 - rejects missing, relative, duplicate, symlink, or non-directory roots;
@@ -91,7 +91,7 @@ their existing Chokidar watchers unchanged.
 
 ### Native job authority
 
-`gajae-core jobs --database <absolute-path>` is a separate strict 64 KiB
+`chatmux-core jobs --database <absolute-path>` is a separate strict 64 KiB
 Protocol 1 NDJSON API and the single state-machine authority for durable jobs.
 Its state and ordered event replay persist in a dedicated Rust-owned SQLite
 database built with bundled SQLite. Rust exclusively owns its version table and
@@ -103,7 +103,7 @@ ownership has not moved. Worker Protocol v1 and all React behavior are unchanged
 
 ### Native PTY lifecycle
 
-`gajae-core pty -- <program> [args...]` owns exactly one native PTY child and
+`chatmux-core pty -- <program> [args...]` owns exactly one native PTY child and
 launches it directly without shell interpretation. Its separate Protocol 1
 NDJSON control stream is capped at 64 KiB per frame; binary input/output uses
 bounded base64 payloads, resize dimensions are validated, and output, exit,
@@ -129,7 +129,7 @@ replay, or notification state.
 
 Three IDs are intentionally separate:
 
-1. `appSessionId` is the stable Gajae App session and protocol scope.
+1. `appSessionId` is the stable ChatMux session and protocol scope.
 2. `runId` is generated for every start/resume request and is the immutable
    abort/event correlation handle.
 3. `providerSessionId` is the native GJC session used for resume and history.
@@ -199,7 +199,7 @@ Focused coverage is in:
 - `server/gjc-sdk-bridge.test.ts`
 - `server/gjc-core-host.test.ts`
 - `server/modules/providers/tests/gjc-session-watcher.test.ts`
-- `native/gajae-core/src/lib.rs`
+- `native/chatmux-core/src/lib.rs`
 - `server/gjc-worker-protocol.test.ts`
 - `server/gjc-worker.test.ts`
 - `server/gjc-windows-job.test.ts`

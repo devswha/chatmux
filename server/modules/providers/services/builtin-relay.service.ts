@@ -23,15 +23,15 @@ import type { LiveKillResult, LiveSendResult, LiveSpawnResult } from './live-sen
  *   same protections the tower path has.
  * - Injection uses tmux paste buffers (literal bytes, bracketed paste), never
  *   shell interpolation; every subprocess is argv-spawned without a shell.
- * - `GAJAE_BUILTIN_RELAY=0` restores the strict tower-only behavior.
+ * - `CHATMUX_BUILTIN_RELAY=0` restores the strict tower-only behavior.
  */
 
 export function builtinRelayEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env.GAJAE_BUILTIN_RELAY !== '0';
+  return env.CHATMUX_BUILTIN_RELAY !== '0';
 }
 
 const TMUX_TIMEOUT_MS = 5_000;
-const PASTE_BUFFER_NAME = 'gajae-app-relay';
+const PASTE_BUFFER_NAME = 'chatmux-relay';
 
 // Session-target commands (has-session/kill-session) take '=name' for exact
 // match; PANE-target commands (send-keys/paste-buffer) need '=name:' — the

@@ -598,7 +598,7 @@ mod tests {
     #[test]
     fn persists_state_and_reconciles_active_jobs_on_reopen() {
         let directory = std::env::temp_dir().join(format!(
-            "gajae-core-jobs-{}-{}",
+            "chatmux-core-jobs-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -641,7 +641,7 @@ mod tests {
     #[test]
     fn rejects_unknown_future_schema_versions() {
         let directory = std::env::temp_dir().join(format!(
-            "gajae-core-jobs-future-{}-{}",
+            "chatmux-core-jobs-future-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

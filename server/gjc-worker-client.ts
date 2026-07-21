@@ -333,8 +333,8 @@ export class GjcWorkerSupervisor {
     const workerPath = this.runtime.workerPath ?? fileURLToPath(new URL(compiled ? './gjc-worker.js' : './gjc-worker.ts', import.meta.url));
     const workerArgs = compiled ? [workerPath] : ['--import', 'tsx', workerPath];
     const coreExecutable = this.runtime.platform === 'win32'
-      ? 'gajae-core.exe'
-      : 'gajae-core';
+      ? 'chatmux-core.exe'
+      : 'chatmux-core';
     const corePath = this.runtime.corePath ?? fileURLToPath(new URL(
       compiled
         ? `../../dist-native/${coreExecutable}`

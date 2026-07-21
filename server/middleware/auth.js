@@ -4,7 +4,7 @@ import { userDb, appConfigDb } from '../modules/database/index.js';
 
 // Use env var if set, otherwise auto-generate a unique secret per installation
 const JWT_SECRET = process.env.JWT_SECRET || appConfigDb.getOrCreateJwtSecret();
-const AUTH_COOKIE_NAME = 'gajae_auth';
+const AUTH_COOKIE_NAME = 'chatmux_auth';
 const TOKEN_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
 const TOKEN_MAX_AGE_MS = TOKEN_MAX_AGE_SECONDS * 1000;
 
@@ -17,7 +17,7 @@ const TOKEN_MAX_AGE_MS = TOKEN_MAX_AGE_SECONDS * 1000;
  * Pure resolver kept separate so the policy is unit-testable.
  */
 const resolveAuthMode = (value) => (value === 'password' ? 'password' : 'none');
-const AUTH_MODE = resolveAuthMode(process.env.GAJAE_AUTH);
+const AUTH_MODE = resolveAuthMode(process.env.CHATMUX_AUTH);
 const isAuthDisabled = () => AUTH_MODE === 'none';
 
 // In 'none' mode every request resolves to the single owner row. The row must

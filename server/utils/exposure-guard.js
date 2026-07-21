@@ -8,7 +8,7 @@
 //   - auth mode 'none', non-loopback bind
 //                                → BLOCK startup: there is no login at all, so
 //                                  the port is shell access. Explicit
-//                                  GAJAE_ALLOW_UNAUTH_REMOTE=1 (trusted private
+//                                  CHATMUX_ALLOW_UNAUTH_REMOTE=1 (trusted private
 //                                  network such as a tailnet) downgrades this
 //                                  to a loud warning.
 //   - non-loopback bind, no user → BLOCK startup: the first-run /register
@@ -28,8 +28,8 @@ import { isLoopbackHost, isWildcardHost } from '../../shared/networkHosts.js';
  * @param {string} input.host bind address (e.g. '127.0.0.1', '0.0.0.0')
  * @param {boolean} input.hasUsers at least one account exists in the auth DB
  * @param {boolean} [input.allowRemoteSetup] explicit ALLOW_REMOTE_SETUP=1 opt-in
- * @param {'none'|'password'} [input.authMode] resolved GAJAE_AUTH mode
- * @param {boolean} [input.allowUnauthRemote] explicit GAJAE_ALLOW_UNAUTH_REMOTE=1 opt-in
+ * @param {'none'|'password'} [input.authMode] resolved CHATMUX_AUTH mode
+ * @param {boolean} [input.allowUnauthRemote] explicit CHATMUX_ALLOW_UNAUTH_REMOTE=1 opt-in
  * @returns {{level: 'ok'|'warn'|'block', reason: string, message?: string}}
  */
 export function evaluateExposure({
@@ -53,19 +53,19 @@ export function evaluateExposure({
                 level: 'block',
                 reason: 'unauthenticated-remote',
                 message:
-                    `Refusing to listen on ${scope}: GAJAE_AUTH=none disables login entirely, so ` +
+                    `Refusing to listen on ${scope}: CHATMUX_AUTH=none disables login entirely, so ` +
                     'anyone who can reach this port can run commands as this user.\n' +
                     'Fix: keep the default loopback bind (leave HOST unset), or enable ' +
-                    'authentication with GAJAE_AUTH=password.\n' +
+                    'authentication with CHATMUX_AUTH=password.\n' +
                     'Override for a trusted private network (VPN/tailnet) only: ' +
-                    'GAJAE_ALLOW_UNAUTH_REMOTE=1.',
+                    'CHATMUX_ALLOW_UNAUTH_REMOTE=1.',
             };
         }
         return {
             level: 'warn',
             reason: 'unauthenticated-remote-override',
             message:
-                `GAJAE_ALLOW_UNAUTH_REMOTE=1 — listening on ${scope} with NO authentication. ` +
+                `CHATMUX_ALLOW_UNAUTH_REMOTE=1 — listening on ${scope} with NO authentication. ` +
                 'Anyone who can reach this port can run commands as this user; make sure the ' +
                 'address is only reachable through your private network.',
         };

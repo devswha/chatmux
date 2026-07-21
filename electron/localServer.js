@@ -15,8 +15,8 @@ const HEALTH_MAX_RESPONSE_BYTES = 16 * 1024;
 const SERVER_START_TIMEOUT_MS = 30000;
 const SERVER_STOP_GRACE_MS = 3000;
 const MAX_STARTUP_LOG_LINES = 300;
-const LOCAL_SERVER_URL_ENV = 'GAJAE_APP_LOCAL_SERVER_URL';
-const LOCAL_SERVER_PORT_ENV = 'GAJAE_APP_LOCAL_SERVER_PORT';
+const LOCAL_SERVER_URL_ENV = 'CHATMUX_LOCAL_SERVER_URL';
+const LOCAL_SERVER_PORT_ENV = 'CHATMUX_LOCAL_SERVER_PORT';
 
 function requestJson(url, timeoutMs = HEALTH_TIMEOUT_MS, {
   httpGet = http.get,
@@ -74,11 +74,11 @@ function requestJson(url, timeoutMs = HEALTH_TIMEOUT_MS, {
   });
 }
 
-async function isGajaeAppServer(baseUrl, requestOptions) {
+async function isChatMuxAppServer(baseUrl, requestOptions) {
   const response = await requestJson(`${baseUrl}/health`, HEALTH_TIMEOUT_MS, requestOptions);
   return response.ok
     && response.json?.status === 'ok'
-    && response.json?.product === 'gajae-app'
+    && response.json?.product === 'chatmux'
     && response.json?.protocolVersion === 1
     && typeof response.json?.version === 'string'
     && Boolean(response.json.version.trim());
@@ -125,8 +125,8 @@ function getDesktopPath() {
 }
 
 function getNodeRuntime(usePackagedElectronRuntime) {
-  if (process.env.GAJAE_APP_NODE_PATH) {
-    return { command: process.env.GAJAE_APP_NODE_PATH, env: {}, label: 'GAJAE_APP_NODE_PATH' };
+  if (process.env.CHATMUX_NODE_PATH) {
+    return { command: process.env.CHATMUX_NODE_PATH, env: {}, label: 'CHATMUX_NODE_PATH' };
   }
 
   if (usePackagedElectronRuntime && process.versions.electron) {
@@ -197,11 +197,11 @@ function getPortFromUrl(baseUrl) {
   return parsed.port ? Number.parseInt(parsed.port, 10) : 80;
 }
 
-async function waitForGajaeAppServer(baseUrl, timeoutMs, shouldContinue = () => true) {
+async function waitForChatMuxAppServer(baseUrl, timeoutMs, shouldContinue = () => true) {
   const startedAt = Date.now();
 
   while (Date.now() - startedAt < timeoutMs && shouldContinue()) {
-    if (await isGajaeAppServer(baseUrl)) return true;
+    if (await isChatMuxAppServer(baseUrl)) return true;
     if (!shouldContinue()) return false;
     await new Promise((resolve) => setTimeout(resolve, 300));
   }
@@ -294,7 +294,7 @@ export class LocalServerController {
     }
     return {
       kind: 'local',
-      name: 'Gajae App Local',
+      name: 'ChatMux Local',
       url: this.localServerUrl || url,
     };
   }
@@ -394,7 +394,7 @@ export class LocalServerController {
     child.once('exit', (code, signal) => {
       this.appendStartupLog(`process exited with code ${code ?? 'null'} and signal ${signal ?? 'null'}`);
       if (this.ownedServerProcess === child) {
-        console.error(`Gajae App local server exited with code ${code ?? 'null'} and signal ${signal ?? 'null'}`);
+        console.error(`ChatMux local server exited with code ${code ?? 'null'} and signal ${signal ?? 'null'}`);
         this.ownedServerProcess = null;
         this.localServerUrl = null;
         this.localServerPort = null;
@@ -411,7 +411,7 @@ export class LocalServerController {
     const configuredPort = getPortFromUrl(configuredUrl);
 
     if (devUrl) {
-      const ready = await waitForGajaeAppServer(
+      const ready = await waitForChatMuxAppServer(
         configuredUrl,
         SERVER_START_TIMEOUT_MS,
         () => !this.isStopping,
@@ -424,19 +424,19 @@ export class LocalServerController {
     }
 
     // This health check is made only as part of the user-triggered Local Open
-    // action. It allows a separately started loopback Gajae App server to stay
+    // action. It allows a separately started loopback ChatMux server to stay
     // in charge of its own lifecycle.
-    if (await isGajaeAppServer(configuredUrl)) {
+    if (await isChatMuxAppServer(configuredUrl)) {
       this.localServerPort = configuredPort;
       const displayUrl = getDisplayUrl(configuredUrl);
-      this.appendStartupLog(`Using Gajae App Local at ${displayUrl}`);
+      this.appendStartupLog(`Using ChatMux Local at ${displayUrl}`);
       return displayUrl;
     }
 
     let port = configuredPort;
     if (!await isPortAvailable(port, HOST)) {
       if (process.env[LOCAL_SERVER_URL_ENV] || process.env[LOCAL_SERVER_PORT_ENV]) {
-        throw new Error(`Gajae App Local is unavailable at ${getDisplayUrl(configuredUrl)}.`);
+        throw new Error(`ChatMux Local is unavailable at ${getDisplayUrl(configuredUrl)}.`);
       }
       port = await getFreePort();
     }
@@ -446,12 +446,12 @@ export class LocalServerController {
     const displayUrl = `http://${DISPLAY_HOST}:${port}`;
     this.localServerPort = port;
     if (this.isStopping) {
-      throw new Error('Gajae App Local startup was cancelled.');
+      throw new Error('ChatMux Local startup was cancelled.');
     }
     const child = this.startLocalServer(port, serverEntry);
     this.localServerStartOwner = child;
 
-    const ready = await waitForGajaeAppServer(
+    const ready = await waitForChatMuxAppServer(
       serverUrl,
       SERVER_START_TIMEOUT_MS,
       () => !this.isStopping,
@@ -460,11 +460,11 @@ export class LocalServerController {
       const recentLogs = this.getStartupLogs().slice(-20).join('\n');
       await this.stopOwnedServerProcess();
       if (this.isStopping) {
-        throw new Error('Gajae App Local startup was cancelled.');
+        throw new Error('ChatMux Local startup was cancelled.');
       }
       this.localServerPort = null;
       throw new Error([
-        `Gajae App Local did not become ready at ${displayUrl}.`,
+        `ChatMux Local did not become ready at ${displayUrl}.`,
         recentLogs ? `Recent startup output:\n${recentLogs}` : 'No startup output was captured.',
       ].join('\n\n'));
     }
@@ -473,21 +473,21 @@ export class LocalServerController {
       this.ownedServerProcess !== child
       || !this.isChildRunning(child)
     ) {
-      throw new Error('Gajae App Local exited during startup.');
+      throw new Error('ChatMux Local exited during startup.');
     }
-    this.appendStartupLog(`Gajae App Local ready at ${displayUrl}`);
+    this.appendStartupLog(`ChatMux Local ready at ${displayUrl}`);
     return displayUrl;
   }
 
   async ensureLocalServer() {
     if (this.isStopping) {
-      throw new Error('Gajae App Local is shutting down.');
+      throw new Error('ChatMux Local is shutting down.');
     }
     if (this.localServerUrl) return this.localServerUrl;
     if (!this.localServerStartPromise) {
       const startup = this.resolveLocalServerUrl().then((url) => {
         if (this.isStopping) {
-          throw new Error('Gajae App Local startup was cancelled.');
+          throw new Error('ChatMux Local startup was cancelled.');
         }
         const startOwner = this.localServerStartOwner;
         if (
@@ -497,7 +497,7 @@ export class LocalServerController {
             || !this.isChildRunning(startOwner)
           )
         ) {
-          throw new Error('Gajae App Local exited during startup.');
+          throw new Error('ChatMux Local exited during startup.');
         }
         this.localServerUrl = url;
         return url;
@@ -517,7 +517,7 @@ export class LocalServerController {
     await this.ensureLocalServer();
     return {
       kind: 'local',
-      name: 'Gajae App Local',
+      name: 'ChatMux Local',
       url: this.localServerUrl,
     };
   }
@@ -644,6 +644,6 @@ export {
   HEALTH_MAX_RESPONSE_BYTES,
   HEALTH_TIMEOUT_MS,
   HOST,
-  isGajaeAppServer,
+  isChatMuxAppServer,
   requestJson,
 };

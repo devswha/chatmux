@@ -1,7 +1,7 @@
-(function gajaeAppLauncher() {
+(function chatmuxAppLauncher() {
   var VERSION = window.__APP_VERSION__ || '';
   var mockState = {
-    activeTarget: { kind: 'launcher', name: 'Gajae App', url: null },
+    activeTarget: { kind: 'launcher', name: 'ChatMux', url: null },
     remoteServers: [],
     selectedRemoteServerId: null,
     localServerRunning: false,
@@ -46,7 +46,7 @@
     getState: function () { return Promise.resolve(clone(mockState)); },
     openLocal: function () {
       mockState.localServerRunning = true;
-      mockState.activeTarget = { kind: 'local', name: 'Gajae App Local', url: mockState.localWebUrl };
+      mockState.activeTarget = { kind: 'local', name: 'ChatMux Local', url: mockState.localWebUrl };
       return Promise.resolve({ ok: true, data: clone(mockState) });
     },
     listRemoteServers: function () {
@@ -100,7 +100,7 @@
     onStateChanged: function () { return function () {}; },
   };
 
-  var bridge = window.gajaeAppDesktop || mockBridge;
+  var bridge = window.chatmuxAppDesktop || mockBridge;
   var app = document.getElementById('app');
   var state = clone(mockState);
   var status = { message: '', tone: '' };
@@ -212,25 +212,25 @@
     var localRunning = Boolean(state.localServerRunning);
     var remoteList = remotes.length
       ? remotes.map(remoteCard).join('')
-      : '<div class="empty">No remote servers are saved. Add a trusted Gajae App origin to open it in a separate target.</div>';
+      : '<div class="empty">No remote servers are saved. Add a trusted ChatMux origin to open it in a separate target.</div>';
     var version = VERSION ? '<span>v' + esc(VERSION) + '</span>' : '';
 
     app.innerHTML =
       '<header class="titlebar">' +
       '<div class="brand-mark">G</div>' +
-      '<div class="brand"><strong>Gajae App</strong><span>Self-hosted targets</span></div>' +
+      '<div class="brand"><strong>ChatMux</strong><span>Self-hosted targets</span></div>' +
       '<div class="active-target">Active: ' + esc(targetLabel()) + '</div>' +
       '</header>' +
       '<main>' +
-      '<section class="page-heading"><div><p class="eyebrow">TARGETS</p><h1>Open Gajae App</h1><p>Run this checkout locally or select a saved remote origin.</p></div></section>' +
+      '<section class="page-heading"><div><p class="eyebrow">TARGETS</p><h1>Open ChatMux</h1><p>Run this checkout locally or select a saved remote origin.</p></div></section>' +
       '<section class="target-grid">' +
       '<article class="local-card">' +
-      '<div class="card-heading"><div><p class="eyebrow">LOCAL</p><h2>Gajae App Local</h2><p class="origin">' + esc(localUrl()) + '</p></div><span class="status-chip ' + (localRunning ? 'ready' : '') + '">' + (localRunning ? 'Running' : 'On demand') + '</span></div>' +
+      '<div class="card-heading"><div><p class="eyebrow">LOCAL</p><h2>ChatMux Local</h2><p class="origin">' + esc(localUrl()) + '</p></div><span class="status-chip ' + (localRunning ? 'ready' : '') + '">' + (localRunning ? 'Running' : 'On demand') + '</span></div>' +
       '<p class="description">Starts the built server from this checkout on loopback only.</p>' +
       '<div class="local-actions"><button class="button primary" data-action="open-local">Open local</button></div>' +
       '</article>' +
       '<section class="remote-section"><div class="section-heading"><div><p class="eyebrow">REMOTE</p><h2>Saved remote servers</h2><p>Each saved URL is an exact origin. Test and Open are the only network actions.</p></div></div>' +
-      '<div class="new-remote"><label>Name<input id="new-remote-name" placeholder="Workstation" autocomplete="off" /></label><label>Origin<input id="new-remote-url" placeholder="https://gajae.example.test" inputmode="url" spellcheck="false" autocomplete="off" /></label><button class="button primary" data-action="create">Add remote</button></div>' +
+      '<div class="new-remote"><label>Name<input id="new-remote-name" placeholder="Workstation" autocomplete="off" /></label><label>Origin<input id="new-remote-url" placeholder="https://chatmux.example.test" inputmode="url" spellcheck="false" autocomplete="off" /></label><button class="button primary" data-action="create">Add remote</button></div>' +
       '<div class="remote-list">' + remoteList + '</div>' +
       '</section>' +
       '</section>' +
@@ -252,7 +252,7 @@
 
     var action = button.getAttribute('data-action');
     if (action === 'open-local') {
-      run('Opening Gajae App Local…', function () { return bridge.openLocal(); });
+      run('Opening ChatMux Local…', function () { return bridge.openLocal(); });
       return;
     }
 

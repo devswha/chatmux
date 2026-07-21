@@ -126,7 +126,7 @@ class FakePeer {
 function runtime(child: FakeChild, scope = 'app-session-1') {
   return {
     spawn: () => child,
-    corePath: '/test/gajae-core',
+    corePath: '/test/chatmux-core',
     workerPath: '/test/gjc-worker.js',
     compiled: true,
     createScope: () => scope,
@@ -180,15 +180,15 @@ test('launches the Windows worker behind an atomic kill-on-close job guard', asy
   assert.equal(spawnOptions.detached, false);
   assert.equal(spawnOptions.env?.KEEP_ME, 'yes');
   assert.equal(
-    spawnOptions.env?.GAJAE_INTERNAL_JOB_APPLICATION,
-    '/test/gajae-core',
+    spawnOptions.env?.CHATMUX_INTERNAL_JOB_APPLICATION,
+    '/test/chatmux-core',
   );
   assert.equal(
     peer.requests.filter((request) => request.method === 'worker.initialize').length,
     1,
   );
   assert.match(
-    spawnOptions.env?.GAJAE_INTERNAL_JOB_COMMAND_LINE ?? '',
+    spawnOptions.env?.CHATMUX_INTERNAL_JOB_COMMAND_LINE ?? '',
     /gjc-worker\.js/,
   );
 });
@@ -241,7 +241,7 @@ test('shares one handshake and sends one start request per concurrent run', asyn
   assert.equal(peer.requests.some((request) => request.method === 'turn.start'), false);
   assert.equal(detached, process.platform !== 'win32');
   assert.equal(inheritedEnvironment, true);
-  assert.equal(command, '/test/gajae-core');
+  assert.equal(command, '/test/chatmux-core');
   assert.deepEqual(args, ['--', process.execPath, '/test/gjc-worker.js']);
 });
 
@@ -277,7 +277,7 @@ test('wraps the source worker command without changing its tsx environment', asy
 test('fails safely when the native core cannot launch without a Node fallback', async () => {
   const commands: string[] = [];
   const supervisor = new GjcWorkerSupervisor({
-    corePath: '/missing/gajae-core',
+    corePath: '/missing/chatmux-core',
     workerPath: '/test/gjc-worker.js',
     compiled: true,
     spawn: (command) => {
@@ -292,7 +292,7 @@ test('fails safely when the native core cannot launch without a Node fallback', 
     supervisor.spawn('hello', {}, { send() {} }),
     /GJC worker failed/,
   );
-  assert.deepEqual(commands, ['/missing/gajae-core']);
+  assert.deepEqual(commands, ['/missing/chatmux-core']);
 });
 
 test('resumes by provider session and forwards events using immutable run identity', async () => {

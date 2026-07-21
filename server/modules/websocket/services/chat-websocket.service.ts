@@ -17,7 +17,7 @@ import { parseIncomingJsonObject } from '@/shared/utils.js';
  * Trust boundary for client-supplied image attachments: chat.send options come
  * straight from the browser, and the provider runtimes read the referenced
  * files off disk (Claude base64-encodes them into the prompt). Only images
- * that live directly inside the global upload store (`~/.gajae-app/assets`,
+ * that live directly inside the global upload store (`~/.chatmux/assets`,
  * where POST /api/assets/images puts them) are allowed through — anything
  * else (absolute paths elsewhere, traversal, subdirectories) is dropped.
  *

@@ -1,4 +1,4 @@
-# Gajae App v2 구현 계획 (end-to-end)
+# ChatMux v2 구현 계획 (end-to-end)
 
 작성일: 2026-07-17. 기준 문서: `docs/MVP.md`(v2 정의),
 `docs/GJC-DESKTOP-ARCHITECTURE-ROADMAP.md`(체크포인트/불변식).
@@ -26,13 +26,13 @@ v2 = 앱이 주인. 웹/데스크톱에서 에이전트 작업을 만들고, 돌
 
 - v1.0.0 태그 + 서버 아티팩트 발행.
 - macOS arm64 테스트 타겟(맥북) 구축, 테스트 스위트 크로스플랫폼 green.
-- Rust 자산 현황: `gajae-core` host/watch 프로덕션 가동, jobs/pty 구현·미배선.
+- Rust 자산 현황: `chatmux-core` host/watch 프로덕션 가동, jobs/pty 구현·미배선.
 
 ## Phase 1 — durable jobs 배선 (v2 항목 2 전반부)
 
-떠 있는 `gajae-core jobs` 권위자를 제품에 연결한다.
+떠 있는 `chatmux-core jobs` 권위자를 제품에 연결한다.
 
-- **1.1 `GjcJobsClient` 서비스**: `gajae-core jobs --database <app-data>/jobs.sqlite3`
+- **1.1 `GjcJobsClient` 서비스**: `chatmux-core jobs --database <app-data>/jobs.sqlite3`
   자식 프로세스를 소유하는 Node 클라이언트.
   `gjc-session-watcher.service.ts` 패턴 재사용: spawn → ready 핸드셰이크 →
   64KiB 프레임 검증 → bounded 재시작 백오프 → stdin EOF 종료.
@@ -50,7 +50,7 @@ v2 = 앱이 주인. 웹/데스크톱에서 에이전트 작업을 만들고, 돌
 
 ## Phase 2 — Git/worktree 이관과 작업 단위 완성 (항목 2 후반 + 항목 4 잔여)
 
-- **2.1 `gajae-core git` API**: worktree 생성/목록/정리, status/diff를 별도
+- **2.1 `chatmux-core git` API**: worktree 생성/목록/정리, status/diff를 별도
   strict NDJSON API로. 필요 조각은 codex-rs에서 이식(NOTICE 준수).
 - **2.2 잡↔worktree 소유권**: 잡이 worktree를 점유/반납하는 규칙, 고아
   worktree 정리, 커밋 전 diff 리뷰(기존 git 패널 재사용) 후 명시적 커밋.
@@ -70,7 +70,7 @@ v2 = 앱이 주인. 웹/데스크톱에서 에이전트 작업을 만들고, 돌
 ## Phase 4 — claude/codex GJC급 라이브 뷰 (항목 3) [Phase 1 이후 병렬 가능]
 
 - **4.1 codex transcript watch**: `~/.codex/sessions` rollout JSONL 루트를
-  `gajae-core watch`에 추가하고 codex 전용 synchronizer/뷰 normalize
+  `chatmux-core watch`에 추가하고 codex 전용 synchronizer/뷰 normalize
   (GJC 프로바이더 모듈 구조 복제). claude는 기존 `~/.claude/projects`
   JSONL 인덱싱을 라이브 뷰로 승격.
 - **4.2 구조화 send**: codex `app-server` JSON-RPC 레인 프로토타입 →

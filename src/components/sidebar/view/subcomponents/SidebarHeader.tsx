@@ -63,7 +63,7 @@ export default function SidebarHeader({
     <div className="flex min-w-0 items-center gap-2.5">
       <img src="/logo.png" alt="" aria-hidden className="h-7 w-7 flex-shrink-0 object-contain" />
       <h1 className="truncate text-sm font-bold tracking-tight text-foreground">
-        Gajae App
+        ChatMux
       </h1>
     </div>
   );

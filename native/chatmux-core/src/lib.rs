@@ -198,7 +198,7 @@ mod tests {
     #[test]
     fn parses_existing_absolute_watch_roots_only() {
         let root = std::env::temp_dir().join(format!(
-            "gajae-core-parse-test-{}-{}",
+            "chatmux-core-parse-test-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

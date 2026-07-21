@@ -10,7 +10,7 @@ use std::time::Duration;
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 
 const READY_FRAME: &[u8] = b"{\"protocolVersion\":1,\"kind\":\"ready\"}\n";
-const WATCH_ERROR: &[u8] = b"gajae-core: watcher failed\n";
+const WATCH_ERROR: &[u8] = b"chatmux-core: watcher failed\n";
 const MAX_FRAME_BYTES: usize = 64 * 1024;
 const EVENT_CHANNEL_CAPACITY: usize = 256;
 
@@ -60,7 +60,7 @@ pub fn run(roots: Vec<PathBuf>) -> bool {
 
     let (shutdown_tx, shutdown_rx) = mpsc::sync_channel(1);
     if thread::Builder::new()
-        .name("gajae-core-watch-stdin".into())
+        .name("chatmux-core-watch-stdin".into())
         .spawn(move || {
             let _ = shutdown_tx.send(wait_for_stdin_eof());
         })
@@ -202,7 +202,7 @@ mod tests {
     #[test]
     fn frames_only_canonical_jsonl_paths_inside_roots() {
         let container = std::env::temp_dir().join(format!(
-            "gajae-core-watch-frame-test-{}-{}",
+            "chatmux-core-watch-frame-test-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

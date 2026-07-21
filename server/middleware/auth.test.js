@@ -82,7 +82,7 @@ test('persisted token versions reject missing, malformed, and unsafe values', ()
   assert.equal(parseStoredTokenVersion('42'), 42);
 });
 
-test('auth mode resolution: no login unless GAJAE_AUTH=password is explicit', () => {
+test('auth mode resolution: no login unless CHATMUX_AUTH=password is explicit', () => {
   assert.equal(resolveAuthMode(undefined), 'none');
   assert.equal(resolveAuthMode(''), 'none');
   assert.equal(resolveAuthMode('none'), 'none');

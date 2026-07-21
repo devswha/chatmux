@@ -33,7 +33,7 @@ const agentConfig: Record<AgentProvider, AgentConfig> = {
     color: 'zinc',
   },
   gjc: {
-    name: 'Gajae Code',
+    name: 'ChatMux Code',
     color: 'gray',
   },
 };

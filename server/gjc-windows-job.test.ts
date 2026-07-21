@@ -56,20 +56,20 @@ test('builds a guard that atomically creates the worker inside a Windows job', (
   assert.match(script, new RegExp(GJC_WINDOWS_JOB_GUARD_READY));
   assert.match(script, new RegExp(GJC_WINDOWS_JOB_GUARD_ACK));
   assert.ok(
-    script.indexOf('$ownerHandle = [GajaeWindowsJobGuard]::OpenOwner')
+    script.indexOf('$ownerHandle = [ChatMuxWindowsJobGuard]::OpenOwner')
       < script.indexOf(`[Console]::Out.WriteLine('${GJC_WINDOWS_JOB_GUARD_READY}')`),
   );
   assert.ok(
     script.indexOf(`ReadAcknowledgement('${GJC_WINDOWS_JOB_GUARD_ACK}')`)
-      < script.indexOf('$exitCode = [GajaeWindowsJobGuard]::Run'),
+      < script.indexOf('$exitCode = [ChatMuxWindowsJobGuard]::Run'),
   );
   assert.equal(launch.env.KEEP_ME, 'yes');
   assert.equal(
-    launch.env.GAJAE_INTERNAL_JOB_OWNER_PROCESS,
+    launch.env.CHATMUX_INTERNAL_JOB_OWNER_PROCESS,
     String(process.pid),
   );
   assert.equal(
-    launch.env.GAJAE_INTERNAL_JOB_COMMAND_LINE,
+    launch.env.CHATMUX_INTERNAL_JOB_COMMAND_LINE,
     '"C:\\Program Files\\node.exe" "C:\\work dir\\gjc-worker.js"',
   );
 });

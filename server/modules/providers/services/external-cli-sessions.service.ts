@@ -70,7 +70,7 @@ export function assignFreshCodexThreadIds(
   return assigned;
 }
 
-/** Parses pane identity plus the optional Gajae Codex transcript user-option. */
+/** Parses pane identity plus the optional ChatMux Codex transcript user-option. */
 export function parseExternalPanes(output: string): Array<{
   name: string;
   pid: number;
@@ -465,7 +465,7 @@ export async function getExternalCliSessions(): Promise<ExternalCliSession[]> {
   let tmuxOutput: string;
   let psOutput: string;
   try {
-    tmuxOutput = await runCommand('tmux', ['list-panes', '-a', '-F', `#{session_name}${TMUX_FIELD_SEP}#{pane_pid}${TMUX_FIELD_SEP}#{pane_current_command}${TMUX_FIELD_SEP}#{@gajae_codex_thread_id}${TMUX_FIELD_SEP}#{pane_current_path}`]);
+    tmuxOutput = await runCommand('tmux', ['list-panes', '-a', '-F', `#{session_name}${TMUX_FIELD_SEP}#{pane_pid}${TMUX_FIELD_SEP}#{pane_current_command}${TMUX_FIELD_SEP}#{@chatmux_codex_thread_id}${TMUX_FIELD_SEP}#{pane_current_path}`]);
     psOutput = await runCommand('ps', ['-eo', 'pid,ppid,comm,args']);
   } catch {
     return [];

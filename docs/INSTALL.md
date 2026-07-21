@@ -1,9 +1,9 @@
-# Install the Gajae App server release
+# Install the ChatMux server release
 
-Gajae App is installed from a verified GitHub Release artifact. The only
+ChatMux is installed from a verified GitHub Release artifact. The only
 supported artifact source is:
 
-<https://github.com/devswha/gajae-app/releases>
+<https://github.com/devswha/chatmux/releases>
 
 The first supported target is the Linux x86_64 server artifact for Node.js 22
 and glibc 2.35 or newer. Do not use a package registry, container image,
@@ -13,10 +13,10 @@ installation.
 ## Paths and prerequisites
 
 ```sh
-CHECKOUT="$HOME/.local/share/gajae-app"
-RUNTIME="$HOME/.gajae-app"
-REPOSITORY="https://github.com/devswha/gajae-app"
-RELEASES="https://github.com/devswha/gajae-app/releases"
+CHECKOUT="$HOME/.local/share/chatmux"
+RUNTIME="$HOME/.chatmux"
+REPOSITORY="https://github.com/devswha/chatmux"
+RELEASES="https://github.com/devswha/chatmux/releases"
 
 # Required platform contract:
 test "$(uname -s)" = Linux
@@ -37,7 +37,7 @@ git clone "$REPOSITORY" "$CHECKOUT"
 Release state belongs below `$RUNTIME`:
 
 - `$RUNTIME/releases/<version>` holds one unpacked, immutable release.
-- `$RUNTIME/current` is the symlink selected by `gajae-app.service`.
+- `$RUNTIME/current` is the symlink selected by `chatmux.service`.
 - `$RUNTIME/data` holds persistent user data and must survive cutovers.
 
 ## Install a pinned release
@@ -52,7 +52,7 @@ set -eu
 
 VERSION=<approved-version>
 TAG="v$VERSION"
-ARTIFACT="gajae-app-server-$VERSION-linux-x64-node22.tar.gz"
+ARTIFACT="chatmux-server-$VERSION-linux-x64-node22.tar.gz"
 CHECKSUM="$ARTIFACT.sha256"
 RELEASE_DIR="$RUNTIME/releases/$VERSION"
 TEMP_DIR="$(mktemp -d)"
@@ -81,12 +81,12 @@ newly created release directory after inspecting the failure.
 
 ## Install and start the per-user service
 
-The service unit is `gajae-app.service` and runs the guarded entry point under
+The service unit is `chatmux.service` and runs the guarded entry point under
 the `current` symlink. Render every placeholder before installing the unit,
 then atomically select the verified first release.
 ```sh
-UNIT_SOURCE="$RELEASE_DIR/packaging/systemd/gajae-app.service"
-UNIT_DEST="$HOME/.config/systemd/user/gajae-app.service"
+UNIT_SOURCE="$RELEASE_DIR/packaging/systemd/chatmux.service"
+UNIT_DEST="$HOME/.config/systemd/user/chatmux.service"
 NODE_BIN="$(command -v node)"
 mkdir -p "$(dirname "$UNIT_DEST")"
 sed \
@@ -104,14 +104,14 @@ ln -s "$RELEASE_DIR" "$RUNTIME/current.next"
 mv -Tf "$RUNTIME/current.next" "$RUNTIME/current"
 
 systemctl --user daemon-reload
-systemctl --user enable --now gajae-app.service
-systemctl --user --no-pager --full status gajae-app.service
+systemctl --user enable --now chatmux.service
+systemctl --user --no-pager --full status chatmux.service
 curl --fail http://127.0.0.1:3001/health
 ```
 
 If systemd reports an error or the health request fails, stop the service,
 remove the new `current` link, and inspect `journalctl --user -u
-gajae-app.service`. Do not delete `$RUNTIME/data` while recovering.
+chatmux.service`. Do not delete `$RUNTIME/data` while recovering.
 
 For release cutover and rollback after the first install, use
 [SELF-HOST.md](SELF-HOST.md).

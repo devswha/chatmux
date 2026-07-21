@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import {
   BRAND_NAME,
   DOCUMENTATION_URL,
-  GAJAE_APP_WORDMARK_FONT_FAMILY,
+  CHATMUX_WORDMARK_FONT_FAMILY,
   GITHUB_REPOSITORY_URL,
   LICENSE_URL,
   RELEASES_URL,
@@ -38,7 +38,7 @@ export default function VersionInfoSection({
 
   return (
     <div className="border-t border-border/50 pt-6">
-      {/* About Gajae App */}
+      {/* About ChatMux */}
       <div className="space-y-4">
         {/* Logo + name + version */}
         <div className="flex items-center gap-3">
@@ -49,7 +49,7 @@ export default function VersionInfoSection({
             <div className="flex items-center gap-2">
               <span
                 className="text-sm font-semibold text-foreground"
-                style={{ fontFamily: GAJAE_APP_WORDMARK_FONT_FAMILY }}
+                style={{ fontFamily: CHATMUX_WORDMARK_FONT_FAMILY }}
               >
                 {BRAND_NAME}
               </span>
