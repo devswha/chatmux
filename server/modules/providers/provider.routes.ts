@@ -1,6 +1,6 @@
 import express, { type Request, type Response } from 'express';
 
-import { sessionsDb } from '@/modules/database/index.js';
+import { projectsDb, sessionsDb } from '@/modules/database/index.js';
 import { providerAuthService } from '@/modules/providers/services/provider-auth.service.js';
 import { providerCapabilitiesService } from '@/modules/providers/services/provider-capabilities.service.js';
 import { providerMcpService } from '@/modules/providers/services/mcp.service.js';
@@ -849,6 +849,34 @@ router.get(
     const workspacePath = readOptionalQueryString(req.query.workspacePath);
     const commands = await listLiveGjcCommands(workspacePath);
     res.json(createApiSuccessResponse({ commands }));
+  }),
+);
+
+router.get(
+  '/sessions/:sessionId',
+  asyncHandler(async (req: Request, res: Response) => {
+    const sessionId = parseSessionId(req.params.sessionId);
+    const session = sessionsDb.getSessionById(sessionId);
+    if (!session) {
+      throw new AppError(`Session "${sessionId}" was not found.`, {
+        code: 'SESSION_NOT_FOUND',
+        statusCode: 404,
+      });
+    }
+    const project = session.project_path
+      ? projectsDb.getProjectPath(session.project_path)
+      : null;
+    res.json(createApiSuccessResponse({
+      session: {
+        sessionId: session.session_id,
+        provider: session.provider,
+        summary: session.custom_name ?? '',
+        projectId: project?.project_id ?? null,
+        projectPath: session.project_path,
+        createdAt: session.created_at,
+        updatedAt: session.updated_at,
+      },
+    }));
   }),
 );
 

@@ -10,6 +10,7 @@ import SidebarLiveSection from './SidebarLiveSection';
 
 const noop = () => {};
 const onSessionSelect = noop as unknown as (session: ProjectSession, projectName: string) => void;
+const onProjectSelect = noop as unknown as (project: Project) => void;
 
 function makeProjects(): Project[] {
   return [
@@ -35,6 +36,7 @@ test('SidebarLiveSection labels rows by tmux session name, title in tooltip', ()
       liveSessionKinds: new Map([['s-live', 'interactive']]),
       liveSessionRunning: new Set<string>(),
       selectedSession: null,
+      onProjectSelect,
       onSessionSelect,
     }),
   );
@@ -56,6 +58,7 @@ test('SidebarLiveSection falls back to the conversation title when tmux name is 
       liveSessionKinds: new Map<string, string>(),
       liveSessionRunning: new Set<string>(),
       selectedSession: null,
+      onProjectSelect,
       onSessionSelect,
     }),
   );
@@ -73,6 +76,7 @@ test('SidebarLiveSection renders nothing when no session is live', () => {
       liveSessionKinds: new Map<string, string>(),
       liveSessionRunning: new Set<string>(),
       selectedSession: null,
+      onProjectSelect,
       onSessionSelect,
     }),
   );
@@ -90,6 +94,7 @@ test('SidebarLiveSection renders idle-gjc rows as 대기 (첫 대화 전 gjc pan
       liveSessionKinds: new Map([['idle-gjc:flask', 'interactive']]),
       liveSessionRunning: new Set<string>(),
       selectedSession: null,
+      onProjectSelect,
       onSessionSelect,
     }),
   );
@@ -112,6 +117,7 @@ test('SidebarLiveSection badges a batch gjc row (foreground command is not gjc)'
       liveSessionKinds: new Map([['s-live', 'batch']]),
       liveSessionRunning: new Set<string>(),
       selectedSession: null,
+      onProjectSelect,
       onSessionSelect,
     }),
   );
@@ -134,10 +140,31 @@ test('SidebarLiveSection badges an in-progress turn as RUN, not LIVE', () => {
       liveSessionKinds: new Map([['s-live', 'interactive']]),
       liveSessionRunning: new Set(['s-live']),
       selectedSession: null,
+      onProjectSelect,
       onSessionSelect,
     }),
   );
   assert.ok(html.includes('>RUN<'), 'an in-progress turn carries the RUN badge');
   assert.ok(!html.includes('>LIVE<'), 'the same row does not also show LIVE');
   assert.ok(html.includes('emerald'), 'RUN is styled green, not blue');
+});
+
+test('SidebarLiveSection makes transcript-backed orphan rows directly openable', () => {
+  const html = renderToStaticMarkup(
+    createElement(SidebarLiveSection, {
+      projects: makeProjects(),
+      liveSessionIds: new Set(['s-resumed']),
+      liveSessionNames: new Map([['s-resumed', 'resume-pane']]),
+      liveSessionLineage: new Set<string>(),
+      liveSessionTmuxIds: new Map<string, string>(),
+      liveSessionKinds: new Map([['s-resumed', 'interactive']]),
+      liveSessionRunning: new Set<string>(),
+      selectedSession: null,
+      onProjectSelect,
+      onSessionSelect,
+    }),
+  );
+  assert.ok(html.includes('<button'), 'a transcript-backed orphan is interactive');
+  assert.ok(html.includes('눌러서 이전 대화 열기'), 'explains that the previous transcript opens directly');
+  assert.ok(!html.includes('대화 미로딩'), 'does not present pagination as a transcript loading failure');
 });

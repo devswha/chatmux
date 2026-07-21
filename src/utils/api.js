@@ -152,6 +152,10 @@ export const api = {
     const qs = params.toString();
     return authenticatedFetch(`/api/providers/sessions/live/commands${qs ? `?${qs}` : ''}`);
   },
+  // Minimal persisted metadata used to open a live transcript even when its
+  // project session page has not reached that older row yet.
+  sessionDetails: (sessionId) =>
+    authenticatedFetch(`/api/providers/sessions/${encodeURIComponent(sessionId)}`),
   // External CLI (claude/codex) tmux sessions for the terminal-attach lane.
   externalSessions: () => authenticatedFetch('/api/providers/sessions/external'),
   // Home-relative directory autocomplete ({ home, suggestions }).

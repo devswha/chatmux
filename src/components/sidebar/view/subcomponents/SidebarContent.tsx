@@ -292,6 +292,7 @@ export default function SidebarContent({
               projects={projects}
               liveSessionIds={projectListProps.liveSessionIds}
               selectedSession={projectListProps.selectedSession}
+              onProjectSelect={projectListProps.onProjectSelect}
               onSessionSelect={projectListProps.onSessionSelect}
               liveSessionNames={liveSessionNames}
               liveSessionLineage={liveSessionLineage}
