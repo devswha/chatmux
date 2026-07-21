@@ -95,7 +95,7 @@ function AppContentInner() {
   const [externalTranscript, setExternalTranscript] = useState<ExternalTerminalTarget | null>(null);
 
   const openExternalTerminal = useCallback((target: ExternalTerminalTarget) => {
-    if (target.transcriptSessionId) {
+    if (target.cliKind !== 'gjc' && target.transcriptSessionId) {
       setExternalTerminal(null);
       setExternalTranscript(target);
       setActiveTab('chat');
@@ -143,6 +143,78 @@ function AppContentInner() {
     };
   }, [externalTerminal, openExternalTerminal]);
 
+  useEffect(() => {
+    if (externalTerminal?.cliKind !== 'gjc') return undefined;
+    let cancelled = false;
+    let resolving = false;
+    const poll = async () => {
+      if (resolving) return;
+      try {
+        const response = await api.liveSessions();
+        if (!response.ok || cancelled) return;
+        const body = await response.json();
+        const sessions = (body?.data?.liveSessions ?? body?.liveSessions ?? []) as Array<{
+          id?: unknown;
+          tmuxName?: unknown;
+          tmuxId?: unknown;
+        }>;
+        const ready = sessions.find((session) => (
+          typeof session.id === 'string'
+          && !session.id.startsWith('idle-gjc:')
+          && session.tmuxName === externalTerminal.tmuxName
+          && (externalTerminal.tmuxId === null || session.tmuxId === externalTerminal.tmuxId)
+        ));
+        if (!ready || typeof ready.id !== 'string') return;
+
+        resolving = true;
+        const detailsResponse = await api.sessionDetails(ready.id);
+        const detailsBody = await detailsResponse.json().catch(() => null);
+        const session = detailsBody?.data?.session as {
+          sessionId?: unknown;
+          provider?: unknown;
+          summary?: unknown;
+          projectId?: unknown;
+          createdAt?: unknown;
+          updatedAt?: unknown;
+        } | undefined;
+        const projectId = typeof session?.projectId === 'string' ? session.projectId : '';
+        const project = sidebarSharedProps.projects.find((candidate) => candidate.projectId === projectId);
+        if (
+          cancelled
+          || !detailsResponse.ok
+          || session?.sessionId !== ready.id
+          || session.provider !== 'gjc'
+          || !project
+        ) {
+          resolving = false;
+          return;
+        }
+
+        setExternalTerminal(null);
+        setExternalTranscript(null);
+        setActiveTab('chat');
+        sidebarSharedProps.onProjectSelect(project);
+        sidebarSharedProps.onSessionSelect({
+          id: ready.id,
+          summary: typeof session.summary === 'string' ? session.summary : '',
+          createdAt: typeof session.createdAt === 'string' ? session.createdAt : undefined,
+          updated_at: typeof session.updatedAt === 'string' ? session.updatedAt : undefined,
+          __provider: 'gjc',
+          __projectId: project.projectId,
+        });
+      } catch {
+        resolving = false;
+        // Best-effort: the next poll retries transcript discovery/indexing.
+      }
+    };
+    void poll();
+    const timer = window.setInterval(() => void poll(), 2000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [externalTerminal, setActiveTab, sidebarSharedProps]);
+
   // Wrap navigation-ish sidebar handlers so leaving for a session/project/new
   // chat drops the terminal takeover — without modifying the originals.
   const sidebarProps = useMemo(() => ({
@@ -165,7 +237,8 @@ function AppContentInner() {
     onExternalTerminalOpen: openExternalTerminal,
   }), [sidebarSharedProps, openExternalTerminal]);
 
-  const activeExternalTranscript = externalTranscript?.transcriptSessionId === sessionId
+  const activeExternalTranscript = externalTranscript?.cliKind !== 'gjc'
+    && externalTranscript?.transcriptSessionId === sessionId
     ? externalTranscript
     : null;
 

@@ -37,6 +37,12 @@ export type ExternalTerminalTarget = {
   project: Project;
   /** Opens the structured transcript instead of attaching a terminal. */
   transcriptSessionId?: string;
+} | {
+  /** A freshly opened GJC pane has no transcript id until its first message. */
+  tmuxName: string;
+  tmuxId: string | null;
+  kind: 'GJC';
+  cliKind: 'gjc';
 };
 
 export interface ProjectSession {

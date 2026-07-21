@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
 
-import type { Project, ProjectSession } from '../../../../types/app';
+import type { ExternalTerminalTarget, Project, ProjectSession } from '../../../../types/app';
 import { cn } from '../../../../lib/utils';
 import { api } from '../../../../utils/api';
 import { getAllSessions, getSessionTime } from '../../utils/utils';
@@ -30,6 +30,7 @@ type SidebarLiveSectionProps = {
   selectedSession: ProjectSession | null;
   onProjectSelect: SidebarProjectListProps['onProjectSelect'];
   onSessionSelect: SidebarProjectListProps['onSessionSelect'];
+  onExternalTerminalOpen?: (target: ExternalTerminalTarget) => void;
 };
 
 /** Per-row kill flow state (2-step confirm before the tower is asked to kill). */
@@ -75,6 +76,7 @@ export default function SidebarLiveSection({
   selectedSession,
   onProjectSelect,
   onSessionSelect,
+  onExternalTerminalOpen,
 }: SidebarLiveSectionProps) {
   // Session ids killed in this component instance — hidden immediately; the 5s
   // live poll is the source of truth and will drop them for real.
@@ -367,7 +369,7 @@ export default function SidebarLiveSection({
               </span>
               <span className="truncate pl-[1.375rem] text-[11px] text-muted-foreground">
                 {isIdle
-                  ? '아직 대화가 없습니다 — 아래에서 첫 메시지를 보낼 수 있습니다'
+                  ? '눌러서 첫 대화 시작'
                   : openingId === id
                     ? '이전 대화 불러오는 중…'
                     : '눌러서 이전 대화 열기'}
@@ -378,7 +380,19 @@ export default function SidebarLiveSection({
             <div key={id} className="rounded-md transition-colors hover:bg-muted/50">
               <div className="flex items-start">
                 {isIdle ? (
-                  <div className="flex min-w-0 flex-1 flex-col gap-0.5 px-2 py-1.5 text-left">{content}</div>
+                  <button
+                    type="button"
+                    onClick={() => tmuxName && onExternalTerminalOpen?.({
+                      tmuxName,
+                      tmuxId: liveSessionTmuxIds.get(id) ?? null,
+                      kind: 'GJC',
+                      cliKind: 'gjc',
+                    })}
+                    className="flex min-w-0 flex-1 flex-col gap-0.5 px-2 py-1.5 text-left"
+                    title={tmuxName ? `tmux 세션 '${tmuxName}'에서 첫 대화 시작` : undefined}
+                  >
+                    {content}
+                  </button>
                 ) : (
                   <button
                     type="button"

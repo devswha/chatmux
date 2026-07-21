@@ -299,6 +299,7 @@ export default function SidebarContent({
               liveSessionTmuxIds={liveSessionTmuxIds}
               liveSessionKinds={liveSessionKinds}
               liveSessionRunning={liveSessionRunning}
+              onExternalTerminalOpen={onExternalTerminalOpen}
             />
           )}
         </ScrollArea>
