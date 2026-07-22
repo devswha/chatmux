@@ -335,6 +335,11 @@ export const createProviderModelsService = (dependencies: ProviderModelsServiceD
       return changedModel.model.trim();
     }
 
+    const currentModel = await getCurrentActiveModel(provider, sessionId);
+    if (currentModel.model?.trim()) {
+      return currentModel.model.trim();
+    }
+
     return normalizedRequestedModel || undefined;
   };
 

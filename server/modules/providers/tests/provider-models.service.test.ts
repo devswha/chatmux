@@ -347,3 +347,23 @@ test('resolveResumeModel prefers a stored changed model over the requested one',
     await rm(tempRoot, { recursive: true, force: true });
   }
 });
+
+test('resolveResumeModel prefers the provider session model over the requested default', async () => {
+  const service = createProviderModelsService({
+    resolveProvider: (provider) => ({
+      models: {
+        getSupportedModels: async () => createModels(`${provider}-models`),
+        getCurrentActiveModel: async () => createCurrentActiveModel('openai/gpt-5.5'),
+        changeActiveModel: async (input) => createSessionActiveModelChange(provider, input),
+      },
+    }),
+  });
+
+  const model = await service.resolveResumeModel(
+    'opencode',
+    'session-native-opencode',
+    'anthropic/claude-sonnet-4-5',
+  );
+
+  assert.equal(model, 'openai/gpt-5.5');
+});
