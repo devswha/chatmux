@@ -117,6 +117,19 @@
     "updateAvailable": "有可用更新",
     "restartRequired": "已安装更新 — 请重启服务器以生效"
   },
+  "newSessionForm": {
+    "open": "新建会话",
+    "sessionNamePlaceholder": "会话名称（字母和数字，例如 my-feature）",
+    "workingDirectoryPlaceholder": "工作文件夹（例如 ~/workspace/my-proj，也可使用绝对路径）",
+    "cancel": "取消",
+    "creating": "正在创建…",
+    "create": "创建",
+    "errors": {
+      "towerUnavailable": "控制塔未运行 — 无法创建会话",
+      "nameConflict": "已存在同名会话",
+      "createFailed": "创建会话失败"
+    }
+  },
   "search": {
     "modeProjects": "项目",
     "modeConversations": "对话",
