@@ -236,12 +236,14 @@ export default function SidebarHeader({
               className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted/50 transition-all active:scale-95"
               onClick={onRefresh}
               disabled={isRefreshing}
+              aria-label={t('tooltips.refresh')}
             >
               <RefreshCw className={`h-4 w-4 text-muted-foreground ${isRefreshing ? 'animate-spin' : ''}`} />
             </button>
             <button
               className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/90 text-primary-foreground transition-all active:scale-95"
               onClick={onCreateProject}
+              aria-label={t('tooltips.createProject')}
             >
               <FolderPlus className="h-4 w-4" />
             </button>
