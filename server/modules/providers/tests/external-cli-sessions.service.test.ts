@@ -11,8 +11,37 @@ import {
   parseClaudeRuntimeSession,
   parseExternalPanes,
   parsePsTree,
+  resolveExternalCliExecutable,
+  withoutNodeModulesBins,
 } from '@/modules/providers/services/external-cli-sessions.service.js';
 
+test('external CLI resolution excludes app-local npm shims', async () => {
+  const searchPath = [
+    '/app/node_modules/.bin',
+    '/Users/test/.local/bin',
+    '/opt/homebrew/bin',
+  ].join(':');
+  assert.equal(
+    withoutNodeModulesBins(searchPath),
+    ['/Users/test/.local/bin', '/opt/homebrew/bin'].join(':'),
+  );
+
+  const checked: string[] = [];
+  const resolved = await resolveExternalCliExecutable('codex', {
+    path: searchPath,
+    platform: 'darwin',
+    isExecutable: async (candidate) => {
+      checked.push(candidate);
+      return candidate === '/opt/homebrew/bin/codex';
+    },
+  });
+
+  assert.equal(resolved, '/opt/homebrew/bin/codex');
+  assert.deepEqual(checked, [
+    '/Users/test/.local/bin/codex',
+    '/opt/homebrew/bin/codex',
+  ]);
+});
 test('parseExternalPanes splits session_name<TAB>pane_pid<TAB>pane_current_command', () => {
   const out = parseExternalPanes('patina\t113501\tclaude\ntest\t360992\tnode\n\nbad-line\n');
   assert.deepEqual(out, [
