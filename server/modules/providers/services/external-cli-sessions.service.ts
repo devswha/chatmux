@@ -382,11 +382,22 @@ function runCommand(command: string, cmdArgs: string[], timeoutMs = 4000): Promi
   });
 }
 
+export function parseProcessStartTime(output: string): number | null {
+  const parsed = Date.parse(output.trim());
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 async function processStartMs(pid: number): Promise<number | null> {
   try {
     return (await stat(`/proc/${pid}`)).mtimeMs;
   } catch {
-    return null;
+    try {
+      return parseProcessStartTime(await runCommand('ps', [
+        '-p', String(pid), '-o', 'lstart=',
+      ]));
+    } catch {
+      return null;
+    }
   }
 }
 

@@ -10,9 +10,17 @@ import {
   extractExternalResumeSessionId,
   parseClaudeRuntimeSession,
   parseExternalPanes,
+  parseProcessStartTime,
   parsePsTree,
 } from '@/modules/providers/services/external-cli-sessions.service.js';
 
+test('parseProcessStartTime reads the portable ps lstart format used on macOS', () => {
+  assert.equal(
+    parseProcessStartTime('Wed Jul 22 23:16:35 2026\n'),
+    new Date('2026-07-22T23:16:35').getTime(),
+  );
+  assert.equal(parseProcessStartTime('not a process time'), null);
+});
 test('parseExternalPanes splits session_name<TAB>pane_pid<TAB>pane_current_command', () => {
   const out = parseExternalPanes('patina\t113501\tclaude\ntest\t360992\tnode\n\nbad-line\n');
   assert.deepEqual(out, [
