@@ -88,38 +88,8 @@
     "label": "Ayarlar",
     "agents": "Ajanlar",
     "appearance": "Görünüm",
-    "git": "Git",
     "apiTokens": "API ve Token'lar",
-    "tasks": "Görevler",
-    "computer": "Bilgisayar Kullanımı",
-    "notifications": "Bildirimler",
-    "plugins": "Eklentiler",
-    "about": "Hakkında"
-  },
-  "notifications": {
-    "title": "Bildirimler",
-    "description": "Hangi bildirim etkinliklerini alacağını kontrol et.",
-    "webPush": {
-      "title": "Web Push Bildirimleri",
-      "enable": "Push Bildirimlerini Etkinleştir",
-      "disable": "Push Bildirimlerini Devre Dışı Bırak",
-      "enabled": "Push bildirimleri etkin",
-      "loading": "Güncelleniyor...",
-      "unsupported": "Bu tarayıcıda push bildirimleri desteklenmiyor.",
-      "denied": "Push bildirimleri engellendi. Lütfen tarayıcı ayarlarından izin ver."
-    },
-    "sound": {
-      "title": "Ses",
-      "description": "Sohbet çalışması tamamlandığında kısa bir ton çal.",
-      "enabled": "Etkin",
-      "test": "Sesi test et"
-    },
-    "events": {
-      "title": "Etkinlik Türleri",
-      "actionRequired": "Aksiyon gerekli",
-      "stop": "Çalıştırma durduruldu",
-      "error": "Çalıştırma başarısız"
-    }
+    "computer": "Bilgisayar Kullanımı"
   },
   "appearanceSettings": {
     "darkMode": {
@@ -214,25 +184,6 @@
     "save": "Ayarları Kaydet",
     "cancel": "İptal"
   },
-  "git": {
-    "title": "Git Yapılandırması",
-    "description": "Commit'ler için git kimliğini yapılandır. Bu ayarlar git config --global ile genel olarak uygulanacak",
-    "name": {
-      "label": "Git Adı",
-      "help": "Git commit'leri için adın"
-    },
-    "email": {
-      "label": "Git E-postası",
-      "help": "Git commit'leri için e-postan"
-    },
-    "actions": {
-      "save": "Yapılandırmayı Kaydet",
-      "saving": "Kaydediliyor..."
-    },
-    "status": {
-      "success": "Başarıyla kaydedildi"
-    }
-  },
   "apiKeys": {
     "title": "API Anahtarları",
     "description": "Diğer uygulamalardan harici API'ye erişmek için API anahtarları üret.",
@@ -283,25 +234,6 @@
     "loading": "Yükleniyor...",
     "version": {
       "updateAvailable": "Güncelleme mevcut: v{{version}}"
-    }
-  },
-  "tasks": {
-    "checking": "TaskMaster kurulumu kontrol ediliyor...",
-    "notInstalled": {
-      "title": "TaskMaster AI CLI Kurulu Değil",
-      "description": "Görev yönetim özelliklerini kullanmak için TaskMaster CLI gereklidir. Başlamak için kur:",
-      "installCommand": "npm install -g task-master-ai",
-      "viewOnGitHub": "GitHub'da Görüntüle",
-      "afterInstallation": "Kurulumdan sonra:",
-      "steps": {
-        "restart": "Bu uygulamayı yeniden başlat",
-        "autoAvailable": "TaskMaster özellikleri otomatik olarak kullanılabilir hale gelecek",
-        "initCommand": "Proje dizininde task-master init komutunu kullan"
-      }
-    },
-    "settings": {
-      "enableLabel": "TaskMaster Entegrasyonunu Etkinleştir",
-      "enableDescription": "TaskMaster görevlerini, banner'larını ve kenar çubuğu göstergelerini arayüz genelinde göster"
     }
   },
   "agents": {
@@ -445,47 +377,5 @@
       "title": "Codex MCP Hakkında",
       "description": "Codex stdio tabanlı MCP sunucularını destekler. Codex'in yeteneklerini ek araçlar ve kaynaklarla genişleten sunucular ekleyebilirsin."
     }
-  },
-  "pluginSettings": {
-    "title": "Eklentiler",
-    "description": "Arayüzü özel eklentilerle genişlet. Git'ten yükle veya ~/.claude-code-ui/plugins/ klasörüne bir dizin bırak.",
-    "installPlaceholder": "https://github.com/kullanici/benim-eklentim",
-    "installButton": "Yükle",
-    "installing": "Yükleniyor…",
-    "securityWarning": "Yalnızca kaynak kodunu incelediğin veya güvendiğin geliştiricilerin eklentilerini yükle.",
-    "scanningPlugins": "Eklentiler taranıyor…",
-    "noPluginsInstalled": "Yüklü eklenti yok",
-    "pullLatest": "Git'ten en güncelini çek",
-    "noGitRemote": "Git uzak sunucusu yok — güncelleme kullanılamıyor",
-    "uninstallPlugin": "Eklentiyi kaldır",
-    "confirmUninstall": "Onaylamak için tekrar tıkla",
-    "confirmUninstallMessage": "{{name}} kaldırılsın mı? Bu işlem geri alınamaz.",
-    "cancel": "İptal",
-    "remove": "Kaldır",
-    "updateFailed": "Güncelleme başarısız",
-    "installFailed": "Yükleme başarısız",
-    "uninstallFailed": "Kaldırma başarısız",
-    "toggleFailed": "Açıp kapama başarısız",
-    "starterPluginLabel": "Başlangıç Eklentisi",
-    "starter": "Başlangıç",
-    "docs": "Dokümanlar",
-    "starterPlugin": {
-      "name": "Proje İstatistikleri",
-      "badge": "başlangıç",
-      "description": "Projen için dosya sayıları, kod satırları, dosya türü dağılımı ve son etkinlik.",
-      "install": "Yükle"
-    },
-    "terminalPlugin": {
-      "name": "Terminal",
-      "badge": "resmi",
-      "description": "Arayüzün içinde tam shell erişimiyle entegre terminal.",
-      "install": "Yükle"
-    },
-    "morePlugins": "Daha Fazla",
-    "enable": "Etkinleştir",
-    "disable": "Devre Dışı Bırak",
-    "installAriaLabel": "Eklenti git deposu URL'si",
-    "tab": "sekme",
-    "runningStatus": "çalışıyor"
   }
 }

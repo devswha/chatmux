@@ -544,6 +544,18 @@ export class CodexSessionsProvider implements IProviderSessions {
         content: raw.error?.message || 'Turn failed',
       })];
     }
+    // Top-level SDK error (openai-codex transforms `error` → {type:'error'}); without
+    // this branch the live error event was silently dropped and never shown.
+    if (raw.type === 'error') {
+      return [createNormalizedMessage({
+        id: baseId,
+        sessionId,
+        timestamp: ts,
+        provider: PROVIDER,
+        kind: 'error',
+        content: (typeof raw.message === 'string' ? raw.message : raw.message?.content) || 'Codex error',
+      })];
+    }
 
     return [];
   }

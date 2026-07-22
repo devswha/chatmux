@@ -6,6 +6,7 @@ import test from 'node:test';
 
 import { closeConnection, initializeDatabase, sessionsDb } from '@/modules/database/index.js';
 import { CodexSessionSynchronizer } from '@/modules/providers/list/codex/codex-session-synchronizer.provider.js';
+import { CodexSessionsProvider } from '@/modules/providers/list/codex/codex-sessions.provider.js';
 
 const patchHomeDir = (nextHomeDir: string) => {
   const original = os.homedir;
@@ -108,4 +109,19 @@ test('Codex synchronizer leaves indexed sessions untitled when no name is availa
     restoreHomeDir();
     await rm(tempRoot, { recursive: true, force: true });
   }
+});
+
+test('CodexSessionsProvider.normalizeMessage surfaces a top-level SDK error as an error message', () => {
+  const provider = new CodexSessionsProvider();
+  const out = provider.normalizeMessage({ type: 'error', message: 'stream disconnected' }, 's1');
+  assert.equal(out.length, 1);
+  assert.equal(out[0].kind, 'error');
+  assert.equal(out[0].content, 'stream disconnected');
+});
+
+test('CodexSessionsProvider.normalizeMessage still maps turn_failed to an error', () => {
+  const provider = new CodexSessionsProvider();
+  const out = provider.normalizeMessage({ type: 'turn_failed', error: { message: 'boom' } }, 's1');
+  assert.equal(out[0]?.kind, 'error');
+  assert.equal(out[0]?.content, 'boom');
 });

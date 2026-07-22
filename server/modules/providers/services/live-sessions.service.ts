@@ -323,6 +323,11 @@ export function computeLiveSessions(args: {
   }
 
   const claimed = new Set<number>();
+  // tmux session ids already proven by a lineage claim. A cwd fallback must not
+  // attach a second row to a sibling pane of an already-claimed session — that
+  // produced duplicate rows for one tmux session (patina 중복 관찰) and, worse,
+  // mislabeled an unrelated session onto that pane (실사고).
+  const claimedSids = new Set<string>();
   const result = new Map<string, { tmuxName: string | null; tmuxId: string | null; claim: 'lineage' | 'cwd' | null; kind: 'interactive' | 'batch' | null }>();
 
   // Pass 1: lineage matches claim their pane (authoritative, run for ALL sessions
@@ -338,6 +343,7 @@ export function computeLiveSessions(args: {
         sid = args.panes[index].sid;
         cmd = args.panes[index].cmd;
         claimed.add(index);
+        claimedSids.add(args.panes[index].sid);
         break;
       }
     }
@@ -357,7 +363,7 @@ export function computeLiveSessions(args: {
     }
     const candidates = args.panes
       .map((pane, index) => ({ pane, index }))
-      .filter(({ pane, index }) => !claimed.has(index) && pane.cwd === session.cwd);
+      .filter(({ pane, index }) => !claimed.has(index) && pane.cwd === session.cwd && !claimedSids.has(pane.sid));
     if (candidates.length === 1) {
       // A cwd match only LABELS the row: the gjc process is NOT inside the
       // pane, so tmux-session actions (kill/relay) must never key off it —
@@ -370,6 +376,25 @@ export function computeLiveSessions(args: {
   }
 
   return [...result].map(([id, entry]) => ({ id, tmuxName: entry.tmuxName, tmuxId: entry.tmuxId, claim: entry.claim, kind: entry.kind }));
+}
+
+/**
+ * A tmux session proven by lineage must not ALSO surface as a cwd label-only
+ * row. cwd claims are guesses (the gjc runs elsewhere); when a lineage row from
+ * any lane already covers that tmuxId, the cwd row is a spurious duplicate
+ * (patina 중복 — lsof cwd row + receipt/idle lineage row for one tmux session).
+ * Lineage rows are never dropped — including several sharing one pane
+ * (main+worker), which is a real configuration.
+ */
+export function dedupeLiveSessionsByLineage<T extends { claim: 'lineage' | 'cwd' | null; tmuxId: string | null }>(
+  sessions: T[],
+): T[] {
+  const lineageTmuxIds = new Set(
+    sessions.flatMap((session) => (session.claim === 'lineage' && session.tmuxId ? [session.tmuxId] : [])),
+  );
+  return sessions.filter(
+    (session) => !(session.claim === 'cwd' && session.tmuxId !== null && lineageTmuxIds.has(session.tmuxId)),
+  );
 }
 
 // Detection subprocess output is small (pane lists / lsof field lines); a multi-
@@ -940,21 +965,22 @@ async function scanLiveGjcSessions(): Promise<LiveGjcScanResult> {
       };
     }),
   );
+  const allSessions = [
+    ...enriched,
+    ...remainingIdlePanes.map(({ name, sid, kind }) => ({
+      id: `${IDLE_GJC_ID_PREFIX}${name}`,
+      tmuxName: name,
+      tmuxId: sid,
+      // Subtree-proven: a gjc process runs INSIDE the pane — same evidence
+      // grade as a lineage claim, so kill/relay stay permitted and safe.
+      claim: 'lineage' as const,
+      kind,
+      model: null,
+      running: null,
+    })),
+  ];
   return {
-    sessions: [
-      ...enriched,
-      ...remainingIdlePanes.map(({ name, sid, kind }) => ({
-        id: `${IDLE_GJC_ID_PREFIX}${name}`,
-        tmuxName: name,
-        tmuxId: sid,
-        // Subtree-proven: a gjc process runs INSIDE the pane — same evidence
-        // grade as a lineage claim, so kill/relay stay permitted and safe.
-        claim: 'lineage' as const,
-        kind,
-        model: null,
-        running: null,
-      })),
-    ],
+    sessions: dedupeLiveSessionsByLineage(allSessions),
     transcriptPaths: sessionPaths,
   };
 }

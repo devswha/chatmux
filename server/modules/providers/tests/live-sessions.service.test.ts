@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   computeLiveSessions,
+  dedupeLiveSessionsByLineage,
   extractSessionPathsFromLsof,
   findIdleGjcTmuxSessions,
   IDLE_GJC_ID_PREFIX,
@@ -154,6 +155,29 @@ test('computeLiveSessions never double-labels a pane: cwd fallback skips a linea
   assert.deepEqual(result.sort((a, b) => a.id.localeCompare(b.id)), [
     { id: '019f212c', tmuxName: null, tmuxId: null, claim: null, kind: null },
     { id: '019f469d', tmuxName: 'pane-alpha', tmuxId: '$1', claim: 'lineage', kind: null },
+  ]);
+});
+
+test('computeLiveSessions: cwd fallback skips a SIBLING pane of an already lineage-claimed tmux session (patina 중복)', () => {
+  // One tmux session ($95, "patina") with TWO panes. 019f844a is lineage-matched to
+  // pane pid 1000. 019ed9eb is a live holder with no lineage hit whose cwd equals the
+  // session cwd; the old fallback attached it to the SIBLING pane (pid 2000, same $95)
+  // → two "patina" rows for one tmux session. Now an already-claimed sid is off-limits,
+  // so the extra session goes null (title fallback) instead of duplicating patina.
+  const result = computeLiveSessions({
+    tmuxPresent: true,
+    panes: [
+      { name: 'patina', sid: '$95', pid: 1000, cwd: '/workspace/chatmux' },
+      { name: 'patina', sid: '$95', pid: 2000, cwd: '/workspace/chatmux' },
+    ],
+    sessions: [
+      { id: '019f844a', pidChain: [3304033, 1000], cwd: '/workspace/chatmux' },
+      { id: '019ed9eb', pidChain: [9999999], cwd: '/workspace/chatmux' },
+    ],
+  });
+  assert.deepEqual(result.sort((a, b) => a.id.localeCompare(b.id)), [
+    { id: '019ed9eb', tmuxName: null, tmuxId: null, claim: null, kind: null },
+    { id: '019f844a', tmuxName: 'patina', tmuxId: '$95', claim: 'lineage', kind: null },
   ]);
 });
 
@@ -536,4 +560,25 @@ test('gjcSessionRoots honours GJC_LIVE_SESSION_DIR and otherwise defaults to <tm
       process.env.GJC_LIVE_SESSION_DIR = original;
     }
   }
+});
+
+test('dedupeLiveSessionsByLineage drops a cwd row shadowed by a lineage row for the same tmuxId (patina 중복, cross-lane)', () => {
+  const rows = [
+    { id: 'a-cwd', tmuxName: 'patina', tmuxId: '$95', claim: 'cwd' as const, kind: null },
+    { id: 'b-lineage', tmuxName: 'patina', tmuxId: '$95', claim: 'lineage' as const, kind: 'interactive' as const },
+    { id: 'c-cwd-solo', tmuxName: 'solo', tmuxId: '$7', claim: 'cwd' as const, kind: null },
+    { id: 'd-null', tmuxName: null, tmuxId: null, claim: null, kind: null },
+  ];
+  const result = dedupeLiveSessionsByLineage(rows).map((row) => row.id).sort();
+  // a-cwd dropped (lineage covers $95); c-cwd-solo kept (no lineage for $7);
+  // d-null kept (no tmuxId); b-lineage kept.
+  assert.deepEqual(result, ['b-lineage', 'c-cwd-solo', 'd-null']);
+});
+
+test('dedupeLiveSessionsByLineage keeps multiple lineage rows sharing one tmuxId (main+worker)', () => {
+  const rows = [
+    { id: 'main', tmuxName: 'omg', tmuxId: '$1', claim: 'lineage' as const, kind: 'interactive' as const },
+    { id: 'worker', tmuxName: 'omg', tmuxId: '$1', claim: 'lineage' as const, kind: 'batch' as const },
+  ];
+  assert.equal(dedupeLiveSessionsByLineage(rows).length, 2);
 });

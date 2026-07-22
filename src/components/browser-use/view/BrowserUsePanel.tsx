@@ -8,7 +8,6 @@ import {
   Loader2,
   MonitorPlay,
   RefreshCw,
-  Settings,
   Square,
   Trash2,
   X,
@@ -17,7 +16,6 @@ import {
 import { cn } from '../../../lib/utils';
 import { Badge, Button } from '../../../shared/view/ui';
 import { authenticatedFetch } from '../../../utils/api';
-import type { SettingsMainTab } from '../../settings/types/types';
 
 type BrowserUseStatus = {
   enabled: boolean;
@@ -54,7 +52,6 @@ type BrowserUseSession = {
 
 type BrowserUsePanelProps = {
   isVisible: boolean;
-  onShowSettings?: (tab?: SettingsMainTab) => void;
 };
 
 async function readJson<T>(response: Response): Promise<T> {
@@ -124,7 +121,7 @@ const PROMPTS = [
   'Open <url> with Browser, interact with the page, and summarize what changed after each step.',
 ];
 
-export default function BrowserUsePanel({ isVisible, onShowSettings }: BrowserUsePanelProps) {
+export default function BrowserUsePanel({ isVisible }: BrowserUsePanelProps) {
   const [status, setStatus] = useState<BrowserUseStatus | null>(null);
   const [sessions, setSessions] = useState<BrowserUseSession[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
@@ -354,18 +351,6 @@ export default function BrowserUsePanel({ isVisible, onShowSettings }: BrowserUs
           <p className="mt-0.5 text-xs text-muted-foreground">Monitor browser sessions opened by AI agents.</p>
         </div>
         <div className="flex items-center gap-1.5">
-          {onShowSettings && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 w-7 p-0"
-              onClick={() => onShowSettings('browser')}
-              title="Open Browser settings"
-              aria-label="Open Browser settings"
-            >
-              <Settings className="h-3.5 w-3.5" />
-            </Button>
-          )}
           <Button
             variant="ghost"
             size="sm"

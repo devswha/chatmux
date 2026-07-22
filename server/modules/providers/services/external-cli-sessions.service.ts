@@ -379,7 +379,7 @@ export async function sendToExternalCodexSession(tmuxName: string, message: stri
 }
 
 /** Resolves a web spawn cwd and rejects traversal/symlink escape outside HOME. */
-export async function resolveExternalCodexCwd(input: string): Promise<string | null> {
+export async function resolveExternalCliCwd(input: string): Promise<string | null> {
   const home = await realpath(homedir()).catch(() => null);
   if (!home || input.includes('\0')) return null;
   const trimmed = input.trim();
@@ -402,11 +402,14 @@ export async function resolveExternalCodexCwd(input: string): Promise<string | n
   }
 }
 
-export async function spawnExternalCodexSession(tmuxName: string, cwd: string): Promise<void> {
-  await runCommand('tmux', ['new-session', '-d', '-s', tmuxName, '-c', cwd, 'codex']);
+export type ExternalSpawnCli = 'codex' | 'claude';
+
+/** Boots a native CLI (codex/claude) in a fresh detached tmux session. */
+export async function spawnExternalCliSession(cli: ExternalSpawnCli, tmuxName: string, cwd: string): Promise<void> {
+  await runCommand('tmux', ['new-session', '-d', '-s', tmuxName, '-c', cwd, cli]);
 }
 
-export async function killExternalCodexSession(tmuxName: string): Promise<void> {
+export async function killExternalCliSession(tmuxName: string): Promise<void> {
   await runCommand('tmux', ['kill-session', '-t', `=${tmuxName}`]);
 }
 

@@ -13,11 +13,12 @@ import { getLiveGjcSessions, IDLE_GJC_ID_PREFIX } from '@/modules/providers/serv
 import {
   getCurrentTmuxSessionName,
   getExternalCliSessions,
-  killExternalCodexSession,
+  killExternalCliSession,
   resolveCodexRolloutPath,
-  resolveExternalCodexCwd,
+  resolveExternalCliCwd,
   sendToExternalCodexSession,
-  spawnExternalCodexSession,
+  spawnExternalCliSession,
+  type ExternalSpawnCli,
 } from '@/modules/providers/services/external-cli-sessions.service.js';
 import { getHomeDir, getHomeDirSuggestions } from '@/modules/providers/services/home-dirs.service.js';
 import { isValidTmuxName, sendToLiveSession, isValidSpawnName, spawnLiveSession, killLiveSession } from '@/modules/providers/services/live-send.service.js';
@@ -631,18 +632,22 @@ router.get(
 router.post(
   '/sessions/external/spawn',
   asyncHandler(async (req: Request, res: Response) => {
-    const body = (req.body ?? {}) as { name?: unknown; cwd?: unknown };
+    const body = (req.body ?? {}) as { name?: unknown; cwd?: unknown; cli?: unknown };
     if (!isValidSpawnName(body.name)) {
       throw new AppError('A valid session name is required (alphanumeric, not "company").', {
         code: 'INVALID_SPAWN_NAME',
         statusCode: 400,
       });
     }
+    if (body.cli !== undefined && body.cli !== 'codex' && body.cli !== 'claude') {
+      throw new AppError('cli must be "codex" or "claude".', { code: 'INVALID_CLI', statusCode: 400 });
+    }
+    const cli: ExternalSpawnCli = body.cli === 'claude' ? 'claude' : 'codex';
     const cwdInput = typeof body.cwd === 'string' ? body.cwd.trim() : '';
     if (!cwdInput) {
       throw new AppError('cwd is required.', { code: 'EMPTY_CWD', statusCode: 400 });
     }
-    const cwd = await resolveExternalCodexCwd(cwdInput);
+    const cwd = await resolveExternalCliCwd(cwdInput);
     if (!cwd) {
       throw new AppError('cwd must be an existing directory under HOME.', {
         code: 'INVALID_CWD',
@@ -650,14 +655,14 @@ router.post(
       });
     }
     try {
-      await spawnExternalCodexSession(body.name, cwd);
+      await spawnExternalCliSession(cli, body.name, cwd);
     } catch {
-      throw new AppError('Codex session could not be created; the tmux name may already exist.', {
-        code: 'EXTERNAL_CODEX_SPAWN_FAILED',
+      throw new AppError('The external CLI session could not be created; the tmux name may already exist.', {
+        code: 'EXTERNAL_CLI_SPAWN_FAILED',
         statusCode: 409,
       });
     }
-    res.status(201).json(createApiSuccessResponse({ ok: true, tmuxName: body.name, cwd }));
+    res.status(201).json(createApiSuccessResponse({ ok: true, tmuxName: body.name, cwd, cli }));
   }),
 );
 
@@ -670,24 +675,24 @@ router.post(
     }
     if (body.tmuxName === await getCurrentTmuxSessionName()) {
       throw new AppError('The tmux session hosting ChatMux is protected.', {
-        code: 'EXTERNAL_CODEX_SESSION_PROTECTED',
+        code: 'EXTERNAL_CLI_SESSION_PROTECTED',
         statusCode: 403,
       });
     }
     const target = (await getExternalCliSessions()).find(
-      (session) => session.tmuxName === body.tmuxName && session.kind === 'codex',
+      (session) => session.tmuxName === body.tmuxName && (session.kind === 'codex' || session.kind === 'claude'),
     );
     if (!target) {
-      throw new AppError('The selected tmux session is no longer a running Codex session.', {
-        code: 'EXTERNAL_CODEX_SESSION_MISMATCH',
+      throw new AppError('The selected tmux session is no longer a running Codex/Claude session.', {
+        code: 'EXTERNAL_CLI_SESSION_MISMATCH',
         statusCode: 409,
       });
     }
     try {
-      await killExternalCodexSession(body.tmuxName);
+      await killExternalCliSession(body.tmuxName);
     } catch {
-      throw new AppError('The Codex tmux session could not be stopped.', {
-        code: 'EXTERNAL_CODEX_KILL_FAILED',
+      throw new AppError('The external CLI tmux session could not be stopped.', {
+        code: 'EXTERNAL_CLI_KILL_FAILED',
         statusCode: 409,
       });
     }

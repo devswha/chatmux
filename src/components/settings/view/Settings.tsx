@@ -1,4 +1,3 @@
-import { useEffect, useMemo, useState } from 'react';
 import { X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -8,51 +7,11 @@ import SettingsSidebar from '../view/SettingsSidebar';
 import AgentsSettingsTab from '../view/tabs/agents-settings/AgentsSettingsTab';
 import AppearanceSettingsTab from '../view/tabs/AppearanceSettingsTab';
 import CredentialsSettingsTab from '../view/tabs/api-settings/CredentialsSettingsTab';
-import VoiceSettingsTab from '../view/tabs/VoiceSettingsTab';
-import GitSettingsTab from '../view/tabs/git-settings/GitSettingsTab';
-import BrowserUseSettingsTab from '../view/tabs/browser-use-settings/BrowserUseSettingsTab';
-import NotificationsSettingsTab from '../view/tabs/NotificationsSettingsTab';
-import TasksSettingsTab from '../view/tabs/tasks-settings/TasksSettingsTab';
-import PluginSettingsTab from '../../plugins/view/PluginSettingsTab';
-import AboutTab from '../view/tabs/AboutTab';
 import { useSettingsController } from '../hooks/useSettingsController';
-import { useWebPush } from '../../../hooks/useWebPush';
 import type { SettingsProps } from '../types/types';
-
-type ChatMuxAppDesktopNotificationsState = {
-  enabled: boolean;
-  supported: boolean;
-  connectedCount?: number;
-  targetCount?: number;
-  lastError?: string | null;
-};
-
-type ChatMuxAppDesktopNotificationsSnapshot = {
-  desktopNotifications?: ChatMuxAppDesktopNotificationsState;
-};
-
-type ChatMuxAppDesktopNotificationsBridge = {
-  getState: () => Promise<ChatMuxAppDesktopNotificationsSnapshot | null | undefined>;
-  onStateUpdated?: (
-    handler: (state: ChatMuxAppDesktopNotificationsSnapshot | null | undefined) => void,
-  ) => (() => void) | undefined;
-  update: (
-    notificationSettings: Pick<ChatMuxAppDesktopNotificationsState, 'enabled'>,
-  ) => Promise<ChatMuxAppDesktopNotificationsSnapshot | null | undefined>;
-};
-
-type ChatMuxAppWindow = Window & {
-  chatmuxAppDesktopNotifications?: ChatMuxAppDesktopNotificationsBridge;
-};
 
 function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }: SettingsProps) {
   const { t } = useTranslation('settings');
-  const chatmuxAppDesktopNotificationsBridge = useMemo<ChatMuxAppDesktopNotificationsBridge | null>(() => (
-    typeof window === 'undefined'
-      ? null
-      : (window as ChatMuxAppWindow).chatmuxAppDesktopNotifications ?? null
-  ), []);
-  const [chatmuxAppDesktopNotificationsState, setChatMuxAppDesktopNotificationsState] = useState<ChatMuxAppDesktopNotificationsState | null>(null);
   const {
     activeTab,
     setActiveTab,
@@ -63,8 +22,6 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }: Set
     updateCodeEditorSetting,
     claudePermissions,
     setClaudePermissions,
-    notificationPreferences,
-    setNotificationPreferences,
     cursorPermissions,
     setCursorPermissions,
     codexPermissionMode,
@@ -77,73 +34,8 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }: Set
     handleLoginComplete,
   } = useSettingsController({
     isOpen,
-    initialTab
+    initialTab,
   });
-
-  const {
-    permission: pushPermission,
-    isSubscribed: isPushSubscribed,
-    isLoading: isPushLoading,
-    subscribe: pushSubscribe,
-    unsubscribe: pushUnsubscribe,
-  } = useWebPush();
-
-  const handleEnablePush = async () => {
-    await pushSubscribe();
-    // Server sets webPush: true in preferences on subscribe; sync local state
-    setNotificationPreferences({
-      ...notificationPreferences,
-      channels: { ...notificationPreferences.channels, webPush: true },
-    });
-  };
-
-  const handleDisablePush = async () => {
-    await pushUnsubscribe();
-    // Server sets webPush: false in preferences on unsubscribe; sync local state
-    setNotificationPreferences({
-      ...notificationPreferences,
-      channels: { ...notificationPreferences.channels, webPush: false },
-    });
-  };
-
-  useEffect(() => {
-    if (!chatmuxAppDesktopNotificationsBridge) return undefined;
-    let mounted = true;
-    chatmuxAppDesktopNotificationsBridge.getState().then((state) => {
-      if (mounted) {
-        setChatMuxAppDesktopNotificationsState(state?.desktopNotifications ?? null);
-      }
-    }).catch(() => {});
-    const unsubscribe = chatmuxAppDesktopNotificationsBridge.onStateUpdated?.((state) => {
-      if (mounted) {
-        setChatMuxAppDesktopNotificationsState(state?.desktopNotifications ?? null);
-      }
-    });
-    return () => {
-      mounted = false;
-      unsubscribe?.();
-    };
-  }, [chatmuxAppDesktopNotificationsBridge]);
-
-  const handleEnableDesktopNotifications = async () => {
-    if (!chatmuxAppDesktopNotificationsBridge) return;
-    const state = await chatmuxAppDesktopNotificationsBridge.update({ enabled: true });
-    setChatMuxAppDesktopNotificationsState(state?.desktopNotifications ?? null);
-    setNotificationPreferences({
-      ...notificationPreferences,
-      channels: { ...notificationPreferences.channels, desktop: true },
-    });
-  };
-
-  const handleDisableDesktopNotifications = async () => {
-    if (!chatmuxAppDesktopNotificationsBridge) return;
-    const state = await chatmuxAppDesktopNotificationsBridge.update({ enabled: false });
-    setChatMuxAppDesktopNotificationsState(state?.desktopNotifications ?? null);
-    setNotificationPreferences({
-      ...notificationPreferences,
-      channels: { ...notificationPreferences.channels, desktop: false },
-    });
-  };
 
   if (!isOpen) {
     return null;
@@ -191,8 +83,6 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }: Set
                 />
               )}
 
-              {activeTab === 'git' && <GitSettingsTab />}
-
               {activeTab === 'agents' && (
                 <AgentsSettingsTab
                   providerAuthStatus={providerAuthStatus}
@@ -207,33 +97,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }: Set
                 />
               )}
 
-              {activeTab === 'tasks' && <TasksSettingsTab />}
-
-              {activeTab === 'browser' && <BrowserUseSettingsTab />}
-
-              {activeTab === 'notifications' && (
-                <NotificationsSettingsTab
-                  notificationPreferences={notificationPreferences}
-                  onNotificationPreferencesChange={setNotificationPreferences}
-                  pushPermission={pushPermission}
-                  isPushSubscribed={isPushSubscribed}
-                  isPushLoading={isPushLoading}
-                  onEnablePush={handleEnablePush}
-                  onDisablePush={handleDisablePush}
-                  isDesktop={Boolean(chatmuxAppDesktopNotificationsBridge)}
-                  desktopNotifications={chatmuxAppDesktopNotificationsState}
-                  onEnableDesktopNotifications={handleEnableDesktopNotifications}
-                  onDisableDesktopNotifications={handleDisableDesktopNotifications}
-                />
-              )}
-
               {activeTab === 'api' && <CredentialsSettingsTab />}
-
-              {activeTab === 'voice' && <VoiceSettingsTab />}
-
-              {activeTab === 'plugins' && <PluginSettingsTab />}
-
-              {activeTab === 'about' && <AboutTab />}
             </div>
           </main>
         </div>

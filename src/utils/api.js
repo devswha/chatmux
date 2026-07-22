@@ -113,13 +113,13 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ tmuxName, sessionId, message }),
     }),
-  // Create/stop native Codex tmux sessions directly from the External CLI tab.
-  externalCodexSessionSpawn: (name, cwd) =>
+  // Create native codex/claude tmux sessions directly from the unified sessions tab.
+  externalCliSessionSpawn: (cli, name, cwd) =>
     authenticatedFetch('/api/providers/sessions/external/spawn', {
       method: 'POST',
-      body: JSON.stringify({ name, cwd }),
+      body: JSON.stringify({ name, cwd, cli }),
     }),
-  externalCodexSessionKill: (tmuxName) =>
+  externalCliSessionKill: (tmuxName) =>
     authenticatedFetch('/api/providers/sessions/external/kill', {
       method: 'POST',
       body: JSON.stringify({ tmuxName }),
@@ -151,6 +151,17 @@ export const api = {
     if (workspacePath) params.set('workspacePath', workspacePath);
     const qs = params.toString();
     return authenticatedFetch(`/api/providers/sessions/live/commands${qs ? `?${qs}` : ''}`);
+  },
+  // Skills a provider can invoke (codex `$`-prefixed) — powers the codex relay palette.
+  /**
+   * @param {string} provider
+   * @param {string} [workspacePath]
+   */
+  providerSkills: (provider, workspacePath) => {
+    const params = new URLSearchParams();
+    if (workspacePath) params.set('workspacePath', workspacePath);
+    const qs = params.toString();
+    return authenticatedFetch(`/api/providers/${encodeURIComponent(provider)}/skills${qs ? `?${qs}` : ''}`);
   },
   // Minimal persisted metadata used to open a live transcript even when its
   // project session page has not reached that older row yet.

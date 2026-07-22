@@ -5,6 +5,7 @@ import type { ExternalTerminalTarget, Project, ProjectSession } from '../../../.
 import { cn } from '../../../../lib/utils';
 import { api } from '../../../../utils/api';
 import { getAllSessions, getSessionTime } from '../../utils/utils';
+import SessionProviderLogo from '../../../llm-logo-provider/SessionProviderLogo';
 
 import type { SidebarProjectListProps } from './SidebarProjectList';
 import SidebarIdleComposer from './SidebarIdleComposer';
@@ -294,42 +295,45 @@ export default function SidebarLiveSection({
                   type="button"
                   title={title}
                   onClick={() => onSessionSelect(session, project.projectId)}
-                  className="flex min-w-0 flex-1 flex-col gap-0.5 px-2 py-1.5 text-left"
+                  className="flex min-w-0 flex-1 items-start gap-2 px-2 py-1.5 text-left"
                 >
-                  <span className="flex items-center gap-2">
-                    {liveSessionRunning.has(session.id) ? (
-                      <>
-                        <span className="inline-flex h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-emerald-500" aria-hidden />
+                  <SessionProviderLogo provider="gjc" className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                  <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                    <span className="flex items-center gap-2">
+                      {liveSessionRunning.has(session.id) ? (
+                        <>
+                          <span className="inline-flex h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-emerald-500" aria-hidden />
+                          <span
+                            className="shrink-0 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400"
+                            title="턴 진행 중 — 에이전트가 응답/도구 실행 중입니다"
+                          >
+                            RUN
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="inline-flex h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-blue-500" aria-hidden />
+                          <span
+                            className="shrink-0 rounded bg-blue-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-blue-600 dark:text-blue-400"
+                            title="세션 감지됨 — 다음 지시 대기 중"
+                          >
+                            LIVE
+                          </span>
+                        </>
+                      )}
+                      {liveSessionKinds.get(session.id) === 'batch' && (
                         <span
-                          className="shrink-0 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400"
-                          title="턴 진행 중 — 에이전트가 응답/도구 실행 중입니다"
+                          className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400"
+                          title="이 tmux pane의 전면 명령이 gjc가 아닙니다 — gjc는 배치(백그라운드) 자손으로 실행 중"
                         >
-                          RUN
+                          배치
                         </span>
-                      </>
-                    ) : (
-                      <>
-                        <span className="inline-flex h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-blue-500" aria-hidden />
-                        <span
-                          className="shrink-0 rounded bg-blue-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-blue-600 dark:text-blue-400"
-                          title="세션 감지됨 — 다음 지시 대기 중"
-                        >
-                          LIVE
-                        </span>
-                      </>
-                    )}
-                    {liveSessionKinds.get(session.id) === 'batch' && (
-                      <span
-                        className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400"
-                        title="이 tmux pane의 전면 명령이 gjc가 아닙니다 — gjc는 배치(백그라운드) 자손으로 실행 중"
-                      >
-                        배치
-                      </span>
-                    )}
-                    <span className="truncate text-sm font-medium text-foreground">{primary}</span>
-                  </span>
-                  <span className="truncate pl-[1.375rem] text-[11px] text-muted-foreground">
-                    {project.displayName}{age ? ` · ${age}` : ''}
+                      )}
+                      <span className="truncate text-sm font-medium text-foreground">{primary}</span>
+                    </span>
+                    <span className="truncate text-[11px] text-muted-foreground">
+                      {project.displayName}{age ? ` · ${age}` : ''}
+                    </span>
                   </span>
                 </button>
                 {tmuxName && liveSessionLineage.has(session.id) && killButton(session.id, tmuxName)}
@@ -345,34 +349,37 @@ export default function SidebarLiveSection({
           const isIdle = id.startsWith('idle-gjc:');
           const content = (
             <>
-              <span className="flex items-center gap-2">
-                <span
-                  className={`inline-flex h-1.5 w-1.5 shrink-0 rounded-full ${isIdle ? 'bg-muted-foreground/50' : liveSessionRunning.has(id) ? 'animate-pulse bg-emerald-500' : 'animate-pulse bg-blue-500'}`}
-                  aria-hidden
-                />
-                <span
-                  className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${isIdle ? 'bg-muted text-muted-foreground' : liveSessionRunning.has(id) ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' : 'bg-blue-500/15 text-blue-600 dark:text-blue-400'}`}
-                >
-                  {isIdle ? '대기' : liveSessionRunning.has(id) ? 'RUN' : 'LIVE'}
-                </span>
-                {liveSessionKinds.get(id) === 'batch' && (
+              <SessionProviderLogo provider="gjc" className="mt-0.5 h-4 w-4 flex-shrink-0" />
+              <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                <span className="flex items-center gap-2">
                   <span
-                    className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400"
-                    title="이 tmux pane의 전면 명령이 gjc가 아닙니다 — gjc는 배치(백그라운드) 자손으로 실행 중"
+                    className={`inline-flex h-1.5 w-1.5 shrink-0 rounded-full ${isIdle ? 'bg-muted-foreground/50' : liveSessionRunning.has(id) ? 'animate-pulse bg-emerald-500' : 'animate-pulse bg-blue-500'}`}
+                    aria-hidden
+                  />
+                  <span
+                    className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${isIdle ? 'bg-muted text-muted-foreground' : liveSessionRunning.has(id) ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' : 'bg-blue-500/15 text-blue-600 dark:text-blue-400'}`}
                   >
-                    배치
+                    {isIdle ? '대기' : liveSessionRunning.has(id) ? 'RUN' : 'LIVE'}
                   </span>
-                )}
-                <span className="truncate text-sm font-medium text-foreground">
-                  {tmuxName ?? '이름 미확인 세션'}
+                  {liveSessionKinds.get(id) === 'batch' && (
+                    <span
+                      className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400"
+                      title="이 tmux pane의 전면 명령이 gjc가 아닙니다 — gjc는 배치(백그라운드) 자손으로 실행 중"
+                    >
+                      배치
+                    </span>
+                  )}
+                  <span className="truncate text-sm font-medium text-foreground">
+                    {tmuxName ?? '이름 미확인 세션'}
+                  </span>
                 </span>
-              </span>
-              <span className="truncate pl-[1.375rem] text-[11px] text-muted-foreground">
-                {isIdle
-                  ? '눌러서 첫 대화 시작'
-                  : openingId === id
-                    ? '이전 대화 불러오는 중…'
-                    : '눌러서 이전 대화 열기'}
+                <span className="truncate text-[11px] text-muted-foreground">
+                  {isIdle
+                    ? '눌러서 첫 대화 시작'
+                    : openingId === id
+                      ? '이전 대화 불러오는 중…'
+                      : '눌러서 이전 대화 열기'}
+                </span>
               </span>
             </>
           );
@@ -388,7 +395,7 @@ export default function SidebarLiveSection({
                       kind: 'GJC',
                       cliKind: 'gjc',
                     })}
-                    className="flex min-w-0 flex-1 flex-col gap-0.5 px-2 py-1.5 text-left"
+                    className="flex min-w-0 flex-1 items-start gap-2 px-2 py-1.5 text-left"
                     title={tmuxName ? `tmux 세션 '${tmuxName}'에서 첫 대화 시작` : undefined}
                   >
                     {content}
@@ -398,7 +405,7 @@ export default function SidebarLiveSection({
                     type="button"
                     disabled={openingId !== null}
                     onClick={() => void openOrphan(id)}
-                    className="flex min-w-0 flex-1 flex-col gap-0.5 px-2 py-1.5 text-left disabled:opacity-60"
+                    className="flex min-w-0 flex-1 items-start gap-2 px-2 py-1.5 text-left disabled:opacity-60"
                   >
                     {content}
                   </button>
@@ -420,9 +427,6 @@ export default function SidebarLiveSection({
           );
         })}
       </div>
-      <p className="px-2 pt-2 text-[10px] leading-relaxed text-muted-foreground/70">
-        tmux 안에서 도는 gjc 세션만 감지됩니다 — claude 등 다른 CLI 세션은 표시되지 않습니다.
-      </p>
     </div>
   );
 }

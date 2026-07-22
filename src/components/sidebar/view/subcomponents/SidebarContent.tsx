@@ -16,8 +16,7 @@ import SidebarHeader from './SidebarHeader';
 import SidebarProjectList, { type SidebarProjectListProps } from './SidebarProjectList';
 import SidebarLiveSection from './SidebarLiveSection';
 import SidebarExternalSection from './SidebarExternalSection';
-import SidebarSpawnSession from './SidebarSpawnSession';
-import SidebarCodexSpawnSession from './SidebarCodexSpawnSession';
+import SidebarNewSession from './SidebarNewSession';
 
 function HighlightedSnippet({ snippet, highlights }: { snippet: string; highlights: { start: number; end: number }[] }) {
   const parts: ReactNode[] = [];
@@ -158,6 +157,7 @@ type SidebarContentProps = {
   liveSessionTmuxIds: ReadonlyMap<string, string>;
   liveSessionKinds: ReadonlyMap<string, string>;
   liveSessionRunning: ReadonlySet<string>;
+  liveSessionsLoaded: boolean;
   onExternalTerminalOpen: (target: ExternalTerminalTarget) => void;
   t: TFunction;
 };
@@ -202,14 +202,16 @@ export default function SidebarContent({
   liveSessionTmuxIds,
   liveSessionKinds,
   liveSessionRunning,
+  liveSessionsLoaded,
   onExternalTerminalOpen,
   t,
 }: SidebarContentProps) {
-  const [topTab, setTopTab] = useState<'live' | 'external' | 'archive'>('live');
-  const { sessions: externalSessions, refresh: refreshExternalSessions } = useExternalCliSessions();
+  const [topTab, setTopTab] = useState<'sessions' | 'archive'>('sessions');
+  const { sessions: externalSessions, loading: externalLoading, refresh: refreshExternalSessions } = useExternalCliSessions();
   const showConversationSearch = searchMode === 'conversations' && searchFilter.trim().length >= 2;
   const hasPartialResults = conversationResults && conversationResults.results.length > 0;
   const groupedArchivedSessions = groupArchivedSessionsByProject(archivedSessions);
+  const sessionCount = projectListProps.liveSessionIds.size + externalSessions.length;
 
   return (
     <div
@@ -238,32 +240,18 @@ export default function SidebarContent({
       />
 
       <div className="flex items-center gap-2 px-2 pt-2 md:px-1.5">
-        {topTab === 'live' ? (
+        {topTab === 'sessions' ? (
           <span className="flex items-center gap-1.5 px-1 text-xs font-semibold text-foreground">
             <span className="inline-flex h-1.5 w-1.5 rounded-full bg-blue-500" aria-hidden />
-            GJC{projectListProps.liveSessionIds.size > 0 ? ` (${projectListProps.liveSessionIds.size})` : ''}
+            세션{sessionCount > 0 ? ` (${sessionCount})` : ''}
           </span>
         ) : (
           <button
             type="button"
-            onClick={() => setTopTab('live')}
+            onClick={() => setTopTab('sessions')}
             className="rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
           >
-            GJC{projectListProps.liveSessionIds.size > 0 ? ` (${projectListProps.liveSessionIds.size})` : ''}
-          </button>
-        )}
-        {topTab === 'external' ? (
-          <span className="flex items-center gap-1.5 px-1 text-xs font-semibold text-foreground">
-            <span className="inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden />
-            외부 CLI{externalSessions.length > 0 ? ` (${externalSessions.length})` : ''}
-          </span>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setTopTab('external')}
-            className="rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
-          >
-            외부 CLI{externalSessions.length > 0 ? ` (${externalSessions.length})` : ''}
+            세션{sessionCount > 0 ? ` (${sessionCount})` : ''}
           </button>
         )}
         <span className="flex-1" />
@@ -280,38 +268,41 @@ export default function SidebarContent({
         )}
       </div>
 
-      {topTab === 'live' ? (
+      {topTab === 'sessions' ? (
         <ScrollArea className="flex-1 overflow-y-auto overscroll-contain md:px-1.5 md:py-2">
-          <SidebarSpawnSession />
-          {projectListProps.liveSessionIds.size === 0 ? (
-            <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-              지금 tmux에서 작동 중인 가재코드(GJC) 세션이 없습니다.
+          <SidebarNewSession onCreated={refreshExternalSessions} />
+          {sessionCount > 0 ? (
+            <>
+              <SidebarLiveSection
+                projects={projects}
+                liveSessionIds={projectListProps.liveSessionIds}
+                selectedSession={projectListProps.selectedSession}
+                onProjectSelect={projectListProps.onProjectSelect}
+                onSessionSelect={projectListProps.onSessionSelect}
+                liveSessionNames={liveSessionNames}
+                liveSessionLineage={liveSessionLineage}
+                liveSessionTmuxIds={liveSessionTmuxIds}
+                liveSessionKinds={liveSessionKinds}
+                liveSessionRunning={liveSessionRunning}
+                onExternalTerminalOpen={onExternalTerminalOpen}
+              />
+              <SidebarExternalSection
+                sessions={externalSessions}
+                projects={projects}
+                onOpen={onExternalTerminalOpen}
+                onChanged={refreshExternalSessions}
+              />
+            </>
+          ) : (!liveSessionsLoaded || externalLoading) ? (
+            <div className="flex items-center justify-center gap-2 px-4 py-8 text-sm text-muted-foreground" role="status" aria-live="polite">
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-muted-foreground/40 border-t-muted-foreground" aria-hidden />
+              세션 불러오는 중…
             </div>
           ) : (
-            <SidebarLiveSection
-              projects={projects}
-              liveSessionIds={projectListProps.liveSessionIds}
-              selectedSession={projectListProps.selectedSession}
-              onProjectSelect={projectListProps.onProjectSelect}
-              onSessionSelect={projectListProps.onSessionSelect}
-              liveSessionNames={liveSessionNames}
-              liveSessionLineage={liveSessionLineage}
-              liveSessionTmuxIds={liveSessionTmuxIds}
-              liveSessionKinds={liveSessionKinds}
-              liveSessionRunning={liveSessionRunning}
-              onExternalTerminalOpen={onExternalTerminalOpen}
-            />
+            <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+              지금 tmux에서 작동 중인 CLI 세션이 없습니다. (GJC · Codex · Claude Code)
+            </div>
           )}
-        </ScrollArea>
-      ) : topTab === 'external' ? (
-        <ScrollArea className="flex-1 overflow-y-auto overscroll-contain md:px-1.5 md:py-2">
-          <SidebarCodexSpawnSession onCreated={refreshExternalSessions} />
-          <SidebarExternalSection
-            sessions={externalSessions}
-            projects={projects}
-            onOpen={onExternalTerminalOpen}
-            onChanged={refreshExternalSessions}
-          />
         </ScrollArea>
       ) : (
       <ScrollArea className="flex-1 overflow-y-auto overscroll-contain md:px-1.5 md:py-2">

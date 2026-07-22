@@ -20,11 +20,11 @@ type LiveGjcCommand = {
   sourcePath?: string;
 };
 
-/** The active `/…` token under the caret, or null when none applies. */
-function getActiveSlashToken(text: string, caret: number): { start: number; query: string } | null {
+/** The active trigger token (`/…` for gjc, `$…` for codex) under the caret, or null. */
+function getActiveSlashToken(text: string, caret: number, trigger: string): { start: number; query: string } | null {
   for (let index = caret - 1; index >= 0; index -= 1) {
     const char = text[index];
-    if (char === '/') {
+    if (char === trigger) {
       const precededByBoundary = index === 0 || /\s/.test(text[index - 1]);
       if (!precededByBoundary) {
         return null;
@@ -40,12 +40,12 @@ function getActiveSlashToken(text: string, caret: number): { start: number; quer
   return null;
 }
 
-function filterCommands(commands: LiveGjcCommand[], query: string): LiveGjcCommand[] {
+function filterCommands(commands: LiveGjcCommand[], query: string, trigger: string): LiveGjcCommand[] {
   const normalized = query.trim().toLowerCase();
-  if (!normalized || normalized === '/') {
+  if (!normalized || normalized === trigger) {
     return commands;
   }
-  const prefix = normalized.startsWith('/') ? normalized : `/${normalized}`;
+  const prefix = normalized.startsWith(trigger) ? normalized : `${trigger}${normalized}`;
   const bare = prefix.slice(1);
 
   const byPrefix = commands.filter((command) => command.name.toLowerCase().startsWith(prefix));
@@ -91,6 +91,8 @@ export default function LiveRelayComposer({
   relayKind?: 'gjc' | 'codex';
   sessionId?: string | null;
 }) {
+  // gjc uses `/` slash commands; codex invokes skills with a `$` prefix.
+  const commandTrigger = relayKind === 'codex' ? '$' : '/';
   const [input, setInput] = useState('');
   const [status, setStatus] = useState<RelayStatus>({ kind: 'idle' });
 
@@ -101,24 +103,37 @@ export default function LiveRelayComposer({
   const slashTokenStartRef = useRef(-1);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Load the invokable slash commands for this session once per target. Failure
-  // (no gjc home / tower / commands) degrades silently to a plain relay box.
+  // Load the invokable commands for this session once per target: gjc slash
+  // commands from the control tower, codex skills ($-prefixed) from the provider.
+  // Failure degrades silently to a plain relay box.
   useEffect(() => {
-    if (relayKind !== 'gjc') {
-      setCommands([]);
-      return undefined;
-    }
     let cancelled = false;
     void (async () => {
       try {
-        const response = await api.liveSessionCommands(workspacePath ?? undefined);
+        const response = relayKind === 'codex'
+          ? await api.providerSkills('codex', workspacePath ?? undefined)
+          : await api.liveSessionCommands(workspacePath ?? undefined);
         if (!response.ok) {
           return;
         }
         const body = await response.json().catch(() => null);
-        const list = (body?.data?.commands ?? body?.commands ?? []) as LiveGjcCommand[];
-        if (!cancelled && Array.isArray(list)) {
-          setCommands(list);
+        if (cancelled) {
+          return;
+        }
+        if (relayKind === 'codex') {
+          const skills = (body?.data?.skills ?? body?.skills ?? []) as Array<{ command?: string; name?: string; description?: string }>;
+          setCommands(skills
+            .filter((skill) => skill?.command || skill?.name)
+            .map((skill) => ({
+              name: skill.command || `$${skill.name}`,
+              description: skill.description,
+              namespace: 'skill',
+            })));
+        } else {
+          const list = (body?.data?.commands ?? body?.commands ?? []) as LiveGjcCommand[];
+          if (Array.isArray(list)) {
+            setCommands(list);
+          }
         }
       } catch {
         // Non-fatal — the composer still relays free text.
@@ -137,20 +152,20 @@ export default function LiveRelayComposer({
 
   const syncCommandMenu = useCallback(
     (nextValue: string, caret: number) => {
-      const token = commands.length > 0 ? getActiveSlashToken(nextValue, caret) : null;
+      const token = commands.length > 0 ? getActiveSlashToken(nextValue, caret, commandTrigger) : null;
       if (!token) {
         if (showCommandMenu) {
           closeCommandMenu();
         }
         return;
       }
-      const filtered = filterCommands(commands, token.query);
+      const filtered = filterCommands(commands, token.query, commandTrigger);
       slashTokenStartRef.current = token.start;
       setFilteredCommands(filtered);
       setShowCommandMenu(filtered.length > 0);
       setSelectedCommandIndex(0);
     },
-    [commands, showCommandMenu, closeCommandMenu],
+    [commands, showCommandMenu, closeCommandMenu, commandTrigger],
   );
 
   const insertCommand = useCallback(
@@ -277,7 +292,7 @@ export default function LiveRelayComposer({
             onKeyDown={handleKeyDown}
             onClick={(event) => syncCommandMenu(input, event.currentTarget.selectionStart ?? input.length)}
             rows={1}
-            placeholder={`${tmuxName}에 지시… (${relayKind === 'gjc' ? ' / 명령, ' : ''}Enter 전송, Shift+Enter 줄바꿈)`}
+            placeholder={`${tmuxName}에 지시… (${commandTrigger} 명령, Enter 전송, Shift+Enter 줄바꿈)`}
             className="max-h-40 min-h-9 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm outline-none"
           />
           <button

@@ -50,21 +50,6 @@
     "resetToDefaults": "Reset to Defaults",
     "cancelChanges": "Cancel Changes"
   },
-  "voiceSettings": {
-    "title": "Voice",
-    "description": "Speech-to-text input and read-aloud, via an OpenAI-compatible audio backend.",
-    "enable": "Enable voice",
-    "enableDescription": "Show the mic button and the read-aloud button on messages.",
-    "backendTitle": "Backend",
-    "backendDescription": "Point at OpenAI, Groq, or a local server (LocalAI, Speaches, Kokoro-FastAPI). Leave blank to use the server default.",
-    "baseUrl": "Base URL",
-    "apiKey": "API key",
-    "sttModel": "Speech-to-text model",
-    "ttsModel": "Text-to-speech model",
-    "voice": "Voice",
-    "format": "Audio format",
-    "note": "A custom base URL is called directly by your browser and must allow browser CORS requests. Leave it blank to use the server-configured backend."
-  },
   "quickSettings": {
     "title": "Quick Settings",
     "sections": {
@@ -105,47 +90,7 @@
     "label": "Settings",
     "agents": "Agents",
     "appearance": "Appearance",
-    "git": "Git",
-    "apiTokens": "API & Tokens",
-    "voice": "Voice",
-    "tasks": "Tasks",
-    "browser": "Browser",
-    "notifications": "Notifications",
-    "plugins": "Plugins",
-    "about": "About"
-  },
-  "notifications": {
-    "title": "Notifications",
-    "description": "Control which notification events you receive.",
-    "webPush": {
-      "title": "Notify this browser",
-      "enable": "Enable notifications",
-      "disable": "Disable notifications",
-      "enabled": "Notifications are enabled for this browser",
-      "loading": "Updating...",
-      "unsupported": "Push notifications are not supported in this browser.",
-      "denied": "Push notifications are blocked. Please allow them in your browser settings."
-    },
-    "desktop": {
-      "title": "Notify this desktop app",
-      "enable": "Enable notifications",
-      "disable": "Disable notifications",
-      "enabled": "Notifications are enabled for this desktop app",
-      "unsupported": "Desktop notifications are not supported on this system."
-    },
-    "sound": {
-      "title": "Sound",
-      "description": "Play a short tone when a chat run finishes or needs tool approval.",
-      "enabled": "Enabled",
-      "test": "Test sound"
-    },
-    "events": {
-      "title": "Event Types",
-      "actionRequired": "Action required",
-      "stop": "Run stopped",
-      "liveStop": "tmux live session reply ready",
-      "error": "Run failed"
-    }
+    "apiTokens": "API & Tokens"
   },
   "appearanceSettings": {
     "darkMode": {
@@ -240,25 +185,6 @@
     "save": "Save Settings",
     "cancel": "Cancel"
   },
-  "git": {
-    "title": "Git Configuration",
-    "description": "Configure your git identity for commits. These settings will be applied globally via git config --global",
-    "name": {
-      "label": "Git Name",
-      "help": "Your name for git commits"
-    },
-    "email": {
-      "label": "Git Email",
-      "help": "Your email for git commits"
-    },
-    "actions": {
-      "save": "Save Configuration",
-      "saving": "Saving..."
-    },
-    "status": {
-      "success": "Saved successfully"
-    }
-  },
   "apiKeys": {
     "title": "API Keys",
     "description": "Generate API keys to access the external API from other applications.",
@@ -309,25 +235,6 @@
     "loading": "Loading...",
     "version": {
       "updateAvailable": "Update available: v{{version}}"
-    }
-  },
-  "tasks": {
-    "checking": "Checking TaskMaster installation...",
-    "notInstalled": {
-      "title": "TaskMaster AI CLI Not Installed",
-      "description": "TaskMaster CLI is required to use task management features. Install it to get started:",
-      "installCommand": "npm install -g task-master-ai",
-      "viewOnGitHub": "View on GitHub",
-      "afterInstallation": "After installation:",
-      "steps": {
-        "restart": "Restart this application",
-        "autoAvailable": "TaskMaster features will automatically become available",
-        "initCommand": "Use task-master init in your project directory"
-      }
-    },
-    "settings": {
-      "enableLabel": "Enable TaskMaster Integration",
-      "enableDescription": "Show TaskMaster tasks, banners, and sidebar indicators across the interface"
     }
   },
   "agents": {
@@ -478,99 +385,6 @@
     "help": {
       "title": "About Codex MCP",
       "description": "Codex supports stdio-based MCP servers. You can add servers that extend Codex's capabilities with additional tools and resources."
-    }
-  },
-  "pluginSettings": {
-    "title": "Plugins",
-    "description": "Extend the interface with custom plugins. Install from git or drop a folder in ~/.claude-code-ui/plugins/",
-    "installPlaceholder": "https://github.com/user/my-plugin",
-    "installButton": "Install",
-    "installing": "Installing…",
-    "securityWarning": "Only install plugins whose source code you have reviewed or from authors you trust.",
-    "scanningPlugins": "Scanning plugins…",
-    "noPluginsInstalled": "No plugins installed",
-    "pullLatest": "Pull latest from git",
-    "noGitRemote": "No git remote — update not available",
-    "uninstallPlugin": "Uninstall plugin",
-    "confirmUninstall": "Click again to confirm",
-    "confirmUninstallMessage": "Remove {{name}}? This cannot be undone.",
-    "cancel": "Cancel",
-    "remove": "Remove",
-    "updateFailed": "Update failed",
-    "installFailed": "Installation failed",
-    "uninstallFailed": "Uninstall failed",
-    "toggleFailed": "Toggle failed",
-    "starterPluginLabel": "Starter Plugin",
-    "starter": "Starter",
-    "docs": "Docs",
-    "sections": {
-      "officialTitle": "Official Plugins",
-      "officialDescription": "Maintained by the 가재코드 team and ready for direct install.",
-      "unofficialTitle": "Other Plugins",
-      "unofficialDescription": "Unofficial plugins and integrations from other users. Review the source before installing."
-    },
-    "starterPlugin": {
-      "name": "Project Stats",
-      "badge": "starter",
-      "description": "File counts, lines of code, file-type breakdown, and recent activity for your project.",
-      "install": "Install"
-    },
-    "terminalPlugin": {
-      "name": "Terminal",
-      "badge": "official",
-      "description": "Integrated terminal with full shell access directly within the interface.",
-      "install": "Install"
-    },
-    "scheduledPromptPlugin": {
-      "name": "Scheduled Prompts",
-      "badge": "unofficial",
-      "description": "Schedule workspace prompts, review run history, and manage recurring local tasks.",
-      "install": "Install"
-    },
-    "claudeWatchPlugin": {
-      "name": "Claude Watch",
-      "badge": "unofficial",
-      "description": "Watch long-running Claude Code sessions for hangs and expose process controls.",
-      "install": "Install"
-    },
-    "sessionManagerPlugin": {
-      "name": "Sessions",
-      "badge": "unofficial",
-      "description": "View, manage, and kill active Claude Code sessions.",
-      "install": "Install"
-    },
-    "tokenCostCalculatorPlugin": {
-      "name": "Token Cost Calculator",
-      "badge": "unofficial",
-      "description": "Calculate API costs from model prices and token usage, with preset model pricing support.",
-      "install": "Install"
-    },
-    "taskQueuePlugin": {
-      "name": "Task Queue",
-      "badge": "unofficial",
-      "description": "Task queue dashboard to view, filter, and launch agent tasks.",
-      "install": "Install"
-    },
-    "githubIssuesBoardPlugin": {
-      "name": "GitHub Issues Board",
-      "badge": "unofficial",
-      "description": "Kanban board for GitHub Issues with bidirectional TaskMaster sync and /github-task CLI skill auto-install",
-      "install": "Install"
-    },
-    "morePlugins": "More",
-    "enable": "Enable",
-    "disable": "Disable",
-    "installAriaLabel": "Plugin git repository URL",
-    "tab": "tab",
-    "runningStatus": "running"
-  },
-  "about": {
-    "remoteAccess": {
-      "title": "Remote access address (tailscale)",
-      "copy": "Copy address",
-      "copyCommand": "Copy command",
-      "httpsHint": "Use this HTTPS address from other devices (including your phone) — browser app install (PWA) only works properly here.",
-      "setupHint": "tailscale is running, but no HTTPS address points at this server yet. Run this one line in the server terminal to create one (visible to your tailnet only):"
     }
   }
 }

@@ -88,37 +88,7 @@
     "label": "Настройки",
     "agents": "Агенты",
     "appearance": "Внешний вид",
-    "git": "Git",
-    "apiTokens": "API и токены",
-    "tasks": "Задачи",
-    "notifications": "Уведомления",
-    "plugins": "Плагины",
-    "about": "О программе"
-  },
-  "notifications": {
-    "title": "Уведомления",
-    "description": "Управляйте тем, какие события уведомлений вы получаете.",
-    "webPush": {
-      "title": "Web Push уведомления",
-      "enable": "Включить Push уведомления",
-      "disable": "Отключить Push уведомления",
-      "enabled": "Push уведомления включены",
-      "loading": "Обновление...",
-      "unsupported": "Push уведомления не поддерживаются в этом браузере.",
-      "denied": "Push уведомления заблокированы. Разрешите их в настройках браузера."
-    },
-    "sound": {
-      "title": "Звук",
-      "description": "Воспроизводить короткий сигнал при завершении запуска чата.",
-      "enabled": "Включено",
-      "test": "Проверить звук"
-    },
-    "events": {
-      "title": "Типы событий",
-      "actionRequired": "Требуется действие",
-      "stop": "Запуск остановлен",
-      "error": "Запуск завершился с ошибкой"
-    }
+    "apiTokens": "API и токены"
   },
   "appearanceSettings": {
     "darkMode": {
@@ -213,25 +183,6 @@
     "save": "Сохранить настройки",
     "cancel": "Отмена"
   },
-  "git": {
-    "title": "Конфигурация Git",
-    "description": "Настройте вашу git идентичность для коммитов. Эти настройки будут применены глобально через git config --global",
-    "name": {
-      "label": "Имя Git",
-      "help": "Ваше имя для git коммитов"
-    },
-    "email": {
-      "label": "Email Git",
-      "help": "Ваш email для git коммитов"
-    },
-    "actions": {
-      "save": "Сохранить конфигурацию",
-      "saving": "Сохранение..."
-    },
-    "status": {
-      "success": "Успешно сохранено"
-    }
-  },
   "apiKeys": {
     "title": "API ключи",
     "description": "Генерируйте API ключи для доступа к внешнему API из других приложений.",
@@ -282,25 +233,6 @@
     "loading": "Загрузка...",
     "version": {
       "updateAvailable": "Доступно обновление: v{{version}}"
-    }
-  },
-  "tasks": {
-    "checking": "Проверка установки TaskMaster...",
-    "notInstalled": {
-      "title": "TaskMaster AI CLI не установлен",
-      "description": "TaskMaster CLI требуется для использования функций управления задачами. Установите его для начала работы:",
-      "installCommand": "npm install -g task-master-ai",
-      "viewOnGitHub": "Посмотреть на GitHub",
-      "afterInstallation": "После установки:",
-      "steps": {
-        "restart": "Перезапустите это приложение",
-        "autoAvailable": "Функции TaskMaster станут автоматически доступны",
-        "initCommand": "Используйте task-master init в каталоге вашего проекта"
-      }
-    },
-    "settings": {
-      "enableLabel": "Включить интеграцию TaskMaster",
-      "enableDescription": "Показывать задачи TaskMaster, баннеры и индикаторы боковой панели в интерфейсе"
     }
   },
   "agents": {
@@ -444,41 +376,5 @@
       "title": "О Codex MCP",
       "description": "Codex поддерживает MCP серверы на основе stdio. Вы можете добавлять серверы, которые расширяют возможности Codex дополнительными инструментами и ресурсами."
     }
-  },
-  "pluginSettings": {
-    "title": "Плагины",
-    "description": "Расширяйте интерфейс с помощью кастомных плагинов. Установите из git или добавьте папку в ~/.claude-code-ui/plugins/",
-    "installPlaceholder": "https://github.com/user/my-plugin",
-    "installButton": "Установить",
-    "installing": "Установка…",
-    "securityWarning": "Устанавливайте только те плагины, исходный код которых вы проверили или от авторов, которым вы доверяете.",
-    "scanningPlugins": "Сканирование плагинов…",
-    "noPluginsInstalled": "Плагины не установлены",
-    "pullLatest": "Получить обновления из git",
-    "noGitRemote": "Нет удаленного git-репозитория — обновление недоступно",
-    "uninstallPlugin": "Удалить плагин",
-    "confirmUninstall": "Нажмите еще раз для подтверждения",
-    "confirmUninstallMessage": "Удалить {{name}}? Это действие нельзя отменить.",
-    "cancel": "Отмена",
-    "remove": "Удалить",
-    "updateFailed": "Ошибка обновления",
-    "installFailed": "Ошибка установки",
-    "uninstallFailed": "Ошибка удаления",
-    "toggleFailed": "Ошибка переключения",
-    "buildYourOwn": "Создайте свой плагин",
-    "starter": "Шаблон",
-    "docs": "Документация",
-    "starterPlugin": {
-      "name": "Статистика проекта",
-      "badge": "шаблон",
-      "description": "Количество файлов, строк кода, разбивка по типам файлов и недавняя активность в вашем проекте.",
-      "install": "Установить"
-    },
-    "morePlugins": "Ещё",
-    "enable": "Включить",
-    "disable": "Выключить",
-    "installAriaLabel": "URL git-репозитория плагина",
-    "tab": "вкладка",
-    "runningStatus": "запущен"
   }
 }

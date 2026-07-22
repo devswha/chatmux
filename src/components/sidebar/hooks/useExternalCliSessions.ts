@@ -15,8 +15,9 @@ const POLL_INTERVAL_MS = 5000;
  * Self-contained so the gjc live lane (useProjectsState's live poll) stays
  * untouched; gjc sessions are excluded server-side. [] on any failure.
  */
-export function useExternalCliSessions(): { sessions: ExternalCliSession[]; refresh: () => void } {
+export function useExternalCliSessions(): { sessions: ExternalCliSession[]; loading: boolean; refresh: () => void } {
   const [sessions, setSessions] = useState<ExternalCliSession[]>([]);
+  const [loading, setLoading] = useState(true);
   const [refreshToken, setRefreshToken] = useState(0);
 
   useEffect(() => {
@@ -38,6 +39,8 @@ export function useExternalCliSessions(): { sessions: ExternalCliSession[]; refr
         }
       } catch {
         // best-effort — no tmux / endpoint error just empties the tab
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     };
     void poll();
@@ -50,6 +53,7 @@ export function useExternalCliSessions(): { sessions: ExternalCliSession[]; refr
 
   return {
     sessions,
+    loading,
     refresh: () => setRefreshToken((value) => value + 1),
   };
 }

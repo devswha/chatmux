@@ -379,6 +379,9 @@ export function useProjectsState({
   // `$N` tmux generation token per session id — sent with kill/relay so the
   // server can refuse a same-named session recreated after this snapshot.
   const [liveSessionTmuxIds, setLiveSessionTmuxIds] = useState<Map<string, string>>(new Map());
+  // False until the first live poll settles, so the sidebar shows a loading
+  // state instead of a false "no sessions" during the initial fetch.
+  const [liveSessionsLoaded, setLiveSessionsLoaded] = useState(false);
   const [activeTab, setActiveTab] = useState<AppTab>(readPersistedTab);
 
   useEffect(() => {
@@ -477,6 +480,10 @@ export function useProjectsState({
       } catch {
         // ignore — live detection is best-effort; last snapshot stays (fail-closed
         // for read-only protection).
+      } finally {
+        // First poll settled (success or error) — the sessions list can stop
+        // showing its loading state and trust an empty result.
+        if (!cancelled) setLiveSessionsLoaded(true);
       }
     };
     void poll();
@@ -1155,6 +1162,7 @@ export function useProjectsState({
       liveSessionTmuxIds,
       liveSessionKinds,
       liveSessionRunning,
+      liveSessionsLoaded,
       onProjectSelect: handleProjectSelect,
       onSessionSelect: handleSessionSelect,
       onNewSession: handleNewSession,
@@ -1178,6 +1186,7 @@ export function useProjectsState({
       liveSessionTmuxIds,
       liveSessionKinds,
       liveSessionRunning,
+      liveSessionsLoaded,
       handleNewSession,
       handleProjectDelete,
       handleProjectSelect,

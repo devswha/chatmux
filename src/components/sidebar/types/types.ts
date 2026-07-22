@@ -56,6 +56,7 @@ export type SidebarProps = {
   // Session ids with a turn in progress (transcript tail evidence) — drives
   // the green RUN badge. Presentational only.
   liveSessionRunning: ReadonlySet<string>;
+  liveSessionsLoaded: boolean;
   onProjectSelect: (project: Project) => void;
   onSessionSelect: (session: ProjectSession) => void;
   onNewSession: (project: Project) => void;

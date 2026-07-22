@@ -88,37 +88,7 @@
     "label": "Paramètres",
     "agents": "Agents",
     "appearance": "Apparence",
-    "git": "Git",
-    "apiTokens": "API & Tokens",
-    "tasks": "Tâches",
-    "notifications": "Notifications",
-    "plugins": "Plugins",
-    "about": "À propos"
-  },
-  "notifications": {
-    "title": "Notifications",
-    "description": "Contrôlez les événements de notification que vous recevez.",
-    "webPush": {
-      "title": "Notifications push web",
-      "enable": "Activer les notifications push",
-      "disable": "Désactiver les notifications push",
-      "enabled": "Les notifications push sont activées",
-      "loading": "Mise à jour...",
-      "unsupported": "Les notifications push ne sont pas prises en charge dans ce navigateur.",
-      "denied": "Les notifications push sont bloquées. Veuillez les autoriser dans les paramètres de votre navigateur."
-    },
-    "sound": {
-      "title": "Son",
-      "description": "Jouer un court son lorsqu'une exécution de chat se termine.",
-      "enabled": "Activé",
-      "test": "Tester le son"
-    },
-    "events": {
-      "title": "Types d'événements",
-      "actionRequired": "Action requise",
-      "stop": "Exécution arrêtée",
-      "error": "Exécution échouée"
-    }
+    "apiTokens": "API & Tokens"
   },
   "appearanceSettings": {
     "darkMode": {
@@ -213,25 +183,6 @@
     "save": "Enregistrer les paramètres",
     "cancel": "Annuler"
   },
-  "git": {
-    "title": "Configuration Git",
-    "description": "Configurez votre identité git pour les commits. Ces paramètres seront appliqués globalement via git config --global",
-    "name": {
-      "label": "Nom Git",
-      "help": "Votre nom pour les commits git"
-    },
-    "email": {
-      "label": "E-mail Git",
-      "help": "Votre e-mail pour les commits git"
-    },
-    "actions": {
-      "save": "Enregistrer la configuration",
-      "saving": "Enregistrement..."
-    },
-    "status": {
-      "success": "Enregistré avec succès"
-    }
-  },
   "apiKeys": {
     "title": "Clés API",
     "description": "Générez des clés API pour accéder à l'API externe depuis d'autres applications.",
@@ -282,25 +233,6 @@
     "loading": "Chargement...",
     "version": {
       "updateAvailable": "Mise à jour disponible : v{{version}}"
-    }
-  },
-  "tasks": {
-    "checking": "Vérification de l'installation TaskMaster...",
-    "notInstalled": {
-      "title": "CLI TaskMaster AI non installé",
-      "description": "Le CLI TaskMaster est requis pour utiliser les fonctionnalités de gestion des tâches. Installez-le pour commencer :",
-      "installCommand": "npm install -g task-master-ai",
-      "viewOnGitHub": "Voir sur GitHub",
-      "afterInstallation": "Après l'installation :",
-      "steps": {
-        "restart": "Redémarrez cette application",
-        "autoAvailable": "Les fonctionnalités TaskMaster deviendront automatiquement disponibles",
-        "initCommand": "Utilisez task-master init dans votre répertoire de projet"
-      }
-    },
-    "settings": {
-      "enableLabel": "Activer l'intégration TaskMaster",
-      "enableDescription": "Afficher les tâches TaskMaster, les bannières et les indicateurs dans la barre latérale"
     }
   },
   "agents": {
@@ -448,89 +380,5 @@
       "title": "À propos de Codex MCP",
       "description": "Codex prend en charge les serveurs MCP basés sur stdio. Vous pouvez ajouter des serveurs qui étendent les capacités de Codex avec des outils et ressources supplémentaires."
     }
-  },
-  "pluginSettings": {
-    "title": "Plugins",
-    "description": "Étendez l'interface avec des plugins personnalisés. Installez depuis git ou déposez un dossier dans ~/.claude-code-ui/plugins/",
-    "installPlaceholder": "https://github.com/utilisateur/mon-plugin",
-    "installButton": "Installer",
-    "installing": "Installation…",
-    "securityWarning": "N'installez que des plugins dont vous avez examiné le code source ou provenant d'auteurs de confiance.",
-    "scanningPlugins": "Analyse des plugins…",
-    "noPluginsInstalled": "Aucun plugin installé",
-    "pullLatest": "Récupérer la dernière version depuis git",
-    "noGitRemote": "Pas de remote git — mise à jour indisponible",
-    "uninstallPlugin": "Désinstaller le plugin",
-    "confirmUninstall": "Cliquez à nouveau pour confirmer",
-    "confirmUninstallMessage": "Supprimer {{name}} ? Cette action est irréversible.",
-    "cancel": "Annuler",
-    "remove": "Supprimer",
-    "updateFailed": "Échec de la mise à jour",
-    "installFailed": "Échec de l'installation",
-    "uninstallFailed": "Échec de la désinstallation",
-    "toggleFailed": "Échec du basculement",
-    "starterPluginLabel": "Plugin de démarrage",
-    "starter": "Démarrage",
-    "docs": "Docs",
-    "sections": {
-      "officialTitle": "Plugins officiels",
-      "officialDescription": "Maintenus par l'équipe 가재코드 et prêts à être installés directement.",
-      "unofficialTitle": "Autres plugins",
-      "unofficialDescription": "Plugins non officiels et intégrations d'autres utilisateurs. Examinez le code source avant d'installer."
-    },
-    "starterPlugin": {
-      "name": "Statistiques du projet",
-      "badge": "démarrage",
-      "description": "Nombre de fichiers, lignes de code, répartition par type de fichier et activité récente pour votre projet.",
-      "install": "Installer"
-    },
-    "terminalPlugin": {
-      "name": "Terminal",
-      "badge": "officiel",
-      "description": "Terminal intégré avec accès shell complet directement dans l'interface.",
-      "install": "Installer"
-    },
-    "scheduledPromptPlugin": {
-      "name": "Invites planifiées",
-      "badge": "non officiel",
-      "description": "Planifiez des invites d'espace de travail, consultez l'historique des exécutions et gérez les tâches locales récurrentes.",
-      "install": "Installer"
-    },
-    "claudeWatchPlugin": {
-      "name": "Claude Watch",
-      "badge": "non officiel",
-      "description": "Surveillez les sessions Claude Code longues pour détecter les blocages et exposez les contrôles de processus.",
-      "install": "Installer"
-    },
-    "sessionManagerPlugin": {
-      "name": "Sessions",
-      "badge": "non officiel",
-      "description": "Visualisez, gérez et terminez les sessions Claude Code actives.",
-      "install": "Installer"
-    },
-    "tokenCostCalculatorPlugin": {
-      "name": "Calculateur de coût en tokens",
-      "badge": "non officiel",
-      "description": "Calculez les coûts API à partir des prix des modèles et de l'utilisation des tokens, avec prise en charge des tarifs préréglés.",
-      "install": "Installer"
-    },
-    "taskQueuePlugin": {
-      "name": "File de tâches",
-      "badge": "non officiel",
-      "description": "Tableau de bord de file de tâches pour visualiser, filtrer et lancer des tâches d'agent.",
-      "install": "Installer"
-    },
-    "githubIssuesBoardPlugin": {
-      "name": "Tableau des issues GitHub",
-      "badge": "non officiel",
-      "description": "Tableau Kanban pour les issues GitHub avec synchronisation bidirectionnelle TaskMaster et installation automatique de la compétence CLI /github-task",
-      "install": "Installer"
-    },
-    "morePlugins": "Plus",
-    "enable": "Activer",
-    "disable": "Désactiver",
-    "installAriaLabel": "URL du dépôt git du plugin",
-    "tab": "onglet",
-    "runningStatus": "en cours"
   }
 }

@@ -67,8 +67,6 @@
     "save": "儲存",
     "delete": "刪除",
     "rename": "重新命名",
-    "joinCommunity": "加入社群",
-    "reportIssue": "回報問題",
     "starOnGithub": "在 GitHub 上加星"
   },
   "branding": {

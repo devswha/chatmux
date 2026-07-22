@@ -88,37 +88,7 @@
     "label": "Impostazioni",
     "agents": "Agenti",
     "appearance": "Aspetto",
-    "git": "Git",
-    "apiTokens": "API e Token",
-    "tasks": "Attività",
-    "notifications": "Notifiche",
-    "plugins": "Plugin",
-    "about": "Informazioni"
-  },
-  "notifications": {
-    "title": "Notifiche",
-    "description": "Controlla quali notifiche ricevere.",
-    "webPush": {
-      "title": "Notifiche push web",
-      "enable": "Abilita notifiche push",
-      "disable": "Disabilita notifiche push",
-      "enabled": "Le notifiche push sono abilitate",
-      "loading": "Aggiornamento...",
-      "unsupported": "Le notifiche push non sono supportate in questo browser.",
-      "denied": "Le notifiche push sono bloccate. Abilitale nelle impostazioni del browser."
-    },
-    "sound": {
-      "title": "Suono",
-      "description": "Riproduci un breve tono quando termina un'esecuzione della chat.",
-      "enabled": "Attivato",
-      "test": "Prova suono"
-    },
-    "events": {
-      "title": "Tipi di evento",
-      "actionRequired": "Azione richiesta",
-      "stop": "Esecuzione interrotta",
-      "error": "Esecuzione fallita"
-    }
+    "apiTokens": "API e Token"
   },
   "appearanceSettings": {
     "darkMode": {
@@ -213,25 +183,6 @@
     "save": "Salva impostazioni",
     "cancel": "Annulla"
   },
-  "git": {
-    "title": "Configurazione Git",
-    "description": "Configura la tua identità git per i commit. Queste impostazioni verranno applicate globalmente tramite git config --global",
-    "name": {
-      "label": "Nome Git",
-      "help": "Il tuo nome per i commit git"
-    },
-    "email": {
-      "label": "Email Git",
-      "help": "La tua email per i commit git"
-    },
-    "actions": {
-      "save": "Salva configurazione",
-      "saving": "Salvataggio..."
-    },
-    "status": {
-      "success": "Salvato con successo"
-    }
-  },
   "apiKeys": {
     "title": "Chiavi API",
     "description": "Genera chiavi API per accedere all'API esterna da altre applicazioni.",
@@ -282,25 +233,6 @@
     "loading": "Caricamento...",
     "version": {
       "updateAvailable": "Aggiornamento disponibile: v{{version}}"
-    }
-  },
-  "tasks": {
-    "checking": "Verifica installazione TaskMaster...",
-    "notInstalled": {
-      "title": "TaskMaster AI CLI non installato",
-      "description": "TaskMaster CLI è necessario per usare le funzionalità di gestione attività. Installalo per iniziare:",
-      "installCommand": "npm install -g task-master-ai",
-      "viewOnGitHub": "Vedi su GitHub",
-      "afterInstallation": "Dopo l'installazione:",
-      "steps": {
-        "restart": "Riavvia questa applicazione",
-        "autoAvailable": "Le funzionalità TaskMaster saranno automaticamente disponibili",
-        "initCommand": "Usa task-master init nella directory del tuo progetto"
-      }
-    },
-    "settings": {
-      "enableLabel": "Abilita integrazione TaskMaster",
-      "enableDescription": "Mostra attività TaskMaster, banner e indicatori nella barra laterale nell'interfaccia"
     }
   },
   "agents": {
@@ -444,47 +376,5 @@
       "title": "Informazioni su Codex MCP",
       "description": "Codex supporta server MCP basati su stdio. Puoi aggiungere server che estendono le capacità di Codex con strumenti e risorse aggiuntive."
     }
-  },
-  "pluginSettings": {
-    "title": "Plugin",
-    "description": "Estendi l'interfaccia con plugin personalizzati. Installa da git o inserisci una cartella in ~/.claude-code-ui/plugins/",
-    "installPlaceholder": "https://github.com/utente/mio-plugin",
-    "installButton": "Installa",
-    "installing": "Installazione…",
-    "securityWarning": "Installa solo plugin di cui hai verificato il codice sorgente o di autori di cui ti fidi.",
-    "scanningPlugins": "Scansione plugin…",
-    "noPluginsInstalled": "Nessun plugin installato",
-    "pullLatest": "Aggiorna da git",
-    "noGitRemote": "Nessun remote git — aggiornamento non disponibile",
-    "uninstallPlugin": "Disinstalla plugin",
-    "confirmUninstall": "Clicca di nuovo per confermare",
-    "confirmUninstallMessage": "Rimuovere {{name}}? Questa azione non può essere annullata.",
-    "cancel": "Annulla",
-    "remove": "Rimuovi",
-    "updateFailed": "Aggiornamento fallito",
-    "installFailed": "Installazione fallita",
-    "uninstallFailed": "Disinstallazione fallita",
-    "toggleFailed": "Attivazione/disattivazione fallita",
-    "starterPluginLabel": "Plugin iniziale",
-    "starter": "Iniziale",
-    "docs": "Documentazione",
-    "starterPlugin": {
-      "name": "Statistiche progetto",
-      "badge": "iniziale",
-      "description": "Conteggio file, righe di codice, ripartizione per tipo di file e attività recente per il tuo progetto.",
-      "install": "Installa"
-    },
-    "terminalPlugin": {
-      "name": "Terminale",
-      "badge": "ufficiale",
-      "description": "Terminale integrato con accesso completo alla shell direttamente nell'interfaccia.",
-      "install": "Installa"
-    },
-    "morePlugins": "Altri",
-    "enable": "Abilita",
-    "disable": "Disabilita",
-    "installAriaLabel": "URL repository git del plugin",
-    "tab": "scheda",
-    "runningStatus": "in esecuzione"
   }
 }
