@@ -303,13 +303,6 @@ export default function SidebarContent({
               지금 tmux에서 작동 중인 CLI 세션이 없습니다. (GJC · Codex · Claude Code)
             </div>
           )}
-          <div className="mt-3 border-t border-border/60 pt-2">
-            <div className="flex items-center gap-1.5 px-2 pb-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-              <Folder className="h-3 w-3" aria-hidden />
-              {t('projects.title', 'Projects & chats')}
-            </div>
-            <SidebarProjectList {...projectListProps} />
-          </div>
         </ScrollArea>
       ) : (
       <ScrollArea className="flex-1 overflow-y-auto overscroll-contain md:px-1.5 md:py-2">
