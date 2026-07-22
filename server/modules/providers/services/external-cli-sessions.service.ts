@@ -1,7 +1,8 @@
 import { spawn } from 'node:child_process';
-import { readFile, realpath, stat } from 'node:fs/promises';
+import { constants as fsConstants } from 'node:fs';
+import { access, readFile, realpath, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { isAbsolute, join, relative, sep } from 'node:path';
+import { delimiter, dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
 import Database from 'better-sqlite3';
@@ -667,10 +668,56 @@ const EXTERNAL_CLI_COMMAND: Record<ExternalSpawnCli, string> = {
   omp: 'omp',
 };
 
+type ExternalCliExecutableResolverOptions = {
+  path?: string;
+  pathExt?: string;
+  platform?: NodeJS.Platform;
+  isExecutable?: (candidate: string) => Promise<boolean>;
+};
+
+export function withoutNodeModulesBins(pathValue: string): string {
+  return pathValue
+    .split(delimiter)
+    .filter((entry) => entry && !(dirname(entry).endsWith(`${sep}node_modules`) && entry.endsWith(`${sep}.bin`)))
+    .join(delimiter);
+}
+
+/** Resolves user-installed agents without letting ChatMux's npm scripts shadow them. */
+export async function resolveExternalCliExecutable(
+  cli: ExternalSpawnCli,
+  options: ExternalCliExecutableResolverOptions = {},
+): Promise<string> {
+  const command = EXTERNAL_CLI_COMMAND[cli];
+  const platform = options.platform ?? process.platform;
+  const searchPath = withoutNodeModulesBins(options.path ?? process.env.PATH ?? '');
+  const extensions = platform === 'win32'
+    ? (options.pathExt ?? process.env.PATHEXT ?? '.EXE;.CMD;.BAT;.COM').split(';')
+    : [''];
+  const isExecutable = options.isExecutable ?? (async (candidate: string) => {
+    try {
+      await access(candidate, fsConstants.X_OK);
+      return (await stat(candidate)).isFile();
+    } catch {
+      return false;
+    }
+  });
+
+  for (const directory of searchPath.split(delimiter).filter(Boolean)) {
+    for (const extension of extensions) {
+      const candidate = join(directory, `${command}${extension}`);
+      if (await isExecutable(candidate)) {
+        return candidate;
+      }
+    }
+  }
+  return command;
+}
+
 /** Boots and tags a native CLI in a fresh detached tmux session. */
 export async function spawnExternalCliSession(cli: ExternalSpawnCli, tmuxName: string, cwd: string): Promise<void> {
+  const executable = await resolveExternalCliExecutable(cli);
   await runCommand('tmux', [
-    'new-session', '-d', '-s', tmuxName, '-c', cwd, EXTERNAL_CLI_COMMAND[cli],
+    'new-session', '-d', '-s', tmuxName, '-c', cwd, executable,
   ]);
   try {
     await runCommand('tmux', ['set-option', '-t', tmuxName, '@chatmux_cli_kind', cli]);
