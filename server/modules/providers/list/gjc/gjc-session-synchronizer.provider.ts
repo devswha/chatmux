@@ -59,7 +59,7 @@ function extractGjcTextFromContent(content: unknown): string {
 }
 
 /**
- * Session indexer for ChatMux Code (gjc) transcript artifacts.
+ * Session indexer for Gajae Code (gjc) transcript artifacts.
  *
  * gjc writes one JSONL transcript per session under
  * `~/.gjc/agent/sessions/<cwd-slug>/`. The authoritative session id and cwd

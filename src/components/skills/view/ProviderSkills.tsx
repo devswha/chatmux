@@ -60,7 +60,7 @@ const PROVIDER_NAMES: Record<SkillsProvider, string> = {
   codex: 'Codex',
   cursor: 'Cursor',
   opencode: 'OpenCode',
-  gjc: 'ChatMux Code',
+  gjc: 'Gajae Code',
 };
 
 const PROVIDER_SKILL_PATHS: Record<Exclude<SkillsProvider, 'opencode'>, string> = {

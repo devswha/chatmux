@@ -70,7 +70,7 @@ export function assignFreshCodexThreadIds(
   return assigned;
 }
 
-/** Parses pane identity plus the optional ChatMux Codex transcript user-option. */
+/** Parses pane identity plus the optional product-specific Codex transcript user-option. */
 export function parseExternalPanes(output: string): Array<{
   name: string;
   pid: number;

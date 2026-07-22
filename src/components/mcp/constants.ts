@@ -5,7 +5,7 @@ export const MCP_PROVIDER_NAMES: Record<McpProvider, string> = {
   cursor: 'Cursor',
   codex: 'Codex',
   opencode: 'OpenCode',
-  gjc: 'ChatMux Code',
+  gjc: 'Gajae Code',
 };
 
 export const MCP_SUPPORTED_SCOPES: Record<McpProvider, McpScope[]> = {

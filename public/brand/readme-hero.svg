@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 420" role="img" aria-labelledby="title desc">
   <title id="title">ChatMux — every agent, one command deck</title>
-  <desc id="desc">Codex, Claude Code, ChatMux Code, Cursor, and OpenCode sessions multiplexed into one self-hosted interface</desc>
+  <desc id="desc">Codex, Claude Code, Gajae Code, Cursor, and OpenCode sessions multiplexed into one self-hosted interface</desc>
   <rect width="1200" height="420" fill="#f6f8fc" rx="30"/>
   <path fill="#e4e8f1" d="M0 322h1200v98H0z"/>
   <g opacity=".5" stroke="#bdc5d6" stroke-width="1">
@@ -20,7 +20,7 @@
   <g font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="18" font-weight="600">
     <rect x="70" y="350" width="184" height="42" fill="#0c1324" rx="12"/><text x="92" y="377" fill="#22d3c5">CODEX</text><circle cx="227" cy="371" r="6" fill="#22d3c5"/>
     <rect x="270" y="350" width="184" height="42" fill="#0c1324" rx="12"/><text x="292" y="377" fill="#ff6b4a">CLAUDE</text><circle cx="427" cy="371" r="6" fill="#ff6b4a"/>
-    <rect x="470" y="350" width="184" height="42" fill="#0c1324" rx="12"/><text x="492" y="377" fill="#a5b4fc">CHATMUX CODE</text>
+    <rect x="470" y="350" width="184" height="42" fill="#0c1324" rx="12"/><text x="492" y="377" fill="#a5b4fc">GAJAE CODE</text>
     <rect x="670" y="350" width="184" height="42" fill="#0c1324" rx="12"/><text x="692" y="377" fill="#22d3c5">CURSOR</text><circle cx="827" cy="371" r="6" fill="#22d3c5"/>
     <rect x="870" y="350" width="260" height="42" fill="#0c1324" rx="12"/><text x="892" y="377" fill="#ff6b4a">OPENCODE / SSH</text><circle cx="1103" cy="371" r="6" fill="#ff6b4a"/>
   </g>

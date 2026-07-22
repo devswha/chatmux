@@ -6,12 +6,12 @@ import { renderToStaticMarkup } from 'react-dom/server';
 
 import SessionProviderLogo from './SessionProviderLogo';
 
-test('gjc renders the distinct ChatMux mark, not the reused Claude logo', () => {
+test('gjc renders the distinct Gajae Code mark, not ChatMux or Claude branding', () => {
   const gjc = renderToStaticMarkup(createElement(SessionProviderLogo, { provider: 'gjc' }));
   const claude = renderToStaticMarkup(createElement(SessionProviderLogo, { provider: 'claude' }));
 
-  assert.ok(gjc.includes('/logo.png'), 'gjc renders the ChatMux product mark');
-  assert.ok(gjc.includes('ChatMux Code'), 'gjc mark carries the provider label');
+  assert.ok(gjc.includes('aria-label="Gajae Code"'), 'gjc renders its own provider label');
+  assert.ok(!gjc.includes('/logo.png'), 'gjc does not reuse the ChatMux product mark');
   assert.notEqual(gjc, claude, 'gjc must not render the same markup as Claude');
 });
 

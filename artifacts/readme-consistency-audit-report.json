@@ -21,7 +21,7 @@
     {
       "id": 1,
       "finding": "Supported agent list was incomplete or GJC-only in prominent copy.",
-      "resolution": "Every README now names ChatMux Code (GJC), Claude Code, Cursor, Codex, and OpenCode."
+      "resolution": "Every README now names Gajae Code (GJC), Claude Code, Cursor, Codex, and OpenCode."
     },
     {
       "id": 2,

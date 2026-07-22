@@ -8,7 +8,7 @@ const AGENT_NAMES: Record<AgentProvider, string> = {
   cursor: 'Cursor',
   codex: 'Codex',
   opencode: 'OpenCode',
-  gjc: 'ChatMux Code',
+  gjc: 'Gajae Code',
 };
 
 export default function AgentSelectorSection({
