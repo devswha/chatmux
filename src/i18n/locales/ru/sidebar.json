@@ -117,6 +117,19 @@
     "updateAvailable": "Доступно обновление",
     "restartRequired": "Обновление установлено — перезапустите сервер для применения"
   },
+  "newSessionForm": {
+    "open": "Новый сеанс",
+    "sessionNamePlaceholder": "Имя сеанса (буквы и цифры, например my-feature)",
+    "workingDirectoryPlaceholder": "Рабочая папка (например ~/workspace/my-proj или абсолютный путь)",
+    "cancel": "Отмена",
+    "creating": "Создание…",
+    "create": "Создать",
+    "errors": {
+      "towerUnavailable": "Центр управления не запущен — создать сеанс невозможно",
+      "nameConflict": "Сеанс с таким именем уже существует",
+      "createFailed": "Не удалось создать сеанс"
+    }
+  },
   "search": {
     "modeProjects": "Проекты",
     "modeConversations": "Разговоры",

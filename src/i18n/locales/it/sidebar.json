@@ -117,6 +117,19 @@
     "updateAvailable": "Aggiornamento disponibile",
     "restartRequired": "Aggiornamento installato — riavvia il server per applicarlo"
   },
+  "newSessionForm": {
+    "open": "Nuova sessione",
+    "sessionNamePlaceholder": "Nome sessione (lettere e numeri, es. mia-funzione)",
+    "workingDirectoryPlaceholder": "Cartella di lavoro (es. ~/workspace/mio-progetto o percorso assoluto)",
+    "cancel": "Annulla",
+    "creating": "Creazione…",
+    "create": "Crea",
+    "errors": {
+      "towerUnavailable": "La torre di controllo non è in esecuzione — impossibile creare la sessione",
+      "nameConflict": "Esiste già una sessione con questo nome",
+      "createFailed": "Creazione della sessione non riuscita"
+    }
+  },
   "search": {
     "modeProjects": "Progetti",
     "modeConversations": "Conversazioni",

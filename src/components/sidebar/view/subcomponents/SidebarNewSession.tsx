@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Plus } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 import { api } from '../../../../utils/api';
 import HomeDirInput from '../../../../shared/view/HomeDirInput';
@@ -25,8 +26,15 @@ const PROVIDERS: { id: SpawnProvider; label: string }[] = [
  * Unified new-session form. GJC boots through the control tower; every other
  * provider boots its native CLI in tmux through /sessions/external/spawn.
  */
-export default function SidebarNewSession({ onCreated }: { onCreated: () => void }) {
-  const [open, setOpen] = useState(false);
+export default function SidebarNewSession({
+  onCreated,
+  initiallyOpen = false,
+}: {
+  onCreated: () => void;
+  initiallyOpen?: boolean;
+}) {
+  const { t } = useTranslation('sidebar');
+  const [open, setOpen] = useState(initiallyOpen);
   const [provider, setProvider] = useState<SpawnProvider>('gjc');
   const [name, setName] = useState('');
   const [cwd, setCwd] = useState('');
@@ -61,10 +69,12 @@ export default function SidebarNewSession({ onCreated }: { onCreated: () => void
           return;
         }
         const text = data.reachable === false
-          ? '관제탑 미가동 — 생성 불가'
+          ? t('newSessionForm.errors.towerUnavailable')
           : data.conflict
-            ? '같은 이름의 세션이 이미 있습니다'
-            : (typeof body?.error === 'string' && body.error) || data.detail || '세션 생성 실패';
+            ? t('newSessionForm.errors.nameConflict')
+            : (typeof body?.error === 'string' && body.error)
+              || data.detail
+              || t('newSessionForm.errors.createFailed');
         setStatus({ kind: 'error', text });
         return;
       }
@@ -77,9 +87,12 @@ export default function SidebarNewSession({ onCreated }: { onCreated: () => void
         onCreated();
         return;
       }
-      setStatus({ kind: 'error', text: body?.error?.message ?? body?.message ?? '세션 생성 실패' });
+      setStatus({
+        kind: 'error',
+        text: body?.error?.message ?? body?.message ?? t('newSessionForm.errors.createFailed'),
+      });
     } catch {
-      setStatus({ kind: 'error', text: '세션 생성 실패' });
+      setStatus({ kind: 'error', text: t('newSessionForm.errors.createFailed') });
     }
   };
 
@@ -91,7 +104,7 @@ export default function SidebarNewSession({ onCreated }: { onCreated: () => void
           onClick={() => setOpen(true)}
           className="flex w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-border px-2 py-2 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
         >
-          <Plus className="h-3.5 w-3.5" />새 세션
+          <Plus className="h-3.5 w-3.5" />{t('newSessionForm.open')}
         </button>
       </div>
     );
@@ -119,14 +132,14 @@ export default function SidebarNewSession({ onCreated }: { onCreated: () => void
       <input
         value={name}
         onChange={(event) => setName(event.target.value)}
-        placeholder="세션 이름 (영숫자, 예: my-feature)"
+        placeholder={t('newSessionForm.sessionNamePlaceholder')}
         className="w-full rounded-md border border-border bg-transparent px-2 py-1.5 text-sm outline-none focus:border-primary/60"
       />
       <HomeDirInput
         value={cwd}
         onChange={setCwd}
         onSubmit={() => void spawn()}
-        placeholder="작업 폴더 (예: ~/workspace/my-proj, 절대경로 가능)"
+        placeholder={t('newSessionForm.workingDirectoryPlaceholder')}
       />
       {status.kind === 'error' && <p className="text-[11px] text-red-500">{status.text}</p>}
       <div className="flex items-center justify-end gap-2">
@@ -135,7 +148,7 @@ export default function SidebarNewSession({ onCreated }: { onCreated: () => void
           onClick={() => { setOpen(false); reset(); }}
           className="rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
         >
-          취소
+          {t('newSessionForm.cancel')}
         </button>
         <button
           type="button"
@@ -143,7 +156,9 @@ export default function SidebarNewSession({ onCreated }: { onCreated: () => void
           disabled={!name.trim() || !cwd.trim() || status.kind === 'spawning'}
           className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {status.kind === 'spawning' ? '생성 중…' : '만들기'}
+          {status.kind === 'spawning'
+            ? t('newSessionForm.creating')
+            : t('newSessionForm.create')}
         </button>
       </div>
     </div>

@@ -117,6 +117,19 @@
     "updateAvailable": "Güncelleme mevcut",
     "restartRequired": "Güncelleme yüklendi — uygulamak için sunucuyu yeniden başlatın"
   },
+  "newSessionForm": {
+    "open": "Yeni oturum",
+    "sessionNamePlaceholder": "Oturum adı (harf ve rakamlar, ör. benim-ozelligim)",
+    "workingDirectoryPlaceholder": "Çalışma klasörü (ör. ~/workspace/projem veya mutlak yol)",
+    "cancel": "İptal",
+    "creating": "Oluşturuluyor…",
+    "create": "Oluştur",
+    "errors": {
+      "towerUnavailable": "Kontrol kulesi çalışmıyor — oturum oluşturulamıyor",
+      "nameConflict": "Bu ada sahip bir oturum zaten var",
+      "createFailed": "Oturum oluşturulamadı"
+    }
+  },
   "search": {
     "modeProjects": "Projeler",
     "modeConversations": "Konuşmalar",
