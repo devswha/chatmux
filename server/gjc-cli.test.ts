@@ -322,7 +322,11 @@ test('spawnGjcWithRuntime parses split CRLF NDJSON and emits normalized deltas o
   const writer = createWriter();
   let args: string[] = [];
   let providerChecks = 0;
-  const run = spawnGjcWithRuntime('private prompt', { sessionId: 'resume-id', sessionDir: '/tmp/gjc-test-sessions' }, writer, {
+  const run = spawnGjcWithRuntime('private prompt', {
+    sessionId: 'resume-id',
+    sessionDir: '/tmp/gjc-test-sessions',
+    model: 'default',
+  }, writer, {
     spawn(_command: string, receivedArgs: string[]) {
       args = receivedArgs;
       return child;
@@ -344,6 +348,7 @@ test('spawnGjcWithRuntime parses split CRLF NDJSON and emits normalized deltas o
   const promptArg = args.at(-1)!;
   assert.deepEqual(args.slice(0, 6), ['-p', '--mode', 'json', '--session-dir', args[4], '-r']);
   assert.equal(args[6], 'resume-id');
+  assert.equal(args.includes('--model'), false, 'the ChatMux default sentinel is not a GJC model id');
   assert.ok(existsSync(promptArg.slice(1)));
 
   child.stdout.emit('data', '{"type":"session","id":"provider-id"}\r');

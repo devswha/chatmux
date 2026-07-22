@@ -741,7 +741,9 @@ export function spawnGjcWithRuntime(message, options = {}, writer, runtime = {})
     if (sessionId) {
       args.push('-r', sessionId);
     }
-    if (model) {
+    // `default` is ChatMux's fallback picker sentinel, not a GJC model id.
+    // Omitting --model lets a resumed session keep its provider-native model.
+    if (model && model !== 'default') {
       args.push('--model', model);
     }
     const builtPrompt = buildPromptArg(message);
