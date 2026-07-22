@@ -73,7 +73,7 @@ export type SidebarProps = {
   settingsInitialTab: string;
   onCloseSettings: () => void;
   isMobile: boolean;
-  // Opens an external CLI (claude/codex) tmux session as a full main-area terminal.
+  // Opens a local agent transcript-first, or a remote SSH target as a terminal.
   onExternalTerminalOpen: (target: ExternalTerminalTarget) => void;
 };
 

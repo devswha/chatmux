@@ -107,8 +107,8 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(tmuxId ? { tmuxName, tmuxId, message } : { tmuxName, message }),
     }),
-  // Relay a prompt or numeric approval selection into a native Codex tmux TUI.
-  externalCodexSessionSend: (tmuxName, sessionId, message) =>
+  // Relay a prompt or approval selection into a verified native external CLI tmux TUI.
+  externalCliSessionSend: (tmuxName, sessionId, message) =>
     authenticatedFetch('/api/providers/sessions/external/send', {
       method: 'POST',
       body: JSON.stringify({ tmuxName, sessionId, message }),
@@ -167,7 +167,7 @@ export const api = {
   // project session page has not reached that older row yet.
   sessionDetails: (sessionId) =>
     authenticatedFetch(`/api/providers/sessions/${encodeURIComponent(sessionId)}`),
-  // External CLI (claude/codex) tmux sessions for the terminal-attach lane.
+  // External CLI sessions enriched with structured transcript metadata when available.
   externalSessions: () => authenticatedFetch('/api/providers/sessions/external'),
   // Home-relative directory autocomplete ({ home, suggestions }).
   dirSuggestions: (prefix) =>

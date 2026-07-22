@@ -10,8 +10,9 @@ test('gjc renders the distinct Gajae Code mark, not ChatMux or Claude branding',
   const gjc = renderToStaticMarkup(createElement(SessionProviderLogo, { provider: 'gjc' }));
   const claude = renderToStaticMarkup(createElement(SessionProviderLogo, { provider: 'claude' }));
 
-  assert.ok(gjc.includes('aria-label="Gajae Code"'), 'gjc renders its own provider label');
-  assert.ok(!gjc.includes('/logo.png'), 'gjc does not reuse the ChatMux product mark');
+  assert.ok(gjc.includes('/providers/gajae-code.png'), 'gjc renders the official Gajae Code mark');
+  assert.ok(gjc.includes('alt="Gajae Code"'), 'gjc mark carries its own provider label');
+  assert.ok(!gjc.includes('src="/logo.png"'), 'gjc does not reuse the ChatMux product mark');
   assert.notEqual(gjc, claude, 'gjc must not render the same markup as Claude');
 });
 

@@ -61,20 +61,16 @@ function filterCommands(commands: LiveGjcCommand[], query: string, trigger: stri
 
 /**
  * Composer for a live (read-only) session. It does NOT inject into the
- * conversation — it relays the message to the control tower's /send (via the
- * server proxy), which owns outbox/queueing + injection + verification. Shows
- * delivered / queued / error feedback based on the tower's response.
+ * conversation. GJC relays through the control tower; native Codex and Claude
+ * sessions relay through their verified tmux target. The composer shows
+ * delivered / queued / error feedback from the selected transport.
  *
- * A `/` at the start of a word opens a command palette of the slash commands
- * that live gjc session can run — native commands (`~/.gjc/agent/commands`),
- * project commands (`<cwd>/.gjc/commands`), and installed skills — loaded
- * dynamically from the server. Selecting one inserts it into the draft; the
- * command text itself is relayed through the same tower /send path (the tower
- * injects it into the tmux TUI), so no separate execution channel is needed.
+ * GJC `/` commands and Codex `$` skills are loaded dynamically. Claude remains
+ * a plain-text relay because its interactive slash-command catalog is owned by
+ * the native TUI and is not exposed as a stable external API.
  *
- * The status line leads with the session's CURRENT MODEL (from the gjc
- * transcript's last model_change, threaded through the live poll) — the tmux
- * name stays as a muted suffix so the send target remains identifiable.
+ * The status line leads with the session's current model when available. The
+ * tmux name stays as a muted suffix so the send target remains identifiable.
  */
 export default function LiveRelayComposer({
   tmuxName,
@@ -88,10 +84,9 @@ export default function LiveRelayComposer({
   tmuxId?: string | null;
   model?: string | null;
   workspacePath?: string | null;
-  relayKind?: 'gjc' | 'codex';
+  relayKind?: 'gjc' | 'codex' | 'claude';
   sessionId?: string | null;
 }) {
-  // gjc uses `/` slash commands; codex invokes skills with a `$` prefix.
   const commandTrigger = relayKind === 'codex' ? '$' : '/';
   const [input, setInput] = useState('');
   const [status, setStatus] = useState<RelayStatus>({ kind: 'idle' });
@@ -103,10 +98,13 @@ export default function LiveRelayComposer({
   const slashTokenStartRef = useRef(-1);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Load the invokable commands for this session once per target: gjc slash
-  // commands from the control tower, codex skills ($-prefixed) from the provider.
-  // Failure degrades silently to a plain relay box.
+  // Load commands only where a stable catalog exists. Claude still supports
+  // free-text relay, but its native slash commands stay inside the TUI.
   useEffect(() => {
+    if (relayKind === 'claude') {
+      setCommands([]);
+      return undefined;
+    }
     let cancelled = false;
     void (async () => {
       try {
@@ -199,8 +197,8 @@ export default function LiveRelayComposer({
     }
     setStatus({ kind: 'sending' });
     try {
-      const response = relayKind === 'codex'
-        ? await api.externalCodexSessionSend(tmuxName, sessionId, message)
+      const response = relayKind !== 'gjc'
+        ? await api.externalCliSessionSend(tmuxName, sessionId, message)
         : await api.liveSessionSend(tmuxName, message, tmuxId);
       const body = await response.json().catch(() => null);
       const data = (body?.data ?? body ?? {}) as { ok?: boolean; reachable?: boolean; queued?: boolean; detail?: string };

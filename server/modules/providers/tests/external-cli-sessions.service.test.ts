@@ -6,6 +6,7 @@ import {
   assignFreshCodexThreadIds,
   classifyExternalSessions,
   extractCodexResumeThreadId,
+  parseClaudeRuntimeSession,
   parseExternalPanes,
   parsePsTree,
 } from '@/modules/providers/services/external-cli-sessions.service.js';
@@ -86,6 +87,27 @@ test('extractCodexResumeThreadId reads native `codex resume <uuid>` argv', () =>
     '019f7b07-3def-7501-a53f-f519c88dd722',
   );
   assert.equal(extractCodexResumeThreadId('codex --remote ws://127.0.0.1:4518'), null);
+});
+
+test('parseClaudeRuntimeSession accepts the PID-bound native Claude receipt', () => {
+  const sessionId = '92869134-b4df-453e-b3a6-ed1d750d69d9';
+  assert.deepEqual(
+    parseClaudeRuntimeSession({
+      pid: 1443735,
+      sessionId,
+      cwd: '/workspace/project',
+      kind: 'interactive',
+    }, 1443735),
+    { sessionId, cwd: '/workspace/project' },
+  );
+  assert.equal(
+    parseClaudeRuntimeSession({ pid: 1443736, sessionId, cwd: '/workspace/project' }, 1443735),
+    null,
+  );
+  assert.equal(
+    parseClaudeRuntimeSession({ pid: 1443735, sessionId: '../../bad', cwd: '/workspace/project' }, 1443735),
+    null,
+  );
 });
 
 test('classifyExternalSessions auto-links a native Codex resume process to its transcript', () => {

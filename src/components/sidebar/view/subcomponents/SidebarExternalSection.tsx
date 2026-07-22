@@ -18,17 +18,17 @@ const KIND_LABEL: Record<ExternalCliSession['kind'], string> = {
 type SidebarExternalSectionProps = {
   sessions: ExternalCliSession[];
   projects: Project[];
-  /** Opens the session as a full main-area terminal (like gjc sessions do). */
+  /** Opens a structured transcript when available, otherwise a full terminal. */
   onOpen: (target: ExternalTerminalTarget) => void;
   onChanged: () => void;
 };
 
 /**
- * External CLI rows (claude/codex/ssh tmux sessions, from useExternalCliSessions)
- * for the unified sessions list. A row click hands the target to the app shell,
- * which renders it as a full main-area terminal (Termius-style attach) —
- * mirroring how gjc sessions fill the right side. Returns null when empty; the
- * unified section owns the combined empty state.
+ * External CLI rows (claude/codex/ssh, from useExternalCliSessions) for the
+ * unified sessions list. Claude and Codex rows open structured transcripts
+ * when indexed and fall back to terminal attach before then. SSH is always
+ * attach-only because the remote process and transcript are not locally
+ * observable.
  */
 export default function SidebarExternalSection({ sessions, projects, onOpen, onChanged }: SidebarExternalSectionProps) {
   const [confirming, setConfirming] = useState<string | null>(null);
@@ -40,7 +40,7 @@ export default function SidebarExternalSection({ sessions, projects, onOpen, onC
 
   const openSession = (session: ExternalCliSession) => {
     if (!shellProject) return;
-    pendingTranscriptRef.current = session.kind === 'codex' && !session.transcriptSessionId
+    pendingTranscriptRef.current = session.kind !== 'ssh' && !session.transcriptSessionId
       ? session.tmuxName
       : null;
     onOpen({

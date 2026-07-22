@@ -16,7 +16,7 @@ import {
   killExternalCliSession,
   resolveCodexRolloutPath,
   resolveExternalCliCwd,
-  sendToExternalCodexSession,
+  sendToExternalCliSession,
   spawnExternalCliSession,
   type ExternalSpawnCli,
 } from '@/modules/providers/services/external-cli-sessions.service.js';
@@ -595,32 +595,37 @@ router.get(
 router.get(
   '/sessions/external',
   asyncHandler(async (_req: Request, res: Response) => {
-    // External CLI (claude/codex) tmux sessions for the Termius-style terminal
-    // lane. A tmux session is excluded only when a gjc process actually runs
-    // INSIDE one of its panes (service-level subtree check). We deliberately do
-    // NOT subtract tmux names the gjc live lane claimed via its cwd fallback:
-    // a background gjc merely sharing the cwd (실측: patina — pane runs claude,
-    // a detached gjc from days ago shares the directory) must not hide the
-    // pane's real claude/codex session from this lane. Such a name may then
-    // legitimately appear in BOTH tabs — a gjc conversation row and an
-    // attachable terminal row are different, both-true views.
+    // External CLI (claude/codex) tmux sessions for structured transcripts
+    // when a native session id is available, with terminal attach as fallback.
+    // A tmux session is excluded only when a gjc process actually runs INSIDE
+    // one of its panes (service-level subtree check). We deliberately do NOT
+    // subtract tmux names the gjc live lane claimed via its cwd fallback: a
+    // background gjc merely sharing the cwd must not hide the pane's real
+    // claude/codex session from this lane. Such a name may legitimately appear
+    // in both views because the conversations are independent.
     const externalSessions = await Promise.all((await getExternalCliSessions()).map(async (session) => {
-      if (session.kind !== 'codex' || !session.codexThreadId) {
-        return session;
+      if (session.kind === 'ssh') {
+        return { tmuxName: session.tmuxName, kind: session.kind };
       }
-      let appSession = sessionsDb.getSessionByProviderSessionId('codex', session.codexThreadId);
-      if (!appSession) {
-        const rolloutPath = await resolveCodexRolloutPath(session.codexThreadId);
+      const providerSessionId = session.kind === 'codex'
+        ? session.codexThreadId
+        : session.claudeSessionId;
+      if (!providerSessionId) {
+        return { tmuxName: session.tmuxName, kind: session.kind };
+      }
+      let appSession = sessionsDb.getSessionByProviderSessionId(session.kind, providerSessionId);
+      if (!appSession && session.kind === 'codex') {
+        const rolloutPath = await resolveCodexRolloutPath(providerSessionId);
         if (rolloutPath) {
           await sessionSynchronizerService.synchronizeProviderFile('codex', rolloutPath).catch(() => null);
-          appSession = sessionsDb.getSessionByProviderSessionId('codex', session.codexThreadId);
+          appSession = sessionsDb.getSessionByProviderSessionId('codex', providerSessionId);
         }
       }
       if (!appSession) {
         return { tmuxName: session.tmuxName, kind: session.kind };
       }
       const activeModel = await providerModelsService
-        .getCurrentActiveModel('codex', appSession.session_id)
+        .getCurrentActiveModel(session.kind, appSession.session_id)
         .catch(() => null);
       return {
         tmuxName: session.tmuxName,
@@ -722,25 +727,28 @@ router.post(
     }
 
     const external = (await getExternalCliSessions()).find(
-      (session) => session.tmuxName === body.tmuxName && session.kind === 'codex',
+      (session) => session.tmuxName === body.tmuxName && session.kind !== 'ssh',
     );
     if (!external) {
-      throw new AppError('Codex tmux session changed; reopen it from External CLI.', {
-        code: 'EXTERNAL_CODEX_SESSION_MISMATCH',
+      throw new AppError('External CLI tmux session changed; reopen it from the session list.', {
+        code: 'EXTERNAL_CLI_SESSION_MISMATCH',
         statusCode: 409,
       });
     }
-    const mapped = sessionId && external.codexThreadId
-      ? sessionsDb.getSessionByProviderSessionId('codex', external.codexThreadId)
+    const providerSessionId = external.kind === 'codex'
+      ? external.codexThreadId
+      : external.claudeSessionId;
+    const mapped = sessionId && providerSessionId
+      ? sessionsDb.getSessionByProviderSessionId(external.kind, providerSessionId)
       : null;
     if (sessionId && (!mapped || mapped.session_id !== sessionId)) {
-      throw new AppError('Codex tmux session changed; reopen it from External CLI.', {
-        code: 'EXTERNAL_CODEX_SESSION_MISMATCH',
+      throw new AppError('External CLI tmux session changed; reopen it from the session list.', {
+        code: 'EXTERNAL_CLI_SESSION_MISMATCH',
         statusCode: 409,
       });
     }
 
-    await sendToExternalCodexSession(body.tmuxName, message);
+    await sendToExternalCliSession(body.tmuxName, message);
     res.json(createApiSuccessResponse({ ok: true }));
   }),
 );

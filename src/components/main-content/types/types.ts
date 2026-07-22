@@ -45,7 +45,7 @@ export type MainContentProps = {
   liveSessionTmuxName: string | null;
   liveSessionTmuxId: string | null;
   liveSessionModel: string | null;
-  liveSessionKind: 'gjc' | 'codex' | null;
+  liveSessionKind: 'gjc' | 'codex' | 'claude' | null;
   activeTab: AppTab;
   setActiveTab: Dispatch<SetStateAction<AppTab>>;
   ws: WebSocket | null;
@@ -62,7 +62,7 @@ export type MainContentProps = {
   onShowSettings: (tab?: SettingsMainTab) => void;
   externalMessageUpdate: number;
   newSessionTrigger: number;
-  // External CLI (claude/codex) tmux terminal shown as the full main area.
+  // Local agents use transcript-first relay; remote SSH falls back to terminal attach.
   externalTerminal: ExternalTerminalTarget | null;
   onExternalTerminalClose: () => void;
 };

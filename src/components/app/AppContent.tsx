@@ -87,10 +87,9 @@ function AppContentInner() {
     activeSessions: processingSessions,
   });
 
-  // External CLI (claude/codex) tmux terminal shown in the main area. Lives
-  // here (not in useProjectsState) so the gjc session flow stays untouched;
-  // selecting any project/session or starting a new chat clears it via the
-  // wrapped sidebar handlers below.
+  // External CLI (claude/codex/ssh) target shown in the main area. Claude and
+  // Codex switch to structured transcripts when indexed; terminal attach is
+  // the fallback before a transcript exists and the only path for remote SSH.
   const [externalTerminal, setExternalTerminal] = useState<ExternalTerminalTarget | null>(null);
   const [externalTranscript, setExternalTranscript] = useState<ExternalTerminalTarget | null>(null);
 
@@ -113,7 +112,12 @@ function AppContentInner() {
   }, []);
 
   useEffect(() => {
-    if (externalTerminal?.cliKind !== 'codex' || externalTerminal.transcriptSessionId) return undefined;
+    if (
+      !externalTerminal
+      || externalTerminal.cliKind === 'gjc'
+      || externalTerminal.cliKind === 'ssh'
+      || externalTerminal.transcriptSessionId
+    ) return undefined;
     let cancelled = false;
     const poll = async () => {
       try {
@@ -244,8 +248,10 @@ function AppContentInner() {
     onExternalTerminalOpen: openExternalTerminal,
   }), [sidebarSharedProps, openExternalTerminal]);
 
-  const activeExternalTranscript = externalTranscript?.cliKind !== 'gjc'
-    && externalTranscript?.transcriptSessionId === sessionId
+  const activeExternalTranscript = (
+    externalTranscript?.cliKind === 'claude'
+    || externalTranscript?.cliKind === 'codex'
+  ) && externalTranscript.transcriptSessionId === sessionId
     ? externalTranscript
     : null;
 
@@ -427,7 +433,7 @@ function AppContentInner() {
           liveSessionModel={activeExternalTranscript?.model
             ?? (selectedSession ? (liveSessionModels.get(selectedSession.id) ?? null) : null)}
           liveSessionKind={activeExternalTranscript
-            ? 'codex'
+            ? (activeExternalTranscript.cliKind === 'claude' ? 'claude' : 'codex')
             : selectedSession && sidebarSharedProps.liveSessionLineage.has(selectedSession.id)
               ? 'gjc'
               : null}

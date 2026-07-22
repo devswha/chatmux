@@ -72,7 +72,7 @@ ChatMux는 tmux pane의 프로세스 계보와 transcript ID를 우선 사용한
 |---|---|---|---|---|
 | **Gajae Code (GJC)** | 자동 발견 | 지원 | 메시지 릴레이 + `/` 명령 | 지원 |
 | **Codex CLI** | 자동 발견 | rollout 인덱싱 후 지원 | transcript 릴레이 + `$` 스킬, 인덱싱 전 터미널 | 지원 |
-| **Claude Code** | 자동 발견 | 히스토리 인덱싱 | attach 터미널 | 지원 |
+| **Claude Code** | 자동 발견 | 히스토리 인덱싱 후 지원 | transcript 릴레이, 인덱싱 전 터미널 | 지원 |
 | **Cursor** | 히스토리 인덱싱 | 지원 | 웹 구동 채팅 | 해당 없음 |
 | **OpenCode** | 히스토리 인덱싱 | 지원 | 웹 구동 채팅 | 해당 없음 |
 | **SSH tmux** | 자동 발견 | 해당 없음 | attach 터미널 | 해당 없음 |
@@ -126,8 +126,8 @@ npm run desktop:dev
 ### 라이브 세션
 
 - GJC 행은 transcript 기반 채팅으로 열린다. 메시지 전송, 슬래시 명령, spawn, kill을 지원한다.
-- Codex 행은 rollout이 확인되면 대화 제목과 현재 모델을 표시하고 transcript로 전환한다. 첫 메시지 전에는 attach 터미널로 열리며 인덱싱 후 자동 전환된다.
-- Claude Code와 SSH 행은 attach 터미널로 연다.
+- Codex와 Claude Code 행은 첫 메시지 전부터 transcript형 릴레이 화면으로 열리고, 네이티브 transcript가 생성·인덱싱되면 제목·현재 모델·대화 내용이 있는 구조화 화면으로 자동 전환된다.
+- 원격 SSH 행만 로컬 transcript를 확인할 수 없어 attach 터미널로 연다.
 - kill과 relay는 프로세스 계보로 소유권이 증명된 tmux 세션에만 허용된다.
 
 ### 프로젝트와 히스토리

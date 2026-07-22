@@ -1,17 +1,18 @@
 import { spawn } from 'node:child_process';
-import { realpath, stat } from 'node:fs/promises';
+import { readFile, realpath, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { isAbsolute, join, relative, sep } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 
 import Database from 'better-sqlite3';
 
 /**
- * External CLI (claude / codex) tmux-session detection — the Termius-style lane.
+ * External CLI (Claude / Codex / SSH) tmux-session discovery.
  *
- * The gjc fleet has its own richer pipeline (live-sessions.service.ts: lsof +
- * transcript files). External CLIs get a deliberately simpler, screen-level view:
- * we only need "which tmux SESSION runs claude or codex" so the UI can offer a
- * terminal attach. Detection is by PROCESS SUBTREE per pane:
+ * The GJC fleet has its own richer live pipeline. Local Claude and Codex panes
+ * are bound to their native session ids so ChatMux can open structured
+ * transcripts and relay prompts; SSH stays terminal-only because its far-side
+ * process is not locally observable. Detection starts with the process subtree:
  *   - tmux list-panes -a → {session_name, pane_pid, pane_current_command}
  *   - ps -eo pid,ppid,comm → children map → BFS from pane_pid → descendant comms
  *   - any 'gjc' in the subtree → the session belongs to the gjc live lane → SKIP
@@ -24,6 +25,7 @@ import Database from 'better-sqlite3';
 
 const TMUX_FIELD_SEP = '\t';
 const CODEX_THREAD_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const CLAUDE_SESSION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const CODEX_RESUME_THREAD_RE = /(?:^|\s)resume\s+([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?=\s|$)/i;
 
 export type ExternalCliKind = 'claude' | 'codex' | 'ssh';
@@ -31,6 +33,22 @@ export type ExternalCliSession = {
   tmuxName: string;
   kind: ExternalCliKind;
   codexThreadId?: string;
+  claudeSessionId?: string;
+};
+
+export type ExternalPane = {
+  name: string;
+  pid: number;
+  command: string;
+  codexThreadId?: string;
+  cwd?: string;
+};
+
+export type ProcessTreeEntry = {
+  pid: number;
+  ppid: number;
+  comm: string;
+  args?: string;
 };
 
 type FreshCodexProcess = { tmuxName: string; cwd: string; startedAtMs: number };
@@ -71,14 +89,8 @@ export function assignFreshCodexThreadIds(
 }
 
 /** Parses pane identity plus the optional product-specific Codex transcript user-option. */
-export function parseExternalPanes(output: string): Array<{
-  name: string;
-  pid: number;
-  command: string;
-  codexThreadId?: string;
-  cwd?: string;
-}> {
-  const panes: Array<{ name: string; pid: number; command: string; codexThreadId?: string; cwd?: string }> = [];
+export function parseExternalPanes(output: string): ExternalPane[] {
+  const panes: ExternalPane[] = [];
   for (const raw of output.split(/\r?\n/)) {
     if (!raw.trim()) {
       continue;
@@ -113,8 +125,8 @@ export function parseExternalPanes(output: string): Array<{
 }
 
 /** Parses `ps -eo pid,ppid,comm[,args]` output (header tolerated). */
-export function parsePsTree(output: string): Array<{ pid: number; ppid: number; comm: string; args?: string }> {
-  const rows: Array<{ pid: number; ppid: number; comm: string; args?: string }> = [];
+export function parsePsTree(output: string): ProcessTreeEntry[] {
+  const rows: ProcessTreeEntry[] = [];
   for (const raw of output.split(/\r?\n/)) {
     const line = raw.trim();
     if (!line) {
@@ -135,6 +147,24 @@ export function parsePsTree(output: string): Array<{ pid: number; ppid: number; 
   return rows;
 }
 
+export function parseClaudeRuntimeSession(
+  value: unknown,
+  expectedPid: number,
+): { sessionId: string; cwd: string } | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const receipt = value as { pid?: unknown; sessionId?: unknown; cwd?: unknown };
+  if (
+    receipt.pid !== expectedPid
+    || typeof receipt.sessionId !== 'string'
+    || !CLAUDE_SESSION_ID_RE.test(receipt.sessionId)
+    || typeof receipt.cwd !== 'string'
+    || !receipt.cwd.trim()
+  ) {
+    return null;
+  }
+  return { sessionId: receipt.sessionId, cwd: receipt.cwd };
+}
+
 /**
  * Pure classification: tmux panes + a ps snapshot → external CLI sessions.
  *
@@ -148,8 +178,8 @@ export function parsePsTree(output: string): Array<{ pid: number; ppid: number; 
  * safely). Output is sorted by name for stability.
  */
 export function classifyExternalSessions(args: {
-  panes: Array<{ name: string; pid: number; command: string; codexThreadId?: string; cwd?: string }>;
-  procs: Array<{ pid: number; ppid: number; comm: string; args?: string }>;
+  panes: ExternalPane[];
+  procs: ProcessTreeEntry[];
 }): ExternalCliSession[] {
   const children = new Map<number, number[]>();
   for (const proc of args.procs) {
@@ -328,8 +358,8 @@ function readFreshCodexThreads(minCreatedAtMs: number): FreshCodexThread[] {
 
 async function inferFreshCodexThreadIds(args: {
   sessions: ExternalCliSession[];
-  panes: ReturnType<typeof parseExternalPanes>;
-  procs: ReturnType<typeof parsePsTree>;
+  panes: ExternalPane[];
+  procs: ProcessTreeEntry[];
 }): Promise<Map<string, string>> {
   const unresolvedNames = new Set(
     args.sessions
@@ -367,14 +397,68 @@ async function inferFreshCodexThreadIds(args: {
   return assignFreshCodexThreadIds(processes, threads);
 }
 
-/** Relays one literal prompt/selection into a verified native Codex tmux TUI. */
-export async function sendToExternalCodexSession(tmuxName: string, message: string): Promise<void> {
+async function inferClaudeSessionIds(args: {
+  sessions: ExternalCliSession[];
+  panes: ExternalPane[];
+  procs: ProcessTreeEntry[];
+}): Promise<Map<string, string>> {
+  const claudeNames = new Set(
+    args.sessions
+      .filter((session) => session.kind === 'claude')
+      .map((session) => session.tmuxName),
+  );
+  if (claudeNames.size === 0) return new Map();
+
+  const children = new Map<number, number[]>();
+  const procByPid = new Map(args.procs.map((proc) => [proc.pid, proc]));
+  for (const proc of args.procs) {
+    const siblings = children.get(proc.ppid) ?? [];
+    siblings.push(proc.pid);
+    children.set(proc.ppid, siblings);
+  }
+
+  const candidates = new Map<string, Map<number, string>>();
+  for (const pane of args.panes) {
+    if (!claudeNames.has(pane.name) || !pane.cwd) continue;
+    for (const pid of descendants(pane.pid, children)) {
+      if (procByPid.get(pid)?.comm !== 'claude') continue;
+      const byPid = candidates.get(pane.name) ?? new Map<number, string>();
+      byPid.set(pid, pane.cwd);
+      candidates.set(pane.name, byPid);
+    }
+  }
+
+  const resolved = new Map<string, string>();
+  await Promise.all([...candidates].map(async ([tmuxName, byPid]) => {
+    if (byPid.size !== 1) return;
+    const [[pid, paneCwd]] = [...byPid];
+    try {
+      const receipt = parseClaudeRuntimeSession(
+        JSON.parse(await readFile(join(homedir(), '.claude', 'sessions', `${pid}.json`), 'utf8')),
+        pid,
+      );
+      if (!receipt) return;
+      const [realPaneCwd, realReceiptCwd] = await Promise.all([
+        realpath(paneCwd),
+        realpath(receipt.cwd),
+      ]);
+      if (realPaneCwd === realReceiptCwd) {
+        resolved.set(tmuxName, receipt.sessionId);
+      }
+    } catch {
+      // The Claude runtime receipt is best-effort and may disappear on exit.
+    }
+  }));
+  return resolved;
+}
+
+/** Relays one literal prompt/selection into a verified native external CLI tmux TUI. */
+export async function sendToExternalCliSession(tmuxName: string, message: string): Promise<void> {
   const target = `${tmuxName}:`;
   await runCommand('tmux', ['send-keys', '-t', target, '-l', '--', message]);
-  // Codex coalesces a rapid key burst as paste input. Sending Enter in the
-  // immediately following tmux command can land inside that paste window and
-  // leave the text sitting in the composer instead of submitting it.
-  await new Promise((resolve) => setTimeout(resolve, 150));
+  // Native TUIs can coalesce a rapid key burst as paste input. Sending Enter in
+  // the immediately following tmux command can leave text in the composer.
+  await delay(150);
   await runCommand('tmux', ['send-keys', '-t', target, 'Enter']);
 }
 
@@ -476,11 +560,17 @@ export async function getExternalCliSessions(): Promise<ExternalCliSession[]> {
   const panes = parseExternalPanes(tmuxOutput);
   const procs = parsePsTree(psOutput);
   const sessions = classifyExternalSessions({ panes, procs });
-  const inferred = await inferFreshCodexThreadIds({ sessions, panes, procs });
+  const [inferredCodex, inferredClaude] = await Promise.all([
+    inferFreshCodexThreadIds({ sessions, panes, procs }),
+    inferClaudeSessionIds({ sessions, panes, procs }),
+  ]);
   return sessions.map((session) => ({
     ...session,
-    ...(!session.codexThreadId && inferred.has(session.tmuxName)
-      ? { codexThreadId: inferred.get(session.tmuxName)! }
+    ...(!session.codexThreadId && inferredCodex.has(session.tmuxName)
+      ? { codexThreadId: inferredCodex.get(session.tmuxName)! }
+      : {}),
+    ...(session.kind === 'claude' && inferredClaude.has(session.tmuxName)
+      ? { claudeSessionId: inferredClaude.get(session.tmuxName)! }
       : {}),
   }));
 }

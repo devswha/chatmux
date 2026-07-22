@@ -27,8 +27,9 @@ export type ProviderModelsCacheInfo = {
 export type AppTab = 'chat' | 'files' | 'shell' | 'git' | 'tasks' | 'browser' | `plugin:${string}`;
 
 /**
- * An external CLI (claude/codex) tmux session opened as a full main-area
- * terminal. `project` only supplies the PTY cwd — attach ignores it.
+ * A discovered external CLI target. Local Claude/Codex sessions open their
+ * structured transcript when indexed; `project` supplies the pending-relay or
+ * terminal-fallback cwd before that handoff. Remote SSH remains attach-only.
  */
 export type ExternalTerminalTarget = {
   tmuxName: string;
