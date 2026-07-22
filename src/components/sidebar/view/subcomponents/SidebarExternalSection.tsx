@@ -9,10 +9,13 @@ import SessionProviderLogo from '../../../llm-logo-provider/SessionProviderLogo'
 const KIND_LABEL: Record<ExternalCliSession['kind'], string> = {
   claude: 'Claude Code',
   codex: 'Codex CLI',
+  cursor: 'Cursor',
+  opencode: 'OpenCode',
+  omp: 'Oh My Pi',
   ssh: 'ssh (원격)',
 };
 
-// codex/claude tmux sessions can be stopped from the list; ssh sessions are not
+// Local coding-agent tmux sessions can be stopped; remote SSH sessions are not
 // ours to kill.
 
 type SidebarExternalSectionProps = {
@@ -24,11 +27,10 @@ type SidebarExternalSectionProps = {
 };
 
 /**
- * External CLI rows (claude/codex/ssh, from useExternalCliSessions) for the
- * unified sessions list. Claude and Codex rows open structured transcripts
- * when indexed and fall back to terminal attach before then. SSH is always
- * attach-only because the remote process and transcript are not locally
- * observable.
+ * Local coding-agent and remote SSH tmux rows for the unified sessions list.
+ * Local agents open structured transcripts when indexed and use terminal
+ * attach before then. SSH is always attach-only because its process and
+ * transcript are not locally observable.
  */
 export default function SidebarExternalSection({ sessions, projects, onOpen, onChanged }: SidebarExternalSectionProps) {
   const [confirming, setConfirming] = useState<string | null>(null);
@@ -101,7 +103,7 @@ export default function SidebarExternalSection({ sessions, projects, onOpen, onC
     <div className="space-y-0.5 px-1.5">
       {error && <p className="px-2 py-1 text-[11px] text-red-500">{error}</p>}
       {sessions.map((session) => {
-        const canKill = session.kind === 'codex' || session.kind === 'claude';
+        const canKill = session.kind !== 'ssh';
         const sessionName = session.sessionName?.trim();
         const primary = sessionName || session.tmuxName;
         const metadata = [
@@ -117,7 +119,9 @@ export default function SidebarExternalSection({ sessions, projects, onOpen, onC
                 onClick={() => openSession(session)}
                 title={session.transcriptSessionId
                   ? `${primary} — ${metadata}`
-                  : `tmux 세션 '${session.tmuxName}' 터미널로 보기`}
+                  : session.kind === 'ssh'
+                    ? `tmux 세션 '${session.tmuxName}' 터미널로 보기`
+                    : `${primary} — 대화 열기`}
                 className="flex min-w-0 flex-1 items-start gap-2 px-2 py-1.5 text-left"
               >
                 {session.kind === 'ssh' ? (
@@ -133,7 +137,7 @@ export default function SidebarExternalSection({ sessions, projects, onOpen, onC
                     {metadata}
                   </span>
                 </span>
-                {session.transcriptSessionId ? (
+                {session.kind !== 'ssh' ? (
                   <MessageSquare className="mt-1 h-3.5 w-3.5 shrink-0 text-emerald-500" aria-hidden />
                 ) : (
                   <SquareTerminal className="mt-1 h-3.5 w-3.5 shrink-0 text-muted-foreground/60" aria-hidden />

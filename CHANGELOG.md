@@ -4,6 +4,35 @@ All notable changes to ChatMux are documented in this file. Current and
 future server artifacts are published only through
 [GitHub Releases](https://github.com/devswha/chatmux/releases).
 
+## Unreleased
+
+### Agent providers
+
+- Added Oh My Pi as a first-class ChatMux provider: native JSONL streaming,
+  create/resume/abort, model discovery and effort controls, `/skill:` sources,
+  MCP/account settings, transcript indexing, provider branding, and web chat
+  now work through the same session gateway as the existing agents.
+- External tmux discovery now recognizes Cursor CLI, OpenCode, and Oh My Pi
+  process trees and native resume forms. Indexed Cursor/OpenCode/Oh My Pi rows
+  open their structured transcript and composer; unindexed or SSH rows retain
+  the terminal fallback. Session names and active models are inferred from the
+  matching runtime metadata without crossing tmux process lineages.
+
+### Web interface
+
+- Reworked the sidebar into one session-oriented surface: new native agent
+  sessions, live tmux work, SSH attachments, projects, and saved chats are
+  visually separated while preserving project selection and history access.
+- Added provider-specific names, logos, model selectors, composer labels, and
+  account/settings entries for Oh My Pi across the chat and settings flows.
+
+### Documentation
+
+- Rewrote the README around ChatMux's current multi-agent web-terminal
+  architecture, verified install/runtime requirements, daily workflows,
+  provider differences, security model, support matrix, and upstream
+  provenance. Added a repository-owned ChatMux hero asset.
+
 ## 1.2.0 (2026-07-18)
 
 ### Live sessions

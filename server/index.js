@@ -52,6 +52,10 @@ import {
     shutdownGjcWorker,
 } from './gjc-worker-client.js';
 import {
+    spawnOmp,
+    abortOmpSession,
+} from './omp-cli.js';
+import {
     stripAnsiSequences,
     normalizeDetectedUrl,
     extractUrlsFromText,
@@ -141,6 +145,7 @@ const wss = createWebSocketServer(server, {
             codex: queryCodex,
             opencode: spawnOpenCode,
             gjc: spawnGjc,
+            omp: spawnOmp,
         },
         abortFns: {
             claude: abortClaudeSDKSession,
@@ -148,6 +153,7 @@ const wss = createWebSocketServer(server, {
             codex: abortCodexSession,
             opencode: abortOpenCodeSession,
             gjc: abortGjcSession,
+            omp: abortOmpSession,
         },
         resolveToolApproval: resolveProviderToolApproval,
         getPendingApprovalsForSession: getPendingProviderApprovalsForSession,

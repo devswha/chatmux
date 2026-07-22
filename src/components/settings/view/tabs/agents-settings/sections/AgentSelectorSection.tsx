@@ -9,6 +9,7 @@ const AGENT_NAMES: Record<AgentProvider, string> = {
   codex: 'Codex',
   opencode: 'OpenCode',
   gjc: 'Gajae Code',
+  omp: 'Oh My Pi',
 };
 
 export default function AgentSelectorSection({

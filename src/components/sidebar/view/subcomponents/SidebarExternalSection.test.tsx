@@ -53,3 +53,37 @@ test('SidebarExternalSection shows an indexed Claude session as a structured tra
   assert.ok(html.includes('claude-sonnet-4-6 · claude-review · Claude Code'));
   assert.ok(!html.includes('터미널로 보기'), 'indexed Claude row no longer advertises terminal attach');
 });
+
+test('SidebarExternalSection renders an indexed Oh My Pi transcript with its provider mark', () => {
+  const html = renderToStaticMarkup(createElement(SidebarExternalSection, {
+    sessions: [{
+      tmuxName: 'omp-review',
+      kind: 'omp' as const,
+      transcriptSessionId: 'session-omp',
+      sessionName: 'Pi integration review',
+      model: 'openai-codex/gpt-5.6-sol',
+    }],
+    projects: [project],
+    onOpen,
+    onChanged: noop,
+  }));
+
+  assert.ok(html.includes('Pi integration review'));
+  assert.ok(html.includes('gpt-5.6-sol · omp-review · Oh My Pi'));
+  assert.ok(html.includes('aria-label="Oh My Pi"'));
+});
+
+test('SidebarExternalSection opens a fresh local agent in the pending conversation surface', () => {
+  const html = renderToStaticMarkup(createElement(SidebarExternalSection, {
+    sessions: [{
+      tmuxName: 'omp-fresh',
+      kind: 'omp' as const,
+    }],
+    projects: [project],
+    onOpen,
+    onChanged: noop,
+  }));
+
+  assert.ok(html.includes('omp-fresh — 대화 열기'));
+  assert.ok(!html.includes('터미널로 보기'));
+});

@@ -45,7 +45,7 @@ export type MainContentProps = {
   liveSessionTmuxName: string | null;
   liveSessionTmuxId: string | null;
   liveSessionModel: string | null;
-  liveSessionKind: 'gjc' | 'codex' | 'claude' | null;
+  liveSessionKind: 'gjc' | 'codex' | 'claude' | 'cursor' | 'opencode' | 'omp' | null;
   activeTab: AppTab;
   setActiveTab: Dispatch<SetStateAction<AppTab>>;
   ws: WebSocket | null;

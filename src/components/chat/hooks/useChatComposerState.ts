@@ -46,6 +46,7 @@ interface UseChatComposerStateArgs {
   codexModel: string;
   currentProviderEffort: string;
   opencodeModel: string;
+  ompModel: string;
   isLoading: boolean;
   /**
    * Session is owned by an external driver (tmux gjc). The composer UI is
@@ -205,6 +206,7 @@ export function useChatComposerState({
   codexModel,
   currentProviderEffort,
   opencodeModel,
+  ompModel,
   isLoading,
   isSessionReadOnly = false,
   canAbortSession,
@@ -381,7 +383,9 @@ export function useChatComposerState({
             : provider === 'codex'
               ? codexModel
               : provider === 'opencode'
-                  ? opencodeModel
+                ? opencodeModel
+                : provider === 'omp'
+                  ? ompModel
                   : claudeModel,
           tokenUsage: tokenBudget,
         };
@@ -436,6 +440,7 @@ export function useChatComposerState({
       currentSessionId,
       cursorModel,
       opencodeModel,
+      ompModel,
       handleBuiltInCommand,
       handleCustomCommand,
       input,
@@ -603,8 +608,10 @@ export function useChatComposerState({
             : provider === 'codex'
               ? 'codex-settings'
               : provider === 'opencode'
-                  ? 'opencode-settings'
-                : 'claude-settings';
+                ? 'opencode-settings'
+                : provider === 'omp'
+                  ? 'omp-settings'
+                  : 'claude-settings';
         const savedSettings = safeLocalStorage.getItem(settingsKey);
         if (savedSettings) {
           return JSON.parse(savedSettings);
@@ -628,7 +635,9 @@ export function useChatComposerState({
           ? codexModel
           : provider === 'opencode'
             ? opencodeModel
-            : claudeModel;
+            : provider === 'omp'
+              ? ompModel
+              : claudeModel;
 
     return {
       model,
@@ -644,6 +653,7 @@ export function useChatComposerState({
     currentProviderEffort,
     cursorModel,
     opencodeModel,
+    ompModel,
     permissionMode,
     provider,
     resolvePermissionModeForProvider,

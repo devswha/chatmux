@@ -30,6 +30,10 @@ const PROVIDER_WATCH_PATHS: Array<{ provider: LLMProvider; rootPath: string }> =
     provider: 'opencode',
     rootPath: path.join(os.homedir(), '.local', 'share', 'opencode'),
   },
+  {
+    provider: 'omp',
+    rootPath: path.join(os.homedir(), '.omp', 'agent', 'sessions'),
+  },
 ];
 
 const GJC_WATCH_PATHS = [...new Set([

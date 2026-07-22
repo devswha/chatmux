@@ -313,16 +313,18 @@ test('providerMcpService global adder writes to all providers and rejects unsupp
       workspacePath,
     });
 
-    // Registry now includes gjc, whose MCP provider is a deliberate read-only stub:
-    // it must show up in the results as a graceful per-provider failure, never as a write.
-    assert.equal(globalResult.length, 5);
-    const gjcEntry = globalResult.find((entry) => entry.provider === 'gjc');
-    assert.ok(gjcEntry);
-    assert.equal(gjcEntry.created, false);
-    assert.match(gjcEntry.error ?? '', /not supported/i);
+    // GJC and OMP expose read-only MCP stubs. Both must report graceful
+    // per-provider failures while writable providers receive the server.
+    assert.equal(globalResult.length, 6);
+    for (const provider of ['gjc', 'omp'] as const) {
+      const entry = globalResult.find((result) => result.provider === provider);
+      assert.ok(entry);
+      assert.equal(entry.created, false);
+      assert.match(entry.error ?? '', /not supported/i);
+    }
     assert.ok(
       globalResult
-        .filter((entry) => entry.provider !== 'gjc')
+        .filter((entry) => entry.provider !== 'gjc' && entry.provider !== 'omp')
         .every((entry) => entry.created === true),
     );
 

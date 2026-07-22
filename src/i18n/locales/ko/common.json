@@ -89,7 +89,7 @@
     "loading": "ChatMux을 불러오는 중",
     "settingUpWorkspace": "워크스페이스 설정 중...",
     "chooseProject": "프로젝트 선택",
-    "selectProjectDescription": "사이드바에서 프로젝트를 선택하여 Claude와 코딩을 시작하세요. 각 프로젝트에는 채팅 세션과 파일 히스토리가 포함됩니다.",
+    "selectProjectDescription": "사이드바에서 프로젝트를 선택하여 ChatMux로 코딩을 시작하세요. 각 프로젝트에는 채팅 세션과 파일 히스토리가 포함됩니다.",
     "tip": "팁",
     "createProjectMobile": "위의 메뉴 버튼을 눌러 프로젝트에 접근하세요",
     "createProjectDesktop": "사이드바의 폴더 아이콘을 클릭하여 새 프로젝트를 생성하세요",

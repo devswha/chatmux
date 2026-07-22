@@ -36,6 +36,10 @@ const agentConfig: Record<AgentProvider, AgentConfig> = {
     name: 'Gajae Code',
     color: 'gray',
   },
+  omp: {
+    name: 'Oh My Pi',
+    color: 'gray',
+  },
 };
 
 const colorClasses = {

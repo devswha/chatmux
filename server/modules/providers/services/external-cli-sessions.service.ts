@@ -6,34 +6,33 @@ import { setTimeout as delay } from 'node:timers/promises';
 
 import Database from 'better-sqlite3';
 
+import { sessionsDb } from '@/modules/database/index.js';
+import { providerRegistry } from '@/modules/providers/provider.registry.js';
+
 /**
- * External CLI (Claude / Codex / SSH) tmux-session discovery.
- *
- * The GJC fleet has its own richer live pipeline. Local Claude and Codex panes
- * are bound to their native session ids so ChatMux can open structured
- * transcripts and relay prompts; SSH stays terminal-only because its far-side
- * process is not locally observable. Detection starts with the process subtree:
- *   - tmux list-panes -a → {session_name, pane_pid, pane_current_command}
- *   - ps -eo pid,ppid,comm → children map → BFS from pane_pid → descendant comms
- *   - any 'gjc' in the subtree → the session belongs to the gjc live lane → SKIP
- *   - else 'claude' (pane cmd or descendant comm) → kind 'claude'
- *   - else 'codex' descendant comm → kind 'codex' (codex panes surface as 'node')
- *
- * Grouped per tmux session name (a session with several panes is one row).
- * tmux/ps access is ISOLATED here and fails closed to [].
+ * Discovers local coding-agent TUIs running inside tmux. GJC keeps its
+ * dedicated live lane; Claude, Codex, Cursor, OpenCode, and Oh My Pi are
+ * surfaced here with native transcript ids when they can be proven. SSH stays
+ * terminal-only because the far-side process is not locally observable.
  */
 
 const TMUX_FIELD_SEP = '\t';
 const CODEX_THREAD_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const CLAUDE_SESSION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const CODEX_RESUME_THREAD_RE = /(?:^|\s)resume\s+([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?=\s|$)/i;
+const CLAUDE_RESUME_SESSION_RE = /(?:^|\s)--resume(?:=|\s+)([0-9a-f]{8}-[0-9a-f-]{27,})(?=\s|$)/i;
+const CURSOR_RESUME_SESSION_RE = /(?:^|\s)(?:--resume|resume)(?:=|\s+)([A-Za-z0-9_-]{8,128})(?=\s|$)/;
+const OPENCODE_SESSION_RE = /(?:^|\s)--session(?:=|\s+)([A-Za-z0-9_-]{8,128})(?=\s|$)/;
+const OMP_RESUME_SESSION_RE = /(?:^|\s)(?:--resume|-r)(?:=|\s+)([A-Za-z0-9_-]{8,128})(?=\s|$)/;
 
-export type ExternalCliKind = 'claude' | 'codex' | 'ssh';
+export type ExternalLocalCliKind = 'claude' | 'codex' | 'cursor' | 'opencode' | 'omp';
+export type ExternalCliKind = ExternalLocalCliKind | 'ssh';
 export type ExternalCliSession = {
   tmuxName: string;
   kind: ExternalCliKind;
-  codexThreadId?: string;
-  claudeSessionId?: string;
+  providerSessionId?: string;
+  cwd?: string;
+  startedAtMs?: number;
 };
 
 export type ExternalPane = {
@@ -42,6 +41,8 @@ export type ExternalPane = {
   command: string;
   codexThreadId?: string;
   cwd?: string;
+  taggedKind?: ExternalLocalCliKind;
+  taggedSessionId?: string;
 };
 
 export type ProcessTreeEntry = {
@@ -53,6 +54,13 @@ export type ProcessTreeEntry = {
 
 type FreshCodexProcess = { tmuxName: string; cwd: string; startedAtMs: number };
 type FreshCodexThread = { id: string; cwd: string; createdAtMs: number };
+type FreshIndexedProviderSession = {
+  id: string;
+  kind: ExternalLocalCliKind;
+  cwd: string;
+  createdAtMs: number;
+  diskDiscovered: boolean;
+};
 
 /** Matches the tower/live-send tmux-name discipline; also safe to embed in a shell command. */
 export const EXTERNAL_TMUX_NAME_RE = /^[A-Za-z0-9._-]{1,64}$/;
@@ -60,6 +68,19 @@ export const EXTERNAL_TMUX_NAME_RE = /^[A-Za-z0-9._-]{1,64}$/;
 /** Extracts the native Codex thread id from `codex resume <uuid>` argv. */
 export function extractCodexResumeThreadId(processArgs: string | undefined): string | null {
   return processArgs?.match(CODEX_RESUME_THREAD_RE)?.[1] ?? null;
+}
+
+export function extractExternalResumeSessionId(
+  kind: ExternalLocalCliKind,
+  processArgs: string | undefined,
+): string | null {
+  if (!processArgs) return null;
+  if (kind === 'claude') return processArgs.match(CLAUDE_RESUME_SESSION_RE)?.[1] ?? null;
+  if (kind === 'codex') return extractCodexResumeThreadId(processArgs);
+  if (kind === 'cursor') return processArgs.match(CURSOR_RESUME_SESSION_RE)?.[1] ?? null;
+  if (kind === 'opencode') return processArgs.match(OPENCODE_SESSION_RE)?.[1] ?? null;
+  if (kind === 'omp') return processArgs.match(OMP_RESUME_SESSION_RE)?.[1] ?? null;
+  return null;
 }
 
 /** Assigns each newly-created native thread to the closest preceding tmux Codex process. */
@@ -88,38 +109,78 @@ export function assignFreshCodexThreadIds(
   return assigned;
 }
 
-/** Parses pane identity plus the optional product-specific Codex transcript user-option. */
+/**
+ * Binds fresh disk-discovered transcripts only when each process has one
+ * unambiguous candidate. Newest processes claim first so two sequential
+ * launches in one cwd still pair one-to-one.
+ */
+export function assignFreshIndexedProviderSessionIds(
+  processes: ExternalCliSession[],
+  sessions: FreshIndexedProviderSession[],
+  windowMs = 10 * 60 * 1000,
+  nowMs = Date.now(),
+): Map<string, string> {
+  const assigned = new Map<string, string>();
+  const claimed = new Set<string>();
+  const orderedProcesses = [...processes].sort(
+    (a, b) => (b.startedAtMs ?? 0) - (a.startedAtMs ?? 0),
+  );
+
+  for (const process of orderedProcesses) {
+    if (
+      process.kind === 'ssh'
+      || typeof process.cwd !== 'string'
+      || typeof process.startedAtMs !== 'number'
+    ) {
+      continue;
+    }
+    const startedAtMs = process.startedAtMs;
+    const candidates = sessions.filter((session) => (
+      session.diskDiscovered
+      && session.kind === process.kind
+      && session.cwd === process.cwd
+      && !claimed.has(`${session.kind}:${session.id}`)
+      && session.createdAtMs >= startedAtMs - 1_000
+      && session.createdAtMs <= startedAtMs + windowMs
+      && session.createdAtMs <= nowMs + 5_000
+    ));
+    if (candidates.length !== 1) {
+      continue;
+    }
+    const candidate = candidates[0];
+    assigned.set(process.tmuxName, candidate.id);
+    claimed.add(`${candidate.kind}:${candidate.id}`);
+  }
+  return assigned;
+}
+
+/** Parses pane identity and ChatMux's optional provider/session user-options. */
 export function parseExternalPanes(output: string): ExternalPane[] {
   const panes: ExternalPane[] = [];
   for (const raw of output.split(/\r?\n/)) {
-    if (!raw.trim()) {
-      continue;
-    }
-    const first = raw.indexOf(TMUX_FIELD_SEP);
-    const second = raw.indexOf(TMUX_FIELD_SEP, first + 1);
-    if (first < 0 || second < 0) {
-      continue;
-    }
-    const name = raw.slice(0, first).trim();
-    const pid = Number.parseInt(raw.slice(first + 1, second).trim(), 10);
-    const third = raw.indexOf(TMUX_FIELD_SEP, second + 1);
-    const command = (third < 0
-      ? raw.slice(second + 1)
-      : raw.slice(second + 1, third)).trim();
-    const fourth = third < 0 ? -1 : raw.indexOf(TMUX_FIELD_SEP, third + 1);
-    const codexThreadId = third < 0
-      ? ''
-      : (fourth < 0 ? raw.slice(third + 1) : raw.slice(third + 1, fourth)).trim();
-    const cwd = fourth < 0 ? '' : raw.slice(fourth + 1).trim();
-    if (name && Number.isFinite(pid)) {
-      panes.push({
-        name,
-        pid,
-        command,
-        ...(codexThreadId ? { codexThreadId } : {}),
-        ...(cwd ? { cwd } : {}),
-      });
-    }
+    if (!raw.trim()) continue;
+    const fields = raw.split(TMUX_FIELD_SEP);
+    if (fields.length < 3) continue;
+    const [rawName, rawPid, rawCommand, rawCodexThreadId, rawCwd, rawKind, rawSessionId] = fields;
+    const name = rawName.trim();
+    const pid = Number.parseInt(rawPid.trim(), 10);
+    const command = rawCommand.trim();
+    const codexThreadId = rawCodexThreadId?.trim() ?? '';
+    const cwd = rawCwd?.trim() ?? '';
+    const taggedKind = rawKind?.trim() as ExternalLocalCliKind | undefined;
+    const taggedSessionId = rawSessionId?.trim() ?? '';
+    if (!name || !Number.isFinite(pid)) continue;
+    panes.push({
+      name,
+      pid,
+      command,
+      ...(codexThreadId ? { codexThreadId } : {}),
+      ...(cwd ? { cwd } : {}),
+      ...(taggedKind && ['claude', 'codex', 'cursor', 'opencode', 'omp'].includes(taggedKind)
+        ? { taggedKind }
+        : {}),
+      ...(taggedSessionId ? { taggedSessionId } : {}),
+    });
   }
   return panes;
 }
@@ -165,119 +226,128 @@ export function parseClaudeRuntimeSession(
   return { sessionId: receipt.sessionId, cwd: receipt.cwd };
 }
 
+function processCliKind(proc: Pick<ProcessTreeEntry, 'comm' | 'args'>): ExternalLocalCliKind | 'gjc' | 'ssh' | null {
+  const comm = proc.comm.toLowerCase();
+  const argv = proc.args ?? '';
+  const executable = (name: string): boolean => (
+    comm === name
+    || new RegExp(`(?:^|\\s)(?:\\S*/)?${name.replace('-', '\\-')}(?=\\s|$)`, 'i').test(argv)
+  );
+  if (executable('gjc')) return 'gjc';
+  if (executable('claude')) return 'claude';
+  if (executable('codex')) return 'codex';
+  if (executable('cursor-agent')) return 'cursor';
+  if (executable('opencode')) return 'opencode';
+  if (executable('omp')) return 'omp';
+  if (executable('ssh')) return 'ssh';
+  return null;
+}
 /**
- * Pure classification: tmux panes + a ps snapshot → external CLI sessions.
- *
- * Per pane, the comm set is {pane_current_command} ∪ {comm of every /proc
- * descendant of pane_pid} (depth/cycle guarded). Per tmux session (union of its
- * panes): 'gjc' anywhere → excluded (that session is the gjc live lane's —
- * never touched here); else the kind is the first match of claude → codex →
- * ssh ('ssh' = a remote tunnel whose far-side CLI is locally unprovable —
- * attach-only). Sessions with none of the three are dropped (plain shells).
- * Names failing EXTERNAL_TMUX_NAME_RE are dropped (they could not be attached
- * safely). Output is sorted by name for stability.
+ * Foreground-aware process classification. A GJC descendant excludes the tmux
+ * session from this lane. Other agents must own the pane foreground (or carry
+ * a ChatMux spawn tag); Codex additionally supports its observed node-wrapper
+ * shape. This keeps background/batch agents inside app panes out of the UI.
  */
 export function classifyExternalSessions(args: {
   panes: ExternalPane[];
   procs: ProcessTreeEntry[];
 }): ExternalCliSession[] {
   const children = new Map<number, number[]>();
+  const procByPid = new Map<number, ProcessTreeEntry>();
   for (const proc of args.procs) {
-    const siblings = children.get(proc.ppid);
-    if (siblings) {
-      siblings.push(proc.pid);
-    } else {
-      children.set(proc.ppid, [proc.pid]);
-    }
-  }
-  const commByPid = new Map<number, string>();
-  const argsByPid = new Map<number, string>();
-  for (const proc of args.procs) {
-    commByPid.set(proc.pid, proc.comm);
-    if (proc.args) {
-      argsByPid.set(proc.pid, proc.args);
-    }
+    procByPid.set(proc.pid, proc);
+    const siblings = children.get(proc.ppid) ?? [];
+    siblings.push(proc.pid);
+    children.set(proc.ppid, siblings);
   }
 
-  const subtreePids = (rootPid: number): number[] => {
-    const pids: number[] = [];
-    const seen = new Set<number>();
-    const queue: number[] = [rootPid];
-    while (queue.length > 0 && seen.size < 4096) {
-      const pid = queue.shift()!;
-      if (seen.has(pid)) {
-        continue;
-      }
-      seen.add(pid);
-      pids.push(pid);
-      for (const child of children.get(pid) ?? []) {
-        queue.push(child);
-      }
-    }
-    return pids;
-  };
+  const factsBySession = new Map<string, {
+    kinds: Set<ExternalLocalCliKind | 'gjc' | 'ssh'>;
+    taggedKinds: Set<ExternalLocalCliKind>;
+    sessionIds: Map<ExternalLocalCliKind, Set<string>>;
+    cwds: Set<string>;
+  }>();
 
-  // Union comm sets per tmux session name.
-  const commsBySession = new Map<string, Set<string>>();
-  const codexThreadIdsBySession = new Map<string, Set<string>>();
   for (const pane of args.panes) {
-    let comms = commsBySession.get(pane.name);
-    if (!comms) {
-      comms = new Set<string>();
-      commsBySession.set(pane.name, comms);
-    }
-    if (pane.command) {
-      comms.add(pane.command);
-    }
-    for (const pid of subtreePids(pane.pid)) {
-      const comm = commByPid.get(pid);
-      if (comm) {
-        comms.add(comm);
-      }
-      const resumedThreadId = extractCodexResumeThreadId(argsByPid.get(pid));
-      if (resumedThreadId) {
-        let threadIds = codexThreadIdsBySession.get(pane.name);
-        if (!threadIds) {
-          threadIds = new Set<string>();
-          codexThreadIdsBySession.set(pane.name, threadIds);
-        }
-        threadIds.add(resumedThreadId);
+    const facts = factsBySession.get(pane.name) ?? {
+      kinds: new Set(),
+      taggedKinds: new Set(),
+      sessionIds: new Map(),
+      cwds: new Set(),
+    };
+    factsBySession.set(pane.name, facts);
+    if (pane.cwd) facts.cwds.add(pane.cwd);
+    if (pane.taggedKind) {
+      facts.taggedKinds.add(pane.taggedKind);
+      facts.kinds.add(pane.taggedKind);
+      if (pane.taggedSessionId) {
+        facts.sessionIds.set(pane.taggedKind, new Set([pane.taggedSessionId]));
       }
     }
     if (pane.codexThreadId && CODEX_THREAD_ID_RE.test(pane.codexThreadId)) {
-      let threadIds = codexThreadIdsBySession.get(pane.name);
-      if (!threadIds) {
-        threadIds = new Set<string>();
-        codexThreadIdsBySession.set(pane.name, threadIds);
-      }
-      threadIds.add(pane.codexThreadId);
+      facts.kinds.add('codex');
+      facts.sessionIds.set('codex', new Set([pane.codexThreadId]));
+    }
+
+    const subtreeKinds: Array<{
+      kind: ExternalLocalCliKind | 'gjc' | 'ssh';
+      proc: ProcessTreeEntry;
+    }> = [];
+    for (const pid of descendants(pane.pid, children)) {
+      const proc = procByPid.get(pid);
+      if (!proc) continue;
+      const kind = processCliKind(proc);
+      if (kind) subtreeKinds.push({ kind, proc });
+    }
+    if (subtreeKinds.some(({ kind }) => kind === 'gjc')) {
+      facts.kinds.add('gjc');
+      continue;
+    }
+
+    const foregroundKind = processCliKind({ comm: pane.command });
+    if (foregroundKind) {
+      facts.kinds.add(foregroundKind);
+    } else if (
+      pane.command.toLowerCase() === 'node'
+      && subtreeKinds.some(({ kind }) => kind === 'codex')
+    ) {
+      facts.kinds.add('codex');
+    }
+
+    const acceptedKinds = new Set<ExternalLocalCliKind>([
+      ...facts.taggedKinds,
+      ...[...facts.kinds].filter(
+        (kind): kind is ExternalLocalCliKind => kind !== 'gjc' && kind !== 'ssh',
+      ),
+    ]);
+    for (const { kind, proc } of subtreeKinds) {
+      if (kind === 'gjc' || kind === 'ssh' || !acceptedKinds.has(kind)) continue;
+      const providerSessionId = extractExternalResumeSessionId(kind, proc.args);
+      if (!providerSessionId) continue;
+      const ids = facts.sessionIds.get(kind) ?? new Set<string>();
+      ids.add(providerSessionId);
+      facts.sessionIds.set(kind, ids);
     }
   }
 
+  const priority: ExternalCliKind[] = ['claude', 'codex', 'cursor', 'opencode', 'omp', 'ssh'];
   const result: ExternalCliSession[] = [];
-  for (const [name, comms] of commsBySession) {
-    if (!EXTERNAL_TMUX_NAME_RE.test(name)) {
-      continue;
-    }
-    if (comms.has('gjc')) {
-      continue; // gjc live lane — out of scope by contract
-    }
-    if (comms.has('claude')) {
-      result.push({ tmuxName: name, kind: 'claude' });
-    } else if (comms.has('codex')) {
-      const threadIds = [...(codexThreadIdsBySession.get(name) ?? [])];
-      result.push({
-        tmuxName: name,
-        kind: 'codex',
-        ...(threadIds.length === 1 ? { codexThreadId: threadIds[0] } : {}),
-      });
-    } else if (comms.has('ssh')) {
-      // Remote lane: the pane tunnels into another machine, so the CLI running
-      // there is invisible to local ps by definition (실측: company → ssh →
-      // 원격 claude). Attach-only is still safe and useful — surface it as
-      // 'ssh' instead of silently hiding the session (하코 요청).
-      result.push({ tmuxName: name, kind: 'ssh' });
-    }
+  for (const [tmuxName, facts] of factsBySession) {
+    if (!EXTERNAL_TMUX_NAME_RE.test(tmuxName) || facts.kinds.has('gjc')) continue;
+    const kind = priority.find((candidate) => (
+      facts.taggedKinds.has(candidate as ExternalLocalCliKind) || facts.kinds.has(candidate)
+    ));
+    if (!kind) continue;
+    const ids = kind === 'ssh'
+      ? []
+      : [...(facts.sessionIds.get(kind) ?? [])];
+    const cwds = [...facts.cwds];
+    result.push({
+      tmuxName,
+      kind,
+      ...(ids.length === 1 ? { providerSessionId: ids[0] } : {}),
+      ...(cwds.length === 1 ? { cwd: cwds[0] } : {}),
+    });
   }
   return result.sort((a, b) => a.tmuxName.localeCompare(b.tmuxName));
 }
@@ -363,7 +433,7 @@ async function inferFreshCodexThreadIds(args: {
 }): Promise<Map<string, string>> {
   const unresolvedNames = new Set(
     args.sessions
-      .filter((session) => session.kind === 'codex' && !session.codexThreadId)
+      .filter((session) => session.kind === 'codex' && !session.providerSessionId)
       .map((session) => session.tmuxName),
   );
   if (unresolvedNames.size === 0) return new Map();
@@ -452,6 +522,91 @@ async function inferClaudeSessionIds(args: {
   return resolved;
 }
 
+async function addExternalRuntimeMetadata(args: {
+  sessions: ExternalCliSession[];
+  panes: ExternalPane[];
+  procs: ProcessTreeEntry[];
+}): Promise<ExternalCliSession[]> {
+  const children = new Map<number, number[]>();
+  const procByPid = new Map(args.procs.map((proc) => [proc.pid, proc]));
+  for (const proc of args.procs) {
+    const siblings = children.get(proc.ppid) ?? [];
+    siblings.push(proc.pid);
+    children.set(proc.ppid, siblings);
+  }
+  const panesByName = new Map<string, ExternalPane[]>();
+  for (const pane of args.panes) {
+    const panes = panesByName.get(pane.name) ?? [];
+    panes.push(pane);
+    panesByName.set(pane.name, panes);
+  }
+
+  return Promise.all(args.sessions.map(async (session) => {
+    if (session.kind === 'ssh') return session;
+    const matchingPids = (panesByName.get(session.tmuxName) ?? [])
+      .flatMap((pane) => descendants(pane.pid, children))
+      .filter((pid) => processCliKind(procByPid.get(pid) ?? { comm: '' }) === session.kind);
+    const starts = await Promise.all([...new Set(matchingPids)].map(processStartMs));
+    const validStarts = starts.filter((value): value is number => value !== null);
+    return validStarts.length > 0
+      ? { ...session, startedAtMs: Math.min(...validStarts) }
+      : session;
+  }));
+}
+
+async function inferIndexedProviderSessionIds(
+  sessions: ExternalCliSession[],
+): Promise<Map<string, string>> {
+  const unresolved = sessions.filter((session): session is ExternalCliSession & {
+    kind: 'cursor' | 'opencode' | 'omp';
+    cwd: string;
+    startedAtMs: number;
+  } => (
+    (session.kind === 'cursor' || session.kind === 'opencode' || session.kind === 'omp')
+    && !session.providerSessionId
+    && typeof session.cwd === 'string'
+    && typeof session.startedAtMs === 'number'
+  ));
+  if (unresolved.length === 0) return new Map();
+
+  const providers = [...new Set(unresolved.map((session) => session.kind))];
+  await Promise.all(providers.map(async (provider) => {
+    const starts = unresolved
+      .filter((session) => session.kind === provider)
+      .map((session) => session.startedAtMs);
+    const since = new Date(Math.min(...starts) - 30_000);
+    await providerRegistry.resolveProvider(provider).sessionSynchronizer.synchronize(since);
+  })).catch(() => undefined);
+
+  const candidates: FreshIndexedProviderSession[] = [];
+  const seen = new Set<string>();
+  for (const session of unresolved) {
+    for (const row of sessionsDb.getSessionsByProjectPath(session.cwd)) {
+      const providerSessionId = row.provider_session_id;
+      if (
+        row.provider !== session.kind
+        || !providerSessionId
+        || row.session_id !== providerSessionId
+      ) {
+        continue;
+      }
+      const key = `${session.kind}:${providerSessionId}`;
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      candidates.push({
+        id: providerSessionId,
+        kind: session.kind,
+        cwd: session.cwd,
+        createdAtMs: new Date(row.created_at).getTime(),
+        diskDiscovered: true,
+      });
+    }
+  }
+  return assignFreshIndexedProviderSessionIds(unresolved, candidates);
+}
+
 /** Relays one literal prompt/selection into a verified native external CLI tmux TUI. */
 export async function sendToExternalCliSession(tmuxName: string, message: string): Promise<void> {
   const target = `${tmuxName}:`;
@@ -486,11 +641,27 @@ export async function resolveExternalCliCwd(input: string): Promise<string | nul
   }
 }
 
-export type ExternalSpawnCli = 'codex' | 'claude';
+export type ExternalSpawnCli = ExternalLocalCliKind;
 
-/** Boots a native CLI (codex/claude) in a fresh detached tmux session. */
+const EXTERNAL_CLI_COMMAND: Record<ExternalSpawnCli, string> = {
+  claude: 'claude',
+  codex: 'codex',
+  cursor: 'cursor-agent',
+  opencode: 'opencode',
+  omp: 'omp',
+};
+
+/** Boots and tags a native CLI in a fresh detached tmux session. */
 export async function spawnExternalCliSession(cli: ExternalSpawnCli, tmuxName: string, cwd: string): Promise<void> {
-  await runCommand('tmux', ['new-session', '-d', '-s', tmuxName, '-c', cwd, cli]);
+  await runCommand('tmux', [
+    'new-session', '-d', '-s', tmuxName, '-c', cwd, EXTERNAL_CLI_COMMAND[cli],
+  ]);
+  try {
+    await runCommand('tmux', ['set-option', '-t', tmuxName, '@chatmux_cli_kind', cli]);
+  } catch (error) {
+    await runCommand('tmux', ['kill-session', '-t', `=${tmuxName}`]).catch(() => undefined);
+    throw error;
+  }
 }
 
 export async function killExternalCliSession(tmuxName: string): Promise<void> {
@@ -545,32 +716,44 @@ export async function resolveCodexRolloutPath(threadId: string): Promise<string 
 }
 
 /**
- * Returns external CLI (claude/codex) tmux sessions. Empty on any failure
- * (no tmux, ps error) — tmux/ps dependence is confined here.
+ * Returns local coding-agent tmux sessions. Empty on tmux/ps failure. Native
+ * ids come from explicit resume argv, Claude runtime receipts, Codex's thread
+ * database, or a unique newly indexed transcript for the same cwd/start time.
  */
 export async function getExternalCliSessions(): Promise<ExternalCliSession[]> {
   let tmuxOutput: string;
   let psOutput: string;
   try {
-    tmuxOutput = await runCommand('tmux', ['list-panes', '-a', '-F', `#{session_name}${TMUX_FIELD_SEP}#{pane_pid}${TMUX_FIELD_SEP}#{pane_current_command}${TMUX_FIELD_SEP}#{@chatmux_codex_thread_id}${TMUX_FIELD_SEP}#{pane_current_path}`]);
+    tmuxOutput = await runCommand('tmux', [
+      'list-panes', '-a', '-F',
+      `#{session_name}${TMUX_FIELD_SEP}#{pane_pid}${TMUX_FIELD_SEP}#{pane_current_command}${TMUX_FIELD_SEP}#{@chatmux_codex_thread_id}${TMUX_FIELD_SEP}#{pane_current_path}${TMUX_FIELD_SEP}#{@chatmux_cli_kind}${TMUX_FIELD_SEP}#{@chatmux_provider_session_id}`,
+    ]);
     psOutput = await runCommand('ps', ['-eo', 'pid,ppid,comm,args']);
   } catch {
     return [];
   }
   const panes = parseExternalPanes(tmuxOutput);
   const procs = parsePsTree(psOutput);
-  const sessions = classifyExternalSessions({ panes, procs });
+  const classified = classifyExternalSessions({ panes, procs });
+  const sessions = await addExternalRuntimeMetadata({ sessions: classified, panes, procs });
   const [inferredCodex, inferredClaude] = await Promise.all([
     inferFreshCodexThreadIds({ sessions, panes, procs }),
     inferClaudeSessionIds({ sessions, panes, procs }),
   ]);
-  return sessions.map((session) => ({
+  const withDirectIds = sessions.map((session) => ({
     ...session,
-    ...(!session.codexThreadId && inferredCodex.has(session.tmuxName)
-      ? { codexThreadId: inferredCodex.get(session.tmuxName)! }
+    ...(!session.providerSessionId && inferredCodex.has(session.tmuxName)
+      ? { providerSessionId: inferredCodex.get(session.tmuxName)! }
       : {}),
-    ...(session.kind === 'claude' && inferredClaude.has(session.tmuxName)
-      ? { claudeSessionId: inferredClaude.get(session.tmuxName)! }
+    ...(!session.providerSessionId && session.kind === 'claude' && inferredClaude.has(session.tmuxName)
+      ? { providerSessionId: inferredClaude.get(session.tmuxName)! }
+      : {}),
+  }));
+  const inferredIndexed = await inferIndexedProviderSessionIds(withDirectIds);
+  return withDirectIds.map((session) => ({
+    ...session,
+    ...(!session.providerSessionId && inferredIndexed.has(session.tmuxName)
+      ? { providerSessionId: inferredIndexed.get(session.tmuxName)! }
       : {}),
   }));
 }

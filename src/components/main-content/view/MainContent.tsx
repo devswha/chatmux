@@ -175,17 +175,16 @@ function MainContent({
   // Fresh local agent panes have no transcript file until their first turn.
   // Keep them in the transcript-style surface from the start; the first prompt
   // is relayed to tmux, then AppContent switches to the indexed transcript.
-  if (
-    externalTerminal?.cliKind === 'codex'
-    || externalTerminal?.cliKind === 'claude'
-    || externalTerminal?.cliKind === 'gjc'
-  ) {
+  if (externalTerminal && externalTerminal.cliKind !== 'ssh') {
     const isGjc = externalTerminal.cliKind === 'gjc';
-    const providerLabel = isGjc
-      ? 'GJC'
-      : externalTerminal.cliKind === 'claude'
-        ? 'Claude'
-        : 'Codex';
+    const providerLabel = {
+      gjc: 'GJC',
+      claude: 'Claude',
+      codex: 'Codex',
+      cursor: 'Cursor',
+      opencode: 'OpenCode',
+      omp: 'Oh My Pi',
+    }[externalTerminal.cliKind];
     return (
       <div className="flex h-full min-h-0 flex-col">
         <div className="flex flex-shrink-0 items-center justify-between border-b border-border/50 px-3 py-2">

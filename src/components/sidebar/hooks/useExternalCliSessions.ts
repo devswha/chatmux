@@ -4,7 +4,7 @@ import { api } from '../../../utils/api';
 
 export type ExternalCliSession = {
   tmuxName: string;
-  kind: 'claude' | 'codex' | 'ssh';
+  kind: 'claude' | 'codex' | 'cursor' | 'opencode' | 'omp' | 'ssh';
   transcriptSessionId?: string;
   sessionName?: string;
   model?: string | null;
@@ -13,9 +13,8 @@ export type ExternalCliSession = {
 const POLL_INTERVAL_MS = 5000;
 
 /**
- * Polls /sessions/external (5s, best-effort) for claude/codex tmux sessions.
- * Self-contained so the gjc live lane (useProjectsState's live poll) stays
- * untouched; gjc sessions are excluded server-side. [] on any failure.
+ * Polls /sessions/external (5s, best-effort) for local coding-agent tmux
+ * sessions. GJC remains on its dedicated live poll.
  */
 export function useExternalCliSessions(): { sessions: ExternalCliSession[]; loading: boolean; refresh: () => void } {
   const [sessions, setSessions] = useState<ExternalCliSession[]>([]);
@@ -37,7 +36,7 @@ export function useExternalCliSessions(): { sessions: ExternalCliSession[]; load
         const list: ExternalCliSession[] = body?.data?.externalSessions ?? body?.externalSessions ?? [];
         if (!cancelled && myGeneration > applied) {
           applied = myGeneration;
-          setSessions(list.filter((session) => session?.tmuxName && (session.kind === 'claude' || session.kind === 'codex' || session.kind === 'ssh')));
+          setSessions(list.filter((session) => session?.tmuxName && ['claude', 'codex', 'cursor', 'opencode', 'omp', 'ssh'].includes(session.kind)));
         }
       } catch {
         // best-effort — no tmux / endpoint error just empties the tab

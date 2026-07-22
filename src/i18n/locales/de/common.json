@@ -89,7 +89,7 @@
     "loading": "ChatMux wird geladen",
     "settingUpWorkspace": "Arbeitsbereich wird eingerichtet...",
     "chooseProject": "Projekt auswählen",
-    "selectProjectDescription": "Wähl ein Projekt aus der Seitenleiste, um mit Claude zu programmieren. Jedes Projekt enthält deine Chat-Sitzungen und den Dateiverlauf.",
+    "selectProjectDescription": "Wähl ein Projekt aus der Seitenleiste, um mit ChatMux zu programmieren. Jedes Projekt enthält deine Chat-Sitzungen und den Dateiverlauf.",
     "tip": "Tipp",
     "createProjectMobile": "Tipp oben auf die Menüschaltfläche, um auf Projekte zuzugreifen",
     "createProjectDesktop": "Erstell ein neues Projekt, indem du auf das Ordnersymbol in der Seitenleiste klickst",

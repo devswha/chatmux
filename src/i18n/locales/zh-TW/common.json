@@ -89,7 +89,7 @@
     "loading": "正在載入 ChatMux",
     "settingUpWorkspace": "正在設定您的工作區...",
     "chooseProject": "選擇您的專案",
-    "selectProjectDescription": "從側邊欄選擇一個專案以開始使用 Claude 進行程式開發。每個專案包含您的聊天紀錄和檔案歷史。",
+    "selectProjectDescription": "從側邊欄選擇一個專案以開始使用 ChatMux 進行程式開發。每個專案包含您的聊天紀錄和檔案歷史。",
     "tip": "提示",
     "createProjectMobile": "點擊上方的選單按鈕以存取專案",
     "createProjectDesktop": "點擊側邊欄中的資料夾圖示以建立新專案",

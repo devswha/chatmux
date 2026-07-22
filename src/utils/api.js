@@ -113,7 +113,7 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ tmuxName, sessionId, message }),
     }),
-  // Create native codex/claude tmux sessions directly from the unified sessions tab.
+  // Create a supported local coding-agent tmux session from the unified sessions tab.
   externalCliSessionSpawn: (cli, name, cwd) =>
     authenticatedFetch('/api/providers/sessions/external/spawn', {
       method: 'POST',

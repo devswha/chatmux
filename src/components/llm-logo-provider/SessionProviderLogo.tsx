@@ -5,6 +5,7 @@ import CodexLogo from './CodexLogo';
 import CursorLogo from './CursorLogo';
 import OpenCodeLogo from './OpenCodeLogo';
 import GjcLogo from './GjcLogo';
+import OmpLogo from './OmpLogo';
 
 type SessionProviderLogoProps = {
   provider?: LLMProvider | string | null;
@@ -29,6 +30,10 @@ export default function SessionProviderLogo({
 
   if (provider === 'gjc') {
     return <GjcLogo className={className} />;
+  }
+
+  if (provider === 'omp') {
+    return <OmpLogo className={className} />;
   }
 
   return <ClaudeLogo className={className} />;

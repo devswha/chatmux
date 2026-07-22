@@ -22,9 +22,10 @@ const FALLBACK_DEFAULT_MODEL: Record<LLMProvider, string> = {
   codex: 'gpt-5.4',
   opencode: 'anthropic/claude-sonnet-4-5',
   gjc: 'default',
+  omp: 'default',
 };
 
-const PROVIDERS: LLMProvider[] = ['claude', 'cursor', 'codex', 'opencode', 'gjc'];
+const PROVIDERS: LLMProvider[] = ['claude', 'cursor', 'codex', 'opencode', 'gjc', 'omp'];
 
 const readStoredProvider = (): LLMProvider => {
   const storedProvider = localStorage.getItem('selected-provider');
@@ -45,6 +46,7 @@ const FALLBACK_PERMISSION_MODES: Record<LLMProvider, PermissionMode[]> = {
   codex: ['default', 'acceptEdits', 'bypassPermissions'],
   opencode: ['default', 'acceptEdits', 'bypassPermissions', 'plan'],
   gjc: ['default'],
+  omp: ['default'],
 };
 
 type ProviderCapabilities = {
@@ -111,6 +113,9 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
   const [opencodeModel, setOpenCodeModel] = useState<string>(() => {
     return localStorage.getItem('opencode-model') || FALLBACK_DEFAULT_MODEL.opencode;
   });
+  const [ompModel, setOmpModel] = useState<string>(() => {
+    return localStorage.getItem('omp-model') || FALLBACK_DEFAULT_MODEL.omp;
+  });
 
   /**
    * Backend-owned capability matrix keyed by provider. Drives the permission
@@ -153,8 +158,16 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
       return;
     }
 
-    setOpenCodeModel(model);
-    localStorage.setItem('opencode-model', model);
+    if (targetProvider === 'opencode') {
+      setOpenCodeModel(model);
+      localStorage.setItem('opencode-model', model);
+      return;
+    }
+
+    if (targetProvider === 'omp') {
+      setOmpModel(model);
+      localStorage.setItem('omp-model', model);
+    }
   }, []);
 
   const setStoredProviderEffort = useCallback((targetProvider: LLMProvider, effort: string) => {
@@ -358,7 +371,8 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     codex: codexModel,
     opencode: opencodeModel,
     gjc: 'default',
-  }), [claudeModel, cursorModel, codexModel, opencodeModel]);
+    omp: ompModel,
+  }), [claudeModel, cursorModel, codexModel, opencodeModel, ompModel]);
 
   useEffect(() => {
     const claude = providerModelCatalog.claude;
@@ -411,6 +425,19 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
       }
     }
   }, [providerModelCatalog.opencode, opencodeModel]);
+
+  useEffect(() => {
+    const omp = providerModelCatalog.omp;
+    if (omp) {
+      const next = pickStoredOrCurrent('omp-model', ompModel, omp);
+      if (next !== ompModel) {
+        setOmpModel(next);
+      }
+      if (localStorage.getItem('omp-model') !== next) {
+        localStorage.setItem('omp-model', next);
+      }
+    }
+  }, [providerModelCatalog.omp, ompModel]);
 
   useEffect(() => {
     const nextEfforts: Partial<Record<LLMProvider, string>> = {};
@@ -574,6 +601,8 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     currentProviderEffortOptions,
     opencodeModel,
     setOpenCodeModel,
+    ompModel,
+    setOmpModel,
     permissionMode,
     setPermissionMode,
     pendingPermissionRequests,

@@ -17,7 +17,7 @@ test('gjc renders the distinct Gajae Code mark, not ChatMux or Claude branding',
 });
 
 test('known providers each get their own distinct mark', () => {
-  const providers = ['gjc', 'claude', 'codex', 'cursor', 'opencode'] as const;
+  const providers = ['gjc', 'claude', 'codex', 'cursor', 'opencode', 'omp'] as const;
   const markups = providers.map((provider) =>
     renderToStaticMarkup(createElement(SessionProviderLogo, { provider })),
   );

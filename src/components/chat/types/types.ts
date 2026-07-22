@@ -125,7 +125,7 @@ export interface ChatInterfaceProps {
   // `$N` generation token of the tmux session backing the relay target (kill/send race guard).
   liveSessionTmuxId: string | null;
   liveSessionModel: string | null;
-  liveSessionKind: 'gjc' | 'codex' | 'claude' | null;
+  liveSessionKind: 'gjc' | 'codex' | 'claude' | 'cursor' | 'opencode' | 'omp' | null;
   ws: WebSocket | null;
   sendMessage: (message: unknown) => void;
   onFileOpen?: (filePath: string, diffInfo?: any) => void;

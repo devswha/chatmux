@@ -65,7 +65,7 @@ export type AuthenticatedWebSocketRequest = IncomingMessage & {
  * Use this as the source of truth whenever a function or payload needs to identify
  * a specific LLM integration.
  */
-export type LLMProvider = 'claude' | 'codex' | 'cursor' | 'opencode' | 'gjc';
+export type LLMProvider = 'claude' | 'codex' | 'cursor' | 'opencode' | 'gjc' | 'omp';
 
 /**
  * One selectable model row in a provider model catalog.
@@ -405,7 +405,7 @@ export type ProviderSkillSource = {
   scope: ProviderSkillScope;
   rootDir: string;
   recursive?: boolean;
-  commandPrefix?: '/' | '$';
+  commandPrefix?: '/' | '$' | '/skill:';
   commandForSkill?: (skillName: string) => string;
   pluginName?: string;
   pluginId?: string;

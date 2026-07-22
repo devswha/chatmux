@@ -1,4 +1,4 @@
-export type LLMProvider = 'claude' | 'cursor' | 'codex' | 'opencode' | 'gjc';
+export type LLMProvider = 'claude' | 'cursor' | 'codex' | 'opencode' | 'gjc' | 'omp';
 
 export type ProviderModelOption = {
   value: string;
@@ -27,14 +27,14 @@ export type ProviderModelsCacheInfo = {
 export type AppTab = 'chat' | 'files' | 'shell' | 'git' | 'tasks' | 'browser' | `plugin:${string}`;
 
 /**
- * A discovered external CLI target. Local Claude/Codex sessions open their
+ * A discovered external CLI target. Local coding-agent sessions open their
  * structured transcript when indexed; `project` supplies the pending-relay or
  * terminal-fallback cwd before that handoff. Remote SSH remains attach-only.
  */
 export type ExternalTerminalTarget = {
   tmuxName: string;
   kind: string;
-  cliKind: 'claude' | 'codex' | 'ssh';
+  cliKind: 'claude' | 'codex' | 'cursor' | 'opencode' | 'omp' | 'ssh';
   project: Project;
   /** Opens the structured transcript instead of attaching a terminal. */
   transcriptSessionId?: string;

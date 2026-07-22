@@ -78,6 +78,8 @@ function ChatInterface({
     currentProviderEffortOptions,
     opencodeModel,
     setOpenCodeModel,
+    ompModel,
+    setOmpModel,
     permissionMode,
     pendingPermissionRequests,
     setPendingPermissionRequests,
@@ -116,6 +118,7 @@ function ChatInterface({
     visibleMessages,
     loadEarlierMessages,
     loadAllMessages,
+    refreshCurrentMessages,
     allMessagesLoaded,
     isLoadingAllMessages,
     loadAllJustFinished,
@@ -139,6 +142,30 @@ function ChatInterface({
     lastSeqRef,
     sessionStore,
   });
+
+  useEffect(() => {
+    if (
+      !selectedSession
+      || !liveSessionTmuxName
+      || !liveSessionKind
+      || liveSessionKind === 'gjc'
+    ) {
+      return;
+    }
+    const refresh = () => {
+      if (document.visibilityState === 'visible') {
+        void refreshCurrentMessages();
+      }
+    };
+    refresh();
+    const timer = window.setInterval(refresh, 1_500);
+    return () => window.clearInterval(timer);
+  }, [
+    selectedSession,
+    liveSessionTmuxName,
+    liveSessionKind,
+    refreshCurrentMessages,
+  ]);
 
   // Brand-new conversation: the composer allocated a stable session id via
   // the session gateway before the first send. Record it locally and put it
@@ -209,6 +236,7 @@ function ChatInterface({
     codexModel,
     currentProviderEffort,
     opencodeModel,
+    ompModel,
     isLoading: isProcessing,
     isSessionReadOnly,
     canAbortSession,
@@ -323,8 +351,12 @@ function ChatInterface({
         : provider === 'codex'
           ? t('messageTypes.codex')
           : provider === 'opencode'
-              ? t('messageTypes.opencode', { defaultValue: 'OpenCode' })
-            : t('messageTypes.claude');
+            ? t('messageTypes.opencode', { defaultValue: 'OpenCode' })
+            : provider === 'gjc'
+              ? t('messageTypes.gjc', { defaultValue: 'Gajae Code' })
+              : provider === 'omp'
+                ? t('messageTypes.omp', { defaultValue: 'Oh My Pi' })
+                : t('messageTypes.claude');
 
     return (
       <div className="flex h-full items-center justify-center">
@@ -364,6 +396,8 @@ function ChatInterface({
           setCodexModel={setCodexModel}
           opencodeModel={opencodeModel}
           setOpenCodeModel={setOpenCodeModel}
+          ompModel={ompModel}
+          setOmpModel={setOmpModel}
           providerModelCatalog={providerModelCatalog}
           providerModelsLoading={providerModelsLoading}
           tasksEnabled={tasksEnabled}
@@ -500,8 +534,12 @@ function ChatInterface({
                 : provider === 'codex'
                   ? t('messageTypes.codex')
                   : provider === 'opencode'
-                      ? t('messageTypes.opencode', { defaultValue: 'OpenCode' })
-                    : t('messageTypes.claude'),
+                    ? t('messageTypes.opencode', { defaultValue: 'OpenCode' })
+                    : provider === 'gjc'
+                      ? t('messageTypes.gjc', { defaultValue: 'Gajae Code' })
+                      : provider === 'omp'
+                        ? t('messageTypes.omp', { defaultValue: 'Oh My Pi' })
+                        : t('messageTypes.claude'),
           })}
           isTextareaExpanded={isTextareaExpanded}
           sendByCtrlEnter={sendByCtrlEnter}

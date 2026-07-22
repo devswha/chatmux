@@ -5,7 +5,6 @@ import type { IProviderSessions } from '@/shared/interfaces.js';
 import type { AnyRecord, FetchHistoryOptions, FetchHistoryResult, NormalizedMessage } from '@/shared/types.js';
 import { createNormalizedMessage, generateMessageId, readObjectRecord, sliceTailPage } from '@/shared/utils.js';
 
-const PROVIDER = 'gjc';
 
 const MAX_JSONL_LINE_BYTES = 32 * 1024 * 1024;
 const MAX_BUFFERED_HISTORY_RECORDS = 5_000;
@@ -141,7 +140,7 @@ async function* readBoundedJsonlLines(sessionFilePath: string): AsyncGenerator<s
   }
 }
 /**
- * Reads the text body of a gjc content part (`text` or `thinking`).
+ * Reads the text body of a Pi-agent content part (`text` or `thinking`).
  */
 function extractGjcPartText(part: AnyRecord): string {
   if (typeof part.text === 'string') {
@@ -154,14 +153,15 @@ function extractGjcPartText(part: AnyRecord): string {
 }
 
 /**
- * Streams a gjc JSONL transcript and flattens `type:"message"` lines into the
- * compact intermediate shape consumed by `normalizeHistoryEntry`.
+ * Streams a Pi-agent JSONL transcript and flattens `type:"message"` lines into
+ * the compact intermediate shape consumed by `normalizeHistoryEntry`.
  *
  * Only displayable user, assistant, and tool-result messages are processed;
  * header and control events are ignored. Each `message.content[]` part becomes
  * its own intermediate record with a unique id so multi-part turns never collide.
  */
-async function streamGjcSessionMessages(
+async function streamPiSessionMessages(
+  provider: 'gjc' | 'omp',
   sessionId: string,
   onMessage: (message: AnyRecord) => void,
 ): Promise<void> {
@@ -197,13 +197,13 @@ async function streamGjcSessionMessages(
         const timestamp = entry.timestamp;
         const entryId = typeof entry.id === 'string'
           ? entry.id
-          : (typeof entry.timestamp === 'string' ? entry.timestamp : generateMessageId(PROVIDER));
+          : (typeof entry.timestamp === 'string' ? entry.timestamp : generateMessageId(provider));
 
         const content = Array.isArray(message.content)
           ? message.content
           : (typeof message.content === 'string' ? [{ type: 'text', text: message.content }] : []);
 
-        // gjc records a tool RESULT as a top-level message with role 'toolResult'
+        // Pi agents record a tool RESULT as a top-level message with role 'toolResult'
         // whose content is plain text parts. Emit one tool_result here (paired to
         // its tool_use by toolCallId downstream) so the UI folds it into the tool
         // block instead of dumping the raw output as chat text.
@@ -301,17 +301,18 @@ async function streamGjcSessionMessages(
       }
     }
   } catch (error) {
-    console.error(`Error reading gjc session messages for ${sessionId}:`, error);
+    console.error(`Error reading ${provider} session messages for ${sessionId}:`, error);
   }
 }
 
 export class GjcSessionsProvider implements IProviderSessions {
+  constructor(private readonly provider: 'gjc' | 'omp' = 'gjc') {}
   /**
    * Normalizes one flattened gjc content-part record into the shared envelope.
    */
   private normalizeHistoryEntry(raw: AnyRecord, sessionId: string | null): NormalizedMessage[] {
     const ts = raw.timestamp || new Date().toISOString();
-    const baseId = raw.uuid || generateMessageId(PROVIDER);
+    const baseId = raw.uuid || generateMessageId(this.provider);
 
     if (raw.type === 'thinking') {
       const thinkingContent = typeof raw.message?.content === 'string'
@@ -324,7 +325,7 @@ export class GjcSessionsProvider implements IProviderSessions {
         id: baseId,
         sessionId,
         timestamp: ts,
-        provider: PROVIDER,
+        provider: this.provider,
         kind: 'thinking',
         content: thinkingContent,
       })];
@@ -339,7 +340,7 @@ export class GjcSessionsProvider implements IProviderSessions {
         id: baseId,
         sessionId,
         timestamp: ts,
-        provider: PROVIDER,
+        provider: this.provider,
         kind: 'text',
         role: 'user',
         content,
@@ -355,7 +356,7 @@ export class GjcSessionsProvider implements IProviderSessions {
         id: baseId,
         sessionId,
         timestamp: ts,
-        provider: PROVIDER,
+        provider: this.provider,
         kind: 'text',
         role: 'assistant',
         content,
@@ -367,7 +368,7 @@ export class GjcSessionsProvider implements IProviderSessions {
         id: baseId,
         sessionId,
         timestamp: ts,
-        provider: PROVIDER,
+        provider: this.provider,
         kind: 'tool_use',
         toolName: raw.toolName || 'Unknown',
         toolInput: raw.toolInput,
@@ -384,7 +385,7 @@ export class GjcSessionsProvider implements IProviderSessions {
         id: baseId,
         sessionId,
         timestamp: ts,
-        provider: PROVIDER,
+        provider: this.provider,
         kind: 'tool_result',
         toolId: raw.toolCallId || '',
         content,
@@ -425,7 +426,7 @@ export class GjcSessionsProvider implements IProviderSessions {
     );
 
     try {
-      await streamGjcSessionMessages(sessionId, (rawMessage) => {
+      await streamPiSessionMessages(this.provider, sessionId, (rawMessage) => {
         for (const message of this.normalizeHistoryEntry(rawMessage, sessionId)) {
           messageBuffer.push(message);
         }

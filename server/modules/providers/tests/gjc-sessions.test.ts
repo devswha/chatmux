@@ -7,6 +7,7 @@ import test from 'node:test';
 import { appConfigDb, closeConnection, initializeDatabase, sessionsDb } from '@/modules/database/index.js';
 import { GjcSessionSynchronizer } from '@/modules/providers/list/gjc/gjc-session-synchronizer.provider.js';
 import { GjcSessionsProvider } from '@/modules/providers/list/gjc/gjc-sessions.provider.js';
+import { OmpProviderModels } from '@/modules/providers/list/omp/omp-models.provider.js';
 
 const patchHomeDir = (nextHomeDir: string) => {
   const original = os.homedir;
@@ -598,6 +599,92 @@ test('gjc synchronizer indexes transcripts from the live session directory', { c
   } finally {
     restoreLiveSessionDir();
     restoreHomeDir();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('Oh My Pi synchronizer indexes native JSONL and replays its conversation', { concurrency: false }, async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'omp-session-sync-'));
+  const workspacePath = path.join(tempRoot, 'workspace');
+  const sessionsDir = path.join(tempRoot, '.omp', 'agent', 'sessions', '-workspace');
+  const sessionId = '019f875f-4370-7000-b65d-1646af24d987';
+  const transcriptPath = path.join(sessionsDir, `2026-07-22T01-09-55-184Z_${sessionId}.jsonl`);
+  await mkdir(workspacePath, { recursive: true });
+  await mkdir(sessionsDir, { recursive: true });
+  await writeFile(transcriptPath, [
+    JSON.stringify({ type: 'title', v: 1, title: 'OMP transcript', source: 'auto' }),
+    JSON.stringify({
+      type: 'session',
+      version: 3,
+      id: sessionId,
+      timestamp: '2026-07-22T01:09:55.184Z',
+      cwd: workspacePath,
+      title: 'OMP transcript',
+    }),
+    JSON.stringify({
+      type: 'model_change',
+      id: 'model-1',
+      timestamp: '2026-07-22T01:10:08.030Z',
+      model: 'openai-codex/gpt-5.6-sol',
+    }),
+    JSON.stringify({
+      type: 'message',
+      id: 'user-1',
+      timestamp: '2026-07-22T01:10:36.143Z',
+      message: { role: 'user', content: [{ type: 'text', text: 'Support Oh My Pi' }] },
+    }),
+    JSON.stringify({
+      type: 'message',
+      id: 'assistant-1',
+      timestamp: '2026-07-22T01:10:44.852Z',
+      message: {
+        role: 'assistant',
+        content: [
+          { type: 'thinking', thinking: 'Inspecting the transcript.' },
+          { type: 'text', text: 'OMP is connected.' },
+          { type: 'toolCall', id: 'call-1', name: 'read', arguments: { path: 'README.md' } },
+        ],
+      },
+    }),
+    JSON.stringify({
+      type: 'message',
+      id: 'tool-1',
+      timestamp: '2026-07-22T01:10:44.855Z',
+      message: {
+        role: 'toolResult',
+        toolCallId: 'call-1',
+        toolName: 'read',
+        content: [{ type: 'text', text: 'README body' }],
+      },
+    }),
+  ].join('\n') + '\n', 'utf8');
+
+  try {
+    await withIsolatedDatabase(async () => {
+      const synchronizer = new GjcSessionSynchronizer({ provider: 'omp', sessionsDir });
+      assert.equal(await synchronizer.synchronize(), 1);
+
+      const indexed = sessionsDb.getSessionById(sessionId);
+      assert.equal(indexed?.provider, 'omp');
+      assert.equal(indexed?.project_path, workspacePath);
+      assert.equal(indexed?.custom_name, 'Support Oh My Pi');
+
+      const history = await new GjcSessionsProvider('omp').fetchHistory(sessionId);
+      assert.equal(history.total, 4);
+      assert.deepEqual(history.messages.map((message) => message.kind), [
+        'text',
+        'thinking',
+        'text',
+        'tool_use',
+      ]);
+      assert.deepEqual(history.messages[3]?.toolResult, { content: 'README body', isError: false });
+      assert.equal(
+        (await new OmpProviderModels().getCurrentActiveModel(sessionId)).model,
+        'openai-codex/gpt-5.6-sol',
+      );
+      assert.ok(history.messages.every((message) => message.provider === 'omp'));
+    });
+  } finally {
     await rm(tempRoot, { recursive: true, force: true });
   }
 });

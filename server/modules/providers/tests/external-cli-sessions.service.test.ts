@@ -4,8 +4,10 @@ import test from 'node:test';
 import {
   EXTERNAL_TMUX_NAME_RE,
   assignFreshCodexThreadIds,
+  assignFreshIndexedProviderSessionIds,
   classifyExternalSessions,
   extractCodexResumeThreadId,
+  extractExternalResumeSessionId,
   parseClaudeRuntimeSession,
   parseExternalPanes,
   parsePsTree,
@@ -17,6 +19,20 @@ test('parseExternalPanes splits session_name<TAB>pane_pid<TAB>pane_current_comma
     { name: 'patina', pid: 113501, command: 'claude' },
     { name: 'test', pid: 360992, command: 'node' },
   ]);
+});
+
+test('parseExternalPanes reads ChatMux provider/session tags for freshly spawned panes', () => {
+  const out = parseExternalPanes(
+    'omp-work\t710\tnode\t\t/workspace\tomp\t019f848f_ff71_77f0\n',
+  );
+  assert.deepEqual(out, [{
+    name: 'omp-work',
+    pid: 710,
+    command: 'node',
+    cwd: '/workspace',
+    taggedKind: 'omp',
+    taggedSessionId: '019f848f_ff71_77f0',
+  }]);
 });
 
 test('parseExternalPanes reads transcript id and cwd from the extended tmux format', () => {
@@ -65,6 +81,38 @@ test('assignFreshCodexThreadIds ignores threads outside the launch window', () =
   assert.equal(assigned.size, 0);
 });
 
+test('assignFreshIndexedProviderSessionIds pairs unique disk transcripts newest-first', () => {
+  const assigned = assignFreshIndexedProviderSessionIds(
+    [
+      { tmuxName: 'first', kind: 'omp', cwd: '/workspace', startedAtMs: 10_000 },
+      { tmuxName: 'second', kind: 'omp', cwd: '/workspace', startedAtMs: 20_000 },
+    ],
+    [
+      { id: 'session-first', kind: 'omp', cwd: '/workspace', createdAtMs: 10_500, diskDiscovered: true },
+      { id: 'session-second', kind: 'omp', cwd: '/workspace', createdAtMs: 20_500, diskDiscovered: true },
+    ],
+    60_000,
+    30_000,
+  );
+  assert.deepEqual([...assigned], [
+    ['second', 'session-second'],
+    ['first', 'session-first'],
+  ]);
+});
+
+test('assignFreshIndexedProviderSessionIds rejects stale, app-created, and ambiguous candidates', () => {
+  const process = [{ tmuxName: 'work', kind: 'opencode' as const, cwd: '/workspace', startedAtMs: 10_000 }];
+  assert.equal(assignFreshIndexedProviderSessionIds(process, [
+    { id: 'stale', kind: 'opencode', cwd: '/workspace', createdAtMs: 8_000, diskDiscovered: true },
+    { id: 'app-row', kind: 'opencode', cwd: '/workspace', createdAtMs: 10_500, diskDiscovered: false },
+  ], 60_000, 30_000).size, 0);
+
+  assert.equal(assignFreshIndexedProviderSessionIds(process, [
+    { id: 'candidate-a', kind: 'opencode', cwd: '/workspace', createdAtMs: 10_500, diskDiscovered: true },
+    { id: 'candidate-b', kind: 'opencode', cwd: '/workspace', createdAtMs: 11_000, diskDiscovered: true },
+  ], 60_000, 30_000).size, 0);
+});
+
 test('parsePsTree parses pid,ppid,comm rows and tolerates the header', () => {
   const out = parsePsTree('    PID    PPID COMM\n      1       0 systemd\n 360992    1278 node\n1731394 1731329 codex\n');
   assert.deepEqual(out, [
@@ -88,6 +136,22 @@ test('extractCodexResumeThreadId reads native `codex resume <uuid>` argv', () =>
   );
   assert.equal(extractCodexResumeThreadId('codex --remote ws://127.0.0.1:4518'), null);
 });
+
+test('extractExternalResumeSessionId recognizes every supported native resume form', () => {
+  assert.equal(
+    extractExternalResumeSessionId('claude', 'claude --resume 92869134-b4df-453e-b3a6-ed1d750d69d9'),
+    '92869134-b4df-453e-b3a6-ed1d750d69d9',
+  );
+  assert.equal(
+    extractExternalResumeSessionId('codex', 'codex resume 019f7b07-3def-7501-a53f-f519c88dd722'),
+    '019f7b07-3def-7501-a53f-f519c88dd722',
+  );
+  assert.equal(extractExternalResumeSessionId('cursor', 'cursor-agent resume bc9d14b9-2cb1-410e'), 'bc9d14b9-2cb1-410e');
+  assert.equal(extractExternalResumeSessionId('opencode', 'opencode --session ses_2eaa2026198bxLxI'), 'ses_2eaa2026198bxLxI');
+  assert.equal(extractExternalResumeSessionId('omp', 'omp --resume 019f848f_ff71_77f0'), '019f848f_ff71_77f0');
+  assert.equal(extractExternalResumeSessionId('cursor', 'cursor-agent --version'), null);
+});
+
 
 test('parseClaudeRuntimeSession accepts the PID-bound native Claude receipt', () => {
   const sessionId = '92869134-b4df-453e-b3a6-ed1d750d69d9';
@@ -122,7 +186,50 @@ test('classifyExternalSessions auto-links a native Codex resume process to its t
   assert.deepEqual(result, [{
     tmuxName: 'native',
     kind: 'codex',
-    codexThreadId: '019f7b07-3def-7501-a53f-f519c88dd722',
+    providerSessionId: '019f7b07-3def-7501-a53f-f519c88dd722',
+  }]);
+});
+
+test('classifyExternalSessions recognizes Cursor, OpenCode, and Oh My Pi process trees', () => {
+  const result = classifyExternalSessions({
+    panes: [
+      { name: 'cursor-work', pid: 800, command: 'cursor-agent', cwd: '/cursor' },
+      { name: 'opencode-work', pid: 900, command: 'opencode', cwd: '/opencode' },
+      { name: 'omp-work', pid: 1000, command: 'omp', cwd: '/omp' },
+    ],
+    procs: [
+      { pid: 800, ppid: 1, comm: 'zsh', args: '-zsh' },
+      { pid: 801, ppid: 800, comm: 'cursor-agent', args: 'cursor-agent resume cursor-session-123' },
+      { pid: 900, ppid: 1, comm: 'zsh', args: '-zsh' },
+      { pid: 901, ppid: 900, comm: 'node', args: 'node /usr/bin/opencode --session ses_open_123' },
+      { pid: 1000, ppid: 1, comm: 'zsh', args: '-zsh' },
+      { pid: 1001, ppid: 1000, comm: 'node', args: 'node /usr/bin/omp --resume omp_session_123' },
+    ],
+  });
+  assert.deepEqual(result, [
+    { tmuxName: 'cursor-work', kind: 'cursor', providerSessionId: 'cursor-session-123', cwd: '/cursor' },
+    { tmuxName: 'omp-work', kind: 'omp', providerSessionId: 'omp_session_123', cwd: '/omp' },
+    { tmuxName: 'opencode-work', kind: 'opencode', providerSessionId: 'ses_open_123', cwd: '/opencode' },
+  ]);
+});
+
+test('classifyExternalSessions trusts a valid ChatMux spawn tag through a node launcher', () => {
+  const result = classifyExternalSessions({
+    panes: [{
+      name: 'omp-fresh',
+      pid: 1100,
+      command: 'node',
+      taggedKind: 'omp',
+      taggedSessionId: 'omp_tagged_123',
+      cwd: '/workspace',
+    }],
+    procs: [{ pid: 1100, ppid: 1, comm: 'node', args: 'node wrapper.js' }],
+  });
+  assert.deepEqual(result, [{
+    tmuxName: 'omp-fresh',
+    kind: 'omp',
+    providerSessionId: 'omp_tagged_123',
+    cwd: '/workspace',
   }]);
 });
 
@@ -163,7 +270,7 @@ test('classifyExternalSessions: tagged Codex pane exposes its transcript thread 
   assert.deepEqual(result, [{
     tmuxName: 'mobile',
     kind: 'codex',
-    codexThreadId: '019f848f-ff71-77f0-8623-08625d24f037',
+    providerSessionId: '019f848f-ff71-77f0-8623-08625d24f037',
   }]);
 });
 
@@ -247,7 +354,18 @@ test('classifyExternalSessions: descendant BFS is cycle-guarded', () => {
       { pid: 2, ppid: 1, comm: 'claude' }, // artificial cycle
     ],
   });
-  assert.deepEqual(result, [{ tmuxName: 'loop', kind: 'claude' }]);
+  assert.deepEqual(result, []);
+});
+
+test('classifyExternalSessions drops background Oh My Pi workers inside an app pane', () => {
+  const result = classifyExternalSessions({
+    panes: [{ name: 'chatmux', pid: 1200, command: 'bun', cwd: '/workspace/chatmux' }],
+    procs: [
+      { pid: 1200, ppid: 1, comm: 'bun', args: 'bun server/index.ts' },
+      { pid: 1201, ppid: 1200, comm: 'node', args: 'node /usr/bin/omp --resume background_omp_123' },
+    ],
+  });
+  assert.deepEqual(result, []);
 });
 
 test('classifyExternalSessions: sorted by tmux name for stable rendering', () => {

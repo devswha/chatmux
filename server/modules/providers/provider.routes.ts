@@ -303,6 +303,7 @@ const parseProvider = (value: unknown): LLMProvider => {
     || normalized === 'cursor'
     || normalized === 'opencode'
     || normalized === 'gjc'
+    || normalized === 'omp'
   ) {
     return normalized;
   }
@@ -595,21 +596,14 @@ router.get(
 router.get(
   '/sessions/external',
   asyncHandler(async (_req: Request, res: Response) => {
-    // External CLI (claude/codex) tmux sessions for structured transcripts
-    // when a native session id is available, with terminal attach as fallback.
-    // A tmux session is excluded only when a gjc process actually runs INSIDE
-    // one of its panes (service-level subtree check). We deliberately do NOT
-    // subtract tmux names the gjc live lane claimed via its cwd fallback: a
-    // background gjc merely sharing the cwd must not hide the pane's real
-    // claude/codex session from this lane. Such a name may legitimately appear
-    // in both views because the conversations are independent.
+    // Local coding-agent tmux sessions open structured transcripts when a
+    // native session id is available, with terminal attach as the fallback.
+    // GJC panes stay in the dedicated live lane; SSH is always attach-only.
     const externalSessions = await Promise.all((await getExternalCliSessions()).map(async (session) => {
       if (session.kind === 'ssh') {
         return { tmuxName: session.tmuxName, kind: session.kind };
       }
-      const providerSessionId = session.kind === 'codex'
-        ? session.codexThreadId
-        : session.claudeSessionId;
+      const providerSessionId = session.providerSessionId;
       if (!providerSessionId) {
         return { tmuxName: session.tmuxName, kind: session.kind };
       }
@@ -649,10 +643,16 @@ router.post(
         statusCode: 400,
       });
     }
-    if (body.cli !== undefined && body.cli !== 'codex' && body.cli !== 'claude') {
-      throw new AppError('cli must be "codex" or "claude".', { code: 'INVALID_CLI', statusCode: 400 });
+    const supportedClis: ExternalSpawnCli[] = ['claude', 'codex', 'cursor', 'opencode', 'omp'];
+    if (body.cli !== undefined && !supportedClis.includes(body.cli as ExternalSpawnCli)) {
+      throw new AppError(`cli must be one of: ${supportedClis.join(', ')}.`, {
+        code: 'INVALID_CLI',
+        statusCode: 400,
+      });
     }
-    const cli: ExternalSpawnCli = body.cli === 'claude' ? 'claude' : 'codex';
+    const cli: ExternalSpawnCli = body.cli === undefined
+      ? 'codex'
+      : body.cli as ExternalSpawnCli;
     const cwdInput = typeof body.cwd === 'string' ? body.cwd.trim() : '';
     if (!cwdInput) {
       throw new AppError('cwd is required.', { code: 'EMPTY_CWD', statusCode: 400 });
@@ -690,10 +690,10 @@ router.post(
       });
     }
     const target = (await getExternalCliSessions()).find(
-      (session) => session.tmuxName === body.tmuxName && (session.kind === 'codex' || session.kind === 'claude'),
+      (session) => session.tmuxName === body.tmuxName && session.kind !== 'ssh',
     );
     if (!target) {
-      throw new AppError('The selected tmux session is no longer a running Codex/Claude session.', {
+      throw new AppError('The selected tmux session is no longer a supported local CLI session.', {
         code: 'EXTERNAL_CLI_SESSION_MISMATCH',
         statusCode: 409,
       });
@@ -735,9 +735,7 @@ router.post(
         statusCode: 409,
       });
     }
-    const providerSessionId = external.kind === 'codex'
-      ? external.codexThreadId
-      : external.claudeSessionId;
+    const providerSessionId = external.providerSessionId;
     const mapped = sessionId && providerSessionId
       ? sessionsDb.getSessionByProviderSessionId(external.kind, providerSessionId)
       : null;

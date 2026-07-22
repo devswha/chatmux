@@ -248,10 +248,10 @@ function AppContentInner() {
     onExternalTerminalOpen: openExternalTerminal,
   }), [sidebarSharedProps, openExternalTerminal]);
 
-  const activeExternalTranscript = (
-    externalTranscript?.cliKind === 'claude'
-    || externalTranscript?.cliKind === 'codex'
-  ) && externalTranscript.transcriptSessionId === sessionId
+  const activeExternalTranscript = externalTranscript
+    && externalTranscript.cliKind !== 'ssh'
+    && externalTranscript.cliKind !== 'gjc'
+    && externalTranscript.transcriptSessionId === sessionId
     ? externalTranscript
     : null;
 
@@ -433,7 +433,7 @@ function AppContentInner() {
           liveSessionModel={activeExternalTranscript?.model
             ?? (selectedSession ? (liveSessionModels.get(selectedSession.id) ?? null) : null)}
           liveSessionKind={activeExternalTranscript
-            ? (activeExternalTranscript.cliKind === 'claude' ? 'claude' : 'codex')
+            ? activeExternalTranscript.cliKind as Exclude<ExternalTerminalTarget['cliKind'], 'ssh'>
             : selectedSession && sidebarSharedProps.liveSessionLineage.has(selectedSession.id)
               ? 'gjc'
               : null}

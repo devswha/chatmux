@@ -45,7 +45,7 @@ export function filterImagesToUploadStore(images: unknown, assetsRootOverride?: 
 }
 
 /**
- * One provider runtime entry point. All five runtimes share this signature,
+ * One provider runtime entry point. Every runtime shares this signature,
  * which lets the chat handler dispatch through a provider-keyed map instead
  * of provider-specific branches.
  */
@@ -208,7 +208,7 @@ async function handleChatSend(
 
   try {
     const providerRun = spawnFn(command, runtimeOptions, run.writer);
-    if (provider === 'gjc') {
+    if (provider === 'gjc' || provider === 'omp') {
       const abortHandle = (providerRun as ProviderSpawnResult).abortHandle;
       if (abortHandle) {
         run.writer.setAbortHandle(abortHandle);
@@ -256,7 +256,7 @@ async function handleChatAbort(
   if (abortFn && abortSessionId) {
     success = Boolean(await abortFn(abortSessionId));
   }
-  if (!success && run.provider === 'gjc') {
+  if (!success && (run.provider === 'gjc' || run.provider === 'omp')) {
     sendProtocolError(ws, 'ABORT_FAILED', `Session "${sessionId}" could not be aborted.`, sessionId);
     return;
   }

@@ -89,7 +89,7 @@
     "loading": "正在加载 ChatMux",
     "settingUpWorkspace": "正在设置您的工作空间...",
     "chooseProject": "选择您的项目",
-    "selectProjectDescription": "从侧边栏选择一个项目以开始使用 Claude 进行编程。每个项目包含您的聊天会话和文件历史。",
+    "selectProjectDescription": "从侧边栏选择一个项目以开始使用 ChatMux 进行编程。每个项目包含您的聊天会话和文件历史。",
     "tip": "提示",
     "createProjectMobile": "点击上方的菜单按钮以访问项目",
     "createProjectDesktop": "点击侧边栏中的文件夹图标以创建新项目",

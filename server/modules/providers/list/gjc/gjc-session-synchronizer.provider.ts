@@ -14,9 +14,13 @@ import {
 import type { IProviderSessionSynchronizer } from '@/shared/interfaces.js';
 import type { AnyRecord } from '@/shared/types.js';
 
-const UNTITLED_GJC_SESSION = 'Untitled gjc Session';
-const GJC_INITIAL_SCAN_DONE_KEY = 'gjc_initial_scan_done';
-const GJC_PENDING_SESSION_FILES_KEY = 'gjc_pending_session_files';
+type PiTranscriptProvider = 'gjc' | 'omp';
+
+export type PiSessionSynchronizerOptions = {
+  provider?: PiTranscriptProvider;
+  sessionsDir?: string;
+  additionalSessionDirs?: string[];
+};
 
 type SessionFile = {
   filePath: string;
@@ -67,10 +71,30 @@ function extractGjcTextFromContent(content: unknown): string {
  * unlike Codex which nests them under `payload`.
  */
 export class GjcSessionSynchronizer implements IProviderSessionSynchronizer {
-  private readonly provider = 'gjc' as const;
-  private readonly sessionsDir = path.join(os.homedir(), '.gjc', 'agent', 'sessions');
-  private readonly liveSessionsDir = process.env.GJC_LIVE_SESSION_DIR
-    || path.join(os.tmpdir(), 'gjc-live-sessions');
+  private readonly provider: PiTranscriptProvider;
+  private readonly sessionRoots: string[];
+  private readonly untitledSession: string;
+  private readonly initialScanDoneKey: string;
+  private readonly pendingSessionFilesKey: string;
+
+  constructor(options: PiSessionSynchronizerOptions = {}) {
+    this.provider = options.provider ?? 'gjc';
+    const agentRoot = this.provider === 'omp'
+      ? path.join(os.homedir(), '.omp', 'agent')
+      : path.join(os.homedir(), '.gjc', 'agent');
+    const defaultAdditionalRoots = this.provider === 'gjc'
+      ? [process.env.GJC_LIVE_SESSION_DIR || path.join(os.tmpdir(), 'gjc-live-sessions')]
+      : [];
+    this.sessionRoots = [...new Set([
+      options.sessionsDir ?? path.join(agentRoot, 'sessions'),
+      ...(options.additionalSessionDirs ?? defaultAdditionalRoots),
+    ])];
+    this.untitledSession = this.provider === 'omp'
+      ? 'Untitled Oh My Pi Session'
+      : 'Untitled gjc Session';
+    this.initialScanDoneKey = `${this.provider}_initial_scan_done`;
+    this.pendingSessionFilesKey = `${this.provider}_pending_session_files`;
+  }
 
   /**
    * A top-level session is `sessions/<cwd-slug>/<ts>_<uuid>.jsonl`. Subagent
@@ -94,7 +118,7 @@ export class GjcSessionSynchronizer implements IProviderSessionSynchronizer {
   }
 
   private getSessionRoots(): string[] {
-    return [...new Set([this.sessionsDir, this.liveSessionsDir])];
+    return this.sessionRoots;
   }
 
   private async getSessionRootForFile(filePath: string): Promise<string | null> {
@@ -121,7 +145,7 @@ export class GjcSessionSynchronizer implements IProviderSessionSynchronizer {
   }
 
   private getPendingSessionFiles(): Map<string, SessionFile> {
-    const rawPendingFiles = appConfigDb.get(GJC_PENDING_SESSION_FILES_KEY);
+    const rawPendingFiles = appConfigDb.get(this.pendingSessionFilesKey);
     if (!rawPendingFiles) {
       return new Map();
     }
@@ -148,7 +172,7 @@ export class GjcSessionSynchronizer implements IProviderSessionSynchronizer {
   }
 
   private savePendingSessionFiles(pendingFiles: Map<string, SessionFile>): void {
-    appConfigDb.set(GJC_PENDING_SESSION_FILES_KEY, JSON.stringify([...pendingFiles.values()]));
+    appConfigDb.set(this.pendingSessionFilesKey, JSON.stringify([...pendingFiles.values()]));
   }
 
   private async resolveContainedSessionFile(
@@ -253,7 +277,7 @@ export class GjcSessionSynchronizer implements IProviderSessionSynchronizer {
     signal?: AbortSignal
   ): Promise<{ processed: number; sessionIds: string[] }> {
     signal?.throwIfAborted();
-    const initialScanDone = appConfigDb.get(GJC_INITIAL_SCAN_DONE_KEY) === 'true';
+    const initialScanDone = appConfigDb.get(this.initialScanDoneKey) === 'true';
     const scanSince = initialScanDone ? since ?? null : null;
     const sessionFiles = new Map<string, SessionFile>();
     const pendingFiles = this.getPendingSessionFiles();
@@ -318,9 +342,9 @@ export class GjcSessionSynchronizer implements IProviderSessionSynchronizer {
       if (existingSession) {
         // If the session is still untitled and we now have a name, update it.
         if (
-          existingSession.custom_name === UNTITLED_GJC_SESSION
+          existingSession.custom_name === this.untitledSession
           && parsed.sessionName
-          && parsed.sessionName !== UNTITLED_GJC_SESSION
+          && parsed.sessionName !== this.untitledSession
         ) {
           sessionsDb.updateSessionCustomName(existingSession.session_id, parsed.sessionName);
         }
@@ -344,7 +368,7 @@ export class GjcSessionSynchronizer implements IProviderSessionSynchronizer {
     signal?.throwIfAborted();
     this.savePendingSessionFiles(pendingFiles);
     if (!initialScanDone && pendingFiles.size === 0) {
-      appConfigDb.set(GJC_INITIAL_SCAN_DONE_KEY, 'true');
+      appConfigDb.set(this.initialScanDoneKey, 'true');
     }
 
     return { processed, sessionIds: [...sessionIds] };
@@ -424,10 +448,10 @@ export class GjcSessionSynchronizer implements IProviderSessionSynchronizer {
     const existingSession = sessionsDb.getSessionByProviderSessionId(this.provider, parsed.sessionId)
       ?? sessionsDb.getSessionById(parsed.sessionId);
     const existingSessionName = existingSession?.custom_name;
-    if (existingSessionName && existingSessionName !== UNTITLED_GJC_SESSION) {
+    if (existingSessionName && existingSessionName !== this.untitledSession) {
       return {
         ...parsed,
-        sessionName: normalizeSessionName(existingSessionName, UNTITLED_GJC_SESSION),
+        sessionName: normalizeSessionName(existingSessionName, this.untitledSession),
       };
     }
 
@@ -437,7 +461,7 @@ export class GjcSessionSynchronizer implements IProviderSessionSynchronizer {
     signal?.throwIfAborted();
     return {
       ...parsed,
-      sessionName: normalizeSessionName(firstUserMessage, UNTITLED_GJC_SESSION),
+      sessionName: normalizeSessionName(firstUserMessage, this.untitledSession),
     };
   }
 

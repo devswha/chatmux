@@ -138,6 +138,7 @@ export function useChatSessionState({
   const loadAllFinishedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loadAllOverlayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastLoadedSessionKeyRef = useRef<string | null>(null);
+  const transcriptRefreshInFlightRef = useRef(false);
   /**
    * Tracks the last processed value from `useProjectsState.newSessionTrigger`.
    *
@@ -822,6 +823,28 @@ export function useChatSessionState({
   // "Load all" overlay visibility is driven by scroll-to-top in handleScroll;
   // timers are cleared on session change via the reset effect above.
 
+  const refreshCurrentMessages = useCallback(async () => {
+    const requestSessionId = selectedSession?.id;
+    if (!requestSessionId || transcriptRefreshInFlightRef.current) {
+      return;
+    }
+    transcriptRefreshInFlightRef.current = true;
+    try {
+      const slot = await sessionStore.fetchFromServer(requestSessionId, {
+        limit: MESSAGES_PER_PAGE,
+        offset: 0,
+      });
+      if (!slot || currentSessionId !== requestSessionId) {
+        return;
+      }
+      setTotalMessages(slot.total);
+      setHasMoreMessages(slot.hasMore);
+      messagesOffsetRef.current = slot.serverMessages.length;
+    } finally {
+      transcriptRefreshInFlightRef.current = false;
+    }
+  }, [selectedSession?.id, currentSessionId, sessionStore]);
+
   const loadAllMessages = useCallback(async () => {
     if (!selectedSession || !selectedProject) return;
     if (isLoadingAllMessages) return;
@@ -906,6 +929,7 @@ export function useChatSessionState({
     visibleMessages,
     loadEarlierMessages,
     loadAllMessages,
+    refreshCurrentMessages,
     allMessagesLoaded,
     isLoadingAllMessages,
     loadAllJustFinished,

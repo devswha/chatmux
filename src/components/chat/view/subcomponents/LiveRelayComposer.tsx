@@ -84,7 +84,7 @@ export default function LiveRelayComposer({
   tmuxId?: string | null;
   model?: string | null;
   workspacePath?: string | null;
-  relayKind?: 'gjc' | 'codex' | 'claude';
+  relayKind?: 'gjc' | 'codex' | 'claude' | 'cursor' | 'opencode' | 'omp';
   sessionId?: string | null;
 }) {
   const commandTrigger = relayKind === 'codex' ? '$' : '/';
@@ -98,19 +98,15 @@ export default function LiveRelayComposer({
   const slashTokenStartRef = useRef(-1);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Load commands only where a stable catalog exists. Claude still supports
-  // free-text relay, but its native slash commands stay inside the TUI.
+  // GJC exposes its live command catalog; native external agents expose their
+  // provider skills. Failure is non-fatal because free-text relay still works.
   useEffect(() => {
-    if (relayKind === 'claude') {
-      setCommands([]);
-      return undefined;
-    }
     let cancelled = false;
     void (async () => {
       try {
-        const response = relayKind === 'codex'
-          ? await api.providerSkills('codex', workspacePath ?? undefined)
-          : await api.liveSessionCommands(workspacePath ?? undefined);
+        const response = relayKind === 'gjc'
+          ? await api.liveSessionCommands(workspacePath ?? undefined)
+          : await api.providerSkills(relayKind, workspacePath ?? undefined);
         if (!response.ok) {
           return;
         }
@@ -118,12 +114,12 @@ export default function LiveRelayComposer({
         if (cancelled) {
           return;
         }
-        if (relayKind === 'codex') {
+        if (relayKind !== 'gjc') {
           const skills = (body?.data?.skills ?? body?.skills ?? []) as Array<{ command?: string; name?: string; description?: string }>;
           setCommands(skills
             .filter((skill) => skill?.command || skill?.name)
             .map((skill) => ({
-              name: skill.command || `$${skill.name}`,
+              name: skill.command || `${commandTrigger}${skill.name}`,
               description: skill.description,
               namespace: 'skill',
             })));
@@ -140,7 +136,7 @@ export default function LiveRelayComposer({
     return () => {
       cancelled = true;
     };
-  }, [workspacePath, relayKind]);
+  }, [workspacePath, relayKind, commandTrigger]);
 
   const closeCommandMenu = useCallback(() => {
     setShowCommandMenu(false);

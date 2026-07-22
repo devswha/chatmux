@@ -29,6 +29,7 @@ const PROVIDER_META: { id: LLMProvider; name: string }[] = [
   { id: "cursor", name: "Cursor" },
   { id: "opencode", name: "OpenCode" },
   { id: "gjc", name: "Gajae Code" },
+  { id: "omp", name: "Oh My Pi" },
 ];
 
 const MOD_KEY =
@@ -59,6 +60,8 @@ type ProviderSelectionEmptyStateProps = {
   setCodexModel: (model: string) => void;
   opencodeModel: string;
   setOpenCodeModel: (model: string) => void;
+  ompModel: string;
+  setOmpModel: (model: string) => void;
   providerModelCatalog: Partial<Record<LLMProvider, ProviderModelsDefinition>>;
   providerModelsLoading: boolean;
   tasksEnabled: boolean;
@@ -87,10 +90,12 @@ function getCurrentModel(
   cu: string,
   co: string,
   o: string,
+  omp: string,
 ) {
   if (p === "claude") return c;
   if (p === "codex") return co;
   if (p === "opencode") return o;
+  if (p === "omp") return omp;
   return cu;
 }
 
@@ -99,7 +104,8 @@ function getProviderDisplayName(p: LLMProvider) {
   if (p === "cursor") return "Cursor";
   if (p === "codex") return "Codex";
   if (p === "opencode") return "OpenCode";
-  return "Claude";
+  if (p === "omp") return "Oh My Pi";
+  return p === "gjc" ? "Gajae Code" : "Claude";
 }
 
 export default function ProviderSelectionEmptyState({
@@ -116,6 +122,8 @@ export default function ProviderSelectionEmptyState({
   setCodexModel,
   opencodeModel,
   setOpenCodeModel,
+  ompModel,
+  setOmpModel,
   providerModelCatalog,
   providerModelsLoading,
   tasksEnabled,
@@ -144,6 +152,7 @@ export default function ProviderSelectionEmptyState({
     cursorModel,
     codexModel,
     opencodeModel,
+    ompModel,
   );
 
   const currentModelLabel = useMemo(() => {
@@ -165,12 +174,15 @@ export default function ProviderSelectionEmptyState({
       } else if (providerId === "opencode") {
         setOpenCodeModel(modelValue);
         localStorage.setItem("opencode-model", modelValue);
+      } else if (providerId === "omp") {
+        setOmpModel(modelValue);
+        localStorage.setItem("omp-model", modelValue);
       } else {
         setCursorModel(modelValue);
         localStorage.setItem("cursor-model", modelValue);
       }
     },
-    [setClaudeModel, setCursorModel, setCodexModel, setOpenCodeModel],
+    [setClaudeModel, setCursorModel, setCodexModel, setOpenCodeModel, setOmpModel],
   );
 
   const handleModelSelect = useCallback(
@@ -320,6 +332,7 @@ export default function ProviderSelectionEmptyState({
                 gjc: t("providerSelection.readyPrompt.gjc", {
                   defaultValue: "Ready with Gajae Code",
                 }),
+                omp: `Ready with Oh My Pi ${ompModel}`,
               }[provider]
             }
           </p>

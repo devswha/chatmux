@@ -5,7 +5,7 @@ import { api } from '../../../../utils/api';
 import HomeDirInput from '../../../../shared/view/HomeDirInput';
 import { cn } from '../../../../lib/utils';
 
-type SpawnProvider = 'gjc' | 'codex' | 'claude';
+type SpawnProvider = 'gjc' | 'codex' | 'claude' | 'cursor' | 'opencode' | 'omp';
 
 type SpawnStatus =
   | { kind: 'idle' }
@@ -16,13 +16,14 @@ const PROVIDERS: { id: SpawnProvider; label: string }[] = [
   { id: 'gjc', label: 'GJC' },
   { id: 'codex', label: 'Codex' },
   { id: 'claude', label: 'Claude' },
+  { id: 'cursor', label: 'Cursor' },
+  { id: 'opencode', label: 'OpenCode' },
+  { id: 'omp', label: 'Oh My Pi' },
 ];
 
 /**
- * Unified "새 세션" spawn for the merged sessions list. GJC boots through the
- * control tower (/sessions/live/spawn); codex/claude boot a native tmux session
- * (/sessions/external/spawn). GJC rows surface via the 5s live poll; external
- * rows via onCreated (external poll refresh).
+ * Unified new-session form. GJC boots through the control tower; every other
+ * provider boots its native CLI in tmux through /sessions/external/spawn.
  */
 export default function SidebarNewSession({ onCreated }: { onCreated: () => void }) {
   const [open, setOpen] = useState(false);
@@ -98,7 +99,7 @@ export default function SidebarNewSession({ onCreated }: { onCreated: () => void
 
   return (
     <div className="mx-2 mb-1 mt-2 space-y-2 rounded-lg border border-border bg-card p-2">
-      <div className="flex gap-1 rounded-md bg-muted/50 p-0.5">
+      <div className="grid grid-cols-3 gap-1 rounded-md bg-muted/50 p-0.5">
         {PROVIDERS.map((item) => (
           <button
             key={item.id}
