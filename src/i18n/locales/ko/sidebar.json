@@ -116,6 +116,19 @@
     "updateAvailable": "업데이트 가능",
     "restartRequired": "업데이트가 설치됨 — 적용하려면 서버를 재시작하세요"
   },
+  "newSessionForm": {
+    "open": "새 세션",
+    "sessionNamePlaceholder": "세션 이름 (영숫자, 예: my-feature)",
+    "workingDirectoryPlaceholder": "작업 폴더 (예: ~/workspace/my-proj, 절대 경로 가능)",
+    "cancel": "취소",
+    "creating": "생성 중…",
+    "create": "만들기",
+    "errors": {
+      "towerUnavailable": "관제탑 미가동 — 생성 불가",
+      "nameConflict": "같은 이름의 세션이 이미 있습니다",
+      "createFailed": "세션 생성 실패"
+    }
+  },
   "deleteConfirmation": {
     "deleteProject": "프로젝트 제거",
     "deleteSession": "세션 삭제",

@@ -117,6 +117,19 @@
     "updateAvailable": "Update verfügbar",
     "restartRequired": "Update installiert – zum Anwenden Server neu starten"
   },
+  "newSessionForm": {
+    "open": "Neue Sitzung",
+    "sessionNamePlaceholder": "Sitzungsname (Buchstaben und Zahlen, z. B. mein-feature)",
+    "workingDirectoryPlaceholder": "Arbeitsordner (z. B. ~/workspace/mein-projekt oder absoluter Pfad)",
+    "cancel": "Abbrechen",
+    "creating": "Wird erstellt…",
+    "create": "Erstellen",
+    "errors": {
+      "towerUnavailable": "Kontrollzentrum läuft nicht — Sitzung kann nicht erstellt werden",
+      "nameConflict": "Eine Sitzung mit diesem Namen existiert bereits",
+      "createFailed": "Sitzung konnte nicht erstellt werden"
+    }
+  },
   "search": {
     "modeProjects": "Projekte",
     "modeConversations": "Unterhaltungen",

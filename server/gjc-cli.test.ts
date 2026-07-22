@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -10,6 +10,7 @@ import {
   abortGjcSession,
   buildPromptArg,
   registerGjcProcessAlias,
+  resolveGjcSessionDir,
   spawnGjcWithRuntime,
 } from './gjc-cli.js';
 
@@ -64,6 +65,35 @@ test('buildPromptArg: rejects prompts over 10 MB', () => {
     () => buildPromptArg(oversizedPrompt),
     /gjc prompt exceeds the 10485760-byte limit/,
   );
+});
+
+test('resolveGjcSessionDir keeps fresh runs in the isolated scratch store', () => {
+  assert.equal(resolveGjcSessionDir(undefined, undefined, '/tmp/chatmux-gjc'), '/tmp/chatmux-gjc');
+});
+
+test('resolveGjcSessionDir keeps scratch-owned resumes in the isolated store', () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'gjc-resume-root-'));
+  const nested = path.join(root, 'scope');
+  const sessionId = '019f8a0b-461f-7000-a4d5-c3a70a53bf34';
+  try {
+    mkdirSync(nested);
+    writeFileSync(path.join(nested, `2026-07-22_${sessionId}.jsonl`), '{}\n');
+    assert.equal(resolveGjcSessionDir(sessionId, undefined, root), root);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('resolveGjcSessionDir lets native sessions use gjc default lookup', () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'gjc-resume-root-'));
+  try {
+    assert.equal(
+      resolveGjcSessionDir('019f8a0b-461f-7000-a4d5-c3a70a53bf34', undefined, root),
+      undefined,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('registerGjcProcessAlias: spawn handle remains abortable after provider header alias', () => {
@@ -292,7 +322,11 @@ test('spawnGjcWithRuntime parses split CRLF NDJSON and emits normalized deltas o
   const writer = createWriter();
   let args: string[] = [];
   let providerChecks = 0;
-  const run = spawnGjcWithRuntime('private prompt', { sessionId: 'resume-id' }, writer, {
+  const run = spawnGjcWithRuntime('private prompt', {
+    sessionId: 'resume-id',
+    sessionDir: '/tmp/gjc-test-sessions',
+    model: 'default',
+  }, writer, {
     spawn(_command: string, receivedArgs: string[]) {
       args = receivedArgs;
       return child;
@@ -314,6 +348,7 @@ test('spawnGjcWithRuntime parses split CRLF NDJSON and emits normalized deltas o
   const promptArg = args.at(-1)!;
   assert.deepEqual(args.slice(0, 6), ['-p', '--mode', 'json', '--session-dir', args[4], '-r']);
   assert.equal(args[6], 'resume-id');
+  assert.equal(args.includes('--model'), false, 'the ChatMux default sentinel is not a GJC model id');
   assert.ok(existsSync(promptArg.slice(1)));
 
   child.stdout.emit('data', '{"type":"session","id":"provider-id"}\r');

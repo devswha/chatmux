@@ -16,17 +16,13 @@ const patchHomeDir = (nextHomeDir: string) => {
     (os as any).homedir = original;
   };
 };
-const patchLiveSessionDir = (nextSessionDir: string) => {
-  const original = process.env.GJC_LIVE_SESSION_DIR;
-  process.env.GJC_LIVE_SESSION_DIR = nextSessionDir;
-  return () => {
-    if (original === undefined) {
-      delete process.env.GJC_LIVE_SESSION_DIR;
-    } else {
-      process.env.GJC_LIVE_SESSION_DIR = original;
-    }
-  };
-};
+const createGjcSynchronizer = (
+  homeDir: string,
+  additionalSessionDirs: string[] = [],
+) => new GjcSessionSynchronizer({
+  sessionsDir: path.join(homeDir, '.gjc', 'agent', 'sessions'),
+  additionalSessionDirs,
+});
 
 
 async function withIsolatedDatabase(runTest: () => void | Promise<void>): Promise<void> {
@@ -139,7 +135,7 @@ test('gjc synchronizer indexes sessions and derives the title from the first use
   try {
     await writeGjcTranscript(tempRoot, 'gjc-1', workspacePath, { firstUserMessage: 'Add a gjc provider' });
     await withIsolatedDatabase(async () => {
-      const synchronizer = new GjcSessionSynchronizer();
+      const synchronizer = createGjcSynchronizer(tempRoot);
       const reconciliation = await synchronizer.reconcile();
 
       assert.deepEqual(reconciliation, { processed: 1, sessionIds: ['gjc-1'] });
@@ -173,7 +169,7 @@ test('gjc reconciliation includes transcripts modified after the shared scan cur
         message: { role: 'user', content: [{ type: 'text', text: 'Recovered' }] },
       })}\n`, 'utf8');
 
-      const reconciliation = await new GjcSessionSynchronizer().reconcile(scanCursor);
+      const reconciliation = await createGjcSynchronizer(tempRoot).reconcile(scanCursor);
 
       assert.deepEqual(reconciliation, {
         processed: 1,
@@ -184,11 +180,11 @@ test('gjc reconciliation includes transcripts modified after the shared scan cur
       const controller = new AbortController();
       controller.abort();
       await assert.rejects(
-        new GjcSessionSynchronizer().reconcile(scanCursor, controller.signal),
+        createGjcSynchronizer(tempRoot).reconcile(scanCursor, controller.signal),
         { name: 'AbortError' }
       );
       await assert.rejects(
-        new GjcSessionSynchronizer().synchronizeFile(transcript, controller.signal),
+        createGjcSynchronizer(tempRoot).synchronizeFile(transcript, controller.signal),
         { name: 'AbortError' }
       );
     });
@@ -207,7 +203,6 @@ test('gjc reconciliation purges pending symlinks that escape session roots', { c
     mkdir(sessionRoot, { recursive: true }),
   ]);
   const restoreHomeDir = patchHomeDir(tempRoot);
-  const restoreLiveSessionDir = patchLiveSessionDir(path.join(tempRoot, 'live-sessions'));
 
   try {
     const outsideTranscript = await writeGjcTranscript(
@@ -226,7 +221,7 @@ test('gjc reconciliation purges pending symlinks that escape session roots', { c
         rootPath: sessionRoot,
       }]));
 
-      const synchronizer = new GjcSessionSynchronizer();
+      const synchronizer = createGjcSynchronizer(tempRoot);
       const reconciliation = await synchronizer.reconcile(new Date(0));
 
       assert.deepEqual(reconciliation, { processed: 0, sessionIds: [] });
@@ -245,7 +240,6 @@ test('gjc reconciliation purges pending symlinks that escape session roots', { c
       assert.equal(appConfigDb.get('gjc_pending_session_files'), '[]');
     });
   } finally {
-    restoreLiveSessionDir();
     restoreHomeDir();
     await rm(tempRoot, { recursive: true, force: true });
   }
@@ -260,7 +254,7 @@ test('gjc synchronizer falls back to Untitled when no user message exists', { co
   try {
     await writeGjcTranscript(tempRoot, 'gjc-empty', workspacePath, {});
     await withIsolatedDatabase(async () => {
-      await new GjcSessionSynchronizer().synchronize();
+      await createGjcSynchronizer(tempRoot).synchronize();
       assert.equal(sessionsDb.getSessionById('gjc-empty')?.custom_name, 'Untitled gjc Session');
     });
   } finally {
@@ -281,7 +275,7 @@ test('gjc sessions provider normalizes message content parts and folds tool resu
       withConversation: true,
     });
     await withIsolatedDatabase(async () => {
-      await new GjcSessionSynchronizer().synchronize();
+      await createGjcSynchronizer(tempRoot).synchronize();
 
       const provider = new GjcSessionsProvider();
       const history = await provider.fetchHistory('gjc-history');
@@ -330,7 +324,7 @@ test('gjc sessions provider excludes hidden and internal-role messages from hist
     );
 
     await withIsolatedDatabase(async () => {
-      await new GjcSessionSynchronizer().synchronize();
+      await createGjcSynchronizer(tempRoot).synchronize();
 
       const history = await new GjcSessionsProvider().fetchHistory('gjc-hidden-history');
 
@@ -358,7 +352,7 @@ test('gjc sessions provider returns a folded tool call for the newest one-messag
       withConversation: true,
     });
     await withIsolatedDatabase(async () => {
-      await new GjcSessionSynchronizer().synchronize();
+      await createGjcSynchronizer(tempRoot).synchronize();
 
       const history = await new GjcSessionsProvider().fetchHistory('gjc-tail-history', { limit: 1 });
 
@@ -402,7 +396,7 @@ test('gjc sessions provider keeps only the bounded normalized history tail', { c
     );
 
     await withIsolatedDatabase(async () => {
-      await new GjcSessionSynchronizer().synchronize();
+      await createGjcSynchronizer(tempRoot).synchronize();
 
       const history = await new GjcSessionsProvider().fetchHistory('gjc-ring-history');
 
@@ -441,7 +435,7 @@ test('gjc synchronizer excludes subagent transcripts inside session sidecar dirs
     await writeFile(path.join(sidecar, '2-CriticPass1.jsonl'), `${subLines.join('\n')}\n`, 'utf8');
 
     await withIsolatedDatabase(async () => {
-      const processed = await new GjcSessionSynchronizer().synchronize();
+      const processed = await createGjcSynchronizer(tempRoot).synchronize();
       assert.equal(processed, 1); // only the top-level session, not the sidecar subagent
       assert.ok(sessionsDb.getSessionById('gjc-parent'));
       assert.ok(!sessionsDb.getSessionById('2-CriticPass1'));
@@ -473,7 +467,7 @@ test('gjc synchronizer streams past leading non-user lines to the first user mes
     await writeFile(path.join(sessionsDir, '2026-07-09T00-00-00_gjc-stream.jsonl'), `${lines.join('\n')}\n`, 'utf8');
 
     await withIsolatedDatabase(async () => {
-      const processed = await new GjcSessionSynchronizer().synchronize();
+      const processed = await createGjcSynchronizer(tempRoot).synchronize();
       assert.equal(processed, 1);
       assert.equal(sessionsDb.getSessionById('gjc-stream')?.custom_name, 'Fix the pagination bug');
     });
@@ -486,13 +480,12 @@ test('gjc synchronizer ignores the shared cursor until its first scan completes'
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'gjc-initial-scan-'));
   const workspacePath = path.join(tempRoot, 'workspace');
   const restoreHomeDir = patchHomeDir(tempRoot);
-  const restoreLiveSessionDir = patchLiveSessionDir(path.join(tempRoot, 'live-sessions'));
 
   try {
     await mkdir(workspacePath, { recursive: true });
     await writeGjcTranscript(tempRoot, 'gjc-initial', workspacePath, { firstUserMessage: 'Index prior sessions' });
     await withIsolatedDatabase(async () => {
-      const synchronizer = new GjcSessionSynchronizer();
+      const synchronizer = createGjcSynchronizer(tempRoot);
 
       assert.equal(appConfigDb.get('gjc_initial_scan_done'), null);
       const processed = await synchronizer.synchronize(new Date('2999-01-01T00:00:00.000Z'));
@@ -502,7 +495,6 @@ test('gjc synchronizer ignores the shared cursor until its first scan completes'
       assert.equal(appConfigDb.get('gjc_initial_scan_done'), 'true');
     });
   } finally {
-    restoreLiveSessionDir();
     restoreHomeDir();
     await rm(tempRoot, { recursive: true, force: true });
   }
@@ -512,7 +504,6 @@ test('gjc synchronizer retries a transcript whose header was incomplete', { conc
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'gjc-incomplete-header-'));
   const workspacePath = path.join(tempRoot, 'workspace');
   const restoreHomeDir = patchHomeDir(tempRoot);
-  const restoreLiveSessionDir = patchLiveSessionDir(path.join(tempRoot, 'live-sessions'));
   const incompleteSessionId = 'gjc-incomplete';
 
   try {
@@ -522,7 +513,7 @@ test('gjc synchronizer retries a transcript whose header was incomplete', { conc
     const incompletePath = path.join(sessionsDir, `2026-07-09T00-00-00_${incompleteSessionId}.jsonl`);
 
     await withIsolatedDatabase(async () => {
-      const synchronizer = new GjcSessionSynchronizer();
+      const synchronizer = createGjcSynchronizer(tempRoot);
       await synchronizer.synchronize();
       await writeFile(incompletePath, '{"type":"session","id":"gjc-incomplete"', 'utf8');
 
@@ -543,7 +534,6 @@ test('gjc synchronizer retries a transcript whose header was incomplete', { conc
       assert.ok(sessionsDb.getSessionById(incompleteSessionId));
     });
   } finally {
-    restoreLiveSessionDir();
     restoreHomeDir();
     await rm(tempRoot, { recursive: true, force: true });
   }
@@ -558,20 +548,18 @@ test('gjc synchronizer resolves a symlinked session root before filtering subage
   await mkdir(workspacePath, { recursive: true });
   await symlink(realHomeDir, decoyHomeDir, 'dir');
   const restoreHomeDir = patchHomeDir(decoyHomeDir);
-  const restoreLiveSessionDir = patchLiveSessionDir(path.join(tempRoot, 'live-sessions'));
 
   try {
     const transcriptPath = await writeGjcTranscript(realHomeDir, 'gjc-symlink', workspacePath, {
       firstUserMessage: 'Keep top-level session',
     });
     await withIsolatedDatabase(async () => {
-      const sessionId = await new GjcSessionSynchronizer().synchronizeFile(transcriptPath);
+      const sessionId = await createGjcSynchronizer(decoyHomeDir).synchronizeFile(transcriptPath);
 
       assert.equal(sessionId, 'gjc-symlink');
       assert.ok(sessionsDb.getSessionById('gjc-symlink'));
     });
   } finally {
-    restoreLiveSessionDir();
     restoreHomeDir();
     await rm(tempRoot, { recursive: true, force: true });
   }
@@ -582,7 +570,6 @@ test('gjc synchronizer indexes transcripts from the live session directory', { c
   const workspacePath = path.join(tempRoot, 'workspace');
   const liveSessionsDir = path.join(tempRoot, 'live-sessions');
   const restoreHomeDir = patchHomeDir(tempRoot);
-  const restoreLiveSessionDir = patchLiveSessionDir(liveSessionsDir);
 
   try {
     await mkdir(workspacePath, { recursive: true });
@@ -591,13 +578,12 @@ test('gjc synchronizer indexes transcripts from the live session directory', { c
       sessionsDir: liveSessionsDir,
     });
     await withIsolatedDatabase(async () => {
-      const processed = await new GjcSessionSynchronizer().synchronize();
+      const processed = await createGjcSynchronizer(tempRoot, [liveSessionsDir]).synchronize();
 
       assert.equal(processed, 1);
       assert.equal(sessionsDb.getSessionById('gjc-live')?.project_path, workspacePath);
     });
   } finally {
-    restoreLiveSessionDir();
     restoreHomeDir();
     await rm(tempRoot, { recursive: true, force: true });
   }

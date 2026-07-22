@@ -117,6 +117,19 @@
     "updateAvailable": "Mise à jour disponible",
     "restartRequired": "Mise à jour installée — redémarrez le serveur pour l'appliquer"
   },
+  "newSessionForm": {
+    "open": "Nouvelle session",
+    "sessionNamePlaceholder": "Nom de session (lettres et chiffres, ex. ma-fonctionnalite)",
+    "workingDirectoryPlaceholder": "Dossier de travail (ex. ~/workspace/mon-projet ou chemin absolu)",
+    "cancel": "Annuler",
+    "creating": "Création…",
+    "create": "Créer",
+    "errors": {
+      "towerUnavailable": "La tour de contrôle n'est pas active — création impossible",
+      "nameConflict": "Une session portant ce nom existe déjà",
+      "createFailed": "Échec de la création de la session"
+    }
+  },
   "search": {
     "modeProjects": "Projets",
     "modeConversations": "Conversations",

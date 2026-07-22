@@ -23,6 +23,15 @@ import enCodeEditor from './locales/en/codeEditor.json';
 // eslint-disable-next-line import-x/order
 import enTasks from './locales/en/tasks.json';
 
+import frCommon from './locales/fr/common.json';
+import frSettings from './locales/fr/settings.json';
+import frAuth from './locales/fr/auth.json';
+import frSidebar from './locales/fr/sidebar.json';
+import frChat from './locales/fr/chat.json';
+import frCodeEditor from './locales/fr/codeEditor.json';
+// eslint-disable-next-line import-x/order
+import frTasks from './locales/fr/tasks.json';
+
 import koCommon from './locales/ko/common.json';
 import koSettings from './locales/ko/settings.json';
 import koAuth from './locales/ko/auth.json';
@@ -123,6 +132,15 @@ i18n
         chat: enChat,
         codeEditor: enCodeEditor,
         tasks: enTasks,
+      },
+      fr: {
+        common: frCommon,
+        settings: frSettings,
+        auth: frAuth,
+        sidebar: frSidebar,
+        chat: frChat,
+        codeEditor: frCodeEditor,
+        tasks: frTasks,
       },
       ko: {
         common: koCommon,

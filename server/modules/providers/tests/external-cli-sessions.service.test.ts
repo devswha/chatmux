@@ -9,11 +9,14 @@ import {
   extractCodexResumeThreadId,
   extractExternalResumeSessionId,
   isCodexRuntimeProcess,
+  normalizeExternalPaneOutput,
   parseClaudeRuntimeSession,
   parseExternalPanes,
   parseProcessStartTime,
   parsePsTree,
   selectPrimaryCodexProcessPid,
+  resolveExternalCliExecutable,
+  withoutNodeModulesBins,
 } from '@/modules/providers/services/external-cli-sessions.service.js';
 
 test('parseProcessStartTime reads the portable ps lstart format used on macOS', () => {
@@ -37,6 +40,39 @@ test('Codex process selection accepts the npm wrapper and native child pair', ()
   assert.equal(selectPrimaryCodexProcessPid([]), null);
 });
 
+test('external CLI resolution excludes app-local npm shims', async () => {
+  const searchPath = [
+    '/app/node_modules/.bin',
+    '/Users/test/.local/bin',
+    '/opt/homebrew/bin',
+  ].join(':');
+  assert.equal(
+    withoutNodeModulesBins(searchPath),
+    ['/Users/test/.local/bin', '/opt/homebrew/bin'].join(':'),
+  );
+
+  const checked: string[] = [];
+  const resolved = await resolveExternalCliExecutable('codex', {
+    path: searchPath,
+    platform: 'darwin',
+    isExecutable: async (candidate) => {
+      checked.push(candidate);
+      return candidate === '/opt/homebrew/bin/codex';
+    },
+  });
+
+  assert.equal(resolved, '/opt/homebrew/bin/codex');
+  assert.deepEqual(checked, [
+    '/Users/test/.local/bin/codex',
+    '/opt/homebrew/bin/codex',
+  ]);
+});
+test('normalizeExternalPaneOutput removes control bytes and bounds the pane tail', () => {
+  assert.equal(
+    normalizeExternalPaneOutput('old\r\n\u0000Trust this folder?\u0007\n1. Yes\n', 24),
+    'Trust this folder?\n1. Yes'.slice(-24),
+  );
+});
 test('parseExternalPanes splits session_name<TAB>pane_pid<TAB>pane_current_command', () => {
   const out = parseExternalPanes('patina\t113501\tclaude\ntest\t360992\tnode\n\nbad-line\n');
   assert.deepEqual(out, [

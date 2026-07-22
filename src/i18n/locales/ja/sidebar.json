@@ -116,6 +116,19 @@
     "updateAvailable": "アップデートあり",
     "restartRequired": "更新が適用されていません。サーバーを再起動してください"
   },
+  "newSessionForm": {
+    "open": "新しいセッション",
+    "sessionNamePlaceholder": "セッション名（英数字、例: my-feature）",
+    "workingDirectoryPlaceholder": "作業フォルダー（例: ~/workspace/my-proj、絶対パスも可）",
+    "cancel": "キャンセル",
+    "creating": "作成中…",
+    "create": "作成",
+    "errors": {
+      "towerUnavailable": "コントロールタワーが停止中のため作成できません",
+      "nameConflict": "同じ名前のセッションがすでに存在します",
+      "createFailed": "セッションの作成に失敗しました"
+    }
+  },
   "deleteConfirmation": {
     "deleteProject": "プロジェクトを除去",
     "deleteSession": "セッションを削除",

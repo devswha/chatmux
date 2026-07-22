@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -12,6 +13,10 @@ import type { SettingsProps } from '../types/types';
 
 function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }: SettingsProps) {
   const { t } = useTranslation('settings');
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLElement | null>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   const {
     activeTab,
     setActiveTab,
@@ -37,6 +42,34 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }: Set
     initialTab,
   });
 
+  useEffect(() => {
+    if (!isOpen) return;
+
+    triggerRef.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    const focusFrame = requestAnimationFrame(() => dialogRef.current?.focus());
+
+    return () => {
+      cancelAnimationFrame(focusFrame);
+      triggerRef.current?.focus();
+      triggerRef.current = null;
+    };
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || showLoginModal) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onCloseRef.current();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, showLoginModal]);
+
   if (!isOpen) {
     return null;
   }
@@ -45,10 +78,17 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }: Set
 
   return (
     <div className="modal-backdrop fixed inset-0 z-[9999] flex items-center justify-center bg-background/80 backdrop-blur-sm md:p-4">
-      <div className="flex h-full w-full flex-col overflow-hidden border border-border bg-background shadow-2xl md:h-[90vh] md:max-w-4xl md:rounded-xl">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settings-dialog-title"
+        tabIndex={-1}
+        className="flex h-full w-full flex-col overflow-hidden border border-border bg-background shadow-2xl outline-none md:h-[90vh] md:max-w-4xl md:rounded-xl"
+      >
         {/* Header */}
         <div className="flex flex-shrink-0 items-center justify-between border-b border-border px-4 py-3 md:px-5">
-          <h2 className="text-base font-semibold text-foreground">{t('title')}</h2>
+          <h2 id="settings-dialog-title" className="text-base font-semibold text-foreground">{t('title')}</h2>
           <div className="flex items-center gap-2">
             {saveStatus === 'success' && (
               <span className="animate-in fade-in text-xs text-muted-foreground">{t('saveStatus.success')}</span>
@@ -57,6 +97,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }: Set
               variant="ghost"
               size="sm"
               onClick={onClose}
+              aria-label={t('common:buttons.close')}
               className="h-10 w-10 touch-manipulation p-0 text-muted-foreground hover:text-foreground active:bg-accent/50"
             >
               <X className="h-5 w-5" />
