@@ -12,6 +12,7 @@ import {
   parseExternalPanes,
   parseProcessStartTime,
   parsePsTree,
+  selectPrimaryCodexProcessPid,
 } from '@/modules/providers/services/external-cli-sessions.service.js';
 
 test('parseProcessStartTime reads the portable ps lstart format used on macOS', () => {
@@ -21,6 +22,12 @@ test('parseProcessStartTime reads the portable ps lstart format used on macOS', 
   );
   assert.equal(parseProcessStartTime('not a process time'), null);
 });
+
+test('Codex process selection accepts the npm wrapper and native child pair', () => {
+  assert.equal(selectPrimaryCodexProcessPid([89009, 89076]), 89009);
+  assert.equal(selectPrimaryCodexProcessPid([]), null);
+});
+
 test('parseExternalPanes splits session_name<TAB>pane_pid<TAB>pane_current_command', () => {
   const out = parseExternalPanes('patina\t113501\tclaude\ntest\t360992\tnode\n\nbad-line\n');
   assert.deepEqual(out, [

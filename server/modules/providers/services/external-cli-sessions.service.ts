@@ -415,6 +415,12 @@ function descendants(rootPid: number, children: ReadonlyMap<number, number[]>): 
   return result;
 }
 
+export function selectPrimaryCodexProcessPid(codexPids: readonly number[]): number | null {
+  // `descendants` is breadth-first, so the first match is the CLI process that
+  // owns any native Codex child. Current npm installs commonly expose both.
+  return codexPids[0] ?? null;
+}
+
 function readFreshCodexThreads(minCreatedAtMs: number): FreshCodexThread[] {
   let db: Database.Database | null = null;
   try {
@@ -466,8 +472,9 @@ async function inferFreshCodexThreadIds(args: {
         && !proc.args?.includes(' app-server')
         && !proc.args?.includes('code-mode');
     });
-    if (codexPids.length !== 1) continue;
-    const startedAtMs = await processStartMs(codexPids[0]);
+    const primaryCodexPid = selectPrimaryCodexProcessPid(codexPids);
+    if (primaryCodexPid === null) continue;
+    const startedAtMs = await processStartMs(primaryCodexPid);
     if (startedAtMs !== null) {
       processes.push({ tmuxName: pane.name, cwd: pane.cwd, startedAtMs });
     }
