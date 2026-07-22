@@ -113,6 +113,8 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ tmuxName, sessionId, message }),
     }),
+  externalCliSessionOutput: (tmuxName, options = {}) =>
+    authenticatedFetch(`/api/providers/sessions/external/output?${new URLSearchParams({ tmuxName })}`, options),
   // Create a supported local coding-agent tmux session from the unified sessions tab.
   externalCliSessionSpawn: (cli, name, cwd) =>
     authenticatedFetch('/api/providers/sessions/external/spawn', {
