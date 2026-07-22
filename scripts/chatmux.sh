@@ -227,6 +227,14 @@ unit_quote() {
   printf '"%s"' "$value"
 }
 
+unit_scalar() {
+  local value="$1"
+  [[ "$value" != *$'\n'* && "$value" != *'"'* && "$value" != *'\\'* ]] \
+    || die "path or environment value cannot be safely rendered into a systemd unit"
+  value="${value//%/%%}"
+  printf '%s' "$value"
+}
+
 render_unit() {
   local app_root="$1" destination="$2" template content host port
   template="$app_root/packaging/systemd/chatmux.service"
@@ -238,9 +246,10 @@ render_unit() {
   fi
   content="$(<"$template")"
   local placeholder
-  for placeholder in @APP_ROOT@ @NODE_BIN@ @HOST@ @PORT@; do
+  for placeholder in @APP_ROOT_DIR@ @APP_ROOT@ @NODE_BIN@ @HOST@ @PORT@; do
     [[ "$content" == *"$placeholder"* ]] || die "unit template is missing required placeholder: $placeholder"
   done
+  content="${content//@APP_ROOT_DIR@/$(unit_scalar "$app_root")}"
   content="${content//@APP_ROOT@/$(unit_quote "$app_root")}"
   content="${content//@NODE_BIN@/$(unit_quote "$NODE_BIN")}"
   content="${content//@HOST@/$(unit_quote "$host")}"
