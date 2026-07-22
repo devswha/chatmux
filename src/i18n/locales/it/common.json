@@ -86,7 +86,7 @@
     "openInEditor": "Apri nell'editor"
   },
   "mainContent": {
-    "loading": "Caricamento 가재코드",
+    "loading": "Caricamento di ChatMux",
     "settingUpWorkspace": "Preparazione dell'area di lavoro...",
     "chooseProject": "Scegli il tuo progetto",
     "selectProjectDescription": "Seleziona un progetto dalla barra laterale per iniziare a programmare con Claude. Ogni progetto contiene le tue sessioni di chat e la cronologia dei file.",

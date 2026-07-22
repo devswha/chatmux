@@ -20,7 +20,7 @@
     "runClaudeCli": "Exécutez le CLI Claude dans un répertoire de projet pour commencer"
   },
   "app": {
-    "title": "가재코드",
+    "title": "ChatMux",
     "subtitle": "Interface d'assistant de codage IA"
   },
   "sessions": {

@@ -61,7 +61,7 @@ export default function LoginForm() {
     <AuthScreenLayout
       title={t('login.title')}
       description={t('login.description')}
-      footerText="가재코드에 접속하려면 로그인하세요"
+      footerText="ChatMux에 접속하려면 로그인하세요"
     >
       <form onSubmit={handleSubmit} className="space-y-4">
         <AuthInputField

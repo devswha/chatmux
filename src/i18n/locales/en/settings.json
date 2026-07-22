@@ -380,7 +380,7 @@
     },
     "managed": {
       "badge": "Managed",
-      "hint": "Managed by 가재코드."
+      "hint": "Managed by ChatMux."
     },
     "help": {
       "title": "About Codex MCP",

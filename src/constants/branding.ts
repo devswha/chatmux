@@ -1,5 +1,5 @@
 export const CHATMUX_WORDMARK_FONT_FAMILY =
-  'ui-sans-serif, system-ui, sans-serif, Apple Color Emoji, Segoe UI Emoji, Segoe UI Symbol, Noto Color Emoji';
+  '"Space Grotesk", "Encode Sans", ui-sans-serif, system-ui, sans-serif';
 
 export const BRAND_NAME = 'ChatMux';
 export const GITHUB_REPOSITORY_OWNER = 'devswha';

@@ -48,7 +48,7 @@
 3. `v1.0.0` 태그 → `chatmux-server-1.0.0-linux-x64-node22.tar.gz` 발행 →
    CHANGELOG `Unreleased`를 날짜 헤딩으로 전환.
 
-## v2 MVP — 가재코드의 Codex App
+## v2 MVP — ChatMux의 Codex App
 
 v1이 에러/버그 없이 돌아간 뒤에만 시작한다.
 실행 순서와 슬라이스 정의는 `docs/V2-PLAN.md`가 기준이다.

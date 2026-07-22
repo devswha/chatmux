@@ -20,7 +20,7 @@
     "runClaudeCli": "프로젝트 디렉토리에서 Claude CLI를 실행하여 시작하세요"
   },
   "app": {
-    "title": "가재코드",
+    "title": "ChatMux",
     "subtitle": "AI 코딩 어시스턴트 UI"
   },
   "sessions": {

@@ -1,11 +1,11 @@
 {
   "name": "ChatMux",
   "short_name": "ChatMux",
-  "description": "ChatMux — self-hosted AI coding workspace",
+  "description": "ChatMux — one self-hosted command deck for every coding agent",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#1b0f0a",
-  "theme_color": "#f04e23",
+  "background_color": "#0c1324",
+  "theme_color": "#6366f1",
   "orientation": "portrait-primary",
   "scope": "/",
   "icons": [

@@ -109,7 +109,7 @@ export default function SidebarProjectList({
   );
 
   useEffect(() => {
-    let baseTitle = '가재코드';
+    let baseTitle = 'ChatMux';
     const displayName = selectedProject?.displayName?.trim();
     if (displayName) {
       baseTitle = `${displayName} - ${baseTitle}`;

@@ -1,9 +1,11 @@
-import { readFile } from 'node:fs/promises';
+import { open, readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { StringDecoder } from 'node:string_decoder';
 
 import TOML from '@iarna/toml';
 
+import { sessionsDb } from '@/modules/database/index.js';
 import type { IProviderModels } from '@/shared/interfaces.js';
 import type {
   ProviderChangeActiveModelInput,
@@ -65,6 +67,86 @@ type CodexCachedModel = {
 
 const CODEX_MODELS_CACHE_PATH = path.join(os.homedir(), '.codex', 'models_cache.json');
 const CODEX_CONFIG_PATH = path.join(os.homedir(), '.codex', 'config.toml');
+
+const CODEX_MODEL_SCAN_CHUNK_BYTES = 256 * 1024;
+
+type CodexModelCacheEntry = {
+  size: number;
+  model: string | null;
+};
+
+const codexSessionModelCache = new Map<string, CodexModelCacheEntry>();
+
+export const parseCodexTurnModel = (line: string): string | null => {
+  try {
+    const event = readObjectRecord(JSON.parse(line));
+    if (event?.type !== 'turn_context') {
+      return null;
+    }
+    return readOptionalString(readObjectRecord(event.payload)?.model) ?? null;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Incrementally scans an append-only Codex rollout for the latest turn model.
+ * Completed JSONL files are cached by byte size, so the five-second live-session
+ * poll reads only newly appended bytes instead of repeatedly loading a large
+ * transcript.
+ */
+export const readCodexSessionModelFromJsonl = async (
+  jsonlPath: string,
+): Promise<ProviderCurrentActiveModel | null> => {
+  const handle = await open(jsonlPath, 'r');
+  try {
+    const { size } = await handle.stat();
+    const cached = codexSessionModelCache.get(jsonlPath);
+    if (cached?.size === size) {
+      return cached.model ? { model: cached.model } : null;
+    }
+
+    const canResume = Boolean(cached && cached.size < size);
+    let cursor = canResume ? (cached?.size ?? 0) : 0;
+    let model = canResume ? (cached?.model ?? null) : null;
+    let remainder = '';
+    const decoder = new StringDecoder('utf8');
+
+    while (cursor < size) {
+      const length = Math.min(CODEX_MODEL_SCAN_CHUNK_BYTES, size - cursor);
+      const buffer = Buffer.allocUnsafe(length);
+      const { bytesRead } = await handle.read(buffer, 0, length, cursor);
+      if (bytesRead === 0) {
+        break;
+      }
+      cursor += bytesRead;
+
+      const lines = `${remainder}${decoder.write(buffer.subarray(0, bytesRead))}`.split(/\r?\n/);
+      remainder = lines.pop() ?? '';
+      for (const line of lines) {
+        const nextModel = parseCodexTurnModel(line);
+        if (nextModel) {
+          model = nextModel;
+        }
+      }
+    }
+
+    remainder += decoder.end();
+    const trailingModel = remainder ? parseCodexTurnModel(remainder) : null;
+    if (trailingModel) {
+      model = trailingModel;
+    }
+
+    // Only cache a newline-terminated byte boundary. If Codex is mid-write, the
+    // next poll must rescan from the last known complete boundary.
+    if (!remainder) {
+      codexSessionModelCache.set(jsonlPath, { size, model });
+    }
+    return model ? { model } : null;
+  } finally {
+    await handle.close();
+  }
+};
 
 const isCodexCachedModel = (value: unknown): value is CodexCachedModel => {
   const record = readObjectRecord(value);
@@ -148,21 +230,33 @@ export class CodexProviderModels implements IProviderModels {
     }
   }
 
-  async getCurrentActiveModel(): Promise<ProviderCurrentActiveModel> {
+  async getCurrentActiveModel(sessionId?: string): Promise<ProviderCurrentActiveModel> {
+    if (sessionId?.trim()) {
+      try {
+        const jsonlPath = sessionsDb.getSessionById(sessionId)?.jsonl_path;
+        const activeModel = jsonlPath
+          ? await readCodexSessionModelFromJsonl(jsonlPath)
+          : null;
+        if (activeModel?.model) {
+          return activeModel;
+        }
+      } catch {
+        // Fall through to the Codex config/default when transcript lookup fails.
+      }
+    }
+
     try {
       const raw = await readFile(CODEX_CONFIG_PATH, 'utf8');
       const parsed = readObjectRecord(TOML.parse(raw));
       const model = readOptionalString(parsed?.model);
-      if (!model) {
-        return buildDefaultProviderCurrentActiveModel(await this.getSupportedModels());
+      if (model) {
+        return { model };
       }
-
-      return {
-        model,
-      };
     } catch {
-      return buildDefaultProviderCurrentActiveModel(await this.getSupportedModels());
+      // Fall through to the supported-model default.
     }
+
+    return buildDefaultProviderCurrentActiveModel(await this.getSupportedModels());
   }
 
   async changeActiveModel(

@@ -121,7 +121,12 @@ function AppContentInner() {
         if (!response.ok || cancelled) return;
         const body = await response.json();
         const sessions = body?.data?.externalSessions ?? [];
-        const ready = sessions.find((session: { tmuxName?: unknown; transcriptSessionId?: unknown }) => (
+        const ready = sessions.find((session: {
+          tmuxName?: unknown;
+          transcriptSessionId?: unknown;
+          sessionName?: unknown;
+          model?: unknown;
+        }) => (
           session.tmuxName === externalTerminal.tmuxName
           && typeof session.transcriptSessionId === 'string'
         ));
@@ -129,6 +134,8 @@ function AppContentInner() {
           openExternalTerminal({
             ...externalTerminal,
             transcriptSessionId: ready.transcriptSessionId,
+            sessionName: typeof ready.sessionName === 'string' ? ready.sessionName : externalTerminal.sessionName,
+            model: typeof ready.model === 'string' ? ready.model : externalTerminal.model,
           });
         }
       } catch {
@@ -417,7 +424,8 @@ function AppContentInner() {
               ? (sidebarSharedProps.liveSessionTmuxIds.get(selectedSession.id) ?? null)
               : null
           }
-          liveSessionModel={selectedSession ? (liveSessionModels.get(selectedSession.id) ?? null) : null}
+          liveSessionModel={activeExternalTranscript?.model
+            ?? (selectedSession ? (liveSessionModels.get(selectedSession.id) ?? null) : null)}
           liveSessionKind={activeExternalTranscript
             ? 'codex'
             : selectedSession && sidebarSharedProps.liveSessionLineage.has(selectedSession.id)

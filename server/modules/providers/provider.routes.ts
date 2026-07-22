@@ -619,10 +619,15 @@ router.get(
       if (!appSession) {
         return { tmuxName: session.tmuxName, kind: session.kind };
       }
+      const activeModel = await providerModelsService
+        .getCurrentActiveModel('codex', appSession.session_id)
+        .catch(() => null);
       return {
         tmuxName: session.tmuxName,
         kind: session.kind,
         transcriptSessionId: appSession.session_id,
+        sessionName: appSession.custom_name,
+        model: activeModel?.model ?? null,
       };
     }));
     res.json(createApiSuccessResponse({ externalSessions }));

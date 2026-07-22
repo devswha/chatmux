@@ -71,7 +71,7 @@ export default function AppearanceSettingsTab({
       </SettingsSection>
 
       <SettingsSection title={t('quickSettings.sections.inputSettings')}>
-        <SettingsCard>
+        <SettingsCard divided>
           <SettingsRow
             label={t('quickSettings.sendByCtrlEnter')}
             description={t('quickSettings.sendByCtrlEnterDescription')}
@@ -80,6 +80,13 @@ export default function AppearanceSettingsTab({
               checked={preferences.sendByCtrlEnter}
               onChange={(value) => setPreference('sendByCtrlEnter', value)}
               ariaLabel={t('quickSettings.sendByCtrlEnter')}
+            />
+          </SettingsRow>
+          <SettingsRow label={t('quickSettings.voiceEnabled')}>
+            <SettingsToggle
+              checked={preferences.voiceEnabled}
+              onChange={(value) => setPreference('voiceEnabled', value)}
+              ariaLabel={t('quickSettings.voiceEnabled')}
             />
           </SettingsRow>
         </SettingsCard>

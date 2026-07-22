@@ -20,7 +20,7 @@
     "runClaudeCli": "在專案目錄中執行 Claude CLI 以開始使用"
   },
   "app": {
-    "title": "가재코드",
+    "title": "ChatMux",
     "subtitle": "AI 程式開發助手"
   },
   "sessions": {

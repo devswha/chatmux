@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 256" role="img" aria-labelledby="title desc">
+  <title id="title">ChatMux</title>
+  <desc id="desc">ChatMux multi-agent command deck wordmark</desc>
+  <g transform="translate(16 8) scale(.46)">
+    <path fill="#0c1324" d="M94 52h324c36 0 66 30 66 66v238c0 36-30 66-66 66H254l-94 72v-72H94c-36 0-66-30-66-66V118c0-36 30-66 66-66Z"/>
+    <path fill="none" stroke="#22d3c5" stroke-linecap="round" stroke-linejoin="round" stroke-width="34" d="M102 146h56l98 98 98-98h56"/>
+    <path fill="none" stroke="#ff6b4a" stroke-linecap="round" stroke-linejoin="round" stroke-width="34" d="M102 330h56l98-86 98 86h56"/>
+    <rect width="72" height="72" x="220" y="208" fill="#6366f1" rx="22"/>
+    <circle cx="256" cy="244" r="10" fill="#f6f8fc"/>
+  </g>
+  <text x="286" y="130" fill="#0c1324" font-family="Space Grotesk, Encode Sans, system-ui, sans-serif" font-size="106" font-weight="700" letter-spacing="-5">ChatMux</text>
+  <text x="294" y="182" fill="#566078" font-family="Encode Sans, system-ui, sans-serif" font-size="24" font-weight="600" letter-spacing="6">MULTI-AGENT COMMAND DECK</text>
+</svg>

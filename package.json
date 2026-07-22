@@ -252,7 +252,7 @@
     "node-gyp": "^13.0.1",
     "postcss": "^8.4.32",
     "release-it": "^20.2.1",
-    "sharp": "^0.34.2",
+    "sharp": "^0.35.3",
     "tailwindcss": "^3.4.0",
     "tsc-alias": "^1.8.16",
     "tsx": "^4.23.1",

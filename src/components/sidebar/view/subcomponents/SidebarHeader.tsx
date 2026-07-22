@@ -3,6 +3,7 @@ import type { TFunction } from 'i18next';
 
 import { Button, Input, Tooltip } from '../../../../shared/view/ui';
 import { cn } from '../../../../lib/utils';
+import { CHATMUX_WORDMARK_FONT_FAMILY } from '../../../../constants/branding';
 import type { SidebarSearchMode } from '../../types/types';
 
 const MOD_KEY =
@@ -62,7 +63,10 @@ export default function SidebarHeader({
   const LogoBlock = () => (
     <div className="flex min-w-0 items-center gap-2.5">
       <img src="/logo.png" alt="" aria-hidden className="h-7 w-7 flex-shrink-0 object-contain" />
-      <h1 className="truncate text-sm font-bold tracking-tight text-foreground">
+      <h1
+        className="truncate text-sm font-bold tracking-tight text-foreground"
+        style={{ fontFamily: CHATMUX_WORDMARK_FONT_FAMILY }}
+      >
         ChatMux
       </h1>
     </div>

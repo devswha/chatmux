@@ -1,12 +1,11 @@
-<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <!-- Background fills entire canvas - iOS will handle corner rounding -->
-  <rect width="512" height="512" fill="hsl(240 5.9% 10%)"/>
-  
-  <!-- MessageSquare icon - scaled and centered -->
-  <path d="M128 144C128 126.327 142.327 112 160 112H352C369.673 112 384 126.327 384 144V272C384 289.673 369.673 304 352 304H224L128 400V144Z" 
-        stroke="white" 
-        stroke-width="32" 
-        stroke-linecap="round" 
-        stroke-linejoin="round" 
-        fill="none"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">ChatMux</title>
+  <desc id="desc">Crossing conversation channels joining at a multiplexer node</desc>
+  <path fill="#0c1324" d="M94 52h324c36 0 66 30 66 66v238c0 36-30 66-66 66H254l-94 72v-72H94c-36 0-66-30-66-66V118c0-36 30-66 66-66Z"/>
+  <path fill="none" stroke="#22d3c5" stroke-linecap="round" stroke-linejoin="round" stroke-width="34" d="M102 146h56l98 98 98-98h56"/>
+  <path fill="none" stroke="#ff6b4a" stroke-linecap="round" stroke-linejoin="round" stroke-width="34" d="M102 330h56l98-86 98 86h56"/>
+  <rect width="72" height="72" x="220" y="208" fill="#6366f1" rx="22"/>
+  <circle cx="256" cy="244" r="10" fill="#f6f8fc"/>
+  <circle cx="102" cy="146" r="12" fill="#f6f8fc"/>
+  <circle cx="410" cy="330" r="12" fill="#f6f8fc"/>
 </svg>

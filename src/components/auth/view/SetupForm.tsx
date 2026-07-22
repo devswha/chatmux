@@ -85,7 +85,7 @@ export default function SetupForm() {
 
   return (
     <AuthScreenLayout
-      title="가재코드에 오신 걸 환영합니다"
+      title="ChatMux에 오신 걸 환영합니다"
       description="Set up your account to get started"
       footerText="This is a single-user system. Only one account can be created."
     >

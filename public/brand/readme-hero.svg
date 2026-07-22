@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 420" role="img" aria-labelledby="title desc">
+  <title id="title">ChatMux — every agent, one command deck</title>
+  <desc id="desc">Codex, Claude Code, ChatMux Code, Cursor, and OpenCode sessions multiplexed into one self-hosted interface</desc>
+  <rect width="1200" height="420" fill="#f6f8fc" rx="30"/>
+  <path fill="#e4e8f1" d="M0 322h1200v98H0z"/>
+  <g opacity=".5" stroke="#bdc5d6" stroke-width="1">
+    <path d="M32 54h1136M32 102h1136M32 150h1136M32 198h1136M32 246h1136M32 294h1136"/>
+    <path d="M96 28v304M192 28v304M288 28v304M384 28v304M480 28v304M576 28v304M672 28v304M768 28v304M864 28v304M960 28v304M1056 28v304"/>
+  </g>
+  <g transform="translate(70 54) scale(.5)">
+    <path fill="#0c1324" d="M94 52h324c36 0 66 30 66 66v238c0 36-30 66-66 66H254l-94 72v-72H94c-36 0-66-30-66-66V118c0-36 30-66 66-66Z"/>
+    <path fill="none" stroke="#22d3c5" stroke-linecap="round" stroke-linejoin="round" stroke-width="34" d="M102 146h56l98 98 98-98h56"/>
+    <path fill="none" stroke="#ff6b4a" stroke-linecap="round" stroke-linejoin="round" stroke-width="34" d="M102 330h56l98-86 98 86h56"/>
+    <rect width="72" height="72" x="220" y="208" fill="#6366f1" rx="22"/>
+    <circle cx="256" cy="244" r="10" fill="#f6f8fc"/>
+  </g>
+  <text x="350" y="150" fill="#0c1324" font-family="Space Grotesk, Encode Sans, system-ui, sans-serif" font-size="92" font-weight="700" letter-spacing="-4">ChatMux</text>
+  <text x="356" y="208" fill="#303a52" font-family="Encode Sans, system-ui, sans-serif" font-size="28" font-weight="600">Every coding agent. One command deck.</text>
+  <text x="356" y="252" fill="#68738c" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="18">discover  ·  watch  ·  relay  ·  resume</text>
+  <g font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="18" font-weight="600">
+    <rect x="70" y="350" width="184" height="42" fill="#0c1324" rx="12"/><text x="92" y="377" fill="#22d3c5">CODEX</text><circle cx="227" cy="371" r="6" fill="#22d3c5"/>
+    <rect x="270" y="350" width="184" height="42" fill="#0c1324" rx="12"/><text x="292" y="377" fill="#ff6b4a">CLAUDE</text><circle cx="427" cy="371" r="6" fill="#ff6b4a"/>
+    <rect x="470" y="350" width="184" height="42" fill="#0c1324" rx="12"/><text x="492" y="377" fill="#a5b4fc">CHATMUX CODE</text>
+    <rect x="670" y="350" width="184" height="42" fill="#0c1324" rx="12"/><text x="692" y="377" fill="#22d3c5">CURSOR</text><circle cx="827" cy="371" r="6" fill="#22d3c5"/>
+    <rect x="870" y="350" width="260" height="42" fill="#0c1324" rx="12"/><text x="892" y="377" fill="#ff6b4a">OPENCODE / SSH</text><circle cx="1103" cy="371" r="6" fill="#ff6b4a"/>
+  </g>
+</svg>

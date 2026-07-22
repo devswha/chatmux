@@ -20,7 +20,7 @@
     "runClaudeCli": "Запустите Claude CLI в каталоге проекта для начала работы"
   },
   "app": {
-    "title": "가재코드",
+    "title": "ChatMux",
     "subtitle": "Интерфейс AI помощника для программирования"
   },
   "sessions": {

@@ -86,7 +86,7 @@
     "openInEditor": "Editörde Aç"
   },
   "mainContent": {
-    "loading": "가재코드 Yükleniyor",
+    "loading": "ChatMux Yükleniyor",
     "settingUpWorkspace": "Çalışma alanın hazırlanıyor...",
     "chooseProject": "Projeni Seç",
     "selectProjectDescription": "Claude ile kodlamaya başlamak için kenar çubuğundan bir proje seç. Her proje kendi sohbet oturumlarını ve dosya geçmişini içerir.",

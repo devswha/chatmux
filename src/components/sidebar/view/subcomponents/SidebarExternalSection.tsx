@@ -49,6 +49,8 @@ export default function SidebarExternalSection({ sessions, projects, onOpen, onC
       cliKind: session.kind,
       project: shellProject,
       transcriptSessionId: session.transcriptSessionId,
+      sessionName: session.sessionName,
+      model: session.model,
     });
   };
 
@@ -66,6 +68,8 @@ export default function SidebarExternalSection({ sessions, projects, onOpen, onC
       cliKind: session.kind,
       project: shellProject,
       transcriptSessionId: session.transcriptSessionId,
+      sessionName: session.sessionName,
+      model: session.model,
     });
   }, [onOpen, sessions, shellProject]);
 
@@ -98,6 +102,13 @@ export default function SidebarExternalSection({ sessions, projects, onOpen, onC
       {error && <p className="px-2 py-1 text-[11px] text-red-500">{error}</p>}
       {sessions.map((session) => {
         const canKill = session.kind === 'codex' || session.kind === 'claude';
+        const sessionName = session.sessionName?.trim();
+        const primary = sessionName || session.tmuxName;
+        const metadata = [
+          session.model?.split('/').pop(),
+          sessionName ? session.tmuxName : null,
+          KIND_LABEL[session.kind],
+        ].filter(Boolean).join(' · ');
         return (
           <Fragment key={session.tmuxName}>
             <div className="flex items-start rounded-md transition-colors hover:bg-muted/50">
@@ -105,7 +116,7 @@ export default function SidebarExternalSection({ sessions, projects, onOpen, onC
                 type="button"
                 onClick={() => openSession(session)}
                 title={session.transcriptSessionId
-                  ? `tmux 세션 '${session.tmuxName}' ${KIND_LABEL[session.kind]} transcript로 보기`
+                  ? `${primary} — ${metadata}`
                   : `tmux 세션 '${session.tmuxName}' 터미널로 보기`}
                 className="flex min-w-0 flex-1 items-start gap-2 px-2 py-1.5 text-left"
               >
@@ -116,10 +127,10 @@ export default function SidebarExternalSection({ sessions, projects, onOpen, onC
                 )}
                 <span className="flex min-w-0 flex-1 flex-col">
                   <span className="flex items-center gap-2">
-                    <span className="truncate text-sm font-medium text-foreground">{session.tmuxName}</span>
+                    <span className="truncate text-sm font-medium text-foreground">{primary}</span>
                   </span>
                   <span className="truncate text-[11px] text-muted-foreground">
-                    {KIND_LABEL[session.kind]}{session.transcriptSessionId ? ' · Transcript' : ''}
+                    {metadata}
                   </span>
                 </span>
                 {session.transcriptSessionId ? (

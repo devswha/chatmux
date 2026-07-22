@@ -20,7 +20,7 @@
     "runClaudeCli": "Başlamak için bir proje dizininde Claude CLI çalıştır"
   },
   "app": {
-    "title": "가재코드",
+    "title": "ChatMux",
     "subtitle": "AI kodlama asistanı arayüzü"
   },
   "sessions": {

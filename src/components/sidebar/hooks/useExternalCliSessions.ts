@@ -6,6 +6,8 @@ export type ExternalCliSession = {
   tmuxName: string;
   kind: 'claude' | 'codex' | 'ssh';
   transcriptSessionId?: string;
+  sessionName?: string;
+  model?: string | null;
 };
 
 const POLL_INTERVAL_MS = 5000;
