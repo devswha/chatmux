@@ -202,10 +202,17 @@ test('fails closed when the Windows job guard never proves app ownership', async
     initializeTimeoutMs: 5,
   });
 
-  await assert.rejects(
-    supervisor.spawn('hello', {}, { send() {} }),
-    /GJC worker failed/,
-  );
+  // Production deliberately unrefs the guard timer. Keep the test process
+  // alive independently so an isolated run can observe the timeout rejection.
+  const keepAlive = setTimeout(() => {}, 1_000);
+  try {
+    await assert.rejects(
+      supervisor.spawn('hello', {}, { send() {} }),
+      /GJC worker failed/,
+    );
+  } finally {
+    clearTimeout(keepAlive);
+  }
 
   assert.equal(child.killed, true);
 });
