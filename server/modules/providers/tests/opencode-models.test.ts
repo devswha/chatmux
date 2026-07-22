@@ -5,8 +5,26 @@ import {
   buildOpenCodeDefinitionFromVerboseModels,
   buildOpenCodeDefinitionFromIds,
   parseOpenCodeModelsStdout,
+  parseOpenCodeSessionModelValue,
   parseOpenCodeVerboseModelsStdout,
 } from '@/modules/providers/list/opencode/opencode-models.provider.js';
+
+test('OpenCode session model parser preserves the provider-qualified model id', () => {
+  assert.equal(
+    parseOpenCodeSessionModelValue(JSON.stringify({
+      id: 'gpt-5.5',
+      providerID: 'openai',
+    })),
+    'openai/gpt-5.5',
+  );
+  assert.equal(
+    parseOpenCodeSessionModelValue({
+      id: 'anthropic/claude-sonnet-4-5',
+      providerID: 'anthropic',
+    }),
+    'anthropic/claude-sonnet-4-5',
+  );
+});
 
 test('OpenCode models provider parses plain CLI output and removes duplicates', () => {
   const ids = parseOpenCodeModelsStdout(`

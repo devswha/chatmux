@@ -618,6 +618,22 @@ export async function sendToExternalCliSession(tmuxName: string, message: string
   await runCommand('tmux', ['send-keys', '-t', target, 'Enter']);
 }
 
+export function normalizeExternalPaneOutput(output: string, maxChars = 32_768): string {
+  const plain = output
+    .replace(/\r/g, '')
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
+    .trimEnd();
+  return plain.length > maxChars ? plain.slice(-maxChars) : plain;
+}
+
+/** Reads a bounded, plain-text tail of one exact local CLI tmux pane. */
+export async function captureExternalCliSessionOutput(tmuxName: string): Promise<string> {
+  const output = await runCommand('tmux', [
+    'capture-pane', '-p', '-S', '-80', '-t', `=${tmuxName}:`,
+  ]);
+  return normalizeExternalPaneOutput(output);
+}
+
 /** Resolves a web spawn cwd and rejects traversal/symlink escape outside HOME. */
 export async function resolveExternalCliCwd(input: string): Promise<string | null> {
   const home = await realpath(homedir()).catch(() => null);

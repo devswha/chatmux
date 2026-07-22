@@ -117,6 +117,19 @@
     "updateAvailable": "Update available",
     "restartRequired": "Update installed — restart the server to apply"
   },
+  "newSessionForm": {
+    "open": "New session",
+    "sessionNamePlaceholder": "Session name (letters and numbers, e.g. my-feature)",
+    "workingDirectoryPlaceholder": "Working folder (e.g. ~/workspace/my-proj or an absolute path)",
+    "cancel": "Cancel",
+    "creating": "Creating…",
+    "create": "Create",
+    "errors": {
+      "towerUnavailable": "Control tower is not running — cannot create session",
+      "nameConflict": "A session with this name already exists",
+      "createFailed": "Failed to create session"
+    }
+  },
   "search": {
     "modeProjects": "Projects",
     "modeConversations": "Conversations",

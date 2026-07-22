@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -7,6 +8,17 @@ import test from 'node:test';
 import { closeConnection, initializeDatabase, sessionsDb } from '@/modules/database/index.js';
 import { CodexSessionSynchronizer } from '@/modules/providers/list/codex/codex-session-synchronizer.provider.js';
 import { CodexSessionsProvider } from '@/modules/providers/list/codex/codex-sessions.provider.js';
+
+test('Codex SDK stays pinned to the CLI version required by synchronized models', () => {
+  const packageJson = JSON.parse(readFileSync(path.join(process.cwd(), 'package.json'), 'utf8'));
+  const packageLock = JSON.parse(readFileSync(path.join(process.cwd(), 'package-lock.json'), 'utf8'));
+  const sdkVersion = packageLock.packages['node_modules/@openai/codex-sdk'].version;
+  const cliVersion = packageLock.packages['node_modules/@openai/codex'].version;
+
+  assert.equal(packageJson.dependencies['@openai/codex-sdk'], '0.144.6');
+  assert.equal(sdkVersion, '0.144.6');
+  assert.equal(cliVersion, sdkVersion);
+});
 
 const patchHomeDir = (nextHomeDir: string) => {
   const original = os.homedir;

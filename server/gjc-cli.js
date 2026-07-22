@@ -1,6 +1,6 @@
 import os from 'node:os';
 import path from 'node:path';
-import { writeFileSync, unlinkSync } from 'node:fs';
+import { readdirSync, writeFileSync, unlinkSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 
 import crossSpawn from 'cross-spawn';
@@ -95,6 +95,56 @@ function signalGjcProcess(gjcProcess, signal) {
 // GJC_CODING_AGENT_DIR, which would isolate credentials too and break the
 // default model).
 const DEFAULT_SESSION_DIR = path.join(os.tmpdir(), 'gjc-live-sessions');
+const MAX_SESSION_LOOKUP_ENTRIES = 50_000;
+
+function sessionExistsUnder(root, sessionId) {
+  if (!root || !/^[A-Za-z0-9._:-]+$/.test(sessionId || '')) {
+    return false;
+  }
+
+  const pending = [root];
+  let visited = 0;
+  while (pending.length > 0 && visited < MAX_SESSION_LOOKUP_ENTRIES) {
+    const directory = pending.pop();
+    let entries;
+    try {
+      entries = readdirSync(directory, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      visited += 1;
+      if (visited >= MAX_SESSION_LOOKUP_ENTRIES) {
+        break;
+      }
+      if (entry.isSymbolicLink()) {
+        continue;
+      }
+      if (entry.isDirectory()) {
+        pending.push(path.join(directory, entry.name));
+      } else if (entry.isFile() && entry.name.endsWith(`_${sessionId}.jsonl`)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * Keeps new web runs isolated, while resuming each session from the store that
+ * actually owns it. Native gjc TUI sessions live under gjc's normal home and
+ * must not be looked up in ChatMux's scratch directory.
+ */
+export function resolveGjcSessionDir(sessionId, sessionDir, defaultSessionDir = DEFAULT_SESSION_DIR) {
+  if (sessionDir) {
+    return sessionDir;
+  }
+  if (!sessionId) {
+    return defaultSessionDir;
+  }
+  return sessionExistsUnder(defaultSessionDir, sessionId) ? defaultSessionDir : undefined;
+}
 
 /**
  * Builds the gjc prompt argv token. Prompts are always written to a private
@@ -204,7 +254,7 @@ export function spawnGjcWithRuntime(message, options = {}, writer, runtime = {})
   const runPromise = new Promise((resolve, reject) => {
     const { sessionId, projectPath, cwd, model, sessionDir, sessionSummary } = options;
     const workingDir = cwd || projectPath || process.cwd();
-    const resolvedSessionDir = sessionDir || DEFAULT_SESSION_DIR;
+    const resolvedSessionDir = resolveGjcSessionDir(sessionId, sessionDir);
 
     let capturedSessionId = sessionId || null;
     let sessionCreatedSent = false;
@@ -684,11 +734,16 @@ export function spawnGjcWithRuntime(message, options = {}, writer, runtime = {})
       }
     };
 
-    const args = ['-p', '--mode', 'json', '--session-dir', resolvedSessionDir];
+    const args = ['-p', '--mode', 'json'];
+    if (resolvedSessionDir) {
+      args.push('--session-dir', resolvedSessionDir);
+    }
     if (sessionId) {
       args.push('-r', sessionId);
     }
-    if (model) {
+    // `default` is ChatMux's fallback picker sentinel, not a GJC model id.
+    // Omitting --model lets a resumed session keep its provider-native model.
+    if (model && model !== 'default') {
       args.push('--model', model);
     }
     const builtPrompt = buildPromptArg(message);

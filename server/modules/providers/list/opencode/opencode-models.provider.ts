@@ -357,7 +357,7 @@ export const buildOpenCodeDefinitionFromVerboseModels = (
   };
 };
 
-const parseOpenCodeSessionModelValue = (rawModel: unknown): string | null => {
+export const parseOpenCodeSessionModelValue = (rawModel: unknown): string | null => {
   if (typeof rawModel === 'string') {
     const trimmed = rawModel.trim();
     if (!trimmed) {
@@ -376,8 +376,13 @@ const parseOpenCodeSessionModelValue = (rawModel: unknown): string | null => {
     return null;
   }
 
-  return readOptionalString(record.id)
-    ?? readOptionalString(record.model)
+  const id = readOptionalString(record.id);
+  const providerId = readOptionalString(record.providerID);
+  if (id) {
+    return id.includes('/') || !providerId ? id : `${providerId}/${id}`;
+  }
+
+  return readOptionalString(record.model)
     ?? readOptionalString(record.name)
     ?? readOptionalString(record.value)
     ?? null;
