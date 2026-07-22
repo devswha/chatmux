@@ -11,6 +11,7 @@ import { sessionsService } from '@/modules/providers/services/sessions.service.j
 import { sessionSynchronizerService } from '@/modules/providers/services/session-synchronizer.service.js';
 import { getLiveGjcSessions, IDLE_GJC_ID_PREFIX } from '@/modules/providers/services/live-sessions.service.js';
 import {
+  captureExternalCliSessionOutput,
   getCurrentTmuxSessionName,
   getExternalCliSessions,
   killExternalCliSession,
@@ -646,6 +647,27 @@ router.get(
       };
     }));
     res.json(createApiSuccessResponse({ externalSessions }));
+  }),
+);
+
+router.get(
+  '/sessions/external/output',
+  asyncHandler(async (req: Request, res: Response) => {
+    const tmuxName = typeof req.query.tmuxName === 'string' ? req.query.tmuxName : '';
+    if (!isValidTmuxName(tmuxName)) {
+      throw new AppError('A valid tmuxName is required.', { code: 'INVALID_TMUX_NAME', statusCode: 400 });
+    }
+    const external = (await getExternalCliSessions()).find(
+      (session) => session.tmuxName === tmuxName && session.kind !== 'ssh',
+    );
+    if (!external) {
+      throw new AppError('The selected tmux session is no longer a supported local CLI session.', {
+        code: 'EXTERNAL_CLI_SESSION_MISMATCH',
+        statusCode: 409,
+      });
+    }
+    const output = await captureExternalCliSessionOutput(tmuxName);
+    res.json(createApiSuccessResponse({ output }));
   }),
 );
 

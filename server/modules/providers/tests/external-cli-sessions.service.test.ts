@@ -8,10 +8,18 @@ import {
   classifyExternalSessions,
   extractCodexResumeThreadId,
   extractExternalResumeSessionId,
+  normalizeExternalPaneOutput,
   parseClaudeRuntimeSession,
   parseExternalPanes,
   parsePsTree,
 } from '@/modules/providers/services/external-cli-sessions.service.js';
+
+test('normalizeExternalPaneOutput removes control bytes and bounds the pane tail', () => {
+  assert.equal(
+    normalizeExternalPaneOutput('old\r\n\u0000Trust this folder?\u0007\n1. Yes\n', 24),
+    'Trust this folder?\n1. Yes'.slice(-24),
+  );
+});
 
 test('parseExternalPanes splits session_name<TAB>pane_pid<TAB>pane_current_command', () => {
   const out = parseExternalPanes('patina\t113501\tclaude\ntest\t360992\tnode\n\nbad-line\n');

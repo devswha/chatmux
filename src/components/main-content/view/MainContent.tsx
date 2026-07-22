@@ -15,6 +15,7 @@ import type { Project } from '../../../types/app';
 import MainContentHeader from './subcomponents/MainContentHeader';
 import MainContentStateView from './subcomponents/MainContentStateView';
 import ErrorBoundary from './ErrorBoundary';
+import PendingExternalCliOutput from './subcomponents/PendingExternalCliOutput';
 
 const PluginTabContent = lazy(() => import('../../plugins/view/PluginTabContent'));
 const ChatInterface = lazy(() => import('../../chat/view/ChatInterface'));
@@ -72,6 +73,7 @@ function MainContent({
   const { currentProject, setCurrentProject } = useTaskMaster() as TaskMasterContextValue;
   const { tasksEnabled, isTaskMasterInstalled } = useTasksSettings() as TasksSettingsContextValue;
   const [browserUseEnabled, setBrowserUseEnabled] = useState(false);
+  const [externalPaneOutput, setExternalPaneOutput] = useState('');
   const [filesPanelOpen, setFilesPanelOpen] = useState(() => {
     try {
       return localStorage.getItem('files-panel-open') === 'true';
@@ -152,6 +154,45 @@ function MainContent({
   }, [loadBrowserUseSettings]);
 
   useEffect(() => {
+    const terminal = externalTerminal;
+    if (!terminal || terminal.cliKind === 'ssh') {
+      setExternalPaneOutput('');
+      return undefined;
+    }
+
+    let cancelled = false;
+    let controller: AbortController | null = null;
+    const loadOutput = async () => {
+      controller?.abort();
+      controller = new AbortController();
+      try {
+        const params = new URLSearchParams({ tmuxName: terminal.tmuxName });
+        const response = await authenticatedFetch(
+          `/api/providers/sessions/external/output?${params}`,
+          { signal: controller.signal },
+        );
+        const payload = await response.json();
+        if (!cancelled && response.ok) {
+          setExternalPaneOutput(typeof payload?.data?.output === 'string' ? payload.data.output : '');
+        }
+      } catch (error) {
+        if (!cancelled && !(error instanceof DOMException && error.name === 'AbortError')) {
+          setExternalPaneOutput('');
+        }
+      }
+    };
+
+    setExternalPaneOutput('');
+    void loadOutput();
+    const interval = window.setInterval(() => void loadOutput(), 1_000);
+    return () => {
+      cancelled = true;
+      controller?.abort();
+      window.clearInterval(interval);
+    };
+  }, [externalTerminal]);
+
+  useEffect(() => {
     if (!shouldShowBrowserTab && activeTab === 'browser') {
       setActiveTab('chat');
     }
@@ -214,11 +255,7 @@ function MainContent({
             <X className="h-4 w-4" />
           </button>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto px-4">
-          <div className="mx-auto flex h-full max-w-[54.25rem] items-center justify-center text-center text-sm text-muted-foreground">
-            첫 지시를 보내면 {providerLabel} transcript가 생성되어 이 화면에 자동으로 연결됩니다.
-          </div>
-        </div>
+        <PendingExternalCliOutput providerLabel={providerLabel} output={externalPaneOutput} />
         <LiveRelayComposer
           key={`pending-${externalTerminal.cliKind}:${externalTerminal.tmuxName}`}
           tmuxName={externalTerminal.tmuxName}
