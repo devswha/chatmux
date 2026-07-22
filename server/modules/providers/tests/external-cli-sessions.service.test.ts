@@ -8,6 +8,7 @@ import {
   classifyExternalSessions,
   extractCodexResumeThreadId,
   extractExternalResumeSessionId,
+  isCodexRuntimeProcess,
   parseClaudeRuntimeSession,
   parseExternalPanes,
   parseProcessStartTime,
@@ -24,6 +25,14 @@ test('parseProcessStartTime reads the portable ps lstart format used on macOS', 
 });
 
 test('Codex process selection accepts the npm wrapper and native child pair', () => {
+  assert.equal(isCodexRuntimeProcess({
+    comm: 'node',
+    args: 'node /opt/homebrew/bin/codex',
+  }), true);
+  assert.equal(isCodexRuntimeProcess({
+    comm: '/opt/homebrew/li',
+    args: '/opt/homebrew/lib/node_modules/@openai/codex/vendor/aarch64-apple-darwin/bin/codex',
+  }), true);
   assert.equal(selectPrimaryCodexProcessPid([89009, 89076]), 89009);
   assert.equal(selectPrimaryCodexProcessPid([]), null);
 });

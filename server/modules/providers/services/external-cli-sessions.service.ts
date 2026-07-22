@@ -242,6 +242,14 @@ function processCliKind(proc: Pick<ProcessTreeEntry, 'comm' | 'args'>): External
   if (executable('ssh')) return 'ssh';
   return null;
 }
+
+export function isCodexRuntimeProcess(
+  proc: Pick<ProcessTreeEntry, 'comm' | 'args'>,
+): boolean {
+  return processCliKind(proc) === 'codex'
+    && !proc.args?.includes(' app-server')
+    && !proc.args?.includes('code-mode');
+}
 /**
  * Foreground-aware process classification. A GJC descendant excludes the tmux
  * session from this lane. Other agents must own the pane foreground (or carry
@@ -468,9 +476,7 @@ async function inferFreshCodexThreadIds(args: {
     if (!unresolvedNames.has(pane.name) || !pane.cwd) continue;
     const codexPids = descendants(pane.pid, children).filter((pid) => {
       const proc = procByPid.get(pid);
-      return proc?.comm === 'codex'
-        && !proc.args?.includes(' app-server')
-        && !proc.args?.includes('code-mode');
+      return proc ? isCodexRuntimeProcess(proc) : false;
     });
     const primaryCodexPid = selectPrimaryCodexProcessPid(codexPids);
     if (primaryCodexPid === null) continue;
