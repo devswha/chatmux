@@ -5,6 +5,7 @@ import { api } from '../../../utils/api';
 export type ExternalCliSession = {
   tmuxName: string;
   kind: 'claude' | 'codex' | 'cursor' | 'opencode' | 'omp' | 'ssh';
+  projectPath?: string;
   transcriptSessionId?: string;
   sessionName?: string;
   model?: string | null;

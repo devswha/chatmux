@@ -87,25 +87,32 @@ function AppContentInner() {
     activeSessions: processingSessions,
   });
 
-  // External CLI (claude/codex/ssh) target shown in the main area. Claude and
-  // Codex switch to structured transcripts when indexed; terminal attach is
-  // the fallback before a transcript exists and the only path for remote SSH.
+  // Local coding-agent targets switch to structured transcripts when indexed;
+  // terminal attach is only the fallback before indexing and for remote SSH.
   const [externalTerminal, setExternalTerminal] = useState<ExternalTerminalTarget | null>(null);
   const [externalTranscript, setExternalTranscript] = useState<ExternalTerminalTarget | null>(null);
+  const selectExternalProject = sidebarSharedProps.onProjectSelect;
+  const selectExternalSession = sidebarSharedProps.onSessionSelect;
 
   const openExternalTerminal = useCallback((target: ExternalTerminalTarget) => {
-    if (target.cliKind !== 'gjc' && target.transcriptSessionId) {
+    if (target.cliKind !== 'gjc' && target.cliKind !== 'ssh' && target.transcriptSessionId) {
       setExternalTerminal(null);
       setExternalTranscript(target);
       setActiveTab('chat');
-      navigate(`/session/${target.transcriptSessionId}`);
+      selectExternalProject(target.project);
+      selectExternalSession({
+        id: target.transcriptSessionId,
+        summary: target.sessionName ?? '',
+        __provider: target.cliKind,
+        __projectId: target.project.projectId,
+      });
       setSidebarOpen(false);
       return;
     }
     setExternalTranscript(null);
     setExternalTerminal(target);
     setSidebarOpen(false);
-  }, [navigate, setActiveTab, setSidebarOpen]);
+  }, [selectExternalProject, selectExternalSession, setActiveTab, setSidebarOpen]);
 
   const closeExternalTerminal = useCallback(() => {
     setExternalTerminal(null);

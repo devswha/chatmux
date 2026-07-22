@@ -603,9 +603,10 @@ router.get(
       if (session.kind === 'ssh') {
         return { tmuxName: session.tmuxName, kind: session.kind };
       }
+      const projectPath = session.cwd;
       const providerSessionId = session.providerSessionId;
       if (!providerSessionId) {
-        return { tmuxName: session.tmuxName, kind: session.kind };
+        return { tmuxName: session.tmuxName, kind: session.kind, projectPath };
       }
       let appSession = sessionsDb.getSessionByProviderSessionId(session.kind, providerSessionId);
       if (!appSession && session.kind === 'codex') {
@@ -616,7 +617,7 @@ router.get(
         }
       }
       if (!appSession) {
-        return { tmuxName: session.tmuxName, kind: session.kind };
+        return { tmuxName: session.tmuxName, kind: session.kind, projectPath };
       }
       const activeModel = await providerModelsService
         .getCurrentActiveModel(session.kind, appSession.session_id)
@@ -624,6 +625,7 @@ router.get(
       return {
         tmuxName: session.tmuxName,
         kind: session.kind,
+        projectPath: appSession.project_path ?? projectPath,
         transcriptSessionId: appSession.session_id,
         sessionName: appSession.custom_name,
         model: activeModel?.model ?? null,

@@ -6,7 +6,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 
 import type { ExternalTerminalTarget, Project } from '../../../../types/app';
 
-import SidebarExternalSection from './SidebarExternalSection';
+import SidebarExternalSection, { resolveExternalSessionProject } from './SidebarExternalSection';
 
 const project = {
   projectId: 'project-1',
@@ -14,8 +14,25 @@ const project = {
   fullPath: '/workspace/chatmux',
 } satisfies Project;
 
+const otherProject = {
+  projectId: 'project-2',
+  displayName: 'Other',
+  fullPath: '/workspace/other',
+} satisfies Project;
+
 const noop = () => {};
 const onOpen = noop as unknown as (target: ExternalTerminalTarget) => void;
+
+test('resolveExternalSessionProject selects the transcript owner instead of the first project', () => {
+  assert.equal(
+    resolveExternalSessionProject({
+      tmuxName: 'omp-other',
+      kind: 'omp',
+      projectPath: '/workspace/other/',
+    }, [project, otherProject]),
+    otherProject,
+  );
+});
 
 test('SidebarExternalSection shows Codex transcript name, model, and tmux name', () => {
   const html = renderToStaticMarkup(createElement(SidebarExternalSection, {

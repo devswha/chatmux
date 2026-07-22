@@ -18,6 +18,23 @@ const KIND_LABEL: Record<ExternalCliSession['kind'], string> = {
 // Local coding-agent tmux sessions can be stopped; remote SSH sessions are not
 // ours to kill.
 
+const normalizeComparablePath = (value: string): string => (
+  value.replace(/\\/g, '/').replace(/\/+$/, '')
+);
+
+export const resolveExternalSessionProject = (
+  session: ExternalCliSession,
+  projects: Project[],
+): Project | null => {
+  const normalizedSessionPath = session.projectPath
+    ? normalizeComparablePath(session.projectPath)
+    : '';
+  return projects.find((project) => (
+    normalizedSessionPath
+    && normalizeComparablePath(project.fullPath || project.path || '') === normalizedSessionPath
+  )) ?? projects[0] ?? null;
+};
+
 type SidebarExternalSectionProps = {
   sessions: ExternalCliSession[];
   projects: Project[];
@@ -37,11 +54,13 @@ export default function SidebarExternalSection({ sessions, projects, onOpen, onC
   const [killing, setKilling] = useState<string | null>(null);
   const [error, setError] = useState('');
   const pendingTranscriptRef = useRef<string | null>(null);
-  // Shell needs a real project only for the PTY cwd; attach ignores the cwd.
+  // SSH attach only needs any project-shaped shell context. Local transcripts
+  // must use their owning project so the selected session can actually render.
   const shellProject = projects[0] ?? null;
 
   const openSession = (session: ExternalCliSession) => {
-    if (!shellProject) return;
+    const sessionProject = resolveExternalSessionProject(session, projects);
+    if (!sessionProject) return;
     pendingTranscriptRef.current = session.kind !== 'ssh' && !session.transcriptSessionId
       ? session.tmuxName
       : null;
@@ -49,7 +68,7 @@ export default function SidebarExternalSection({ sessions, projects, onOpen, onC
       tmuxName: session.tmuxName,
       kind: KIND_LABEL[session.kind],
       cliKind: session.kind,
-      project: shellProject,
+      project: sessionProject,
       transcriptSessionId: session.transcriptSessionId,
       sessionName: session.sessionName,
       model: session.model,
@@ -58,22 +77,24 @@ export default function SidebarExternalSection({ sessions, projects, onOpen, onC
 
   useEffect(() => {
     const tmuxName = pendingTranscriptRef.current;
-    if (!tmuxName || !shellProject) return;
+    if (!tmuxName) return;
     const session = sessions.find((candidate) => (
       candidate.tmuxName === tmuxName && candidate.transcriptSessionId
     ));
     if (!session) return;
+    const sessionProject = resolveExternalSessionProject(session, projects);
+    if (!sessionProject) return;
     pendingTranscriptRef.current = null;
     onOpen({
       tmuxName: session.tmuxName,
       kind: KIND_LABEL[session.kind],
       cliKind: session.kind,
-      project: shellProject,
+      project: sessionProject,
       transcriptSessionId: session.transcriptSessionId,
       sessionName: session.sessionName,
       model: session.model,
     });
-  }, [onOpen, sessions, shellProject]);
+  }, [onOpen, sessions, projects]);
 
   const stopSession = async (tmuxName: string) => {
     if (killing) return;

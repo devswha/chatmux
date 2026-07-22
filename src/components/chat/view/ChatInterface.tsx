@@ -423,7 +423,7 @@ function ChatInterface({
           showRawParameters={showRawParameters}
           showThinking={showThinking}
           selectedProject={selectedProject}
-          transcriptView={liveSessionKind === 'codex' || liveSessionKind === 'claude'}
+          transcriptView={Boolean(liveSessionKind && liveSessionKind !== 'gjc')}
         />
 
         <div className="relative flex-shrink-0">
