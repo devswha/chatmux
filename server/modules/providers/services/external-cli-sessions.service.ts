@@ -243,6 +243,14 @@ function processCliKind(proc: Pick<ProcessTreeEntry, 'comm' | 'args'>): External
   if (executable('ssh')) return 'ssh';
   return null;
 }
+
+export function isCodexRuntimeProcess(
+  proc: Pick<ProcessTreeEntry, 'comm' | 'args'>,
+): boolean {
+  return processCliKind(proc) === 'codex'
+    && !proc.args?.includes(' app-server')
+    && !proc.args?.includes('code-mode');
+}
 /**
  * Foreground-aware process classification. A GJC descendant excludes the tmux
  * session from this lane. Other agents must own the pane foreground (or carry
@@ -383,11 +391,22 @@ function runCommand(command: string, cmdArgs: string[], timeoutMs = 4000): Promi
   });
 }
 
+export function parseProcessStartTime(output: string): number | null {
+  const parsed = Date.parse(output.trim());
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 async function processStartMs(pid: number): Promise<number | null> {
   try {
     return (await stat(`/proc/${pid}`)).mtimeMs;
   } catch {
-    return null;
+    try {
+      return parseProcessStartTime(await runCommand('ps', [
+        '-p', String(pid), '-o', 'lstart=',
+      ]));
+    } catch {
+      return null;
+    }
   }
 }
 
@@ -403,6 +422,12 @@ function descendants(rootPid: number, children: ReadonlyMap<number, number[]>): 
     queue.push(...(children.get(pid) ?? []));
   }
   return result;
+}
+
+export function selectPrimaryCodexProcessPid(codexPids: readonly number[]): number | null {
+  // `descendants` is breadth-first, so the first match is the CLI process that
+  // owns any native Codex child. Current npm installs commonly expose both.
+  return codexPids[0] ?? null;
 }
 
 function readFreshCodexThreads(minCreatedAtMs: number): FreshCodexThread[] {
@@ -452,12 +477,11 @@ async function inferFreshCodexThreadIds(args: {
     if (!unresolvedNames.has(pane.name) || !pane.cwd) continue;
     const codexPids = descendants(pane.pid, children).filter((pid) => {
       const proc = procByPid.get(pid);
-      return proc?.comm === 'codex'
-        && !proc.args?.includes(' app-server')
-        && !proc.args?.includes('code-mode');
+      return proc ? isCodexRuntimeProcess(proc) : false;
     });
-    if (codexPids.length !== 1) continue;
-    const startedAtMs = await processStartMs(codexPids[0]);
+    const primaryCodexPid = selectPrimaryCodexProcessPid(codexPids);
+    if (primaryCodexPid === null) continue;
+    const startedAtMs = await processStartMs(primaryCodexPid);
     if (startedAtMs !== null) {
       processes.push({ tmuxName: pane.name, cwd: pane.cwd, startedAtMs });
     }

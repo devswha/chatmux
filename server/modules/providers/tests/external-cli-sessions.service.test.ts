@@ -8,13 +8,37 @@ import {
   classifyExternalSessions,
   extractCodexResumeThreadId,
   extractExternalResumeSessionId,
+  isCodexRuntimeProcess,
   normalizeExternalPaneOutput,
   parseClaudeRuntimeSession,
   parseExternalPanes,
+  parseProcessStartTime,
   parsePsTree,
+  selectPrimaryCodexProcessPid,
   resolveExternalCliExecutable,
   withoutNodeModulesBins,
 } from '@/modules/providers/services/external-cli-sessions.service.js';
+
+test('parseProcessStartTime reads the portable ps lstart format used on macOS', () => {
+  assert.equal(
+    parseProcessStartTime('Wed Jul 22 23:16:35 2026\n'),
+    new Date('2026-07-22T23:16:35').getTime(),
+  );
+  assert.equal(parseProcessStartTime('not a process time'), null);
+});
+
+test('Codex process selection accepts the npm wrapper and native child pair', () => {
+  assert.equal(isCodexRuntimeProcess({
+    comm: 'node',
+    args: 'node /opt/homebrew/bin/codex',
+  }), true);
+  assert.equal(isCodexRuntimeProcess({
+    comm: '/opt/homebrew/li',
+    args: '/opt/homebrew/lib/node_modules/@openai/codex/vendor/aarch64-apple-darwin/bin/codex',
+  }), true);
+  assert.equal(selectPrimaryCodexProcessPid([89009, 89076]), 89009);
+  assert.equal(selectPrimaryCodexProcessPid([]), null);
+});
 
 test('external CLI resolution excludes app-local npm shims', async () => {
   const searchPath = [
