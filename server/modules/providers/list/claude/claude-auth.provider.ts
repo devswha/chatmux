@@ -16,19 +16,53 @@ type ClaudeCredentialsStatus = {
   error?: string;
 };
 
+type ClaudeAuthRuntime = {
+  platform?: NodeJS.Platform;
+  runVersionProbe?: typeof spawn.sync;
+  runKeychainProbe?: typeof spawn.sync;
+};
+
 const hasErrorCode = (error: unknown, code: string): boolean => (
   error instanceof Error && 'code' in error && error.code === code
 );
 
+export const hasClaudeKeychainCredentials = (
+  platform: NodeJS.Platform = process.platform,
+  runKeychainProbe: typeof spawn.sync = spawn.sync,
+): boolean => {
+  if (platform !== 'darwin') {
+    return false;
+  }
+
+  try {
+    // Claude Code 2.x stores OAuth credentials in the macOS Keychain. Probe
+    // metadata only: omitting -w/-g ensures no credential value is returned.
+    const result = runKeychainProbe(
+      '/usr/bin/security',
+      ['find-generic-password', '-s', 'Claude Code-credentials'],
+      { stdio: 'ignore', timeout: 5000 },
+    );
+    return !result.error && result.status === 0;
+  } catch {
+    return false;
+  }
+};
+
 export class ClaudeProviderAuth implements IProviderAuth {
+  constructor(private readonly runtime: ClaudeAuthRuntime = {}) {}
+
   /**
    * Checks whether the Claude Code CLI is available on this host.
    */
   private checkInstalled(): boolean {
     const cliPath = resolveClaudeCodeExecutablePath(process.env.CLAUDE_CLI_PATH);
     try {
-      spawn.sync(cliPath, ['--version'], { stdio: 'ignore', timeout: 5000 });
-      return true;
+      const result = (this.runtime.runVersionProbe ?? spawn.sync)(
+        cliPath,
+        ['--version'],
+        { stdio: 'ignore', timeout: 5000 },
+      );
+      return !result.error && result.status === 0;
     } catch {
       return false;
     }
@@ -98,6 +132,13 @@ export class ClaudeProviderAuth implements IProviderAuth {
 
     if (readOptionalString(settingsEnv.ANTHROPIC_AUTH_TOKEN)) {
       return { authenticated: true, email: 'Configured via settings.json', method: 'api_key' };
+    }
+
+    if (hasClaudeKeychainCredentials(
+      this.runtime.platform,
+      this.runtime.runKeychainProbe,
+    )) {
+      return { authenticated: true, email: null, method: 'keychain' };
     }
 
     try {
