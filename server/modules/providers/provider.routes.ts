@@ -20,6 +20,7 @@ import {
   spawnExternalCliSession,
   type ExternalSpawnCli,
 } from '@/modules/providers/services/external-cli-sessions.service.js';
+import { readExternalSessionActivity } from '@/modules/providers/services/external-session-activity.service.js';
 import { getHomeDir, getHomeDirSuggestions } from '@/modules/providers/services/home-dirs.service.js';
 import { isValidTmuxName, sendToLiveSession, isValidSpawnName, spawnLiveSession, killLiveSession } from '@/modules/providers/services/live-send.service.js';
 import { listLiveGjcCommands } from '@/modules/providers/services/live-commands.service.js';
@@ -606,7 +607,7 @@ router.get(
       const projectPath = session.cwd;
       const providerSessionId = session.providerSessionId;
       if (!providerSessionId) {
-        return { tmuxName: session.tmuxName, kind: session.kind, projectPath };
+        return { tmuxName: session.tmuxName, kind: session.kind, projectPath, activity: 'unknown' as const };
       }
       let appSession = sessionsDb.getSessionByProviderSessionId(session.kind, providerSessionId);
       if (!appSession && session.kind === 'codex') {
@@ -617,11 +618,23 @@ router.get(
         }
       }
       if (!appSession) {
-        return { tmuxName: session.tmuxName, kind: session.kind, projectPath };
+        const activity = await readExternalSessionActivity({
+          kind: session.kind,
+          providerSessionId,
+          jsonlPath: null,
+        });
+        return { tmuxName: session.tmuxName, kind: session.kind, projectPath, activity };
       }
-      const activeModel = await providerModelsService
-        .getCurrentActiveModel(session.kind, appSession.session_id)
-        .catch(() => null);
+      const [activeModel, activity] = await Promise.all([
+        providerModelsService
+          .getCurrentActiveModel(session.kind, appSession.session_id)
+          .catch(() => null),
+        readExternalSessionActivity({
+          kind: session.kind,
+          providerSessionId,
+          jsonlPath: appSession.jsonl_path,
+        }),
+      ]);
       return {
         tmuxName: session.tmuxName,
         kind: session.kind,
@@ -629,6 +642,7 @@ router.get(
         transcriptSessionId: appSession.session_id,
         sessionName: appSession.custom_name,
         model: activeModel?.model ?? null,
+        activity,
       };
     }));
     res.json(createApiSuccessResponse({ externalSessions }));

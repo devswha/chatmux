@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 
 import { api } from '../../../utils/api';
 
+export type ExternalSessionActivity = 'running' | 'waiting_user' | 'asking_user' | 'unknown';
+
 export type ExternalCliSession = {
   tmuxName: string;
   kind: 'claude' | 'codex' | 'cursor' | 'opencode' | 'omp' | 'ssh';
@@ -9,6 +11,7 @@ export type ExternalCliSession = {
   transcriptSessionId?: string;
   sessionName?: string;
   model?: string | null;
+  activity?: ExternalSessionActivity;
 };
 
 const POLL_INTERVAL_MS = 5000;

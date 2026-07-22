@@ -104,3 +104,24 @@ test('SidebarExternalSection opens a fresh local agent in the pending conversati
   assert.ok(html.includes('omp-fresh — 대화 열기'));
   assert.ok(!html.includes('터미널로 보기'));
 });
+
+test('SidebarExternalSection renders provider-native activity states without labelling SSH', () => {
+  const html = renderToStaticMarkup(createElement(SidebarExternalSection, {
+    sessions: [
+      { tmuxName: 'claude-run', kind: 'claude' as const, activity: 'running' as const },
+      { tmuxName: 'codex-wait', kind: 'codex' as const, activity: 'waiting_user' as const },
+      { tmuxName: 'omp-ask', kind: 'omp' as const, activity: 'asking_user' as const },
+      { tmuxName: 'cursor-unknown', kind: 'cursor' as const, activity: 'unknown' as const },
+      { tmuxName: 'remote', kind: 'ssh' as const },
+    ],
+    projects: [project],
+    onOpen,
+    onChanged: noop,
+  }));
+
+  assert.ok(html.includes('>RUN<'));
+  assert.ok(html.includes('>대기<'));
+  assert.ok(html.includes('>질문<'));
+  assert.ok(html.includes('>확인 불가<'));
+  assert.ok(html.includes('다음 사용자 입력을 기다립니다'));
+});

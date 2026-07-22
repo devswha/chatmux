@@ -3,7 +3,7 @@ import { MessageSquare, Server, SquareTerminal, X } from 'lucide-react';
 
 import type { ExternalTerminalTarget, Project } from '../../../../types/app';
 import { api } from '../../../../utils/api';
-import type { ExternalCliSession } from '../../hooks/useExternalCliSessions';
+import type { ExternalCliSession, ExternalSessionActivity } from '../../hooks/useExternalCliSessions';
 import SessionProviderLogo from '../../../llm-logo-provider/SessionProviderLogo';
 
 const KIND_LABEL: Record<ExternalCliSession['kind'], string> = {
@@ -13,6 +13,38 @@ const KIND_LABEL: Record<ExternalCliSession['kind'], string> = {
   opencode: 'OpenCode',
   omp: 'Oh My Pi',
   ssh: 'ssh (원격)',
+};
+
+const ACTIVITY_BADGE: Record<ExternalSessionActivity, {
+  label: string;
+  title: string;
+  className: string;
+  dotClassName: string;
+}> = {
+  running: {
+    label: 'RUN',
+    title: '에이전트가 응답하거나 도구를 실행 중입니다',
+    className: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400',
+    dotClassName: 'animate-pulse bg-emerald-500',
+  },
+  waiting_user: {
+    label: '대기',
+    title: '현재 턴이 끝나 다음 사용자 입력을 기다립니다',
+    className: 'bg-blue-500/15 text-blue-600 dark:text-blue-400',
+    dotClassName: 'bg-blue-500',
+  },
+  asking_user: {
+    label: '질문',
+    title: '에이전트가 현재 턴에서 사용자 선택이나 승인을 기다립니다',
+    className: 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
+    dotClassName: 'animate-pulse bg-amber-500',
+  },
+  unknown: {
+    label: '확인 불가',
+    title: 'provider 기록에서 현재 상태를 안전하게 판정할 수 없습니다',
+    className: 'bg-muted text-muted-foreground',
+    dotClassName: 'bg-muted-foreground/50',
+  },
 };
 
 // Local coding-agent tmux sessions can be stopped; remote SSH sessions are not
@@ -125,6 +157,7 @@ export default function SidebarExternalSection({ sessions, projects, onOpen, onC
       {error && <p className="px-2 py-1 text-[11px] text-red-500">{error}</p>}
       {sessions.map((session) => {
         const canKill = session.kind !== 'ssh';
+        const activityBadge = canKill ? ACTIVITY_BADGE[session.activity ?? 'unknown'] : null;
         const sessionName = session.sessionName?.trim();
         const primary = sessionName || session.tmuxName;
         const metadata = [
@@ -152,6 +185,18 @@ export default function SidebarExternalSection({ sessions, projects, onOpen, onC
                 )}
                 <span className="flex min-w-0 flex-1 flex-col">
                   <span className="flex items-center gap-2">
+                    {activityBadge && (
+                      <>
+                        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${activityBadge.dotClassName}`} aria-hidden />
+                        <span
+                          className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${activityBadge.className}`}
+                          title={activityBadge.title}
+                          aria-label={activityBadge.title}
+                        >
+                          {activityBadge.label}
+                        </span>
+                      </>
+                    )}
                     <span className="truncate text-sm font-medium text-foreground">{primary}</span>
                   </span>
                   <span className="truncate text-[11px] text-muted-foreground">
