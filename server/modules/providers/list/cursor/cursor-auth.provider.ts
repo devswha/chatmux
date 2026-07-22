@@ -10,17 +10,30 @@ type CursorLoginStatus = {
   error?: string;
 };
 
+type CursorVersionProbe = typeof spawn.sync;
+
+export const isCursorAgentInstalled = (
+  runVersionProbe: CursorVersionProbe = spawn.sync,
+): boolean => {
+  try {
+    const result = runVersionProbe('cursor-agent', ['--version'], {
+      stdio: 'ignore',
+      timeout: 5000,
+    });
+    return !result.error && result.status === 0;
+  } catch {
+    return false;
+  }
+};
+
 export class CursorProviderAuth implements IProviderAuth {
+  constructor(private readonly runVersionProbe: CursorVersionProbe = spawn.sync) {}
+
   /**
    * Checks whether the cursor-agent CLI is available on this host.
    */
   private checkInstalled(): boolean {
-    try {
-      spawn.sync('cursor-agent', ['--version'], { stdio: 'ignore', timeout: 5000 });
-      return true;
-    } catch {
-      return false;
-    }
+    return isCursorAgentInstalled(this.runVersionProbe);
   }
 
   /**
