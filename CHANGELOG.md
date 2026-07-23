@@ -6,6 +6,9 @@ future server artifacts are published only through
 
 ## Unreleased
 
+## 1.3.0 (2026-07-22)
+
+
 ### Agent providers
 
 - Added Oh My Pi as a first-class ChatMux provider: native JSONL streaming,
@@ -37,6 +40,9 @@ future server artifacts are published only through
 - Added passwordless Tailscale identity authentication for HTTP and WebSocket,
   an owner/allowlist policy, `chatmux access` management commands, and an
   **Access** settings tab with the active private address and account controls.
+- Added a one-line GitHub bootstrap that verifies the release checksum,
+  installs an isolated Node.js 22 runtime when needed, and delegates to the
+  managed installer without requiring a source checkout.
 
 ### Documentation
 

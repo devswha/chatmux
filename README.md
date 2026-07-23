@@ -33,21 +33,19 @@ Agent subscriptions are not included. Install and authenticate each CLI as the s
 <a id="install"></a>
 ## Install
 
-For a production server, use a pinned archive and checksum from
-[GitHub Releases](https://github.com/devswha/chatmux/releases). The supported
-server target is Linux x86_64 with glibc 2.35 or newer, Node.js 22, tmux, and a
-user-level systemd service.
-
-After verifying and extracting the release, run this from the release directory:
+Install the latest production release on Linux x86_64:
 
 ```bash
-node scripts/chatmux-runtime.mjs install
+curl -fsSL https://raw.githubusercontent.com/devswha/chatmux/main/install.sh | bash
 ```
 
-The installer configures the service, persistent data, loopback binding, health
-check, and either local-only or passwordless Tailscale access. See the
-[installation guide](docs/INSTALL.md) for download, checksum, unattended
-installation, rollback, and recovery steps.
+The bootstrap verifies the release checksum, installs a private Node.js 22
+runtime when needed, configures the user service, and selects Tailscale when it
+is already running. Otherwise ChatMux stays local-only on `127.0.0.1`.
+
+Requirements: glibc 2.35 or newer, tmux, user-level systemd, `curl`, `tar`, and
+`sha256sum`. See the [installation guide](docs/INSTALL.md) for pinned installs,
+explicit access choices, paths, rollback, and recovery.
 
 For source development:
 

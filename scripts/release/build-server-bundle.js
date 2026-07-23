@@ -321,6 +321,7 @@ const stageDir = path.join(bundleRoot, `.stage-${version}`);
 const archivePath = path.join(bundleRoot, bundleName);
 const checksumPath = `${archivePath}.sha256`;
 const buildInputs = [
+  'install.sh',
   'dist',
   'dist-server',
   'dist-native',
@@ -384,6 +385,7 @@ try {
 
   await fs.rm(path.join(stageDir, 'package-lock.json'), { force: true });
   await fs.rm(path.join(stageDir, 'scripts', 'fix-node-pty.js'), { force: true });
+  await fs.chmod(path.join(stageDir, 'install.sh'), 0o755);
   await fs.chmod(path.join(stageDir, 'scripts', 'chatmux-runtime.mjs'), 0o755);
   await writeRuntimePackageJson(stageDir, packageJson);
 
