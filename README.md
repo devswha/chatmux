@@ -36,7 +36,7 @@ Agent subscriptions are not included. Install and authenticate each CLI as the s
 Install the latest production release on Linux x86_64:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/devswha/chatmux/main/install.sh | bash
+curl -fsSL https://github.com/devswha/chatmux/releases/latest/download/install.sh | bash
 ```
 
 The bootstrap verifies the release checksum, installs a private Node.js 22

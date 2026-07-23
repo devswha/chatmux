@@ -5,7 +5,7 @@
 Run one command on a Linux x86_64 server:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/devswha/chatmux/main/install.sh | bash
+curl -fsSL https://github.com/devswha/chatmux/releases/latest/download/install.sh | bash
 ```
 
 The bootstrap:
@@ -41,11 +41,11 @@ running and logged in. To choose explicitly:
 
 ```sh
 # Keep ChatMux on this computer only
-curl -fsSL https://raw.githubusercontent.com/devswha/chatmux/main/install.sh \
+curl -fsSL https://github.com/devswha/chatmux/releases/latest/download/install.sh \
   | bash -s -- --local
 
 # Enable private Tailscale HTTPS access
-curl -fsSL https://raw.githubusercontent.com/devswha/chatmux/main/install.sh \
+curl -fsSL https://github.com/devswha/chatmux/releases/latest/download/install.sh \
   | bash -s -- --tailscale --owner user@example.com
 ```
 
@@ -53,7 +53,7 @@ Optional backend and Tailscale Serve ports can be passed through the same
 command:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/devswha/chatmux/main/install.sh \
+curl -fsSL https://github.com/devswha/chatmux/releases/latest/download/install.sh \
   | bash -s -- --port 3010 --https-port 8451
 ```
 
@@ -63,25 +63,23 @@ does not enable Funnel or reset unrelated Serve configuration.
 
 ## Pin and inspect the installer
 
-The quick command trusts the `install.sh` served from the repository's current
-`main` branch over GitHub HTTPS. The downloaded ChatMux and Node.js payloads are
-still checksum-verified.
+The quick command follows GitHub's `latest` release redirect and trusts the
+attached `install.sh` over HTTPS. The downloaded ChatMux and Node.js payloads
+are checksum-verified.
 
-For a fully reviewable installation, pin both the installer commit and release:
+For a fully reviewable installation, pin and inspect one release:
 
 ```sh
-INSTALLER_COMMIT=<reviewed-full-commit-sha>
-CHATMUX_VERSION=<approved-version>
+VERSION=<approved-version-without-v>
 
 curl -fsSLo /tmp/chatmux-install.sh \
-  "https://raw.githubusercontent.com/devswha/chatmux/$INSTALLER_COMMIT/install.sh"
+  "https://github.com/devswha/chatmux/releases/download/v$VERSION/install.sh"
 less /tmp/chatmux-install.sh
-CHATMUX_VERSION="$CHATMUX_VERSION" bash /tmp/chatmux-install.sh
+CHATMUX_VERSION="$VERSION" bash /tmp/chatmux-install.sh
 ```
 
-`CHATMUX_VERSION` may include or omit the leading `v`. The bootstrap downloads
-only the matching immutable GitHub Release assets and rejects a checksum
-mismatch or incomplete archive.
+The bootstrap downloads only the matching immutable GitHub Release assets and
+rejects a checksum mismatch or incomplete archive.
 
 ## After installation
 
