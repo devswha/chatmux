@@ -149,7 +149,7 @@ test('managed install writes a complete isolated service layout before enabling 
   assert.equal(cli, [
     '#!/bin/sh',
     '# Managed by ChatMux installer',
-    `exec '/opt/chatmux node/bin/node' '${path.join(home, '.chatmux', 'current', 'scripts', 'chatmux-runtime.mjs')}' "$@"`,
+    `CHATMUX_ENV_FILE='${path.join(home, '.chatmux', 'chatmux.env')}' exec '/opt/chatmux node/bin/node' '${path.join(home, '.chatmux', 'current', 'scripts', 'chatmux-runtime.mjs')}' "$@"`,
     '',
   ].join('\n'));
   assert.equal((await fs.stat(binPath)).mode & 0o777, 0o755);

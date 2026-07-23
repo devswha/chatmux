@@ -6,6 +6,14 @@ future server artifacts are published only through
 
 ## Unreleased
 
+## 1.3.5 (2026-07-22)
+
+### Installation
+
+- `chatmux status` and other management commands now load the managed
+  `~/.chatmux/chatmux.env`, so they report and use the same auto-selected
+  backend port, database, and access mode as the running service.
+
 ## 1.3.4 (2026-07-22)
 
 ### Installation

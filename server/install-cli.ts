@@ -261,7 +261,12 @@ function quoteShellArgument(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
-async function writeManagedCli(binPath: string, nodeBinary: string, currentPath: string): Promise<void> {
+async function writeManagedCli(
+  binPath: string,
+  nodeBinary: string,
+  currentPath: string,
+  configPath: string,
+): Promise<void> {
   try {
     const existing = await fs.lstat(binPath);
     if (!existing.isSymbolicLink()) {
@@ -279,7 +284,7 @@ async function writeManagedCli(binPath: string, nodeBinary: string, currentPath:
   const wrapper = [
     '#!/bin/sh',
     MANAGED_CLI_MARKER,
-    `exec ${quoteShellArgument(nodeBinary)} ${quoteShellArgument(runtimeScript)} "$@"`,
+    `CHATMUX_ENV_FILE=${quoteShellArgument(configPath)} exec ${quoteShellArgument(nodeBinary)} ${quoteShellArgument(runtimeScript)} "$@"`,
     '',
   ].join('\n');
   const temporaryPath = `${binPath}.tmp-${process.pid}`;
@@ -448,7 +453,7 @@ export async function runInstallCli(args: string[], context: InstallContext): Pr
   await replaceManagedSymlink(currentPath, sourceRoot, 'dir');
   await fs.writeFile(configPath, environment, { mode: 0o600 });
   await fs.writeFile(unitPath, unit, 'utf8');
-  await writeManagedCli(binPath, nodeBinary, currentPath);
+  await writeManagedCli(binPath, nodeBinary, currentPath, configPath);
 
   process.env.DATABASE_PATH = databasePath;
   await initializeDatabase();

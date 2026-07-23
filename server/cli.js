@@ -26,6 +26,7 @@ const __dirname = getModuleDir(import.meta.url);
 // The CLI is compiled into dist-server/server, but it still needs to read the top-level
 // package.json and .env file. Resolving the app root once keeps those lookups stable.
 const APP_ROOT = findAppRoot(__dirname);
+const ENV_FILE_PATH = process.env.CHATMUX_ENV_FILE || path.join(APP_ROOT, '.env');
 
 // ANSI color codes for terminal output
 const colors = {
@@ -64,7 +65,7 @@ const DEFAULT_DATABASE_PATH = path.join(os.homedir(), '.chatmux', 'auth.db');
 // Load environment variables from .env file if it exists
 function loadEnvFile() {
     try {
-        const envPath = path.join(APP_ROOT, '.env');
+        const envPath = ENV_FILE_PATH;
         const envFile = fs.readFileSync(envPath, 'utf8');
         envFile.split('\n').forEach(line => {
             const trimmedLine = line.trim();
@@ -132,7 +133,7 @@ function showStatus() {
     console.log(`       Status: ${projectsExists ? c.ok('[OK] Exists') : c.warn('[WARN] Not found')}`);
 
     // Config file location
-    const envFilePath = path.join(APP_ROOT, '.env');
+    const envFilePath = ENV_FILE_PATH;
     const envExists = fs.existsSync(envFilePath);
     console.log(`\n${c.info('[INFO]')} Configuration File:`);
     console.log(`       ${c.dim(envFilePath)}`);
