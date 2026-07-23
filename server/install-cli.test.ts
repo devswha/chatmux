@@ -116,6 +116,9 @@ test('managed install writes a complete isolated service layout before enabling 
     await fs.rm(home, { recursive: true, force: true });
   });
   const commands: string[] = [];
+  const binPath = path.join(home, '.local', 'bin', 'chatmux');
+  await fs.mkdir(path.dirname(binPath), { recursive: true });
+  await fs.symlink('/legacy/chatmux-runtime.mjs', binPath);
 
   await runInstallCli(['--yes', '--local', '--port=39101'], {
     appRoot: process.cwd(),
@@ -124,6 +127,7 @@ test('managed install writes a complete isolated service layout before enabling 
     platform: 'linux',
     arch: 'x64',
     nodeVersion: '22.22.2',
+    nodeBinary: '/opt/chatmux node/bin/node',
     healthCheck: async (port, version) => {
       assert.equal(port, 39101);
       assert.equal(version, 'test');
@@ -141,7 +145,14 @@ test('managed install writes a complete isolated service layout before enabling 
   assert.match(unit, /Environment=HOST=127\.0\.0\.1/);
   assert.match(unit, /Environment=SERVER_PORT=39101/);
   assert.equal(await fs.realpath(path.join(home, '.chatmux', 'current')), process.cwd());
-  assert.equal(await fs.readlink(path.join(home, '.local', 'bin', 'chatmux')), path.join(home, '.chatmux', 'current', 'scripts', 'chatmux-runtime.mjs'));
+  const cli = await fs.readFile(binPath, 'utf8');
+  assert.equal(cli, [
+    '#!/bin/sh',
+    '# Managed by ChatMux installer',
+    `exec '/opt/chatmux node/bin/node' '${path.join(home, '.chatmux', 'current', 'scripts', 'chatmux-runtime.mjs')}' "$@"`,
+    '',
+  ].join('\n'));
+  assert.equal((await fs.stat(binPath)).mode & 0o777, 0o755);
   assert.deepEqual(commands, [
     'tailscale status --json',
     'systemctl --user stop chatmux.service',

@@ -46,6 +46,7 @@ type InstallContext = {
   platform?: NodeJS.Platform;
   arch?: string;
   nodeVersion?: string;
+  nodeBinary?: string;
   healthCheck?: (serverPort: number, version: string) => Promise<void>;
   portAvailable?: (port: number) => Promise<boolean>;
 };
@@ -254,6 +255,42 @@ async function replaceManagedSymlink(linkPath: string, targetPath: string, type?
   await fs.symlink(targetPath, linkPath, type);
 }
 
+const MANAGED_CLI_MARKER = '# Managed by ChatMux installer';
+
+function quoteShellArgument(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+async function writeManagedCli(binPath: string, nodeBinary: string, currentPath: string): Promise<void> {
+  try {
+    const existing = await fs.lstat(binPath);
+    if (!existing.isSymbolicLink()) {
+      if (!existing.isFile()) throw new Error(`Refusing to replace non-file path: ${binPath}`);
+      const content = await fs.readFile(binPath, 'utf8');
+      if (!content.includes(MANAGED_CLI_MARKER)) {
+        throw new Error(`Refusing to replace unmanaged file: ${binPath}`);
+      }
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+  }
+
+  const runtimeScript = path.join(currentPath, 'scripts', 'chatmux-runtime.mjs');
+  const wrapper = [
+    '#!/bin/sh',
+    MANAGED_CLI_MARKER,
+    `exec ${quoteShellArgument(nodeBinary)} ${quoteShellArgument(runtimeScript)} "$@"`,
+    '',
+  ].join('\n');
+  const temporaryPath = `${binPath}.tmp-${process.pid}`;
+  try {
+    await fs.writeFile(temporaryPath, wrapper, { mode: 0o755 });
+    await fs.rename(temporaryPath, binPath);
+  } finally {
+    await fs.rm(temporaryPath, { force: true });
+  }
+}
+
 async function waitForHealth(serverPort: number, version: string): Promise<void> {
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
@@ -343,6 +380,7 @@ export async function runInstallCli(args: string[], context: InstallContext): Pr
   const configPath = path.join(managedRoot, 'chatmux.env');
   const unitPath = path.join(home, '.config', 'systemd', 'user', 'chatmux.service');
   const binPath = path.join(home, '.local', 'bin', 'chatmux');
+  const nodeBinary = context.nodeBinary ?? process.execPath;
   const tailscale = await inspectTailscale(run);
 
   let useTailscale = options.accessMode === 'tailscale';
@@ -378,7 +416,7 @@ export async function runInstallCli(args: string[], context: InstallContext): Pr
   const unit = renderSystemdUnit(template, {
     appRoot: currentPath,
     workingDirectory: currentPath,
-    nodeBinary: process.execPath,
+    nodeBinary,
     configFile: configPath,
     host: '127.0.0.1',
     port: options.serverPort,
@@ -410,7 +448,7 @@ export async function runInstallCli(args: string[], context: InstallContext): Pr
   await replaceManagedSymlink(currentPath, sourceRoot, 'dir');
   await fs.writeFile(configPath, environment, { mode: 0o600 });
   await fs.writeFile(unitPath, unit, 'utf8');
-  await replaceManagedSymlink(binPath, path.join(currentPath, 'scripts', 'chatmux-runtime.mjs'));
+  await writeManagedCli(binPath, nodeBinary, currentPath);
 
   process.env.DATABASE_PATH = databasePath;
   await initializeDatabase();

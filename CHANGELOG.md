@@ -6,6 +6,14 @@ future server artifacts are published only through
 
 ## Unreleased
 
+## 1.3.4 (2026-07-22)
+
+### Installation
+
+- The installed `chatmux` management command now runs through the same pinned
+  Node.js 22 executable as the systemd service. Hosts whose default `node`
+  points to Node.js 24 no longer reject `chatmux status` and access commands.
+
 ## 1.3.3 (2026-07-22)
 
 ### Installation
