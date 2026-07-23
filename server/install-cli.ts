@@ -105,9 +105,17 @@ export function parseInstallOptions(args: string[]): InstallOptions {
 }
 
 
-function quoteSystemd(value: string): string {
-  if (/\r|\n|\0/.test(value)) throw new Error('Systemd values cannot contain control characters');
-  return `"${value.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`;
+function escapeSystemdPath(value: string): string {
+  if (!path.isAbsolute(value)) throw new Error('Systemd paths must be absolute');
+  if (/\r|\n|\0/.test(value)) throw new Error('Systemd paths cannot contain control characters');
+  let escaped = '';
+  for (const byte of Buffer.from(value, 'utf8')) {
+    const character = String.fromCharCode(byte);
+    if (/[A-Za-z0-9_./:@+-]/.test(character)) escaped += character;
+    else if (character === '%') escaped += '%%';
+    else escaped += `\\x${byte.toString(16).padStart(2, '0')}`;
+  }
+  return escaped;
 }
 
 export function renderSystemdUnit(template: string, values: {
@@ -119,10 +127,10 @@ export function renderSystemdUnit(template: string, values: {
   port: number;
 }): string {
   const replacements: Record<string, string> = {
-    '@APP_ROOT@': quoteSystemd(values.appRoot),
-    '@APP_ROOT_DIR@': quoteSystemd(values.workingDirectory),
-    '@NODE_BIN@': quoteSystemd(values.nodeBinary),
-    '@CONFIG_FILE@': quoteSystemd(values.configFile),
+    '@APP_ROOT@': escapeSystemdPath(values.appRoot),
+    '@APP_ROOT_DIR@': escapeSystemdPath(values.workingDirectory),
+    '@NODE_BIN@': escapeSystemdPath(values.nodeBinary),
+    '@CONFIG_FILE@': escapeSystemdPath(values.configFile),
     '@HOST@': values.host,
     '@PORT@': String(values.port),
   };

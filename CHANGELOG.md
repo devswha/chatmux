@@ -6,6 +6,14 @@ future server artifacts are published only through
 
 ## Unreleased
 
+## 1.3.1 (2026-07-22)
+
+### Installation
+
+- Fixed generated user systemd units on systemd versions that treat quoted
+  `WorkingDirectory` paths as non-absolute and reject the unit as a bad
+  setting. Managed paths now use systemd-safe byte escaping.
+
 ## 1.3.0 (2026-07-22)
 
 

@@ -63,8 +63,19 @@ test('managed environment and systemd unit keep the backend loopback-only', () =
     port: 3001,
   });
   assert.match(rendered, /Environment=HOST=127\.0\.0\.1/);
-  assert.match(rendered, /EnvironmentFile=-"\/home\/user\/\.chatmux\/chatmux\.env"/);
+  assert.match(rendered, /EnvironmentFile=-\/home\/user\/\.chatmux\/chatmux\.env/);
+  assert.match(rendered, /WorkingDirectory=\/home\/user\/\.chatmux\/current/);
+  assert.match(rendered, /ExecStart=\/usr\/bin\/node \/home\/user\/\.chatmux\/current\/scripts/);
   assert.doesNotMatch(rendered, /@[A-Z_]+@/);
+  const escaped = renderSystemdUnit('WorkingDirectory=@APP_ROOT_DIR@', {
+    appRoot: '/home/test user/.chatmux/current',
+    workingDirectory: '/home/test user/.chatmux/current',
+    nodeBinary: '/home/test user/node',
+    configFile: '/home/test user/chatmux.env',
+    host: '127.0.0.1',
+    port: 3001,
+  });
+  assert.equal(escaped, 'WorkingDirectory=/home/test\\x20user/.chatmux/current');
 });
 
 test('install dry-run computes a local plan without writing or invoking systemd', async () => {
