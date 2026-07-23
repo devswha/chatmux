@@ -25,6 +25,18 @@ future server artifacts are published only through
   visually separated while preserving project selection and history access.
 - Added provider-specific names, logos, model selectors, composer labels, and
   account/settings entries for Oh My Pi across the chat and settings flows.
+- Active external-agent transcripts now include a responsive conversation/CLI
+  output switcher, preserving terminal-only warnings and authentication errors
+  that native providers do not write into their structured history.
+
+### Installation and access
+
+- Added `chatmux install`, a managed one-command Linux service installer that
+  keeps the backend on loopback, checks service health, and can configure an
+  unused Tailscale Serve HTTPS front without changing other Serve routes.
+- Added passwordless Tailscale identity authentication for HTTP and WebSocket,
+  an owner/allowlist policy, `chatmux access` management commands, and an
+  **Access** settings tab with the active private address and account controls.
 
 ### Documentation
 

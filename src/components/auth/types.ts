@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react';
 
+
+export type AuthMode = 'none' | 'password' | 'tailscale';
 export type AuthUser = {
   id?: number | string;
   username: string;
@@ -16,8 +18,11 @@ export type AuthSessionPayload = {
 };
 
 export type AuthStatusPayload = {
-  authMode?: 'none' | 'password';
+  authMode?: AuthMode;
   needsSetup?: boolean;
+  isConfigured?: boolean;
+  isAuthenticated?: boolean;
+  identity?: string | null;
 };
 
 export type AuthUserPayload = {
@@ -36,6 +41,7 @@ export type ApiErrorPayload = {
 export type AuthContextValue = {
   user: AuthUser | null;
   token: string | null;
+  authMode: AuthMode | null;
   isLoading: boolean;
   needsSetup: boolean;
   hasCompletedOnboarding: boolean;

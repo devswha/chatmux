@@ -10,8 +10,13 @@ import {
   authenticateToken,
   generateToken,
   incrementTokenVersion,
-  isAuthDisabled
+  isAuthDisabled,
+  isTailscaleAuth
 } from '../middleware/auth.js';
+import {
+  authenticateTailscaleRequest,
+  getTailscaleAccessConfig
+} from '../tailscale-auth.js';
 
 const router = express.Router();
 const db = getConnection();
@@ -32,11 +37,10 @@ const clearAuthCookie = (req, res) => {
   res.clearCookie(AUTH_COOKIE_NAME, options);
 };
 
-// Auth mode 'none' disables the credential endpoints entirely — they must not
-// remain claimable while every request already acts as the implicit owner.
-const rejectWhenAuthDisabled = (req, res, next) => {
-  if (isAuthDisabled()) {
-    return res.status(404).json({ error: 'Authentication is disabled (CHATMUX_AUTH=none).' });
+// Passwordless modes disable credential endpoints entirely.
+const rejectWhenPasswordless = (req, res, next) => {
+  if (isAuthDisabled() || isTailscaleAuth()) {
+    return res.status(404).json({ error: `Credential authentication is disabled (CHATMUX_AUTH=${AUTH_MODE}).` });
   }
   next();
 };
@@ -47,11 +51,22 @@ router.get('/status', async (req, res) => {
     if (isAuthDisabled()) {
       return res.json({ authMode: AUTH_MODE, needsSetup: false, isAuthenticated: true });
     }
+    if (isTailscaleAuth()) {
+      const access = getTailscaleAccessConfig();
+      const identity = authenticateTailscaleRequest(req);
+      return res.json({
+        authMode: AUTH_MODE,
+        needsSetup: false,
+        isConfigured: Boolean(access.owner),
+        isAuthenticated: Boolean(identity),
+        identity: identity?.login ?? null
+      });
+    }
     const hasUsers = await userDb.hasUsers();
     res.json({
       authMode: AUTH_MODE,
       needsSetup: !hasUsers,
-      isAuthenticated: false // Will be overridden by frontend if token exists
+      isAuthenticated: false
     });
   } catch (error) {
     console.error('Auth status error:', error);
@@ -60,7 +75,7 @@ router.get('/status', async (req, res) => {
 });
 
 // User registration (setup) - only allowed if no users exist
-router.post('/register', rejectWhenAuthDisabled, async (req, res) => {
+router.post('/register', rejectWhenPasswordless, async (req, res) => {
   try {
     const { username, password } = req.body;
     
@@ -120,7 +135,7 @@ router.post('/register', rejectWhenAuthDisabled, async (req, res) => {
 });
 
 // User login
-router.post('/login', rejectWhenAuthDisabled, async (req, res) => {
+router.post('/login', rejectWhenPasswordless, async (req, res) => {
   try {
     const { username, password } = req.body;
     
@@ -168,8 +183,8 @@ router.get('/user', authenticateToken, (req, res) => {
 });
 
 router.post('/logout', authenticateToken, (req, res) => {
-  if (isAuthDisabled()) {
-    return res.json({ success: true, message: 'Authentication is disabled; nothing to log out.' });
+  if (isAuthDisabled() || isTailscaleAuth()) {
+    return res.json({ success: true, message: 'Password authentication is disabled; nothing to log out.' });
   }
   incrementTokenVersion(req.user.id);
   clearAuthCookie(req, res);

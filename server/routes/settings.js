@@ -6,10 +6,61 @@ import {
   notificationPreferencesDb,
   pushSubscriptionsDb,
 } from '../modules/database/index.js';
+import { AUTH_MODE } from '../middleware/auth.js';
+import {
+  allowTailscaleUser,
+  getTailscaleAccessConfig,
+  revokeTailscaleUser
+} from '../tailscale-auth.js';
 import { getPublicKey } from '../services/vapid-keys.js';
 import { createNotificationEvent, notifyUserIfEnabled } from '../services/notification-orchestrator.js';
 
 const router = express.Router();
+
+const canManageTailscaleAccess = (req) => (
+  req.user?.tailscaleRole === 'owner' || req.user?.tailscaleRole === 'local'
+);
+
+const requireTailscaleAccessManager = (req, res, next) => {
+  if (AUTH_MODE !== 'tailscale') {
+    return res.status(409).json({ error: 'Tailscale authentication is not enabled.' });
+  }
+  if (!canManageTailscaleAccess(req)) {
+    return res.status(403).json({ error: 'Only the Tailscale owner can manage access.' });
+  }
+  next();
+};
+
+router.get('/access', (req, res) => {
+  const canManage = AUTH_MODE === 'tailscale' && canManageTailscaleAccess(req);
+  const config = canManage ? getTailscaleAccessConfig() : { owner: null, users: [] };
+  res.json({
+    authMode: AUTH_MODE,
+    canManage,
+    currentIdentity: req.user?.tailscaleLogin ?? null,
+    role: req.user?.tailscaleRole ?? null,
+    owner: config.owner,
+    users: config.users
+  });
+});
+
+router.post('/access/users', requireTailscaleAccessManager, (req, res) => {
+  try {
+    const config = allowTailscaleUser(req.body?.login);
+    res.status(201).json({ owner: config.owner, users: config.users });
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : 'Invalid Tailscale login.' });
+  }
+});
+
+router.delete('/access/users/:login', requireTailscaleAccessManager, (req, res) => {
+  try {
+    const config = revokeTailscaleUser(req.params.login);
+    res.json({ owner: config.owner, users: config.users });
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : 'Invalid Tailscale login.' });
+  }
+});
 
 // ===============================
 // API Keys Management

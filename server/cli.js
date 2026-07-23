@@ -8,6 +8,8 @@
  *   (no args)     - Start the server (default)
  *   start         - Start the server
  *   sandbox       - Manage Docker sandbox environments
+ *   install       - Configure the managed user service and remote access
+ *   access        - Manage Tailscale owner and allowed users
  *   browser-use-mcp - Run Browser MCP stdio server
  *   status        - Show configuration and data locations
  *   help          - Show help information
@@ -157,6 +159,8 @@ Usage:
 Commands:
   start            Start the ChatMux server (default)
   sandbox          Manage Docker sandbox environments
+  install          Install and start the managed user service
+  access           Manage Tailscale access accounts
   browser-use-mcp  Run the Browser MCP stdio server
   status           Show configuration and data locations
   help             Show this help information
@@ -166,6 +170,11 @@ Options:
   -p, --port <port>           Set server port (default: 3001)
   --host <host>               Set bind address (default: 127.0.0.1; use 0.0.0.0 to expose)
   --database-path <path>      Set custom database location
+  --tailscale                 Enable Tailscale identity authentication during install
+  --local                     Keep the install reachable from this computer only
+  --owner <login>             Set the initial Tailscale owner login
+  --https-port <port>         Select a free Tailscale Serve HTTPS port
+  -y, --yes                   Accept installer defaults
   -h, --help                  Show this help information
   -v, --version               Show version information
 
@@ -174,12 +183,17 @@ Examples:
   $ chatmux --port 8080            # Start on port 8080
   $ chatmux --host 0.0.0.0         # Expose on the network (auth required — see below)
   $ chatmux sandbox ~/my-project   # Run in a Docker sandbox
+  $ chatmux install                 # Interactive one-command installation
+  $ chatmux install --yes           # Install with detected safe defaults
+  $ chatmux access users            # Show allowed Tailscale accounts
+  $ chatmux access allow user@example.com
   $ chatmux status                 # Show configuration
 
 Environment Variables:
   SERVER_PORT         Set server port (default: 3001)
   HOST                Set bind address (default: 127.0.0.1 — loopback only)
   DATABASE_PATH       Set custom database location
+  CHATMUX_AUTH       Authentication mode: none, password, or tailscale
   CLAUDE_CLI_PATH     Set custom Claude CLI path
   CONTEXT_WINDOW      Set context window size (default: 160000)
   ALLOW_REMOTE_SETUP  Set to 1 to allow first-run setup on a non-loopback HOST (trusted networks only)
@@ -551,6 +565,16 @@ async function startBrowserUseMcp() {
     await import('./browser-use-mcp.js');
 }
 
+async function runInstall(args) {
+    const { runInstallCli } = await import('./install-cli.js');
+    await runInstallCli(args, { appRoot: APP_ROOT, version: packageJson.version });
+}
+
+async function runAccess(args) {
+    const { runAccessCli } = await import('./install-cli.js');
+    await runAccessCli(args);
+}
+
 // Parse CLI arguments
 function parseArgs(args) {
     const parsed = { command: 'start', options: {} };
@@ -576,7 +600,7 @@ function parseArgs(args) {
             parsed.command = 'version';
         } else if (!arg.startsWith('-')) {
             parsed.command = arg;
-            if (arg === 'sandbox') {
+            if (arg === 'sandbox' || arg === 'install' || arg === 'access') {
                 parsed.remainingArgs = args.slice(i + 1);
                 break;
             }
@@ -608,6 +632,12 @@ async function main() {
             break;
         case 'sandbox':
             await sandboxCommand(remainingArgs || []);
+            break;
+        case 'install':
+            await runInstall(remainingArgs || []);
+            break;
+        case 'access':
+            await runAccess(remainingArgs || []);
             break;
         case 'browser-use-mcp':
             await startBrowserUseMcp();

@@ -53,9 +53,18 @@ curl --fail http://127.0.0.1:3001/health
 Use `loginctl enable-linger "$USER"` only when the host policy permits the
 service to continue after logout.
 
-Keep the service on loopback unless remote access is deliberately required.
-Prefer a trusted VPN or an SSH tunnel; do not expose the server by raw public
-port forwarding.
+Keep the service on loopback. For remote access, use the Tailscale option in
+`chatmux install`; it keeps the backend on `127.0.0.1`, configures a private
+HTTPS Serve front on an unused port, and applies the same account allowlist to
+HTTP and WebSocket requests.
+
+```sh
+chatmux access users
+chatmux access allow family@example.com
+chatmux access revoke family@example.com
+```
+
+An SSH tunnel remains the local-only fallback when Tailscale is unavailable:
 
 ```sh
 ssh -N -L 3001:127.0.0.1:3001 user@server

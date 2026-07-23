@@ -88,7 +88,8 @@
     "label": "Impostazioni",
     "agents": "Agenti",
     "appearance": "Aspetto",
-    "apiTokens": "API e Token"
+    "apiTokens": "API e Token",
+    "access": "Accesso"
   },
   "appearanceSettings": {
     "darkMode": {

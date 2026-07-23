@@ -79,39 +79,82 @@ Do not use a `latest` asset. A checksum mismatch, an existing version
 directory, or a missing server entry point is a failed install; remove only the
 newly created release directory after inspecting the failure.
 
-## Install and start the per-user service
+## Install, secure, and start ChatMux
 
-The service unit is `chatmux.service` and runs the guarded entry point under
-the `current` symlink. Render every placeholder before installing the unit,
-then atomically select the verified first release.
+Run the installer from the verified release directory:
+
 ```sh
-UNIT_SOURCE="$RELEASE_DIR/packaging/systemd/chatmux.service"
-UNIT_DEST="$HOME/.config/systemd/user/chatmux.service"
-NODE_BIN="$(command -v node)"
-mkdir -p "$(dirname "$UNIT_DEST")"
-sed \
-  -e "s|@APP_ROOT@|$RUNTIME/current|g" \
-  -e "s|@NODE_BIN@|$NODE_BIN|g" \
-  -e "s|@HOST@|127.0.0.1|g" \
-  -e "s|@PORT@|3001|g" \
-  "$UNIT_SOURCE" > "$UNIT_DEST"
-chmod 0644 "$UNIT_DEST"
-if grep -q '@[A-Z_][A-Z_]*@' "$UNIT_DEST"; then
-  echo "Unresolved systemd placeholder" >&2
-  exit 1
-fi
-ln -s "$RELEASE_DIR" "$RUNTIME/current.next"
-mv -Tf "$RUNTIME/current.next" "$RUNTIME/current"
+node "$RELEASE_DIR/scripts/chatmux-runtime.mjs" install
+```
 
-systemctl --user daemon-reload
-systemctl --user enable --now chatmux.service
+The installer performs the service setup that previously required manually
+rendering the systemd unit:
+
+- selects the verified release through `~/.chatmux/current`;
+- writes the loopback-only user service and managed environment file;
+- creates `~/.local/bin/chatmux`;
+- initializes persistent data below `~/.chatmux/data`;
+- enables and starts `chatmux.service`, then checks `/health`;
+- detects Tailscale and offers private passwordless access.
+
+When Tailscale is installed, running, and logged in, accept the remote-access
+prompt. ChatMux registers the local node's Tailscale account as the owner,
+enables the `tailscale` authentication mode, and creates one HTTPS Serve front.
+It reuses an existing root front for ChatMux or selects a free port from
+`8443`–`8499`; it never resets or replaces another Serve configuration.
+
+The backend remains bound to `127.0.0.1`. Remote HTTP and WebSocket requests
+are accepted only when they arrive through Tailscale Serve with an allowed
+`Tailscale-User-Login` identity. Funnel is not enabled. Tagged devices and
+unapproved tailnet users fail closed. Direct loopback access remains available
+for recovery by an operator who can log in to the server.
+
+For a non-interactive install:
+
+```sh
+node "$RELEASE_DIR/scripts/chatmux-runtime.mjs" install --yes
+
+# Explicit choices:
+node "$RELEASE_DIR/scripts/chatmux-runtime.mjs" install \
+  --yes --tailscale --owner user@example.com
+node "$RELEASE_DIR/scripts/chatmux-runtime.mjs" install --yes --local
+```
+
+`--yes` selects Tailscale when it is already running; otherwise it installs in
+local-only mode. Use `--port` to change the backend port or `--https-port` to
+request an unused Serve port.
+
+After installation, ensure `~/.local/bin` is on `PATH`, then use:
+
+```sh
+chatmux status
+chatmux access users
+chatmux access allow family@example.com
+chatmux access revoke family@example.com
+chatmux access owner new-owner@example.com
+journalctl --user -u chatmux.service -f
+```
+
+Only the owner (or a local server operator) can change the allowlist. The owner
+cannot be revoked; replace it explicitly with `chatmux access owner <login>`.
+The Settings **Access** tab shows the active private HTTPS address and provides
+the same allow/revoke controls. The installer prints the address and, when
+`qrencode` is installed, a terminal QR code containing only that private
+tailnet URL—never a password or bearer token.
+
+If Tailscale is installed later, log in with `tailscale up`, then run:
+
+```sh
+chatmux access enable tailscale
+```
+
+If installation or the health check fails, inspect:
+
+```sh
 systemctl --user --no-pager --full status chatmux.service
+journalctl --user -u chatmux.service
 curl --fail http://127.0.0.1:3001/health
 ```
 
-If systemd reports an error or the health request fails, stop the service,
-remove the new `current` link, and inspect `journalctl --user -u
-chatmux.service`. Do not delete `$RUNTIME/data` while recovering.
-
-For release cutover and rollback after the first install, use
-[SELF-HOST.md](SELF-HOST.md).
+Do not delete `~/.chatmux/data` while recovering. For release cutover and
+rollback after the first install, use [SELF-HOST.md](SELF-HOST.md).

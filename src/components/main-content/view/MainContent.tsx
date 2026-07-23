@@ -16,6 +16,9 @@ import MainContentHeader from './subcomponents/MainContentHeader';
 import MainContentStateView from './subcomponents/MainContentStateView';
 import ErrorBoundary from './ErrorBoundary';
 import PendingExternalCliOutput from './subcomponents/PendingExternalCliOutput';
+import ExternalTranscriptViewSwitcher, {
+  type ExternalTranscriptView,
+} from './subcomponents/ExternalTranscriptViewSwitcher';
 
 const PluginTabContent = lazy(() => import('../../plugins/view/PluginTabContent'));
 const ChatInterface = lazy(() => import('../../chat/view/ChatInterface'));
@@ -64,6 +67,7 @@ function MainContent({
   onShowSettings,
   externalMessageUpdate,
   newSessionTrigger,
+  externalTranscript,
   externalTerminal,
   onExternalTerminalClose,
 }: MainContentProps) {
@@ -74,6 +78,13 @@ function MainContent({
   const { tasksEnabled, isTaskMasterInstalled } = useTasksSettings() as TasksSettingsContextValue;
   const [browserUseEnabled, setBrowserUseEnabled] = useState(false);
   const [externalPaneOutput, setExternalPaneOutput] = useState('');
+  const [externalPaneError, setExternalPaneError] = useState('');
+  const [externalTranscriptView, setExternalTranscriptView] = useState<ExternalTranscriptView>('conversation');
+  const externalOutputTmuxName = externalTerminal && externalTerminal.cliKind !== 'ssh'
+    ? externalTerminal.tmuxName
+    : externalTranscript && externalTranscriptView === 'cli'
+      ? externalTranscript.tmuxName
+      : null;
   const [filesPanelOpen, setFilesPanelOpen] = useState(() => {
     try {
       return localStorage.getItem('files-panel-open') === 'true';
@@ -89,6 +100,10 @@ function MainContent({
       // storage errors are non-fatal
     }
   }, [filesPanelOpen]);
+
+  useEffect(() => {
+    setExternalTranscriptView('conversation');
+  }, [externalTranscript?.tmuxName]);
 
   const shouldShowTasksTab = Boolean(tasksEnabled && isTaskMasterInstalled);
   const shouldShowBrowserTab = browserUseEnabled;
@@ -154,9 +169,9 @@ function MainContent({
   }, [loadBrowserUseSettings]);
 
   useEffect(() => {
-    const terminal = externalTerminal;
-    if (!terminal || terminal.cliKind === 'ssh') {
+    if (!externalOutputTmuxName) {
       setExternalPaneOutput('');
+      setExternalPaneError('');
       return undefined;
     }
 
@@ -166,23 +181,33 @@ function MainContent({
       controller?.abort();
       controller = new AbortController();
       try {
-        const params = new URLSearchParams({ tmuxName: terminal.tmuxName });
+        const params = new URLSearchParams({ tmuxName: externalOutputTmuxName });
         const response = await authenticatedFetch(
           `/api/providers/sessions/external/output?${params}`,
           { signal: controller.signal },
         );
-        const payload = await response.json();
-        if (!cancelled && response.ok) {
+        const payload = await response.json().catch(() => null);
+        if (cancelled) return;
+        if (response.ok) {
           setExternalPaneOutput(typeof payload?.data?.output === 'string' ? payload.data.output : '');
+          setExternalPaneError('');
+        } else {
+          setExternalPaneOutput('');
+          setExternalPaneError(
+            payload?.error?.message
+              ?? 'CLI 출력을 불러오지 못했습니다. tmux 세션이 종료되었을 수 있습니다.',
+          );
         }
       } catch (error) {
         if (!cancelled && !(error instanceof DOMException && error.name === 'AbortError')) {
           setExternalPaneOutput('');
+          setExternalPaneError('CLI 출력을 불러오지 못했습니다. tmux 세션 연결을 확인하세요.');
         }
       }
     };
 
     setExternalPaneOutput('');
+    setExternalPaneError('');
     void loadOutput();
     const interval = window.setInterval(() => void loadOutput(), 1_000);
     return () => {
@@ -190,7 +215,7 @@ function MainContent({
       controller?.abort();
       window.clearInterval(interval);
     };
-  }, [externalTerminal]);
+  }, [externalOutputTmuxName]);
 
   useEffect(() => {
     if (!shouldShowBrowserTab && activeTab === 'browser') {
@@ -345,36 +370,68 @@ function MainContent({
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <div className={`flex min-h-0 min-w-[200px] flex-col overflow-hidden ${editorExpanded ? 'hidden' : ''} flex-1`}>
-          <div className={`h-full ${activeTab === 'chat' ? 'block' : 'hidden'}`}>
-            <ErrorBoundary showDetails>
-              <Suspense fallback={null}>
-                <ChatInterface
-                  selectedProject={selectedProject}
-                  selectedSession={selectedSession}
-                  isSessionReadOnly={isSessionReadOnly}
-                  liveSessionTmuxName={liveSessionTmuxName}
-                  liveSessionTmuxId={liveSessionTmuxId}
-                  liveSessionModel={liveSessionModel}
-                  liveSessionKind={liveSessionKind}
-                  ws={ws}
-                  sendMessage={sendMessage}
-                  onFileOpen={handleFileOpen}
-                  onInputFocusChange={onInputFocusChange}
-                  onSessionProcessing={onSessionProcessing}
-                  onSessionIdle={onSessionIdle}
-                  processingSessions={processingSessions}
-                  onNavigateToSession={onNavigateToSession}
-                  onSessionEstablished={onSessionEstablished}
-                  onShowSettings={onShowSettings}
-                  showRawParameters={showRawParameters}
-                  showThinking={showThinking}
-                  sendByCtrlEnter={sendByCtrlEnter}
-                  externalMessageUpdate={externalMessageUpdate}
-                  newSessionTrigger={newSessionTrigger}
-                  onShowAllTasks={tasksEnabled ? () => setActiveTab('tasks') : null}
-                />
-              </Suspense>
-            </ErrorBoundary>
+          <div className={`min-h-0 flex-1 ${activeTab === 'chat' ? 'flex flex-col' : 'hidden'}`}>
+            {externalTranscript && (
+              <ExternalTranscriptViewSwitcher
+                mode={externalTranscriptView}
+                providerLabel={externalTranscript.kind}
+                tmuxName={externalTranscript.tmuxName}
+                onChange={setExternalTranscriptView}
+              />
+            )}
+            <div className={`min-h-0 flex-1 ${externalTranscript && externalTranscriptView === 'cli' ? 'hidden' : 'block'}`}>
+              <ErrorBoundary showDetails>
+                <Suspense fallback={null}>
+                  <ChatInterface
+                    selectedProject={selectedProject}
+                    selectedSession={selectedSession}
+                    isSessionReadOnly={isSessionReadOnly}
+                    liveSessionTmuxName={liveSessionTmuxName}
+                    liveSessionTmuxId={liveSessionTmuxId}
+                    liveSessionModel={liveSessionModel}
+                    liveSessionKind={liveSessionKind}
+                    ws={ws}
+                    sendMessage={sendMessage}
+                    onFileOpen={handleFileOpen}
+                    onInputFocusChange={onInputFocusChange}
+                    onSessionProcessing={onSessionProcessing}
+                    onSessionIdle={onSessionIdle}
+                    processingSessions={processingSessions}
+                    onNavigateToSession={onNavigateToSession}
+                    onSessionEstablished={onSessionEstablished}
+                    onShowSettings={onShowSettings}
+                    showRawParameters={showRawParameters}
+                    showThinking={showThinking}
+                    sendByCtrlEnter={sendByCtrlEnter}
+                    externalMessageUpdate={externalMessageUpdate}
+                    newSessionTrigger={newSessionTrigger}
+                    onShowAllTasks={tasksEnabled ? () => setActiveTab('tasks') : null}
+                  />
+                </Suspense>
+              </ErrorBoundary>
+            </div>
+            {externalTranscript && externalTranscriptView === 'cli' && (
+              <div
+                role="tabpanel"
+                aria-label={`${externalTranscript.kind} CLI 출력`}
+                className="flex min-h-0 flex-1 flex-col"
+              >
+                {externalPaneError ? (
+                  <div className="flex min-h-0 flex-1 items-center justify-center bg-zinc-950 px-6 text-center">
+                    <div role="alert" className="max-w-md text-sm text-zinc-300">
+                      <SquareTerminal className="mx-auto mb-3 h-5 w-5 text-amber-400" aria-hidden />
+                      {externalPaneError}
+                    </div>
+                  </div>
+                ) : (
+                  <PendingExternalCliOutput
+                    providerLabel={externalTranscript.kind}
+                    output={externalPaneOutput}
+                    emptyMessage="실시간 CLI 출력을 불러오는 중입니다."
+                  />
+                )}
+              </div>
+            )}
           </div>
 
 

@@ -5,4 +5,6 @@ export const AUTH_ERROR_MESSAGES = {
   loginFailed: 'Login failed',
   registrationFailed: 'Registration failed',
   networkError: 'Network error. Please try again.',
+  tailscaleNotConfigured: 'Tailscale access is not configured on this server.',
+  tailscaleAccessDenied: 'This Tailscale account is not allowed to access ChatMux.',
 } as const;

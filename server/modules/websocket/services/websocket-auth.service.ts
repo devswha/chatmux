@@ -4,7 +4,10 @@ import type { AuthenticatedWebSocketRequest } from '@/shared/types.js';
 import { AUTH_COOKIE_NAME, getBearerToken, parseCookieHeader } from '@/middleware/auth.js';
 
 type WebSocketAuthDependencies = {
-  authenticateWebSocket: (token: string | null) => {
+  authenticateWebSocket: (
+    token: string | null,
+    request: AuthenticatedWebSocketRequest,
+  ) => {
     id?: string | number;
     userId?: string | number;
     username?: string;
@@ -33,7 +36,7 @@ export function verifyWebSocketClient(
     parseCookieHeader(request.headers.cookie)[AUTH_COOKIE_NAME] ??
     null;
 
-  const user = dependencies.authenticateWebSocket(token);
+  const user = dependencies.authenticateWebSocket(token, request);
   if (!user) {
     console.log('[WARN] WebSocket authentication failed');
     return false;

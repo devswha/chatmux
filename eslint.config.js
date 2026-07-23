@@ -162,6 +162,8 @@ export default tseslint.config(
             "server/shared/claude-cli-path.ts",
             "server/shared/image-attachments.ts",
             "server/middleware/auth.js",
+            "server/tailscale-auth.ts",
+            "server/tailscale-access.ts",
           ], // classify shared utility files so modules can depend on them explicitly
           mode: "file",
         },

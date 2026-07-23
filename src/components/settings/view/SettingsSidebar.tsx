@@ -1,4 +1,4 @@
-import { Bot, Key, Palette } from 'lucide-react';
+import { Bot, Key, Palette, ShieldCheck } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { cn } from '../../../lib/utils';
@@ -20,6 +20,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'agents', labelKey: 'mainTabs.agents', icon: Bot },
   { id: 'appearance', labelKey: 'mainTabs.appearance', icon: Palette },
   { id: 'api', labelKey: 'mainTabs.apiTokens', icon: Key },
+  { id: 'access', labelKey: 'mainTabs.access', icon: ShieldCheck },
 ];
 
 export default function SettingsSidebar({ activeTab, onChange }: SettingsSidebarProps) {

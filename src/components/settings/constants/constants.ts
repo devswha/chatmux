@@ -3,6 +3,7 @@ import {
   Bot,
   KeyRound,
   Palette,
+  ShieldCheck,
 } from 'lucide-react';
 
 import type {
@@ -25,6 +26,7 @@ export const SETTINGS_MAIN_TABS: SettingsMainTabMeta[] = [
   { id: 'agents', label: 'Agents', keywords: 'agents subagents claude code', icon: Bot },
   { id: 'appearance', label: 'Appearance', keywords: 'appearance theme dark light language', icon: Palette },
   { id: 'api', label: 'API Tokens', keywords: 'api tokens auth keys', icon: KeyRound },
+  { id: 'access', label: 'Access', keywords: 'remote tailscale users security', icon: ShieldCheck },
 ];
 
 export const AGENT_PROVIDERS: AgentProvider[] = ['claude', 'cursor', 'codex', 'opencode'];

@@ -62,6 +62,8 @@ export type MainContentProps = {
   onShowSettings: (tab?: SettingsMainTab) => void;
   externalMessageUpdate: number;
   newSessionTrigger: number;
+  // Indexed transcript currently backed by a native external tmux session.
+  externalTranscript: ExternalTerminalTarget | null;
   // Local agents use transcript-first relay; remote SSH falls back to terminal attach.
   externalTerminal: ExternalTerminalTarget | null;
   onExternalTerminalClose: () => void;

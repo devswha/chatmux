@@ -88,7 +88,8 @@
     "label": "Настройки",
     "agents": "Агенты",
     "appearance": "Внешний вид",
-    "apiTokens": "API и токены"
+    "apiTokens": "API и токены",
+    "access": "Доступ"
   },
   "appearanceSettings": {
     "darkMode": {

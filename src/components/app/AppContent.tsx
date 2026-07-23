@@ -464,6 +464,7 @@ function AppContentInner() {
           onShowSettings={openSettings}
           externalMessageUpdate={externalMessageUpdate}
           newSessionTrigger={newSessionTrigger}
+          externalTranscript={activeExternalTranscript}
           externalTerminal={externalTerminal}
           onExternalTerminalClose={closeExternalTerminal}
         />

@@ -1,6 +1,5 @@
 <h3 align="center">every coding agent, one command deck</h3>
-<p align="center"><b>ChatMux</b>는 tmux에서 실행 중인 GJC, Claude Code, Codex, Cursor, OpenCode, Oh My Pi를 발견하고, transcript로 보고, 이어서 조작하는 셀프호스팅 웹·데스크톱 인터페이스다.</p>
-<p align="center"><code>npm ci</code> · <code>npm run dev</code> · <b>localhost:5173</b></p>
+<p align="center"><b>ChatMux</b> is a self-hosted web and desktop interface for discovering, reading, and controlling coding-agent sessions running in tmux.</p>
 
 <p align="center">
   <a href="https://github.com/devswha/chatmux/releases"><img src="https://img.shields.io/github/v/release/devswha/chatmux?display_name=tag&label=release" alt="GitHub release"></a>
@@ -14,26 +13,96 @@
 </p>
 
 <p align="center">
-  <a href="#quick-start"><b>빠른 시작</b></a> ·
-  <a href="#agent-support">에이전트 지원</a> ·
-  <a href="#daily-workflow">사용 흐름</a> ·
-  <a href="docs/INSTALL.md">프로덕션 설치</a> ·
-  <a href="docs/SELF-HOST.md">셀프호스팅</a>
+  <a href="#install"><b>Install</b></a> ·
+  <a href="#agent-support">Agent support</a> ·
+  <a href="#remote-access">Remote access</a> ·
+  <a href="docs/INSTALL.md">Installation guide</a> ·
+  <a href="docs/SELF-HOST.md">Operations guide</a>
 </p>
 
-Codex, Claude Code, Gajae Code(GJC), Cursor, OpenCode, Oh My Pi를 각각 다른 창에서 추적하지 않아도 된다. ChatMux는 같은 OS 사용자로 실행 중인 네이티브 세션과 transcript를 연결해 하나의 관제면으로 만든다.
+ChatMux turns native Gajae Code, Claude Code, Codex, Cursor, OpenCode, and Oh My Pi sessions into one working surface:
 
-- **등록 대신 발견** — 지원 CLI가 실행 중인 tmux 세션을 주기적으로 찾는다.
-- **터미널과 transcript를 한곳에** — attach가 필요한 세션은 터미널로, 구조화할 수 있는 세션은 채팅 transcript로 연다.
-- **실행 상태를 즉시 확인** — GJC의 `RUN`/`LIVE`/`대기` 상태와 각 CLI의 프로바이더, 세션명, 모델명, tmux 이름을 표시한다.
-- **세션에 직접 지시** — 여섯 로컬 에이전트의 대화 화면에서 메시지와 슬래시 스킬을 전달하고, 같은 화면에서 새 tmux 세션을 만든다.
-- **세션 생명주기 분리** — 세션의 주인은 tmux다. ChatMux를 재시작하거나 종료해도 외부 에이전트는 그대로 남는다.
-- **한곳에서 설정** — 에이전트 연결, 표시·입력·음성 선호, API 자격 증명을 `Settings`에서 관리한다.
+- discovers supported tmux sessions instead of requiring registration;
+- opens indexed sessions as structured conversations and SSH sessions as terminals;
+- relays prompts, resumes sessions, starts new agents, and stops only sessions whose ownership can be verified;
+- leaves tmux sessions running when ChatMux restarts or exits;
+- keeps agent connections, appearance, credentials, and remote access in one Settings screen.
 
-앱에 모델 구독은 포함되지 않는다. 사용할 CLI는 ChatMux 서버를 실행하는 **같은 OS 사용자**로 미리 설치하고 인증해야 한다.
-GJC는 ChatMux의 내장 모드나 하위 제품이 아니라, Claude Code·Codex처럼 독립적으로 실행되는 **[Gajae Code](https://github.com/Yeachan-Heo/gajae-code) 코딩 에이전트**다.
+Agent subscriptions are not included. Install and authenticate each CLI as the same OS user that runs ChatMux.
 
-## 동작 구조
+<a id="install"></a>
+## Install
+
+For a production server, use a pinned archive and checksum from
+[GitHub Releases](https://github.com/devswha/chatmux/releases). The supported
+server target is Linux x86_64 with glibc 2.35 or newer, Node.js 22, tmux, and a
+user-level systemd service.
+
+After verifying and extracting the release, run this from the release directory:
+
+```bash
+node scripts/chatmux-runtime.mjs install
+```
+
+The installer configures the service, persistent data, loopback binding, health
+check, and either local-only or passwordless Tailscale access. See the
+[installation guide](docs/INSTALL.md) for download, checksum, unattended
+installation, rollback, and recovery steps.
+
+For source development:
+
+```bash
+git clone https://github.com/devswha/chatmux.git
+cd chatmux
+npm ci
+npm run dev
+```
+
+Open <http://127.0.0.1:5173>. Development requires Node.js `22.22.2+` on the
+22.x line or `24.15.0+` on the 24.x line, npm, Git, tmux, and Rust `1.85.1`.
+
+<a id="agent-support"></a>
+## Agent support
+
+| Agent | Live discovery | Structured transcript | Input | New tmux session |
+|---|---|---|---|---|
+| **Gajae Code (GJC)** | Automatic | Yes | Prompt relay and `/` commands | Yes |
+| **Codex CLI** | Automatic | After rollout indexing | Prompt relay and `$` skills | Yes |
+| **Claude Code** | Automatic | After history indexing | Prompt relay and `/` skills | Yes |
+| **Cursor** | Automatic | After history indexing | Prompt relay and `/` skills | Yes |
+| **OpenCode** | Automatic | After SQLite indexing | Prompt relay and `/` skills | Yes |
+| **Oh My Pi** | Automatic | After JSONL indexing | Prompt relay and `/skill:` skills | Yes |
+| **SSH tmux** | Automatic | No | Attached terminal | No |
+
+Models, reasoning levels, permissions, skills, and MCP controls appear only when
+the provider CLI and its local session format expose them.
+
+<a id="remote-access"></a>
+## Remote access
+
+The production installer can configure Tailscale Serve without exposing the
+backend beyond `127.0.0.1`. Approved tailnet accounts use the private HTTPS
+address without a separate ChatMux password; unapproved accounts are denied.
+
+```bash
+chatmux access users
+chatmux access allow family@example.com
+chatmux access revoke family@example.com
+chatmux access owner new-owner@example.com
+```
+
+The installer reuses an existing ChatMux Serve front or selects an unused port
+from `8443` through `8499`. It does not enable Funnel or reset unrelated Serve
+configuration. Without Tailscale, use an SSH tunnel:
+
+```bash
+ssh -N -L 3001:127.0.0.1:3001 user@server
+```
+
+Then open <http://127.0.0.1:3001> locally. Remote Electron targets require
+HTTPS; plain HTTP is accepted only for an exact loopback origin.
+
+## How it works
 
 ```mermaid
 flowchart LR
@@ -56,142 +125,76 @@ flowchart LR
   DESKTOP -->|spawn · relay · resume · kill| API
 ```
 
-ChatMux는 tmux pane의 프로세스 계보와 transcript ID를 우선 사용한다. 작업 디렉터리 일치만으로 파괴적 조작 권한을 주지 않으며, 다른 pane이나 재사용된 tmux 이름을 잘못 종료하지 않도록 세션 ID를 함께 검증한다.
+ChatMux links tmux process ancestry to native transcript identifiers. A matching
+working directory alone is never enough to authorize a destructive action, and
+the tmux session identifier is rechecked before relay or termination.
 
-<a id="agent-support"></a>
-## 에이전트 지원
+## Daily workflow
 
-| 에이전트 | 실행 중 세션 | 구조화 transcript | 입력 경로 | 새 tmux 세션 |
-|---|---|---|---|---|
-| **Gajae Code (GJC)** | 자동 발견 | 지원 | 메시지 릴레이 + `/` 명령 | 지원 |
-| **Codex CLI** | 자동 발견 | rollout 인덱싱 후 지원 | 첫 턴부터 릴레이 + `$` 스킬 | 지원 |
-| **Claude Code** | 자동 발견 | 히스토리 인덱싱 후 지원 | 첫 턴부터 릴레이 + `/` 스킬 | 지원 |
-| **Cursor** | 자동 발견 | 히스토리 인덱싱 후 지원 | 첫 턴부터 릴레이 + `/` 스킬 | 지원 |
-| **OpenCode** | 자동 발견 | SQLite 인덱싱 후 지원 | 첫 턴부터 릴레이 + `/` 스킬 | 지원 |
-| **Oh My Pi** | 자동 발견 | JSONL 인덱싱 후 지원 | 첫 턴부터 릴레이 + `/skill:` 스킬 | 지원 |
-| **SSH tmux** | 자동 발견 | 해당 없음 | attach 터미널 | 해당 없음 |
-
-프로바이더별 모델, reasoning effort, 권한, 스킬, MCP 기능은 해당 CLI와 로컬 세션 형식이 제공할 때만 노출된다.
-
-<a id="quick-start"></a>
-## 빠른 시작
-
-> 일상 운영에는 [프로덕션 설치 가이드](docs/INSTALL.md)의 검증된 릴리스 아티팩트를 권장한다. 아래 명령은 소스 개발용이다.
-
-### 요구사항
-
-- Node.js `22.22.2+`(22.x) 또는 `24.15.0+`(24.x)
-- npm, Git, tmux
-- 소스 빌드 시 rustup 기반 Rust `1.85.1`
-- 설치·인증된 지원 에이전트 CLI 한 개 이상
-
-```bash
-git clone https://github.com/devswha/chatmux.git
-cd chatmux
-npm ci
-npm run dev
-```
-
-브라우저에서 <http://127.0.0.1:5173>을 연다. 개발 백엔드는 `127.0.0.1:3001`에서 실행된다.
-
-### 데스크톱 개발 실행
-
-첫 번째 터미널에서 웹 스택을 유지하고 두 번째 터미널에서 Electron을 실행한다.
-
-```bash
-# terminal 1
-npm run dev
-
-# terminal 2
-npm run desktop:dev
-```
-
-## 첫 실행
-
-1. **노출 방식을 결정한다.** 기본값은 단일 사용자 무로그인(`CHATMUX_AUTH=none`)이며 loopback에만 바인드된다. 비밀번호 인증은 `CHATMUX_AUTH=password`로 켠다.
-2. **에이전트를 연결한다.** 온보딩 또는 **Settings → Agents**에서 호스트에 설치된 CLI 상태를 확인한다.
-3. **기존 세션을 연다.** 실행 중인 tmux 세션이 사이드바에 자동으로 나타난다.
-4. **필요하면 새 세션을 만든다.** 사이드바의 단일 새 세션 폼에서 GJC, Codex, Claude, Cursor, OpenCode, Oh My Pi와 작업 디렉터리를 선택한다.
-5. **웹 구동 채팅을 사용한다.** 로컬 프로젝트를 추가하고 지원 프로바이더, 모델, reasoning effort, 권한을 선택해 대화를 시작한다.
-
-<a id="daily-workflow"></a>
-## 일상 사용
-
-### 라이브 세션
-
-- 여섯 로컬 에이전트 행은 첫 메시지 전부터 transcript형 대화 화면으로 열린다. 메시지를 보내거나 `/`로 프로바이더 스킬을 검색·입력할 수 있다(Codex 스킬 트리거는 `$`).
-- 네이티브 transcript가 생성·인덱싱되면 같은 화면이 제목, 현재 모델, 대화 내용이 있는 구조화 transcript로 자동 전환된다.
-- 원격 SSH 행만 로컬 transcript를 확인할 수 없어 attach 터미널로 연다.
-- kill과 relay는 프로세스 계보로 소유권이 증명된 tmux 세션에만 허용된다.
-
-### 프로젝트와 히스토리
-
-네이티브 프로바이더 세션 스토어는 자동 인덱싱된다. 프로젝트를 선택하면 과거 세션을 검색하고 재개할 수 있다. 파일 패널은 검증된 프로젝트 루트 안에서 탐색, 미리보기, 편집, 업로드를 제공한다.
+- Live agent rows open as conversation views before the first native transcript
+  is written, then switch to indexed titles, models, and message history.
+- Remote SSH rows remain attached terminals because no local transcript can be
+  verified.
+- Native provider stores are indexed automatically. Select a project to search
+  and resume prior sessions.
+- The file panel browses, previews, edits, and uploads only within a validated
+  project root.
 
 ### Settings
 
-| 탭 | 관리 항목 |
+| Tab | Controls |
 |---|---|
-| **Agents** | CLI 설치·인증 상태, 프로바이더 권한, MCP, 스킬 |
-| **Appearance** | 테마, 언어, thinking/raw parameter 표시, 전송 키, 음성 입력, 프로젝트 정렬, 에디터 표시 |
-| **API Tokens** | ChatMux API 키와 GitHub 자격 증명 |
+| **Agents** | CLI installation and authentication, provider permissions, MCP, and skills |
+| **Appearance** | Theme, language, thinking/raw parameters, send key, voice input, project order, and editor behavior |
+| **API & Tokens** | ChatMux API keys and GitHub credentials |
+| **Access** | Tailscale HTTPS address, current identity, owner, and allowed accounts |
 
-별도의 Quick Settings 패널은 없다. 표시·입력 선호는 전체 Settings에서만 변경한다.
+## Development and verification
 
-## 원격 사용
-
-기본 바인드는 loopback이다. 다른 기기에서는 공용 포트 노출 대신 신뢰하는 VPN 또는 SSH 터널을 사용한다.
-
-```bash
-ssh -N -L 3001:127.0.0.1:3001 user@server
-```
-
-그 뒤 로컬 브라우저에서 <http://127.0.0.1:3001>을 연다. Electron 원격 타깃은 HTTPS가 필수이며, 평문 HTTP는 정확한 loopback 오리진에만 허용된다.
-
-## 프로덕션 설치
-
-현재 서버 릴리스 기준 지원 대상은 glibc `2.35+` Linux x86_64, Node.js 22.x, 사용자 레벨 systemd다. [GitHub Releases](https://github.com/devswha/chatmux/releases)의 버전 고정 아티팩트와 `.sha256`을 함께 사용한다.
-
-정확한 설치, 업그레이드, 롤백, 제거 절차:
-
-- [프로덕션 설치](docs/INSTALL.md)
-- [셀프호스팅 운영](docs/SELF-HOST.md)
-
-## 개발과 검증
-
-| 명령 | 용도 |
+| Command | Purpose |
 |---|---|
-| `npm run dev` | Vite 클라이언트 + 개발 백엔드 |
-| `npm run desktop:dev` | 개발 웹 스택에 연결하는 Electron |
-| `npm run typecheck` | 클라이언트·서버 TypeScript 검사 |
-| `npm test` | 서버·클라이언트·Electron 테스트 |
-| `npm run lint` | 제품·도구 코드 ESLint |
-| `npm run check:identity` | 제품명, 저장 경로, 저장소 정체성 검사 |
-| `npm run build` | 클라이언트·서버·Rust 코어 프로덕션 빌드 |
-| `npm run verify` | 감사, 타입, Rust, 테스트, lint, 정체성, 빌드 전체 게이트 |
+| `npm run dev` | Vite client and development backend |
+| `npm run desktop:dev` | Electron connected to the development web stack |
+| `npm run typecheck` | Client and server TypeScript checks |
+| `npm test` | Server, client, and Electron tests |
+| `npm run lint` | ESLint for product and tooling code |
+| `npm run check:identity` | Product name, storage path, and repository identity checks |
+| `npm run build` | Production client, server, and Rust core build |
+| `npm run verify` | Audit, types, Rust, tests, lint, identity, and production build |
 
 ```bash
 npm run verify
 ```
 
-## 보안과 데이터 경계
+To run the desktop client during development, keep `npm run dev` active in one
+terminal and run `npm run desktop:dev` in another.
 
-- 무인증 비-loopback 노출은 `CHATMUX_ALLOW_UNAUTH_REMOTE=1`로 위험을 명시하지 않는 한 거부된다.
-- 비밀번호 인증은 `HttpOnly`, `SameSite=Strict` 쿠키와 영구 로그아웃 무효화를 사용한다.
-- 자격 증명은 URL 쿼리로 받지 않는다. 외부 에이전트 API는 `X-API-Key` 헤더를 사용한다.
-- 프로젝트 파일 접근은 정규화 경로와 심링크 검사를 거치며 루트 탈출을 거부한다.
-- Electron은 원격 타깃별 세션 파티션을 분리해 쿠키와 스토리지를 공유하지 않는다.
-- 상태와 인덱스는 `~/.chatmux` 아래에 저장된다. 업그레이드나 이전 전 `~/.chatmux/data`를 백업한다.
+## Security and data boundaries
 
-## 프로젝트 정보
+- The backend binds to loopback. Tailscale mode trusts Serve identity headers
+  only from loopback on the expected HTTPS origin and applies one allowlist to
+  HTTP and WebSocket requests.
+- The installer does not enable Tailscale Funnel or a public listener. Tagged
+  devices and unapproved tailnet users fail closed.
+- Password mode uses `HttpOnly`, `SameSite=Strict` cookies and persistent logout
+  revocation.
+- Credentials are not accepted in URL query parameters. External-agent APIs use
+  the `X-API-Key` header.
+- Project file access normalizes paths, checks symlinks, and rejects project-root
+  escapes.
+- Electron isolates cookies and storage by remote target.
+- State and indexes live below `~/.chatmux`. Back up `~/.chatmux/data` before
+  migration or upgrade.
 
-- [MVP와 제품 방향](docs/MVP.md)
-- [설치](docs/INSTALL.md)
-- [셀프호스팅](docs/SELF-HOST.md)
-- [업스트림 출처](docs/UPSTREAM.md)
-- [기여 가이드](CONTRIBUTING.md)
-- [이슈 트래커](https://github.com/devswha/chatmux/issues)
+## Documentation
 
-## 라이선스
+- [Production installation](docs/INSTALL.md)
+- [Self-hosted operations](docs/SELF-HOST.md)
+- [MVP and product direction](docs/MVP.md)
+- [Upstream provenance](docs/UPSTREAM.md)
+- [Contributing](CONTRIBUTING.md)
+- [Issue tracker](https://github.com/devswha/chatmux/issues)
+
+## License
 
 [GNU AGPL v3](LICENSE)

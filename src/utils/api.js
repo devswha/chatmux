@@ -90,6 +90,17 @@ export const api = {
   // config endpoint removed - no longer needed (frontend uses window.location)
   // After the projectName → projectId migration the path/query identifier is
   // the DB-assigned `projectId`; parameter names reflect that for clarity.
+  access: {
+    get: () => authenticatedFetch('/api/settings/access'),
+    network: () => authenticatedFetch('/api/system/access-info'),
+    allow: (login) => authenticatedFetch('/api/settings/access/users', {
+      method: 'POST',
+      body: JSON.stringify({ login }),
+    }),
+    revoke: (login) => authenticatedFetch(`/api/settings/access/users/${encodeURIComponent(login)}`, {
+      method: 'DELETE',
+    }),
+  },
   projects: () => authenticatedFetch('/api/projects?skipSynchronization=1'),
   archivedProjects: () => authenticatedFetch('/api/projects/archived'),
   // Session ids currently live in a tmux gjc pane (tmux+lsof; [] when no tmux).

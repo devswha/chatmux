@@ -35,8 +35,31 @@ const NOT_INSTALLED: TailscaleAccessInfo = {
 /** Default HTTPS port suggested for a new serve front (any free serve port works). */
 export const SUGGESTED_SERVE_HTTPS_PORT = 8443;
 
-export function buildServeSuggestion(serverPort: number): string {
-  return `tailscale serve --bg --https=${SUGGESTED_SERVE_HTTPS_PORT} ${serverPort}`;
+export function buildServeSuggestion(
+  serverPort: number,
+  httpsPort = SUGGESTED_SERVE_HTTPS_PORT,
+): string {
+  return `tailscale serve --bg --https=${httpsPort} ${serverPort}`;
+}
+
+export function parseServePorts(statusJson: string): Set<number> {
+  try {
+    const parsed = JSON.parse(statusJson) as { TCP?: Record<string, unknown> };
+    return new Set(Object.keys(parsed.TCP ?? {}).map(Number).filter((port) => Number.isInteger(port)));
+  } catch {
+    return new Set();
+  }
+}
+
+export function chooseServePort(
+  occupied: Set<number>,
+  preferred = SUGGESTED_SERVE_HTTPS_PORT,
+): number {
+  if (!occupied.has(preferred)) return preferred;
+  for (let port = SUGGESTED_SERVE_HTTPS_PORT; port <= 8_499; port += 1) {
+    if (!occupied.has(port)) return port;
+  }
+  throw new Error('No free Tailscale Serve HTTPS port is available from 8443 through 8499');
 }
 
 /**
@@ -101,6 +124,22 @@ export function parseTailscaleStatus(jsonText: string): { running: boolean; dnsN
   }
 }
 
+/** Resolves the local node owner's LoginName from `tailscale status --json`. */
+export function parseTailscaleSelfLogin(jsonText: string): string | null {
+  try {
+    const parsed = JSON.parse(jsonText) as {
+      Self?: { UserID?: unknown };
+      User?: Record<string, { LoginName?: unknown }>;
+    };
+    const userId = parsed.Self?.UserID;
+    if (typeof userId !== 'number' && typeof userId !== 'string') return null;
+    const login = parsed.User?.[String(userId)]?.LoginName;
+    return typeof login === 'string' && login.trim() ? login.trim().toLowerCase() : null;
+  } catch {
+    return null;
+  }
+}
+
 type CommandRunner = (args: string[]) => Promise<string>;
 
 function runTailscale(args: string[]): Promise<string> {
@@ -149,6 +188,12 @@ export async function getTailscaleAccessInfo(
   if (!running) {
     return { installed: true, running: false, dnsName, httpsUrls: [], suggestedCommand: null };
   }
+  let occupiedPorts = new Set<number>();
+  try {
+    occupiedPorts = parseServePorts(await run(['serve', 'status', '--json']));
+  } catch {
+    // Older CLIs may not support JSON. The text probe below remains useful.
+  }
   let httpsUrls: string[] = [];
   try {
     httpsUrls = parseServeStatus(await run(['serve', 'status']), serverPort);
@@ -160,6 +205,8 @@ export async function getTailscaleAccessInfo(
     running: true,
     dnsName,
     httpsUrls,
-    suggestedCommand: httpsUrls.length === 0 ? buildServeSuggestion(serverPort) : null,
+    suggestedCommand: httpsUrls.length === 0
+      ? buildServeSuggestion(serverPort, chooseServePort(occupiedPorts))
+      : null,
   };
 }

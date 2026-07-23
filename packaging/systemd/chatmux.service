@@ -8,6 +8,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=@APP_ROOT_DIR@
+EnvironmentFile=-@CONFIG_FILE@
 Environment=HOST=@HOST@
 Environment=SERVER_PORT=@PORT@
 ExecStart=@NODE_BIN@ @APP_ROOT@/scripts/chatmux-runtime.mjs start

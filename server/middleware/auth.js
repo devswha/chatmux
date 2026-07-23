@@ -1,6 +1,7 @@
 import jwt from 'jsonwebtoken';
 
 import { userDb, appConfigDb } from '../modules/database/index.js';
+import { authenticateTailscaleRequest } from '../tailscale-auth.js';
 
 // Use env var if set, otherwise auto-generate a unique secret per installation
 const JWT_SECRET = process.env.JWT_SECRET || appConfigDb.getOrCreateJwtSecret();
@@ -9,21 +10,22 @@ const TOKEN_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
 const TOKEN_MAX_AGE_MS = TOKEN_MAX_AGE_SECONDS * 1000;
 
 /**
- * Self-host auth mode (v1 policy: no login by default).
- *   'none'     — every HTTP/WebSocket request acts as the implicit owner
- *                account; /login and /register are disabled. The exposure
- *                guard blocks non-loopback binds unless explicitly overridden.
- *   'password' — the original single-account JWT/cookie flow.
- * Pure resolver kept separate so the policy is unit-testable.
+ * Self-host auth modes:
+ *   'none'      — every HTTP/WebSocket request acts as the implicit owner.
+ *   'password'  — the single-account JWT/cookie flow.
+ *   'tailscale' — loopback requests act as the owner; Tailscale Serve requests
+ *                 require a trusted identity header and a persisted allowlist.
  */
-const resolveAuthMode = (value) => (value === 'password' ? 'password' : 'none');
+const resolveAuthMode = (value) => (
+  value === 'password' || value === 'tailscale' ? value : 'none'
+);
 const AUTH_MODE = resolveAuthMode(process.env.CHATMUX_AUTH);
 const isAuthDisabled = () => AUTH_MODE === 'none';
+const isTailscaleAuth = () => AUTH_MODE === 'tailscale';
 
-// In 'none' mode every request resolves to the single owner row. The row must
-// still exist because per-user preferences and notifications hang off users.id.
-// A fresh install gets one created with an unusable password hash — /login is
-// disabled in this mode, and bcrypt.compare can never match this sentinel.
+// Passwordless modes resolve every authorized request to one local owner row.
+// The row still exists because per-user preferences and notifications hang off
+// users.id. Its sentinel password hash can never be used by /login.
 let implicitOwnerId = null;
 const getImplicitOwner = () => {
   if (implicitOwnerId !== null) {
@@ -40,6 +42,19 @@ const getImplicitOwner = () => {
   }
   implicitOwnerId = owner.id;
   return owner;
+};
+
+const getTailscaleUser = (req) => {
+  const identity = authenticateTailscaleRequest(req);
+  if (!identity) return null;
+  const owner = getImplicitOwner();
+  return {
+    ...owner,
+    tailscaleLogin: identity.login,
+    tailscaleName: identity.name,
+    tailscaleRole: identity.role,
+    authSource: identity.source
+  };
 };
 
 const tokenVersionKey = (userId) => `auth_token_version:${userId}`;
@@ -156,14 +171,22 @@ const validateApiKey = (req, res, next) => {
   next();
 };
 
-// JWT authentication middleware
+// Request authentication middleware
 const authenticateToken = async (req, res, next) => {
   if (isAuthDisabled()) {
     req.user = getImplicitOwner();
     return next();
   }
-  const token = getRequestToken(req);
+  if (isTailscaleAuth()) {
+    const user = getTailscaleUser(req);
+    if (!user) {
+      return res.status(401).json({ error: 'Access denied by Tailscale identity policy.' });
+    }
+    req.user = user;
+    return next();
+  }
 
+  const token = getRequestToken(req);
   if (!token) {
     return res.status(401).json({ error: 'Access denied. No token provided.' });
   }
@@ -196,10 +219,20 @@ const generateToken = (user) => {
 };
 
 // WebSocket authentication function
-const authenticateWebSocket = (token) => {
+const authenticateWebSocket = (token, request) => {
   if (isAuthDisabled()) {
     const owner = getImplicitOwner();
     return { userId: owner.id, username: owner.username };
+  }
+  if (isTailscaleAuth()) {
+    const user = getTailscaleUser(request);
+    return user ? {
+      userId: user.id,
+      username: user.username,
+      tailscaleLogin: user.tailscaleLogin,
+      tailscaleRole: user.tailscaleRole,
+      authSource: user.authSource
+    } : null;
   }
 
   if (!token) {
@@ -230,6 +263,7 @@ export {
   AUTH_MODE,
   resolveAuthMode,
   isAuthDisabled,
+  isTailscaleAuth,
   TOKEN_MAX_AGE_MS,
   JWT_SECRET
 };

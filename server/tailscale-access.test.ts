@@ -5,6 +5,7 @@ import {
   buildServeSuggestion,
   getTailscaleAccessInfo,
   parseServeStatus,
+  parseTailscaleSelfLogin,
   parseTailscaleStatus,
 } from './tailscale-access.js';
 
@@ -66,6 +67,19 @@ test('parseTailscaleStatus reads backend state and strips the MagicDNS trailing 
   assert.deepEqual(parseTailscaleStatus(JSON.stringify({ BackendState: 'Stopped' })), { running: false, dnsName: null });
 });
 
+test('parseTailscaleSelfLogin resolves the local node account without guessing from tailnet name', () => {
+  const status = JSON.stringify({
+    Self: { UserID: 42 },
+    User: {
+      7: { LoginName: 'other@example.com' },
+      42: { LoginName: 'Owner@Example.com' },
+    },
+  });
+  assert.equal(parseTailscaleSelfLogin(status), 'owner@example.com');
+  assert.equal(parseTailscaleSelfLogin('{}'), null);
+  assert.equal(parseTailscaleSelfLogin('not json'), null);
+});
+
 test('getTailscaleAccessInfo: not installed → silent card; running without a front → setup command', async () => {
   const missing = await getTailscaleAccessInfo(3021, async () => {
     throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
@@ -81,6 +95,19 @@ test('getTailscaleAccessInfo: not installed → silent card; running without a f
   assert.equal(noFront.running, true);
   assert.deepEqual(noFront.httpsUrls, []);
   assert.equal(noFront.suggestedCommand, buildServeSuggestion(3021));
+
+  const occupiedDefault = await getTailscaleAccessInfo(3021, async (args) => {
+    if (args[0] === 'status') {
+      return JSON.stringify({ BackendState: 'Running', Self: { DNSName: 'host.ts.net.' } });
+    }
+    if (args.includes('--json')) return JSON.stringify({ TCP: { 8443: { HTTPS: true } } });
+    return 'no serve config\n';
+  });
+  assert.equal(
+    occupiedDefault.suggestedCommand,
+    buildServeSuggestion(3021, 8444),
+    'the UI must never suggest overwriting another Serve front',
+  );
 
   const withFront = await getTailscaleAccessInfo(3021, async (args) => {
     if (args[0] === 'status') {

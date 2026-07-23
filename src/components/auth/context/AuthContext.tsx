@@ -18,6 +18,7 @@ import type {
   AuthStatusPayload,
   AuthUser,
   AuthUserPayload,
+  AuthMode,
   OnboardingStatusPayload,
 } from '../types';
 import { parseJsonSafely, resolveApiErrorMessage } from '../utils';
@@ -36,6 +37,7 @@ export function useAuth(): AuthContextValue {
 export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [token, setToken] = useState<string | null>(() => getAuthTokenSnapshot().token);
+  const [authMode, setAuthMode] = useState<AuthMode | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [needsSetup, setNeedsSetup] = useState(false);
   const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState(true);
@@ -112,12 +114,22 @@ export function AuthProvider({ children }: AuthProviderProps) {
         }
         const statusPayload = await parseJsonSafely<AuthStatusPayload>(statusResponse);
         if (!isCurrent(snapshot, mutation) || controller.signal.aborted) return;
+        setAuthMode(statusPayload?.authMode ?? null);
 
-        // Auth mode 'none': the server treats every request as the implicit
-        // owner — no setup, no login screen, no local token. Resolve the owner
-        // via /api/auth/user (which succeeds without credentials) and finish.
-        if (statusPayload?.authMode === 'none') {
+        // Passwordless modes have no local token. Resolve the server-authorized
+        // owner directly so HTTP and WebSocket use the same request identity.
+        if (statusPayload?.authMode === 'none' || statusPayload?.authMode === 'tailscale') {
           setNeedsSetup(false);
+          if (statusPayload.authMode === 'tailscale' && !statusPayload.isConfigured) {
+            setUser(null);
+            setError(AUTH_ERROR_MESSAGES.tailscaleNotConfigured);
+            return;
+          }
+          if (statusPayload.authMode === 'tailscale' && !statusPayload.isAuthenticated) {
+            setUser(null);
+            setError(AUTH_ERROR_MESSAGES.tailscaleAccessDenied);
+            return;
+          }
           const ownerResponse = await api.auth.user({ signal: controller.signal });
           if (!isCurrent(snapshot, mutation) || controller.signal.aborted) return;
           if (ownerResponse.ok) {
@@ -237,6 +249,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const contextValue = useMemo<AuthContextValue>(() => ({
     user,
     token,
+    authMode,
     isLoading,
     needsSetup,
     hasCompletedOnboarding,
@@ -245,7 +258,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     register,
     logout,
     refreshOnboardingStatus,
-  }), [error, hasCompletedOnboarding, isLoading, login, logout, needsSetup, refreshOnboardingStatus, register, token, user]);
+  }), [authMode, error, hasCompletedOnboarding, isLoading, login, logout, needsSetup, refreshOnboardingStatus, register, token, user]);
 
   return <AuthContext.Provider value={contextValue}>{children}</AuthContext.Provider>;
 }

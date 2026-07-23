@@ -88,7 +88,8 @@
     "label": "설정",
     "agents": "에이전트",
     "appearance": "외관",
-    "apiTokens": "API & 토큰"
+    "apiTokens": "API & 토큰",
+    "access": "접근 관리"
   },
   "appearanceSettings": {
     "darkMode": {

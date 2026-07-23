@@ -82,13 +82,14 @@ test('persisted token versions reject missing, malformed, and unsafe values', ()
   assert.equal(parseStoredTokenVersion('42'), 42);
 });
 
-test('auth mode resolution: no login unless CHATMUX_AUTH=password is explicit', () => {
+test('auth mode resolution enables only explicit supported modes', () => {
   assert.equal(resolveAuthMode(undefined), 'none');
   assert.equal(resolveAuthMode(''), 'none');
   assert.equal(resolveAuthMode('none'), 'none');
   assert.equal(resolveAuthMode('PASSWORD'), 'none');
   assert.equal(resolveAuthMode('anything-else'), 'none');
   assert.equal(resolveAuthMode('password'), 'password');
+  assert.equal(resolveAuthMode('tailscale'), 'tailscale');
 });
 
 test('websocket upgrades authenticate as the implicit owner when auth is disabled', () => {
