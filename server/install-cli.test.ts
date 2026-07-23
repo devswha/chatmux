@@ -133,7 +133,8 @@ test('managed install writes a complete isolated service layout before enabling 
   assert.deepEqual(commands, [
     'tailscale status --json',
     'systemctl --user daemon-reload',
-    'systemctl --user enable --now chatmux.service',
+    'systemctl --user enable chatmux.service',
+    'systemctl --user restart chatmux.service',
   ]);
 });
 

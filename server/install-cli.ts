@@ -370,7 +370,8 @@ export async function runInstallCli(args: string[], context: InstallContext): Pr
   if (owner) setTailscaleOwner(owner);
 
   await run('systemctl', ['--user', 'daemon-reload']);
-  await run('systemctl', ['--user', 'enable', '--now', 'chatmux.service']);
+  await run('systemctl', ['--user', 'enable', 'chatmux.service']);
+  await run('systemctl', ['--user', 'restart', 'chatmux.service']);
   await (context.healthCheck ?? waitForHealth)(options.serverPort, context.version);
 
   let remoteUrl: string | null = null;

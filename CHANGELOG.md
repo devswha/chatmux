@@ -6,6 +6,14 @@ future server artifacts are published only through
 
 ## Unreleased
 
+## 1.3.2 (2026-07-22)
+
+### Installation
+
+- Managed installs now restart `chatmux.service` after writing and reloading
+  the unit, so retrying the installer replaces an already-running older
+  process before the version-specific health check.
+
 ## 1.3.1 (2026-07-22)
 
 ### Installation
