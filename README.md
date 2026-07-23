@@ -41,7 +41,8 @@ curl -fsSL https://github.com/devswha/chatmux/releases/latest/download/install.s
 
 The bootstrap verifies the release checksum, installs a private Node.js 22
 runtime when needed, configures the user service, and selects Tailscale when it
-is already running. Otherwise ChatMux stays local-only on `127.0.0.1`.
+is already running. Otherwise ChatMux stays local-only. The backend uses the
+first free loopback port starting at `127.0.0.1:3001`.
 
 Requirements: glibc 2.35 or newer, tmux, user-level systemd, `curl`, `tar`, and
 `sha256sum`. See the [installation guide](docs/INSTALL.md) for pinned installs,

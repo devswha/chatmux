@@ -57,6 +57,10 @@ curl -fsSL https://github.com/devswha/chatmux/releases/latest/download/install.s
   | bash -s -- --port 3010 --https-port 8451
 ```
 
+Without `--port`, the installer uses the first free loopback port from `3001`
+through `3100`. Passing `--port` requests that exact port and fails if another
+application owns it.
+
 The backend always remains on `127.0.0.1`. Tailscale mode reuses an existing
 ChatMux root front or selects a free HTTPS port from `8443` through `8499`. It
 does not enable Funnel or reset unrelated Serve configuration.
@@ -130,10 +134,12 @@ owner, and allowed accounts.
 
 ## Troubleshooting
 
+Start with `chatmux status`; it reports the configured local and Tailscale
+addresses. For service logs:
+
 ```sh
 systemctl --user --no-pager --full status chatmux.service
 journalctl --user -u chatmux.service
-curl --fail http://127.0.0.1:3001/health
 ```
 
 Do not delete `~/.chatmux/data` while recovering. See
