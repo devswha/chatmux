@@ -6,6 +6,15 @@ future server artifacts are published only through
 
 ## Unreleased
 
+## 1.3.3 (2026-07-22)
+
+### Installation
+
+- The one-line installer now stops the managed service before checking its
+  backend port. When the default `3001` is occupied by another application,
+  it selects the next free loopback port; an explicitly requested occupied
+  port still fails instead of silently changing the operator's choice.
+
 ## 1.3.2 (2026-07-22)
 
 ### Installation

@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
+import { createServer } from 'node:net';
 import path from 'node:path';
 import { createInterface } from 'node:readline/promises';
 
@@ -33,6 +34,7 @@ type InstallOptions = {
   accessMode: 'auto' | 'local' | 'tailscale';
   owner: string | null;
   serverPort: number;
+  serverPortExplicit: boolean;
   httpsPort: number | null;
 };
 
@@ -45,6 +47,7 @@ type InstallContext = {
   arch?: string;
   nodeVersion?: string;
   healthCheck?: (serverPort: number, version: string) => Promise<void>;
+  portAvailable?: (port: number) => Promise<boolean>;
 };
 
 function runCommand(command: string, args: string[]): Promise<CommandResult> {
@@ -85,6 +88,7 @@ export function parseInstallOptions(args: string[]): InstallOptions {
     accessMode: 'auto',
     owner: null,
     serverPort: DEFAULT_SERVER_PORT,
+    serverPortExplicit: false,
     httpsPort: null,
   };
   for (let index = 0; index < args.length; index += 1) {
@@ -95,8 +99,13 @@ export function parseInstallOptions(args: string[]): InstallOptions {
     else if (arg === '--local') options.accessMode = 'local';
     else if (arg === '--owner') options.owner = args[++index] ?? null;
     else if (arg.startsWith('--owner=')) options.owner = arg.slice('--owner='.length);
-    else if (arg === '--port') options.serverPort = parsePort(args[++index] ?? '', '--port');
-    else if (arg.startsWith('--port=')) options.serverPort = parsePort(arg.slice('--port='.length), '--port');
+    else if (arg === '--port') {
+      options.serverPort = parsePort(args[++index] ?? '', '--port');
+      options.serverPortExplicit = true;
+    } else if (arg.startsWith('--port=')) {
+      options.serverPort = parsePort(arg.slice('--port='.length), '--port');
+      options.serverPortExplicit = true;
+    }
     else if (arg === '--https-port') options.httpsPort = parsePort(args[++index] ?? '', '--https-port');
     else if (arg.startsWith('--https-port=')) options.httpsPort = parsePort(arg.slice('--https-port='.length), '--https-port');
     else throw new Error(`Unknown install option: ${arg}`);
@@ -104,6 +113,31 @@ export function parseInstallOptions(args: string[]): InstallOptions {
   return options;
 }
 
+
+function isPortAvailable(port: number): Promise<boolean> {
+  const { promise, resolve } = Promise.withResolvers<boolean>();
+  const server = createServer();
+  server.unref();
+  server.once('error', () => resolve(false));
+  server.listen({ host: '127.0.0.1', port, exclusive: true }, () => {
+    server.close(() => resolve(true));
+  });
+  return promise;
+}
+
+export async function selectAvailableServerPort(
+  requestedPort: number,
+  explicit: boolean,
+  available: (port: number) => Promise<boolean> = isPortAvailable,
+): Promise<number> {
+  if (await available(requestedPort)) return requestedPort;
+  if (explicit) throw new Error(`Server port ${requestedPort} is already in use`);
+  const finalCandidate = Math.min(65_535, requestedPort + 99);
+  for (let port = requestedPort + 1; port <= finalCandidate; port += 1) {
+    if (await available(port)) return port;
+  }
+  throw new Error(`No free server port is available from ${requestedPort} through ${finalCandidate}`);
+}
 
 function escapeSystemdPath(value: string): string {
   if (!path.isAbsolute(value)) throw new Error('Systemd paths must be absolute');
@@ -326,6 +360,19 @@ export async function runInstallCli(args: string[], context: InstallContext): Pr
     owner = normalizeTailscaleLogin(await promptValue('Tailscale owner login', 'user@example.com'));
   }
   if (useTailscale && !owner) throw new Error('Could not determine the Tailscale owner login; pass --owner <login>');
+
+  if (!options.dryRun) {
+    await run('systemctl', ['--user', 'stop', 'chatmux.service']).catch(() => undefined);
+    const requestedPort = options.serverPort;
+    options.serverPort = await selectAvailableServerPort(
+      requestedPort,
+      options.serverPortExplicit,
+      context.portAvailable,
+    );
+    if (options.serverPort !== requestedPort) {
+      console.log(`Port ${requestedPort} is already in use; using ${options.serverPort}.`);
+    }
+  }
 
   const template = await fs.readFile(path.join(context.appRoot, 'packaging', 'systemd', 'chatmux.service'), 'utf8');
   const unit = renderSystemdUnit(template, {

@@ -7,6 +7,7 @@ import path from 'node:path';
 import {
   buildManagedEnvironment,
   parseInstallOptions,
+  selectAvailableServerPort,
   renderSystemdUnit,
   runInstallCli,
 } from './install-cli.js';
@@ -25,10 +26,21 @@ test('install options select explicit access and validated ports', () => {
     accessMode: 'tailscale',
     owner: 'Owner@example.com',
     serverPort: 3010,
+    serverPortExplicit: true,
     httpsPort: 8451,
   });
   assert.throws(() => parseInstallOptions(['--port=0']), /between 1 and 65535/);
   assert.throws(() => parseInstallOptions(['--unknown']), /Unknown install option/);
+});
+
+test('default server port selection skips unrelated listeners but explicit ports fail closed', async () => {
+  const occupied = new Set([3001, 3002]);
+  const available = async (port: number) => !occupied.has(port);
+  assert.equal(await selectAvailableServerPort(3001, false, available), 3003);
+  await assert.rejects(
+    selectAvailableServerPort(3001, true, available),
+    /Server port 3001 is already in use/,
+  );
 });
 
 test('Serve port selection never overwrites an existing service', () => {
@@ -132,6 +144,7 @@ test('managed install writes a complete isolated service layout before enabling 
   assert.equal(await fs.readlink(path.join(home, '.local', 'bin', 'chatmux')), path.join(home, '.chatmux', 'current', 'scripts', 'chatmux-runtime.mjs'));
   assert.deepEqual(commands, [
     'tailscale status --json',
+    'systemctl --user stop chatmux.service',
     'systemctl --user daemon-reload',
     'systemctl --user enable chatmux.service',
     'systemctl --user restart chatmux.service',
