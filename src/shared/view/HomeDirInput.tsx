@@ -9,6 +9,9 @@ type HomeDirInputProps = {
   onSubmit?: () => void;
   placeholder?: string;
   className?: string;
+  /** Known-good absolute or home-relative paths surfaced while the input is empty (e.g. recent spawn cwds). */
+  quickPicks?: string[];
+  quickPicksLabel?: string;
 };
 
 const DEBOUNCE_MS = 200;
@@ -21,7 +24,15 @@ const DEBOUNCE_MS = 200;
  * the endpoint takes home-relative prefixes only). Click or Tab (first match)
  * completes. Best-effort — endpoint errors just hide the dropdown.
  */
-export default function HomeDirInput({ value, onChange, onSubmit, placeholder, className }: HomeDirInputProps) {
+export default function HomeDirInput({
+  value,
+  onChange,
+  onSubmit,
+  placeholder,
+  className,
+  quickPicks,
+  quickPicksLabel,
+}: HomeDirInputProps) {
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [open, setOpen] = useState(false);
   // Absolute HOME path, learned from the endpoint (every response carries it).
@@ -34,7 +45,9 @@ export default function HomeDirInput({ value, onChange, onSubmit, placeholder, c
     if (debounceRef.current) {
       clearTimeout(debounceRef.current);
     }
-    const relative = toHomeRelative(value, home);
+    // Empty input browses HOME itself: focusing the blank field lists the
+    // top-level folders so a working directory is reachable by clicks alone.
+    const relative = value.trim() ? toHomeRelative(value, home) : '';
     if (relative === null) {
       setSuggestions([]);
       // An absolute path was typed before we learned HOME — fetch it once and
@@ -87,6 +100,14 @@ export default function HomeDirInput({ value, onChange, onSubmit, placeholder, c
     setOpen(true);
   };
 
+  // Final selections (recent paths) fill the field as-is and close the list.
+  const pickQuick = (path: string) => {
+    onChange(path);
+    setOpen(false);
+  };
+
+  const visibleQuickPicks = value.trim() === '' ? (quickPicks ?? []) : [];
+
   return (
     <div className="relative">
       <input
@@ -119,8 +140,31 @@ export default function HomeDirInput({ value, onChange, onSubmit, placeholder, c
         placeholder={placeholder}
         className={className ?? 'w-full rounded-md border border-border bg-transparent px-2 py-1.5 text-sm outline-none focus:border-blue-500/60'}
       />
-      {open && suggestions.length > 0 && (
+      {open && (suggestions.length > 0 || visibleQuickPicks.length > 0) && (
         <div className="absolute inset-x-0 top-full z-20 mt-1 max-h-48 overflow-y-auto rounded-md border border-border bg-card shadow-lg">
+          {visibleQuickPicks.length > 0 && (
+            <>
+              {quickPicksLabel && (
+                <div className="px-2 pb-0.5 pt-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                  {quickPicksLabel}
+                </div>
+              )}
+              {visibleQuickPicks.map((path) => (
+                <button
+                  key={`quick:${path}`}
+                  type="button"
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    pickQuick(path);
+                  }}
+                  className="block w-full truncate px-2 py-1.5 text-left text-xs font-medium text-foreground transition-colors hover:bg-muted/60"
+                >
+                  {path}
+                </button>
+              ))}
+              {suggestions.length > 0 && <div className="mx-2 my-1 border-t border-border/60" />}
+            </>
+          )}
           {suggestions.map((suggestion) => (
             <button
               key={suggestion}

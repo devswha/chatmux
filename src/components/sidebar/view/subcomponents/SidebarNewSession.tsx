@@ -22,6 +22,24 @@ const PROVIDERS: { id: SpawnProvider; label: string }[] = [
   { id: 'omp', label: 'Oh My Pi' },
 ];
 
+// Working directories of successful spawns, most recent first. Typing an
+// absolute path once is enough — later sessions pick it from the dropdown.
+const RECENT_CWDS_KEY = 'chatmux-recent-spawn-cwds';
+const RECENT_CWDS_MAX = 5;
+
+function readRecentCwds(): string[] {
+  try {
+    const raw = localStorage.getItem(RECENT_CWDS_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed)
+      ? parsed.filter((entry): entry is string => typeof entry === 'string' && entry.length > 0).slice(0, RECENT_CWDS_MAX)
+      : [];
+  } catch {
+    // localStorage unavailable (SSR/tests) or corrupted payload.
+    return [];
+  }
+}
+
 /**
  * Unified new-session form. GJC boots through the control tower; every other
  * provider boots its native CLI in tmux through /sessions/external/spawn.
@@ -37,12 +55,27 @@ export default function SidebarNewSession({
   const [open, setOpen] = useState(initiallyOpen);
   const [provider, setProvider] = useState<SpawnProvider>('gjc');
   const [name, setName] = useState('');
-  const [cwd, setCwd] = useState('');
+  const [recentCwds, setRecentCwds] = useState<string[]>(readRecentCwds);
+  // The most recent working directory is the best default: repeated spawns
+  // in the same repo need no path input at all.
+  const [cwd, setCwd] = useState(() => readRecentCwds()[0] ?? '');
   const [status, setStatus] = useState<SpawnStatus>({ kind: 'idle' });
+
+  const rememberCwd = (path: string) => {
+    const next = [path, ...recentCwds.filter((entry) => entry !== path)].slice(0, RECENT_CWDS_MAX);
+    setRecentCwds(next);
+    try {
+      localStorage.setItem(RECENT_CWDS_KEY, JSON.stringify(next));
+    } catch {
+      // best-effort persistence
+    }
+  };
 
   const reset = () => {
     setName('');
-    setCwd('');
+    // Keep the path of least resistance: the next spawn most likely targets
+    // the same repo, so the field reopens prefilled with the latest cwd.
+    setCwd(readRecentCwds()[0] ?? '');
     setStatus({ kind: 'idle' });
   };
 
@@ -64,6 +97,7 @@ export default function SidebarNewSession({
           detail?: string;
         };
         if (response.ok && data.ok) {
+          rememberCwd(trimmedCwd);
           setOpen(false);
           reset();
           return;
@@ -82,6 +116,7 @@ export default function SidebarNewSession({
       const response = await api.externalCliSessionSpawn(provider, trimmedName, trimmedCwd);
       const body = await response.json().catch(() => null);
       if (response.ok && body?.data?.ok) {
+        rememberCwd(trimmedCwd);
         setOpen(false);
         reset();
         onCreated();
@@ -140,6 +175,8 @@ export default function SidebarNewSession({
         onChange={setCwd}
         onSubmit={() => void spawn()}
         placeholder={t('newSessionForm.workingDirectoryPlaceholder')}
+        quickPicks={recentCwds}
+        quickPicksLabel={t('newSessionForm.recentPaths')}
       />
       {status.kind === 'error' && <p className="text-[11px] text-red-500">{status.text}</p>}
       <div className="flex items-center justify-end gap-2">

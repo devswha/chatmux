@@ -16,7 +16,9 @@ import { readdir, realpath } from 'node:fs/promises';
  * containment and returns [].
  */
 
-export const MAX_DIR_SUGGESTIONS = 20;
+// 50, not 20: the cwd input doubles as a click-through directory browser and
+// an alphabetical cut hides late-alphabet folders (e.g. ~/workspace) entirely.
+export const MAX_DIR_SUGGESTIONS = 50;
 
 /** Absolute HOME path — clients join it with home-relative picks. */
 export function getHomeDir(): string {
