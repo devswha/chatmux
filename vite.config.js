@@ -20,6 +20,14 @@ export default defineConfig(({ mode }) => {
   // TODO: Remove support for legacy PORT variables in all locations in a future major release, leaving only SERVER_PORT.
   const serverPort = env.SERVER_PORT || env.PORT || 3001
 
+  // Extra hostnames allowed to reach the dev server, e.g. a Tailscale Serve
+  // HTTPS hostname ("home-server.tailXXXX.ts.net"). Comma-separated. IPs and
+  // localhost are always allowed by Vite; this only adds DNS names.
+  const allowedHosts = (env.VITE_ALLOWED_HOSTS || '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+
   return {
     plugins: [react()],
     resolve: {
@@ -29,6 +37,7 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       host,
+      allowedHosts,
       port: parseInt(env.VITE_PORT) || 5173,
       proxy: {
         '/api': `http://${proxyHost}:${serverPort}`,

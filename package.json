@@ -30,9 +30,9 @@
   "scripts": {
     "dev": "concurrently --kill-others \"npm run server:dev\" \"npm run client\"",
     "server": "node dist-server/server/index.js",
-    "server:dev": "tsx --tsconfig server/tsconfig.json server/index.js",
+    "server:dev": "tsx --env-file-if-exists=.env --tsconfig server/tsconfig.json server/index.js",
     "preserver:dev": "npm run build:core:dev",
-    "server:dev-watch": "tsx watch --tsconfig server/tsconfig.json server/index.js",
+    "server:dev-watch": "tsx watch --env-file-if-exists=.env --tsconfig server/tsconfig.json server/index.js",
     "preserver:dev-watch": "npm run build:core:dev",
     "client": "vite",
     "server:bundle": "npm run build && node scripts/release/build-server-bundle.js",
