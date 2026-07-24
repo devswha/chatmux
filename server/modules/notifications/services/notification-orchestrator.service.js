@@ -5,7 +5,7 @@ import { notificationPreferencesDb, pushSubscriptionsDb, sessionsDb } from '@/mo
 const KIND_TO_PREF_KEY = {
   action_required: 'actionRequired',
   stop: 'stop',
-  // tmux 라이브(외부 구동) gjc 세션의 턴 완료 — 웹 구동 완료(stop)와 분리
+  // tmux 라이브(외부 구동) coding-agent 세션의 턴 완료 — 웹 구동 완료(stop)와 분리
   // 토글: tmux 옆에서 작업 중일 땐 이것만 끌 수 있어야 한다.
   live_stop: 'liveStop',
   error: 'error'
@@ -15,6 +15,8 @@ const PROVIDER_LABELS = {
   claude: 'Claude',
   cursor: 'Cursor',
   codex: 'Codex',
+  opencode: 'OpenCode',
+  omp: 'Oh My Pi',
   gjc: 'GJC',
   system: 'System'
 };
@@ -271,24 +273,32 @@ function notifyRunFailed({ userId, provider, sessionId = null, error, sessionNam
 }
 
 /**
- * Turn completion of a tmux-driven (externally owned) gjc session, detected by
- * the live turn monitor from the transcript's assistant stopReason. Separate
- * kind (`live_stop` → prefs.events.liveStop) from web-run `stop` so the two
- * lanes toggle independently.
+ * Turn completion of a tmux-driven session. `completionKey` is an opaque
+ * generation digest plus ordinal for external CLIs; omitted GJC calls retain
+ * their legacy session-id dedupe key.
  *
- * @param {{ userId: number, sessionId: string | null, tmuxName?: string | null, stopReason?: string }} args
+ * @param {{ userId: number, provider?: string, sessionId: string | null, tmuxName?: string | null, stopReason?: string, completionKey?: string | null }} args
  */
-function notifyLiveTurnEnded({ userId, sessionId, tmuxName = null, stopReason = 'stop' }) {
+function notifyLiveTurnEnded({
+  userId,
+  provider = 'gjc',
+  sessionId,
+  tmuxName = null,
+  stopReason = 'stop',
+  completionKey = null
+}) {
   notifyUserIfEnabled({
     userId,
     event: createNotificationEvent({
-      provider: 'gjc',
+      provider,
       sessionId,
       kind: 'live_stop',
       code: 'live.turn_end',
       meta: { sessionName: tmuxName, stopReason },
       severity: stopReason === 'error' ? 'error' : 'info',
-      dedupeKey: `gjc:live:turn:${sessionId || 'none'}`
+      dedupeKey: completionKey
+        ? `${provider}:live:turn:${completionKey}`
+        : `${provider}:live:turn:${sessionId || 'none'}`
     })
   });
 }

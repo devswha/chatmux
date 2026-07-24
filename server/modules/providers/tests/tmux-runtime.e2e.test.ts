@@ -9,6 +9,7 @@ import {
   projectsDb,
   sessionsDb,
 } from '@/modules/database/index.js';
+import { createExternalTurnMonitor } from '@/modules/notifications/index.js';
 import { GjcSessionSynchronizer } from '@/modules/providers/list/gjc/gjc-session-synchronizer.provider.js';
 import { GjcSessionsProvider } from '@/modules/providers/list/gjc/gjc-sessions.provider.js';
 import {
@@ -328,6 +329,64 @@ test('real tmux preserves pre-existing agents across fresh discovery processes a
   );
   assert.equal(await harness.hasSession('e2e-alpha'), true, 'a rejected target must not disturb a live session');
   assert.equal(await harness.hasSession('e2e-beta'), true, 'test completion must leave tmux ownership external to ChatMux');
+});
+
+test('real tmux external monitor notifies once per observed Codex turn and rebaselines restarts', {
+  skip: isWindows && 'Production tmux discovery is supported on Unix hosts.',
+  timeout: 30_000,
+}, async (t) => {
+  const harness = await createTmuxE2EHarness();
+  t.after(() => harness.dispose());
+
+  let activity: 'running' | 'waiting_user' = 'running';
+  let discoveredSessions: Awaited<ReturnType<typeof harness.discoverFromFreshProcess>> = [];
+  const notifications: Array<{ completionKey: string }> = [];
+  const monitor = createExternalTurnMonitor({
+    getDetailed: async () => ({ ok: true, sessions: discoveredSessions }),
+    resolve: async () => ({
+      status: 'resolved',
+      activity,
+      appSession: null,
+      transcriptEnded: false,
+    }),
+    notify: (notification) => notifications.push(notification),
+    getUserId: () => 1,
+  });
+
+  const first = await harness.startFakeCodex('e2e-external-notify');
+  await first.waitUntilReady();
+  discoveredSessions = await harness.discoverFromFreshProcess();
+
+  await monitor.tick();
+  assert.equal(notifications.length, 0, 'running baseline must not replay a completion');
+  activity = 'waiting_user';
+  await monitor.tick();
+  await monitor.tick();
+  assert.equal(notifications.length, 1, 'repeated waiting snapshots must emit once');
+
+  activity = 'running';
+  await monitor.tick();
+  activity = 'waiting_user';
+  await monitor.tick();
+  assert.equal(notifications.length, 2, 'the next observed turn receives a new completion');
+
+  await harness.killSession('e2e-external-notify');
+  discoveredSessions = [];
+  await monitor.tick();
+  assert.equal(monitor.generationCount(), 0);
+
+  const restarted = await harness.startFakeCodex('e2e-external-notify');
+  await restarted.waitUntilReady();
+  discoveredSessions = await harness.discoverFromFreshProcess();
+  await monitor.tick();
+  assert.equal(notifications.length, 2, 'a restarted process waiting on first sight is a silent baseline');
+
+  activity = 'running';
+  await monitor.tick();
+  activity = 'waiting_user';
+  await monitor.tick();
+  assert.equal(notifications.length, 3);
+  assert.notEqual(notifications[1]?.completionKey, notifications[2]?.completionKey);
 });
 
 test('real tmux treats two agents in one session as independent pane targets', {

@@ -42,6 +42,94 @@ export type ExternalCliSession = {
   agentPid?: number;
   startedAtMs?: number;
 };
+export type ExternalCliSessionsDetailedResult = {
+  ok: boolean;
+  sessions: ExternalCliSession[];
+};
+
+export type ExternalCliSessionInferenceRetryBackoff = {
+  attemptableSessions(sessions: ExternalCliSession[]): ExternalCliSession[];
+  recordResults(
+    sessions: ExternalCliSession[],
+    attemptedSessions: Iterable<ExternalCliSession>,
+  ): void;
+};
+
+export type ExternalCliSessionInferenceRetryBackoffOptions = {
+  now?: () => number;
+  retryBackoffMs?: number;
+};
+
+function isUnresolvedExternalLocalCliSession(
+  session: ExternalCliSession,
+): session is ExternalCliSession & { kind: ExternalLocalCliKind } {
+  return session.kind !== 'ssh' && session.kind !== 'shell' && !session.providerSessionId;
+}
+
+function externalSessionInferenceKey(session: ExternalCliSession): string {
+  return [
+    tmuxPaneIdentityKey(session.tmux),
+    session.kind,
+    session.agentPid ?? '',
+    session.startedAtMs ?? '',
+  ].join('\0');
+}
+
+/**
+ * Backs off failed native-id inference per fixed pane/process generation.
+ * Resolved, removed, and restarted sessions discard their prior retry state.
+ */
+export function createExternalCliSessionInferenceRetryBackoff(
+  options: ExternalCliSessionInferenceRetryBackoffOptions = {},
+): ExternalCliSessionInferenceRetryBackoff {
+  const now = options.now ?? Date.now;
+  const requestedRetryBackoffMs = options.retryBackoffMs;
+  const retryBackoffMs = typeof requestedRetryBackoffMs === 'number'
+    && Number.isFinite(requestedRetryBackoffMs)
+    && requestedRetryBackoffMs >= 0
+    ? requestedRetryBackoffMs
+    : 30_000;
+  const retryAtMsByKey = new Map<string, number>();
+
+  const reconcile = (sessions: ExternalCliSession[]): void => {
+    const activeUnresolvedKeys = new Set<string>();
+    for (const session of sessions) {
+      if (session.kind === 'ssh' || session.kind === 'shell') continue;
+      const key = externalSessionInferenceKey(session);
+      if (session.providerSessionId) {
+        retryAtMsByKey.delete(key);
+      } else {
+        activeUnresolvedKeys.add(key);
+      }
+    }
+    for (const key of retryAtMsByKey.keys()) {
+      if (!activeUnresolvedKeys.has(key)) retryAtMsByKey.delete(key);
+    }
+  };
+
+  return {
+    attemptableSessions(sessions) {
+      reconcile(sessions);
+      const currentMs = now();
+      return sessions.filter((session) => {
+        if (!isUnresolvedExternalLocalCliSession(session)) return false;
+        return (retryAtMsByKey.get(externalSessionInferenceKey(session)) ?? 0) <= currentMs;
+      });
+    },
+    recordResults(sessions, attemptedSessions) {
+      reconcile(sessions);
+      const attemptedKeys = new Set(
+        [...attemptedSessions].map((session) => externalSessionInferenceKey(session)),
+      );
+      const retryAtMs = now() + retryBackoffMs;
+      for (const session of sessions) {
+        if (!isUnresolvedExternalLocalCliSession(session)) continue;
+        const key = externalSessionInferenceKey(session);
+        if (attemptedKeys.has(key)) retryAtMsByKey.set(key, retryAtMs);
+      }
+    },
+  };
+}
 
 export type ExternalPane = {
   name: string;
@@ -696,6 +784,7 @@ async function addExternalRuntimeMetadata(args: {
 
 async function inferIndexedProviderSessionIds(
   sessions: ExternalCliSession[],
+  attemptableTargetKeys: ReadonlySet<string>,
 ): Promise<Map<string, string>> {
   const unresolved = sessions.filter((session): session is ExternalCliSession & {
     kind: 'cursor' | 'opencode' | 'omp';
@@ -709,7 +798,11 @@ async function inferIndexedProviderSessionIds(
   ));
   if (unresolved.length === 0) return new Map();
 
-  const providers = [...new Set(unresolved.map((session) => session.kind))];
+  const providers = [...new Set(
+    unresolved
+      .filter((session) => attemptableTargetKeys.has(tmuxPaneIdentityKey(session.tmux)))
+      .map((session) => session.kind),
+  )];
   await Promise.all(providers.map(async (provider) => {
     const starts = unresolved
       .filter((session) => session.kind === provider)
@@ -745,7 +838,57 @@ async function inferIndexedProviderSessionIds(
     }
   }
   const fresh = assignFreshIndexedProviderSessionIds(unresolved, candidates);
-  return assignUniqueIndexedProviderSessionIds(unresolved, candidates, fresh);
+  return new Map(
+    [...assignUniqueIndexedProviderSessionIds(unresolved, candidates, fresh)]
+      .filter(([targetKey]) => attemptableTargetKeys.has(targetKey)),
+  );
+}
+async function inferExternalProviderSessionIds(args: {
+  sessions: ExternalCliSession[];
+  attemptableSessions: ExternalCliSession[];
+  panes: ExternalPane[];
+  procs: ProcessTreeEntry[];
+}): Promise<Map<string, string>> {
+  const attemptableTargetKeys = new Set(
+    args.attemptableSessions.map((session) => tmuxPaneIdentityKey(session.tmux)),
+  );
+  if (attemptableTargetKeys.size === 0) return new Map();
+
+  const [rawCodex, inferredClaude, inferredOmp] = await Promise.all([
+    args.attemptableSessions.some((session) => session.kind === 'codex')
+      ? inferFreshCodexThreadIds({
+        sessions: args.attemptableSessions,
+        panes: args.panes,
+        procs: args.procs,
+      })
+      : Promise.resolve(new Map<string, string>()),
+    inferClaudeSessionIds({
+      sessions: args.attemptableSessions,
+      panes: args.panes,
+      procs: args.procs,
+    }),
+    inferOpenOmpSessionIds(args.attemptableSessions),
+  ]);
+  const inferredCodex = new Map(
+    [...rawCodex].filter(([targetKey]) => attemptableTargetKeys.has(targetKey)),
+  );
+  const directIds = new Map([
+    ...inferredCodex,
+    ...inferredClaude,
+    ...inferredOmp,
+  ]);
+  const withDirectIds = args.sessions.map((session) => {
+    const providerSessionId = directIds.get(tmuxPaneIdentityKey(session.tmux));
+    return !session.providerSessionId && providerSessionId
+      ? { ...session, providerSessionId }
+      : session;
+  });
+  const inferredIndexed = args.attemptableSessions.some((session) => (
+    session.kind === 'cursor' || session.kind === 'opencode' || session.kind === 'omp'
+  ))
+    ? await inferIndexedProviderSessionIds(withDirectIds, attemptableTargetKeys)
+    : new Map<string, string>();
+  return new Map([...directIds, ...inferredIndexed]);
 }
 
 
@@ -915,11 +1058,12 @@ export async function resolveCodexRolloutPath(threadId: string): Promise<string 
 }
 
 /**
- * Returns local coding-agent tmux sessions. Empty on tmux/ps failure. Native
- * ids come from explicit resume argv, Claude runtime receipts, Codex's thread
- * database, or a unique newly indexed transcript for the same cwd/start time.
+ * Scans local coding-agent tmux sessions. Command failures are unavailable so
+ * callers can avoid treating a failed scan as a confirmed empty result.
  */
-export async function getExternalCliSessions(): Promise<ExternalCliSession[]> {
+async function discoverExternalCliSessions(
+  retryBackoff: ExternalCliSessionInferenceRetryBackoff,
+): Promise<ExternalCliSessionsDetailedResult> {
   let tmuxOutput: string;
   let psOutput: string;
   try {
@@ -929,40 +1073,96 @@ export async function getExternalCliSessions(): Promise<ExternalCliSession[]> {
     ]);
     psOutput = await runCommand('ps', ['-eo', 'pid,ppid,comm,args']);
   } catch {
-    return [];
+    return { ok: false, sessions: [] };
   }
+
   const panes = parseExternalPanes(tmuxOutput);
   const procs = parsePsTree(psOutput);
   const classified = classifyExternalSessions({ panes, procs });
   const sessions = await addExternalRuntimeMetadata({ sessions: classified, panes, procs });
-  const [inferredCodex, inferredClaude, inferredOmp] = await Promise.all([
-    inferFreshCodexThreadIds({ sessions, panes, procs }),
-    inferClaudeSessionIds({ sessions, panes, procs }),
-    inferOpenOmpSessionIds(sessions),
-  ]);
-  const withDirectIds = sessions.map((session) => {
-    const targetKey = tmuxPaneIdentityKey(session.tmux);
-    return {
-      ...session,
-      ...(!session.providerSessionId && inferredCodex.has(targetKey)
-        ? { providerSessionId: inferredCodex.get(targetKey)! }
-        : {}),
-      ...(!session.providerSessionId && session.kind === 'claude' && inferredClaude.has(targetKey)
-        ? { providerSessionId: inferredClaude.get(targetKey)! }
-        : {}),
-      ...(!session.providerSessionId && session.kind === 'omp' && inferredOmp.has(targetKey)
-        ? { providerSessionId: inferredOmp.get(targetKey)! }
-        : {}),
-    };
+  const attemptableSessions = retryBackoff.attemptableSessions(sessions);
+  const inferredProviderSessionIds = await inferExternalProviderSessionIds({
+    sessions,
+    attemptableSessions,
+    panes,
+    procs,
   });
-  const inferredIndexed = await inferIndexedProviderSessionIds(withDirectIds);
-  return withDirectIds.map((session) => {
-    const targetKey = tmuxPaneIdentityKey(session.tmux);
-    return {
-      ...session,
-      ...(!session.providerSessionId && inferredIndexed.has(targetKey)
-        ? { providerSessionId: inferredIndexed.get(targetKey)! }
-        : {}),
-    };
+  const resolvedSessions = sessions.map((session) => {
+    const providerSessionId = inferredProviderSessionIds.get(tmuxPaneIdentityKey(session.tmux));
+    return !session.providerSessionId && providerSessionId
+      ? { ...session, providerSessionId }
+      : session;
   });
+  retryBackoff.recordResults(resolvedSessions, attemptableSessions);
+  return { ok: true, sessions: resolvedSessions };
+}
+
+export type ExternalCliSessionDiscovery = {
+  getExternalCliSessionsDetailed(): Promise<ExternalCliSessionsDetailedResult>;
+  getExternalCliSessions(): Promise<ExternalCliSession[]>;
+};
+
+export type ExternalCliSessionDiscoveryOptions = {
+  now?: () => number;
+  cacheTtlMs?: number;
+  discover?: (
+    retryBackoff: ExternalCliSessionInferenceRetryBackoff,
+  ) => Promise<ExternalCliSessionsDetailedResult>;
+};
+
+/**
+ * Creates an isolated discovery cache for tests; production uses the default
+ * instance below. A clock seam avoids timer sleeps when verifying cache expiry.
+ */
+export function createExternalCliSessionDiscovery(
+  options: ExternalCliSessionDiscoveryOptions = {},
+): ExternalCliSessionDiscovery {
+  const now = options.now ?? Date.now;
+  const requestedCacheTtlMs = options.cacheTtlMs;
+  const cacheTtlMs = typeof requestedCacheTtlMs === 'number'
+    && Number.isFinite(requestedCacheTtlMs)
+    && requestedCacheTtlMs >= 0
+    ? requestedCacheTtlMs
+    : 1_000;
+  const retryBackoff = createExternalCliSessionInferenceRetryBackoff({ now });
+  const discover = options.discover ?? (() => discoverExternalCliSessions(retryBackoff));
+  let cached: { result: ExternalCliSessionsDetailedResult; expiresAtMs: number } | null = null;
+  let inFlight: Promise<ExternalCliSessionsDetailedResult> | null = null;
+
+  const getExternalCliSessionsDetailed = (): Promise<ExternalCliSessionsDetailedResult> => {
+    if (cached && now() < cached.expiresAtMs) return Promise.resolve(cached.result);
+    if (inFlight) return inFlight;
+
+    const scan: Promise<ExternalCliSessionsDetailedResult> = Promise.resolve()
+      .then(() => discover(retryBackoff))
+      .catch(() => ({ ok: false, sessions: [] }))
+      .then((result) => {
+        cached = { result, expiresAtMs: now() + cacheTtlMs };
+        return result;
+      })
+      .finally(() => {
+        if (inFlight === scan) inFlight = null;
+      });
+    inFlight = scan;
+    return scan;
+  };
+
+  return {
+    getExternalCliSessionsDetailed,
+    async getExternalCliSessions() {
+      return (await getExternalCliSessionsDetailed()).sessions;
+    },
+  };
+}
+
+const defaultExternalCliSessionDiscovery = createExternalCliSessionDiscovery();
+
+/** Distinguishes a confirmed empty discovery from unavailable tmux/ps evidence. */
+export function getExternalCliSessionsDetailed(): Promise<ExternalCliSessionsDetailedResult> {
+  return defaultExternalCliSessionDiscovery.getExternalCliSessionsDetailed();
+}
+
+/** Compatible session-only wrapper for existing callers. */
+export function getExternalCliSessions(): Promise<ExternalCliSession[]> {
+  return defaultExternalCliSessionDiscovery.getExternalCliSessions();
 }

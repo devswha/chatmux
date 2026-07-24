@@ -4,7 +4,9 @@ import test from 'node:test';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
-import PendingExternalCliOutput from './PendingExternalCliOutput';
+import PendingExternalCliOutput, {
+  fitTerminalFontSize,
+} from './PendingExternalCliOutput';
 
 test('pending external CLI output exposes interactive terminal prompts', () => {
   const html = renderToStaticMarkup(
@@ -29,6 +31,14 @@ test('pending external CLI output renders tmux ANSI colors without exposing esca
   assert.ok(html.includes('background-color:#010203'));
   assert.ok(!html.includes('\u001b'));
   assert.ok(html.includes('whitespace-pre'));
+});
+
+test('pending external CLI output scales every tmux column inside a phone viewport', () => {
+  const fontSize = fitTerminalFontSize(320, 200);
+
+  assert.equal(fontSize, 2.25);
+  assert.ok(200 * fontSize * 0.64 <= 320 - 32);
+  assert.equal(fitTerminalFontSize(1024, 80), 12);
 });
 
 test('pending external CLI output keeps the transcript guidance before pane output arrives', () => {

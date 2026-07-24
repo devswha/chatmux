@@ -58,14 +58,14 @@ test('pane identity validation checks all four tmux coordinates', async () => {
   );
 });
 
-test('pane capture preserves tmux ANSI style sequences', async () => {
+test('pane capture preserves ANSI styles and the pane grid width', async () => {
   const { calls, run } = recordingRunner(['\u001b[31merror\u001b[0m']);
   const output = await captureTmuxPane(identity, run);
 
   assert.equal(output, '\u001b[31merror\u001b[0m');
   assert.deepEqual(calls[0]?.args, [
     '-S', identity.socketPath,
-    'capture-pane', '-p', '-e', '-S', '-80', '-t', identity.paneId,
+    'capture-pane', '-p', '-e', '-N', '-S', '-80', '-t', identity.paneId,
   ]);
 });
 

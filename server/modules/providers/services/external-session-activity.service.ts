@@ -1,17 +1,107 @@
+import { createHash } from 'node:crypto';
 import { open, stat } from 'node:fs/promises';
 
 import Database from 'better-sqlite3';
 
+import { sessionsDb } from '@/modules/database/index.js';
+import { sessionSynchronizerService } from '@/modules/providers/services/session-synchronizer.service.js';
 import { getOpenCodeDatabasePath } from '@/shared/utils.js';
 
-import type { ExternalLocalCliKind } from './external-cli-sessions.service.js';
+import {
+  resolveCodexRolloutPath,
+  type ExternalCliSession,
+  type ExternalLocalCliKind,
+} from './external-cli-sessions.service.js';
 
 export type ExternalSessionActivity = 'running' | 'waiting_user' | 'asking_user' | 'unknown';
+export type ExternalSessionActivityUnavailableReasonCode =
+  | 'unsupported_session_kind'
+  | 'provider_session_id_unavailable'
+  | 'app_session_lookup_unavailable'
+  | 'app_session_unavailable'
+  | 'codex_rollout_unavailable'
+  | 'codex_synchronization_unavailable'
+  | 'transcript_path_unavailable'
+  | 'transcript_read_unavailable'
+  | 'opencode_database_unavailable';
+
+export type ExternalSessionActivityReadResult =
+  | { status: 'resolved'; activity: ExternalSessionActivity }
+  | {
+    status: 'unavailable';
+    activity: 'unknown';
+    reasonCode: ExternalSessionActivityUnavailableReasonCode;
+  };
+
+export type ExternalTranscriptEndedReadResult =
+  | { status: 'resolved'; transcriptEnded: boolean }
+  | {
+    status: 'unavailable';
+    transcriptEnded: false;
+    reasonCode: Extract<
+      ExternalSessionActivityUnavailableReasonCode,
+      'transcript_path_unavailable' | 'transcript_read_unavailable'
+    >;
+  };
+
+export type ExternalSessionAppSession = {
+  session_id: string;
+  project_path: string | null;
+  custom_name: string | null;
+};
+
+export type ExternalSessionActivityAppSession = ExternalSessionAppSession & {
+  jsonl_path: string | null;
+};
+
+export type ExternalSessionActivityResolutionResult =
+  | {
+    status: 'resolved';
+    activity: ExternalSessionActivity;
+    appSession: ExternalSessionAppSession | null;
+    transcriptEnded: boolean;
+  }
+  | {
+    status: 'unavailable';
+    activity: 'unknown';
+    reasonCode: ExternalSessionActivityUnavailableReasonCode;
+    appSession: ExternalSessionAppSession | null;
+    transcriptEnded: false;
+  };
+
+export type ExternalSessionActivityResolverDependencies = {
+  getAppSession?: (
+    provider: ExternalLocalCliKind,
+    providerSessionId: string,
+  ) => ExternalSessionActivityAppSession | null;
+  resolveCodexRolloutPath?: (providerSessionId: string) => Promise<string | null>;
+  synchronizeCodexRollout?: (rolloutPath: string) => Promise<unknown>;
+  readActivity?: (input: {
+    kind: ExternalLocalCliKind;
+    providerSessionId: string | null | undefined;
+    jsonlPath: string | null | undefined;
+  }) => Promise<ExternalSessionActivityReadResult>;
+  readTranscriptEnded?: (input: {
+    kind: ExternalLocalCliKind;
+    jsonlPath: string | null | undefined;
+  }) => Promise<ExternalTranscriptEndedReadResult>;
+};
 
 type JsonRecord = Record<string, unknown>;
+type FileTail = {
+  size: number;
+  mtimeMs: number;
+  digest: string;
+  text: string;
+};
 
 const FILE_TAIL_BYTES = 128 * 1024;
-const fileActivityCache = new Map<string, { size: number; activity: ExternalSessionActivity }>();
+const fileActivityCache = new Map<string, {
+  size: number;
+  mtimeMs: number;
+  digest: string;
+  activity: ExternalSessionActivity;
+}>();
 
 const asRecord = (value: unknown): JsonRecord | null => (
   value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -203,25 +293,53 @@ export function parseOpenCodeActivity(
   return finish === 'tool-calls' ? 'running' : 'waiting_user';
 }
 
-async function readFileTail(filePath: string): Promise<{ size: number; text: string }> {
+async function readFileTail(filePath: string): Promise<FileTail> {
   const fileStat = await stat(filePath);
   const size = fileStat.size;
   const start = Math.max(0, size - FILE_TAIL_BYTES);
   const length = size - start;
-  if (length === 0) return { size, text: '' };
+  if (length === 0) {
+    return {
+      size,
+      mtimeMs: fileStat.mtimeMs,
+      digest: createHash('sha256').digest('hex'),
+      text: '',
+    };
+  }
+
   const handle = await open(filePath, 'r');
   try {
     const buffer = Buffer.allocUnsafe(length);
     const { bytesRead } = await handle.read(buffer, 0, length, start);
-    const text = buffer.subarray(0, bytesRead).toString('utf8');
-    const lastNewline = text.lastIndexOf('\n');
-    return { size, text: lastNewline >= 0 ? text.slice(0, lastNewline + 1) : '' };
+    const tail = buffer.subarray(0, bytesRead);
+    const rawText = tail.toString('utf8');
+    const lastNewline = rawText.lastIndexOf('\n');
+    return {
+      size,
+      mtimeMs: fileStat.mtimeMs,
+      digest: createHash('sha256').update(tail).digest('hex'),
+      text: lastNewline >= 0 ? rawText.slice(0, lastNewline + 1) : '',
+    };
   } finally {
     await handle.close();
   }
 }
 
-const transcriptEndedCache = new Map<string, { size: number; ended: boolean }>();
+const sameTailIdentity = (
+  cached: Pick<FileTail, 'size' | 'mtimeMs' | 'digest'>,
+  tail: Pick<FileTail, 'size' | 'mtimeMs' | 'digest'>,
+): boolean => (
+  cached.size === tail.size
+  && cached.mtimeMs === tail.mtimeMs
+  && cached.digest === tail.digest
+);
+
+const transcriptEndedCache = new Map<string, {
+  size: number;
+  mtimeMs: number;
+  digest: string;
+  ended: boolean;
+}>();
 
 /**
  * Detects a transcript whose final record marks the session stream as closed
@@ -234,43 +352,81 @@ export function parseOmpTranscriptEnded(records: JsonRecord[]): boolean {
   return readString(last.customType) === 'session_exit';
 }
 
+export async function readExternalTranscriptEndedDetailed(input: {
+  kind: ExternalLocalCliKind;
+  jsonlPath: string | null | undefined;
+}): Promise<ExternalTranscriptEndedReadResult> {
+  if (input.kind !== 'omp') return { status: 'resolved', transcriptEnded: false };
+  if (!input.jsonlPath) {
+    return {
+      status: 'unavailable',
+      transcriptEnded: false,
+      reasonCode: 'transcript_path_unavailable',
+    };
+  }
+
+  try {
+    const tail = await readFileTail(input.jsonlPath);
+    const cached = transcriptEndedCache.get(input.jsonlPath);
+    if (cached && sameTailIdentity(cached, tail)) {
+      return { status: 'resolved', transcriptEnded: cached.ended };
+    }
+
+    const transcriptEnded = parseOmpTranscriptEnded(parseJsonLines(tail.text));
+    transcriptEndedCache.set(input.jsonlPath, {
+      size: tail.size,
+      mtimeMs: tail.mtimeMs,
+      digest: tail.digest,
+      ended: transcriptEnded,
+    });
+    return { status: 'resolved', transcriptEnded };
+  } catch {
+    return {
+      status: 'unavailable',
+      transcriptEnded: false,
+      reasonCode: 'transcript_read_unavailable',
+    };
+  }
+}
+
 export async function readExternalTranscriptEnded(input: {
   kind: ExternalLocalCliKind;
   jsonlPath: string | null | undefined;
 }): Promise<boolean> {
-  if (input.kind !== 'omp' || !input.jsonlPath) return false;
-  try {
-    const fileStat = await stat(input.jsonlPath);
-    const cached = transcriptEndedCache.get(input.jsonlPath);
-    if (cached?.size === fileStat.size) return cached.ended;
-    const tail = await readFileTail(input.jsonlPath);
-    const ended = parseOmpTranscriptEnded(parseJsonLines(tail.text));
-    transcriptEndedCache.set(input.jsonlPath, { size: tail.size, ended });
-    return ended;
-  } catch {
-    return false;
-  }
+  return (await readExternalTranscriptEndedDetailed(input)).transcriptEnded;
 }
 
 async function readJsonlActivity(
   kind: Exclude<ExternalLocalCliKind, 'opencode'>,
   filePath: string,
-): Promise<ExternalSessionActivity> {
+): Promise<ExternalSessionActivityReadResult> {
   try {
-    const fileStat = await stat(filePath);
-    const cached = fileActivityCache.get(filePath);
-    if (cached?.size === fileStat.size) return cached.activity;
     const tail = await readFileTail(filePath);
+    const cached = fileActivityCache.get(filePath);
+    if (cached && sameTailIdentity(cached, tail)) {
+      return { status: 'resolved', activity: cached.activity };
+    }
+
     const activity = parseExternalJsonlActivity(kind, tail.text);
-    fileActivityCache.set(filePath, { size: tail.size, activity });
-    return activity;
+    fileActivityCache.set(filePath, {
+      size: tail.size,
+      mtimeMs: tail.mtimeMs,
+      digest: tail.digest,
+      activity,
+    });
+    return { status: 'resolved', activity };
   } catch {
-    return 'unknown';
+    return {
+      status: 'unavailable',
+      activity: 'unknown',
+      reasonCode: 'transcript_read_unavailable',
+    };
   }
 }
 
-function readOpenCodeActivity(providerSessionId: string): ExternalSessionActivity {
+function readOpenCodeActivity(providerSessionId: string): ExternalSessionActivityReadResult {
   let db: Database.Database | null = null;
+  let result: ExternalSessionActivityReadResult;
   try {
     db = new Database(getOpenCodeDatabasePath(), { readonly: true, fileMustExist: true });
     const message = db.prepare(`
@@ -280,20 +436,62 @@ function readOpenCodeActivity(providerSessionId: string): ExternalSessionActivit
       ORDER BY time_created DESC, time_updated DESC, id DESC
       LIMIT 1
     `).get(providerSessionId) as { id?: string; data?: string } | undefined;
-    if (!message?.id || !message.data) return 'unknown';
-    const parts = db.prepare(`
-      SELECT data
-      FROM part
-      WHERE message_id = ?
-      ORDER BY time_updated DESC, time_created DESC, id DESC
-      LIMIT 32
-    `).all(message.id) as Array<{ data?: string }>;
-    return parseOpenCodeActivity(message.data, parts.map((part) => part.data));
+    if (!message?.id || !message.data) {
+      result = { status: 'resolved', activity: 'unknown' };
+    } else {
+      const parts = db.prepare(`
+        SELECT data
+        FROM part
+        WHERE message_id = ?
+        ORDER BY time_updated DESC, time_created DESC, id DESC
+        LIMIT 32
+      `).all(message.id) as Array<{ data?: string }>;
+      result = {
+        status: 'resolved',
+        activity: parseOpenCodeActivity(message.data, parts.map((part) => part.data)),
+      };
+    }
   } catch {
-    return 'unknown';
-  } finally {
-    db?.close();
+    result = {
+      status: 'unavailable',
+      activity: 'unknown',
+      reasonCode: 'opencode_database_unavailable',
+    };
   }
+
+  try {
+    db?.close();
+  } catch {
+    return {
+      status: 'unavailable',
+      activity: 'unknown',
+      reasonCode: 'opencode_database_unavailable',
+    };
+  }
+  return result;
+}
+
+export async function readExternalSessionActivityDetailed(input: {
+  kind: ExternalLocalCliKind;
+  providerSessionId: string | null | undefined;
+  jsonlPath: string | null | undefined;
+}): Promise<ExternalSessionActivityReadResult> {
+  if (!input.providerSessionId) {
+    return {
+      status: 'unavailable',
+      activity: 'unknown',
+      reasonCode: 'provider_session_id_unavailable',
+    };
+  }
+  if (input.kind === 'opencode') return readOpenCodeActivity(input.providerSessionId);
+  if (!input.jsonlPath) {
+    return {
+      status: 'unavailable',
+      activity: 'unknown',
+      reasonCode: 'transcript_path_unavailable',
+    };
+  }
+  return readJsonlActivity(input.kind, input.jsonlPath);
 }
 
 export async function readExternalSessionActivity(input: {
@@ -301,8 +499,120 @@ export async function readExternalSessionActivity(input: {
   providerSessionId: string | null | undefined;
   jsonlPath: string | null | undefined;
 }): Promise<ExternalSessionActivity> {
-  if (!input.providerSessionId) return 'unknown';
-  if (input.kind === 'opencode') return readOpenCodeActivity(input.providerSessionId);
-  if (!input.jsonlPath) return 'unknown';
-  return readJsonlActivity(input.kind, input.jsonlPath);
+  return (await readExternalSessionActivityDetailed(input)).activity;
+}
+
+const unavailableResolution = (
+  reasonCode: ExternalSessionActivityUnavailableReasonCode,
+  appSession: ExternalSessionAppSession | null,
+): ExternalSessionActivityResolutionResult => ({
+  status: 'unavailable',
+  activity: 'unknown',
+  reasonCode,
+  appSession,
+  transcriptEnded: false,
+});
+const appSessionMetadata = (
+  appSession: ExternalSessionActivityAppSession | null,
+): ExternalSessionAppSession | null => (
+  appSession
+    ? {
+      session_id: appSession.session_id,
+      project_path: appSession.project_path,
+      custom_name: appSession.custom_name,
+    }
+    : null
+);
+
+/**
+ * Resolves app-owned transcript metadata and external CLI activity once so the
+ * route and completion monitor make the same availability decision.
+ */
+export async function resolveExternalSessionActivity(
+  session: Pick<ExternalCliSession, 'kind' | 'providerSessionId'>,
+  dependencies: ExternalSessionActivityResolverDependencies = {},
+): Promise<ExternalSessionActivityResolutionResult> {
+  if (session.kind === 'ssh' || session.kind === 'shell') {
+    return unavailableResolution('unsupported_session_kind', null);
+  }
+  if (!session.providerSessionId) {
+    return unavailableResolution('provider_session_id_unavailable', null);
+  }
+
+  const getAppSession: NonNullable<ExternalSessionActivityResolverDependencies['getAppSession']> = dependencies.getAppSession
+    ?? ((provider: ExternalLocalCliKind, providerSessionId: string) => (
+      sessionsDb.getSessionByProviderSessionId(provider, providerSessionId)
+    ));
+  const syncCodexRollout: NonNullable<ExternalSessionActivityResolverDependencies['synchronizeCodexRollout']> = dependencies.synchronizeCodexRollout
+    ?? ((rolloutPath: string) => sessionSynchronizerService.synchronizeProviderFile('codex', rolloutPath));
+  const resolveCodexRollout: NonNullable<ExternalSessionActivityResolverDependencies['resolveCodexRolloutPath']> = dependencies.resolveCodexRolloutPath
+    ?? resolveCodexRolloutPath;
+  const readActivity: NonNullable<ExternalSessionActivityResolverDependencies['readActivity']> = dependencies.readActivity
+    ?? readExternalSessionActivityDetailed;
+  const readTranscriptEnded: NonNullable<ExternalSessionActivityResolverDependencies['readTranscriptEnded']> = dependencies.readTranscriptEnded
+    ?? readExternalTranscriptEndedDetailed;
+
+  let appSession: ExternalSessionActivityAppSession | null;
+  try {
+    appSession = getAppSession(session.kind, session.providerSessionId);
+  } catch {
+    return unavailableResolution('app_session_lookup_unavailable', null);
+  }
+
+  if (!appSession && session.kind === 'codex') {
+    let rolloutPath: string | null;
+    try {
+      rolloutPath = await resolveCodexRollout(session.providerSessionId);
+    } catch {
+      return unavailableResolution('codex_rollout_unavailable', null);
+    }
+    if (!rolloutPath) return unavailableResolution('codex_rollout_unavailable', null);
+
+    try {
+      await syncCodexRollout(rolloutPath);
+    } catch {
+      return unavailableResolution('codex_synchronization_unavailable', null);
+    }
+
+    try {
+      appSession = getAppSession('codex', session.providerSessionId);
+    } catch {
+      return unavailableResolution('app_session_lookup_unavailable', null);
+    }
+  }
+
+  if (!appSession && session.kind !== 'opencode') {
+    return unavailableResolution('app_session_unavailable', null);
+  }
+
+  let activityResult: ExternalSessionActivityReadResult;
+  let transcriptEndedResult: ExternalTranscriptEndedReadResult;
+  try {
+    [activityResult, transcriptEndedResult] = await Promise.all([
+      readActivity({
+        kind: session.kind,
+        providerSessionId: session.providerSessionId,
+        jsonlPath: appSession?.jsonl_path,
+      }),
+      readTranscriptEnded({
+        kind: session.kind,
+        jsonlPath: appSession?.jsonl_path,
+      }),
+    ]);
+  } catch {
+    return unavailableResolution('transcript_read_unavailable', appSessionMetadata(appSession));
+  }
+
+  if (activityResult.status === 'unavailable') {
+    return unavailableResolution(activityResult.reasonCode, appSessionMetadata(appSession));
+  }
+  if (transcriptEndedResult.status === 'unavailable') {
+    return unavailableResolution(transcriptEndedResult.reasonCode, appSessionMetadata(appSession));
+  }
+  return {
+    status: 'resolved',
+    activity: activityResult.activity,
+    appSession: appSessionMetadata(appSession),
+    transcriptEnded: transcriptEndedResult.transcriptEnded,
+  };
 }

@@ -199,7 +199,7 @@ export function startLiveTurnMonitor(intervalMs = DEFAULT_INTERVAL_MS): (() => v
   const monitor = createLiveTurnMonitor({
     getDetailed: getLiveGjcSessionsDetailed,
     notify: ({ userId, sessionId, tmuxName, stopReason }) =>
-      notifyLiveTurnEnded({ userId, sessionId, tmuxName, stopReason }),
+      notifyLiveTurnEnded({ userId, provider: 'gjc', sessionId, tmuxName, stopReason }),
     getUserId: () => {
       try {
         const user = userDb.getFirstUser();

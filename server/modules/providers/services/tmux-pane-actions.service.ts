@@ -134,7 +134,7 @@ export async function captureTmuxPane(
 ): Promise<string> {
   const result = await run([
     '-S', identity.socketPath,
-    'capture-pane', '-p', '-e', '-S', '-80', '-t', identity.paneId,
+    'capture-pane', '-p', '-e', '-N', '-S', '-80', '-t', identity.paneId,
   ]);
   if (result.code !== 0) {
     throw new AppError('The selected tmux pane changed; reopen it from the session list.', {

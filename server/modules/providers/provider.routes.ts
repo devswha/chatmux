@@ -8,19 +8,18 @@ import { providerModelsService } from '@/modules/providers/services/provider-mod
 import { providerSkillsService } from '@/modules/providers/services/skills.service.js';
 import { sessionConversationsSearchService } from '@/modules/providers/services/session-conversations-search.service.js';
 import { sessionsService } from '@/modules/providers/services/sessions.service.js';
-import { sessionSynchronizerService } from '@/modules/providers/services/session-synchronizer.service.js';
 import { getLiveGjcSessions } from '@/modules/providers/services/live-sessions.service.js';
 import {
   getCurrentTmuxPaneIdentity,
   getExternalCliSessions,
+  getExternalCliSessionsDetailed,
   normalizeExternalPaneOutput,
-  resolveCodexRolloutPath,
   resolveExternalCliCwd,
   spawnExternalCliSession,
   type ExternalCliSession,
   type ExternalSpawnCli,
 } from '@/modules/providers/services/external-cli-sessions.service.js';
-import { readExternalSessionActivity, readExternalTranscriptEnded } from '@/modules/providers/services/external-session-activity.service.js';
+import { resolveExternalSessionActivity } from '@/modules/providers/services/external-session-activity.service.js';
 import { getHomeDir, getHomeDirSuggestions } from '@/modules/providers/services/home-dirs.service.js';
 import { isValidSpawnName, spawnLiveSession } from '@/modules/providers/services/live-send.service.js';
 import { listLiveGjcCommands } from '@/modules/providers/services/live-commands.service.js';
@@ -669,7 +668,8 @@ router.get(
     // Coding-agent panes open structured transcripts when a native session id
     // is available, with terminal attach as the fallback. GJC stays in the
     // dedicated live lane; SSH and unclassified shell panes are attach-only.
-    const externalSessions = await Promise.all((await getExternalCliSessions()).map(async (session) => {
+    const { sessions } = await getExternalCliSessionsDetailed();
+    const externalSessions = await Promise.all(sessions.map(async (session) => {
       const base = {
         tmuxName: session.tmuxName,
         tmux: session.tmux,
@@ -677,70 +677,31 @@ router.get(
         kind: session.kind,
       };
       if (session.kind === 'ssh' || session.kind === 'shell') return base;
+
       const projectPath = session.cwd;
-      const providerSessionId = session.providerSessionId;
-      if (!providerSessionId) {
-        const activeModel = session.kind === 'claude'
+      const resolution = await resolveExternalSessionActivity(session);
+      const appSession = resolution.appSession;
+      const activeModel = appSession
+        ? await providerModelsService
+          .getCurrentActiveModel(session.kind, appSession.session_id)
+          .catch(() => null)
+        : session.kind === 'claude'
           ? await providerModelsService.getCurrentActiveModel('claude').catch(() => null)
           : null;
-        return {
-          ...base,
-          projectPath,
-          model: activeModel?.model ?? null,
-          effort: activeModel?.effort ?? null,
-          activity: 'unknown' as const,
-        };
-      }
-      let appSession = sessionsDb.getSessionByProviderSessionId(session.kind, providerSessionId);
-      if (!appSession && session.kind === 'codex') {
-        const rolloutPath = await resolveCodexRolloutPath(providerSessionId);
-        if (rolloutPath) {
-          await sessionSynchronizerService.synchronizeProviderFile('codex', rolloutPath).catch(() => null);
-          appSession = sessionsDb.getSessionByProviderSessionId('codex', providerSessionId);
-        }
-      }
-      if (!appSession) {
-        const [activeModel, activity] = await Promise.all([
-          session.kind === 'claude'
-            ? providerModelsService.getCurrentActiveModel('claude').catch(() => null)
-            : Promise.resolve(null),
-          readExternalSessionActivity({
-            kind: session.kind,
-            providerSessionId,
-            jsonlPath: null,
-          }),
-        ]);
-        return {
-          ...base,
-          projectPath,
-          model: activeModel?.model ?? null,
-          effort: activeModel?.effort ?? null,
-          activity,
-        };
-      }
-      const [activeModel, activity, transcriptEnded] = await Promise.all([
-        providerModelsService
-          .getCurrentActiveModel(session.kind, appSession.session_id)
-          .catch(() => null),
-        readExternalSessionActivity({
-          kind: session.kind,
-          providerSessionId,
-          jsonlPath: appSession.jsonl_path,
-        }),
-        readExternalTranscriptEnded({
-          kind: session.kind,
-          jsonlPath: appSession.jsonl_path,
-        }),
-      ]);
+
       return {
         ...base,
-        projectPath: appSession.project_path ?? projectPath,
-        transcriptSessionId: appSession.session_id,
-        sessionName: appSession.custom_name,
+        projectPath: appSession?.project_path ?? projectPath,
+        ...(appSession
+          ? {
+            transcriptSessionId: appSession.session_id,
+            sessionName: appSession.custom_name,
+          }
+          : {}),
         model: activeModel?.model ?? null,
         effort: activeModel?.effort ?? null,
-        activity,
-        transcriptEnded,
+        activity: resolution.activity,
+        ...(appSession ? { transcriptEnded: resolution.transcriptEnded } : {}),
       };
     }));
     res.json(createApiSuccessResponse({ externalSessions }));

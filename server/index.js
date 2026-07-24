@@ -80,7 +80,7 @@ import browserUseMcpRoutes from './modules/browser-use/browser-use-mcp.routes.js
 import { browserUseService } from './modules/browser-use/browser-use.service.js';
 import { startEnabledPluginServers, stopAllPlugins, getPluginPort } from './utils/plugin-process-manager.js';
 import { initializeDatabase, projectsDb, sessionsDb, userDb } from './modules/database/index.js';
-import { startLiveTurnMonitor } from './modules/notifications/index.js';
+import { startExternalTurnMonitor, startLiveTurnMonitor } from './modules/notifications/index.js';
 import { configureWebPush } from './services/vapid-keys.js';
 import { validateApiKey, authenticateToken, authenticateWebSocket, AUTH_MODE } from './middleware/auth.js';
 import { c } from './utils/colors.js';
@@ -1660,10 +1660,11 @@ async function startServer() {
             // Start watching the projects folder for changes
             await initializeSessionsWatcher();
 
-            // Notify on tmux-driven gjc turn completions (transcript delta →
-            // assistant stopReason). Server-side so web push works with every
-            // tab closed. Kill switch: CHATMUX_LIVE_NOTIFY=0.
+            // Notify on tmux-driven GJC and external CLI turn completions.
+            // Server-side so web push works with every tab closed.
+            // Shared kill switch: CHATMUX_LIVE_NOTIFY=0.
             startLiveTurnMonitor();
+            startExternalTurnMonitor();
 
             // Start server-side plugin processes for enabled plugins
             startEnabledPluginServers().catch(err => {

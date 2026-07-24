@@ -193,12 +193,19 @@ type PendingExternalCliOutputProps = {
   emptyMessage?: string;
 };
 
-// Fit-to-width bounds: desktop keeps the regular 12px (text-xs); narrow
-// screens shrink toward MIN so a full tmux row fits without side-scrolling.
+// Preserve the regular desktop size, but never force a narrow viewport to
+// side-scroll: even very wide tmux panes must scale down to the available width.
 const MAX_TERMINAL_FONT_PX = 12;
-const MIN_TERMINAL_FONT_PX = 6.5;
-// Approximate glyph width/em ratio of the mono stack, with safety margin.
-const MONO_GLYPH_WIDTH_RATIO = 0.62;
+const TERMINAL_HORIZONTAL_PADDING_PX = 32;
+// Approximate glyph width/em ratio of the mono stack, biased slightly wide so
+// rounding and scrollbar space cannot push the last terminal column off-screen.
+const MONO_GLYPH_WIDTH_RATIO = 0.64;
+
+export function fitTerminalFontSize(viewportWidth: number, columns: number): number {
+  const availableWidth = viewportWidth - TERMINAL_HORIZONTAL_PADDING_PX;
+  if (columns <= 0 || availableWidth <= 0) return MAX_TERMINAL_FONT_PX;
+  return Math.min(MAX_TERMINAL_FONT_PX, availableWidth / (columns * MONO_GLYPH_WIDTH_RATIO));
+}
 
 export default function PendingExternalCliOutput({
   providerLabel,
@@ -256,18 +263,14 @@ export default function PendingExternalCliOutput({
 
   const tokens = parseAnsiTerminalOutput(output);
 
-  // The tmux pane is a fixed character grid (often 80-200 columns). On narrow
-  // screens the font shrinks so one full row fits the viewport — wrapping
-  // would shred TUI layouts. Below MIN the pane side-scrolls instead.
+  // tmux capture preserves its fixed-width rows. Scale the complete grid to the
+  // viewport; wrapping would shred TUI layouts and a minimum readable size
+  // would reintroduce horizontal overflow on narrow phones.
   let maxColumns = 0;
   for (const line of tokens.map((token) => token.text).join('').split('\n')) {
     if (line.length > maxColumns) maxColumns = line.length;
   }
-  const availableWidth = viewportWidth - 32; // px-4 horizontal padding
-  const fitFontPx = maxColumns > 0 && availableWidth > 0
-    ? availableWidth / (maxColumns * MONO_GLYPH_WIDTH_RATIO)
-    : MAX_TERMINAL_FONT_PX;
-  const fontSizePx = Math.max(MIN_TERMINAL_FONT_PX, Math.min(MAX_TERMINAL_FONT_PX, fitFontPx));
+  const fontSizePx = fitTerminalFontSize(viewportWidth, maxColumns);
 
   return (
     <div

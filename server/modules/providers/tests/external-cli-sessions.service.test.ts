@@ -6,6 +6,8 @@ import {
   assignFreshIndexedProviderSessionIds,
   assignUniqueIndexedProviderSessionIds,
   classifyExternalSessions,
+  createExternalCliSessionDiscovery,
+  createExternalCliSessionInferenceRetryBackoff,
   extractCodexResumeThreadId,
   extractExternalResumeSessionId,
   extractContainedTranscriptSessionId,
@@ -29,6 +31,100 @@ function tmux(sessionId: string, windowId: string, paneId: string) {
 function tmuxTargetKey(identity: { socketPath: string; sessionId: string; windowId: string; paneId: string }) {
   return `${identity.socketPath}\0${identity.sessionId}\0${identity.windowId}\0${identity.paneId}`;
 }
+test('external CLI discovery distinguishes an unavailable scan from a confirmed empty result', async () => {
+  const emptyDiscovery = createExternalCliSessionDiscovery({
+    discover: async () => ({ ok: true, sessions: [] }),
+  });
+  assert.deepEqual(await emptyDiscovery.getExternalCliSessionsDetailed(), {
+    ok: true,
+    sessions: [],
+  });
+  assert.deepEqual(await emptyDiscovery.getExternalCliSessions(), []);
+
+  const unavailableDiscovery = createExternalCliSessionDiscovery({
+    discover: async () => {
+      throw new Error('tmux unavailable');
+    },
+  });
+  assert.deepEqual(await unavailableDiscovery.getExternalCliSessionsDetailed(), {
+    ok: false,
+    sessions: [],
+  });
+  assert.deepEqual(await unavailableDiscovery.getExternalCliSessions(), []);
+});
+
+test('external CLI discovery refreshes only after its one-second TTL expires', async () => {
+  let nowMs = 1_000;
+  let scanCount = 0;
+  const discovery = createExternalCliSessionDiscovery({
+    now: () => nowMs,
+    discover: async () => {
+      scanCount += 1;
+      return { ok: true, sessions: [] };
+    },
+  });
+
+  await discovery.getExternalCliSessionsDetailed();
+  await discovery.getExternalCliSessionsDetailed();
+  nowMs += 999;
+  await discovery.getExternalCliSessionsDetailed();
+  assert.equal(scanCount, 1);
+
+  nowMs += 1;
+  await discovery.getExternalCliSessionsDetailed();
+  assert.equal(scanCount, 2);
+});
+
+test('external CLI discovery shares one in-flight scan across concurrent callers', async () => {
+  let scanCount = 0;
+  let releaseScan!: () => void;
+  const scanPending = new Promise<void>((resolve) => {
+    releaseScan = resolve;
+  });
+  const discovery = createExternalCliSessionDiscovery({
+    discover: async () => {
+      scanCount += 1;
+      await scanPending;
+      return { ok: true, sessions: [] };
+    },
+  });
+
+  const first = discovery.getExternalCliSessionsDetailed();
+  const second = discovery.getExternalCliSessionsDetailed();
+  await Promise.resolve();
+  assert.equal(scanCount, 1);
+
+  releaseScan();
+  assert.deepEqual(await first, { ok: true, sessions: [] });
+  assert.deepEqual(await second, { ok: true, sessions: [] });
+});
+
+test('external CLI inference backs off unresolved panes and invalidates resolved or restarted generations', () => {
+  let nowMs = 0;
+  const retryBackoff = createExternalCliSessionInferenceRetryBackoff({
+    now: () => nowMs,
+  });
+  const unresolved = {
+    tmuxName: 'claude',
+    tmux: tmux('$901', '@901', '%901'),
+    kind: 'claude' as const,
+    agentPid: 901,
+    startedAtMs: 1_000,
+  };
+
+  assert.deepEqual(retryBackoff.attemptableSessions([unresolved]), [unresolved]);
+  retryBackoff.recordResults([unresolved], [unresolved]);
+  nowMs = 29_999;
+  assert.deepEqual(retryBackoff.attemptableSessions([unresolved]), []);
+
+  const resolved = { ...unresolved, providerSessionId: 'claude-session-901' };
+  retryBackoff.recordResults([resolved], []);
+  assert.deepEqual(retryBackoff.attemptableSessions([unresolved]), [unresolved]);
+
+  retryBackoff.recordResults([unresolved], [unresolved]);
+  const restarted = { ...unresolved, agentPid: 902, startedAtMs: 2_000 };
+  assert.deepEqual(retryBackoff.attemptableSessions([restarted]), [restarted]);
+});
 
 test('parseProcessStartTime reads the portable ps lstart format used on macOS', () => {
   assert.equal(
