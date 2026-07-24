@@ -128,6 +128,8 @@ export type ProviderModelsResult = {
  */
 export type ProviderCurrentActiveModel = {
   model: string;
+  /** Provider-reported reasoning effort when the runtime exposes it. */
+  effort?: string;
 };
 
 /**

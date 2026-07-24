@@ -1,10 +1,11 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
-import { MessageSquare, Server, SquareTerminal, X } from 'lucide-react';
+import { Server, SquareTerminal, X } from 'lucide-react';
 
 import type { ExternalTerminalTarget, Project } from '../../../../types/app';
 import { api } from '../../../../utils/api';
 import type { ExternalCliSession, ExternalSessionActivity } from '../../hooks/useExternalCliSessions';
 import SessionProviderLogo from '../../../llm-logo-provider/SessionProviderLogo';
+import { tmuxPaneIdentityKey } from '../../../../../shared/tmux';
 
 const KIND_LABEL: Record<ExternalCliSession['kind'], string> = {
   claude: 'Claude Code',
@@ -13,7 +14,12 @@ const KIND_LABEL: Record<ExternalCliSession['kind'], string> = {
   opencode: 'OpenCode',
   omp: 'Oh My Pi',
   ssh: 'ssh (원격)',
+  shell: 'terminal',
 };
+
+const isAttachOnlyKind = (kind: ExternalCliSession['kind']): boolean => (
+  kind === 'ssh' || kind === 'shell'
+);
 
 const ACTIVITY_BADGE: Record<ExternalSessionActivity, {
   label: string;
@@ -47,8 +53,8 @@ const ACTIVITY_BADGE: Record<ExternalSessionActivity, {
   },
 };
 
-// Local coding-agent tmux sessions can be stopped; remote SSH sessions are not
-// ours to kill.
+// Local coding-agent tmux sessions can be stopped; SSH and unclassified shell
+// panes are attach-only.
 
 const normalizeComparablePath = (value: string): string => (
   value.replace(/\\/g, '/').replace(/\/+$/, '')
@@ -76,42 +82,44 @@ type SidebarExternalSectionProps = {
 };
 
 /**
- * Local coding-agent and remote SSH tmux rows for the unified sessions list.
- * Local agents open structured transcripts when indexed and use terminal
- * attach before then. SSH is always attach-only because its process and
- * transcript are not locally observable.
+ * Coding-agent, SSH, and unclassified shell rows for the unified sessions
+ * list. Local agents open structured transcripts when indexed and use terminal
+ * attach before then. SSH and shell panes are always attach-only.
  */
 export default function SidebarExternalSection({ sessions, projects, onOpen, onChanged }: SidebarExternalSectionProps) {
   const [confirming, setConfirming] = useState<string | null>(null);
   const [killing, setKilling] = useState<string | null>(null);
   const [error, setError] = useState('');
   const pendingTranscriptRef = useRef<string | null>(null);
-  // SSH attach only needs any project-shaped shell context. Local transcripts
+  // Attach-only rows need any project-shaped shell context. Local transcripts
   // must use their owning project so the selected session can actually render.
   const shellProject = projects[0] ?? null;
 
   const openSession = (session: ExternalCliSession) => {
     const sessionProject = resolveExternalSessionProject(session, projects);
     if (!sessionProject) return;
-    pendingTranscriptRef.current = session.kind !== 'ssh' && !session.transcriptSessionId
-      ? session.tmuxName
+    pendingTranscriptRef.current = !isAttachOnlyKind(session.kind) && !session.transcriptSessionId
+      ? tmuxPaneIdentityKey(session.tmux)
       : null;
     onOpen({
       tmuxName: session.tmuxName,
+      tmux: session.tmux,
+      process: session.process,
       kind: KIND_LABEL[session.kind],
       cliKind: session.kind,
       project: sessionProject,
       transcriptSessionId: session.transcriptSessionId,
       sessionName: session.sessionName,
       model: session.model,
+      effort: session.effort,
     });
   };
 
   useEffect(() => {
-    const tmuxName = pendingTranscriptRef.current;
-    if (!tmuxName) return;
+    const targetKey = pendingTranscriptRef.current;
+    if (!targetKey) return;
     const session = sessions.find((candidate) => (
-      candidate.tmuxName === tmuxName && candidate.transcriptSessionId
+      tmuxPaneIdentityKey(candidate.tmux) === targetKey && candidate.transcriptSessionId
     ));
     if (!session) return;
     const sessionProject = resolveExternalSessionProject(session, projects);
@@ -119,30 +127,37 @@ export default function SidebarExternalSection({ sessions, projects, onOpen, onC
     pendingTranscriptRef.current = null;
     onOpen({
       tmuxName: session.tmuxName,
+      tmux: session.tmux,
+      process: session.process,
       kind: KIND_LABEL[session.kind],
       cliKind: session.kind,
       project: sessionProject,
       transcriptSessionId: session.transcriptSessionId,
       sessionName: session.sessionName,
       model: session.model,
+      effort: session.effort,
     });
   }, [onOpen, sessions, projects]);
 
-  const stopSession = async (tmuxName: string) => {
-    if (killing) return;
-    setKilling(tmuxName);
+  const stopSession = async (
+    session: ExternalCliSession,
+    mode: 'process' | 'pane' | 'session',
+  ) => {
+    if (killing || !session.process) return;
+    const key = tmuxPaneIdentityKey(session.tmux);
+    setKilling(key);
     setError('');
     try {
-      const response = await api.externalCliSessionKill(tmuxName);
+      const response = await api.externalCliSessionKill(session.tmux, session.process, mode);
       const body = await response.json().catch(() => null);
       if (response.ok && body?.data?.ok) {
         setConfirming(null);
         onChanged();
         return;
       }
-      setError(body?.error?.message ?? body?.message ?? '세션 종료 실패');
+      setError(body?.error?.message ?? body?.message ?? '종료 실패');
     } catch {
-      setError('세션 종료 실패');
+      setError('종료 실패');
     } finally {
       setKilling(null);
     }
@@ -156,30 +171,34 @@ export default function SidebarExternalSection({ sessions, projects, onOpen, onC
     <div className="space-y-0.5 px-1.5">
       {error && <p className="px-2 py-1 text-[11px] text-red-500">{error}</p>}
       {sessions.map((session) => {
-        const canKill = session.kind !== 'ssh';
+        const key = tmuxPaneIdentityKey(session.tmux);
+        const canKill = !isAttachOnlyKind(session.kind) && session.process !== null;
         const activityBadge = canKill ? ACTIVITY_BADGE[session.activity ?? 'unknown'] : null;
         const sessionName = session.sessionName?.trim();
-        const primary = sessionName || session.tmuxName;
+        const primary = session.tmuxName;
         const metadata = [
+          sessionName,
           session.model?.split('/').pop(),
-          sessionName ? session.tmuxName : null,
+          session.effort ? `${session.effort} effort` : null,
           KIND_LABEL[session.kind],
         ].filter(Boolean).join(' · ');
         return (
-          <Fragment key={session.tmuxName}>
+          <Fragment key={key}>
             <div className="flex items-start rounded-md transition-colors hover:bg-muted/50">
               <button
                 type="button"
                 onClick={() => openSession(session)}
                 title={session.transcriptSessionId
                   ? `${primary} — ${metadata}`
-                  : session.kind === 'ssh'
+                  : isAttachOnlyKind(session.kind)
                     ? `tmux 세션 '${session.tmuxName}' 터미널로 보기`
                     : `${primary} — 대화 열기`}
                 className="flex min-w-0 flex-1 items-start gap-2 px-2 py-1.5 text-left"
               >
                 {session.kind === 'ssh' ? (
                   <Server className="mt-0.5 h-4 w-4 flex-shrink-0 text-slate-400" aria-hidden />
+                ) : session.kind === 'shell' ? (
+                  <SquareTerminal className="mt-0.5 h-4 w-4 flex-shrink-0 text-slate-400" aria-hidden />
                 ) : (
                   <SessionProviderLogo provider={session.kind} className="mt-0.5 h-4 w-4 flex-shrink-0" />
                 )}
@@ -203,38 +222,43 @@ export default function SidebarExternalSection({ sessions, projects, onOpen, onC
                     {metadata}
                   </span>
                 </span>
-                {session.kind !== 'ssh' ? (
-                  <MessageSquare className="mt-1 h-3.5 w-3.5 shrink-0 text-emerald-500" aria-hidden />
-                ) : (
+                {isAttachOnlyKind(session.kind) && (
                   <SquareTerminal className="mt-1 h-3.5 w-3.5 shrink-0 text-muted-foreground/60" aria-hidden />
                 )}
               </button>
               {canKill && (
                 <button
                   type="button"
-                  onClick={() => { setError(''); setConfirming(session.tmuxName); }}
-                  title={`tmux 세션 '${session.tmuxName}' 종료`}
-                  aria-label={`${session.tmuxName} 종료`}
+                  onClick={() => { setError(''); setConfirming(key); }}
+                  title={`${session.tmuxName} 종료 옵션`}
+                  aria-label={`${session.tmuxName} 종료 옵션`}
                   className="m-1 rounded p-1.5 text-muted-foreground/60 transition-colors hover:bg-red-500/10 hover:text-red-500"
                 >
                   <X className="h-3.5 w-3.5" aria-hidden />
                 </button>
               )}
             </div>
-            {confirming === session.tmuxName && (
-              <div className="mx-2 mb-1 flex items-center justify-end gap-2 rounded-md bg-muted/50 px-2 py-1.5 text-[11px]">
-                <span className="mr-auto text-muted-foreground">이 세션을 종료할까요?</span>
-                <button type="button" onClick={() => setConfirming(null)} className="text-muted-foreground hover:text-foreground">
-                  취소
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void stopSession(session.tmuxName)}
-                  disabled={killing === session.tmuxName}
-                  className="font-medium text-red-500 disabled:opacity-50"
-                >
-                  {killing === session.tmuxName ? '종료 중…' : '종료'}
-                </button>
+            {confirming === key && (
+              <div className="mx-2 mb-1 flex items-center justify-end gap-1 rounded-md bg-muted/50 px-2 py-1.5 text-[11px]">
+                <span className="mr-auto text-muted-foreground">
+                  {killing === key ? '종료 중…' : '종료 범위'}
+                </span>
+                {killing !== key && (
+                  <>
+                    <button type="button" onClick={() => void stopSession(session, 'process')} className="font-medium text-red-500">
+                      에이전트
+                    </button>
+                    <button type="button" onClick={() => void stopSession(session, 'pane')} className="text-red-500">
+                      pane
+                    </button>
+                    <button type="button" onClick={() => void stopSession(session, 'session')} className="text-red-500">
+                      세션
+                    </button>
+                    <button type="button" onClick={() => setConfirming(null)} className="text-muted-foreground hover:text-foreground">
+                      취소
+                    </button>
+                  </>
+                )}
               </div>
             )}
           </Fragment>

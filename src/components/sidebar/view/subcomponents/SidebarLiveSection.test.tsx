@@ -5,7 +5,12 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
 import type { Project, ProjectSession } from '../../../../types/app';
+import type { TmuxPaneTarget } from '../../../../../shared/tmux';
 
+const target = (paneId: string, pid: number): TmuxPaneTarget => ({
+  tmux: { socketPath: '/tmp/chatmux.sock', sessionId: 'session-1', windowId: '@1', paneId },
+  process: { pid, startedAtMs: 1_700_000_000_000 + pid },
+});
 import SidebarLiveSection from './SidebarLiveSection';
 
 const noop = () => {};
@@ -31,8 +36,10 @@ test('SidebarLiveSection labels rows by tmux session name, title in tooltip', ()
       projects: makeProjects(),
       liveSessionIds: new Set(['s-live']),
       liveSessionNames: new Map([['s-live', 'omg']]),
+      liveSessionModels: new Map([['s-live', 'openai-codex/gpt-5.6-sol']]),
+      liveSessionEfforts: new Map([['s-live', 'xhigh']]),
       liveSessionLineage: new Set(['s-live']),
-      liveSessionTmuxIds: new Map([['s-live', '$1']]),
+      liveSessionTargets: new Map([['s-live', target('%1', 1)]]),
       liveSessionKinds: new Map([['s-live', 'interactive']]),
       liveSessionRunning: new Set<string>(),
       selectedSession: null,
@@ -42,27 +49,28 @@ test('SidebarLiveSection labels rows by tmux session name, title in tooltip', ()
   );
   assert.ok(html.includes('>omg<'), 'primary label is the tmux session name');
   assert.ok(html.includes('Proj One'), 'shows the project name');
+  assert.ok(html.includes('gpt-5.6-sol · xhigh effort · Proj One'), 'shows model and reasoning effort');
   assert.ok(html.includes('title="Live conversation title"'), 'conversation title is demoted to the tooltip');
   assert.ok(!html.includes('Idle conversation'), 'omits non-live sessions');
   assert.ok(!html.includes('배치'), 'an interactive gjc TUI carries no batch badge');
 });
 
-test('SidebarLiveSection falls back to the conversation title when tmux name is unknown', () => {
+test('SidebarLiveSection hides a live transcript that has no tmux pane', () => {
   const html = renderToStaticMarkup(
     createElement(SidebarLiveSection, {
       projects: makeProjects(),
       liveSessionIds: new Set(['s-live']),
       liveSessionNames: new Map(),
       liveSessionLineage: new Set<string>(),
-      liveSessionTmuxIds: new Map<string, string>(),
+      liveSessionTargets: new Map<string, TmuxPaneTarget>(),
       liveSessionKinds: new Map<string, string>(),
-      liveSessionRunning: new Set<string>(),
+      liveSessionRunning: new Set(['s-live']),
       selectedSession: null,
       onProjectSelect,
       onSessionSelect,
     }),
   );
-  assert.ok(html.includes('Live conversation title'), 'primary label falls back to the title');
+  assert.equal(html, '', 'non-tmux processes stay in transcript history, not the tmux roster');
 });
 
 test('SidebarLiveSection renders nothing when no session is live', () => {
@@ -72,7 +80,7 @@ test('SidebarLiveSection renders nothing when no session is live', () => {
       liveSessionIds: new Set<string>(),
       liveSessionNames: new Map(),
       liveSessionLineage: new Set<string>(),
-      liveSessionTmuxIds: new Map<string, string>(),
+      liveSessionTargets: new Map<string, TmuxPaneTarget>(),
       liveSessionKinds: new Map<string, string>(),
       liveSessionRunning: new Set<string>(),
       selectedSession: null,
@@ -90,7 +98,7 @@ test('SidebarLiveSection renders idle-gjc rows as 대기 (첫 대화 전 gjc pan
       liveSessionIds: new Set(['idle-gjc:flask']),
       liveSessionNames: new Map([['idle-gjc:flask', 'flask']]),
       liveSessionLineage: new Set(['idle-gjc:flask']),
-      liveSessionTmuxIds: new Map([['idle-gjc:flask', '$9']]),
+      liveSessionTargets: new Map([['idle-gjc:flask', target('%9', 9)]]),
       liveSessionKinds: new Map([['idle-gjc:flask', 'interactive']]),
       liveSessionRunning: new Set<string>(),
       selectedSession: null,
@@ -98,13 +106,13 @@ test('SidebarLiveSection renders idle-gjc rows as 대기 (첫 대화 전 gjc pan
       onSessionSelect,
     }),
   );
-  assert.ok(html.includes('>flask<'), 'labels the row by tmux session name');
+  assert.ok(html.includes('flask 종료 옵션'), 'lineage-grade idle rows keep the kill control');
   assert.ok(html.includes('대기'), 'idle rows carry the 대기 badge, not LIVE');
   assert.ok(!html.includes('LIVE'), 'no LIVE badge for a session with no transcript');
   assert.ok(html.includes('눌러서 첫 대화 시작'), 'opens a full pending transcript view');
   assert.ok(html.includes("tmux 세션 &#x27;flask&#x27;에서 첫 대화 시작"), 'the idle row itself is clickable');
   assert.ok(html.includes('첫 메시지 보내기'), 'idle lineage rows offer the first-message composer');
-  assert.ok(html.includes('tmux 세션 flask 닫기'), 'lineage-grade idle rows keep the kill control');
+  assert.ok(html.includes('flask 종료 옵션'), 'lineage-grade idle rows keep the kill control');
 });
 
 test('SidebarLiveSection badges a batch gjc row (foreground command is not gjc)', () => {
@@ -114,7 +122,7 @@ test('SidebarLiveSection badges a batch gjc row (foreground command is not gjc)'
       liveSessionIds: new Set(['s-live']),
       liveSessionNames: new Map([['s-live', 'stock']]),
       liveSessionLineage: new Set(['s-live']),
-      liveSessionTmuxIds: new Map([['s-live', '$2']]),
+      liveSessionTargets: new Map([['s-live', target('%2', 2)]]),
       liveSessionKinds: new Map([['s-live', 'batch']]),
       liveSessionRunning: new Set<string>(),
       selectedSession: null,
@@ -137,7 +145,7 @@ test('SidebarLiveSection badges an in-progress turn as RUN, not LIVE', () => {
       liveSessionIds: new Set(['s-live']),
       liveSessionNames: new Map([['s-live', 'omg']]),
       liveSessionLineage: new Set(['s-live']),
-      liveSessionTmuxIds: new Map([['s-live', '$1']]),
+      liveSessionTargets: new Map([['s-live', target('%1', 1)]]),
       liveSessionKinds: new Map([['s-live', 'interactive']]),
       liveSessionRunning: new Set(['s-live']),
       selectedSession: null,
@@ -157,7 +165,7 @@ test('SidebarLiveSection makes transcript-backed orphan rows directly openable',
       liveSessionIds: new Set(['s-resumed']),
       liveSessionNames: new Map([['s-resumed', 'resume-pane']]),
       liveSessionLineage: new Set<string>(),
-      liveSessionTmuxIds: new Map<string, string>(),
+      liveSessionTargets: new Map<string, TmuxPaneTarget>(),
       liveSessionKinds: new Map([['s-resumed', 'interactive']]),
       liveSessionRunning: new Set<string>(),
       selectedSession: null,

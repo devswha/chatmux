@@ -56,12 +56,10 @@ function runTests(label, files, { tsconfig } = {}) {
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
 
-const [serverTests, clientTests, electronTests] = await Promise.all([
+const [serverTests, clientTests] = await Promise.all([
   collectTests('server'),
   collectTests('src'),
-  collectTests('electron'),
 ]);
 
 runTests('server', serverTests, { tsconfig: 'server/tsconfig.json' });
 runTests('client', clientTests, { tsconfig: 'tsconfig.json' });
-runTests('electron', electronTests);

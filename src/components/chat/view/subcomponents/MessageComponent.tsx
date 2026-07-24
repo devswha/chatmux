@@ -83,26 +83,9 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
     <div
       ref={messageRef}
       data-message-timestamp={message.timestamp || undefined}
-      className={`chat-message ${message.type} ${isGrouped ? 'grouped' : ''} ${message.type === 'user' && !transcriptView ? 'flex justify-end px-3 sm:px-0' : 'px-3 sm:px-0'}`}
+      className={`chat-message ${message.type} ${isGrouped ? 'grouped' : ''} ${message.type === 'user' ? 'flex justify-end px-3 sm:px-0' : 'px-3 sm:px-0'}`}
     >
       {message.type === 'user' ? (
-        transcriptView ? (
-          <div className="w-full border-l-2 border-emerald-500/60 py-1 pl-3">
-            {message.images && message.images.length > 0 && (
-              <ChatMessageImages images={message.images} projectId={selectedProject?.projectId} />
-            )}
-            <div className="flex items-start gap-2 text-sm text-foreground">
-              <span className="select-none font-mono font-semibold text-emerald-500">›</span>
-              <div dir="auto" className="min-w-0 flex-1 whitespace-pre-wrap break-words font-serif">
-                {message.content}
-              </div>
-            </div>
-            <div className="mt-1 flex items-center gap-1 pl-4 text-[11px] text-muted-foreground">
-              {shouldShowUserCopyControl && <MessageCopyControl content={userCopyContent} messageType="user" />}
-              <span>{formattedTime}</span>
-            </div>
-          </div>
-        ) : (
         /* User turn on the right: claude.ai-style attachment cards above the bubble */
         <div className="flex w-full items-end space-x-0 sm:w-auto sm:max-w-[85%] sm:space-x-3 md:max-w-md lg:max-w-lg xl:max-w-xl">
           <div className="flex min-w-0 flex-1 flex-col items-end gap-2 sm:flex-initial">
@@ -137,7 +120,6 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
             </div>
           )}
         </div>
-        )
       ) : message.isTaskNotification ? (
         /* Compact task notification on the left */
         <div className="w-full">

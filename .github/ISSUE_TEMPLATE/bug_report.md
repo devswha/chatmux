@@ -27,7 +27,7 @@ If applicable, add screenshots to help explain your problem.
 **Error message**
 If applicable, add the error message you see to help explain your problem.
 
-**Desktop (please complete the following information):**
+**Environment (please complete the following information):**
  - OS: [e.g. iOS]
  - Browser [e.g. chrome, safari]
  - Version [e.g. 22]

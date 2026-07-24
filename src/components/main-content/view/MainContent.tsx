@@ -1,4 +1,4 @@
-import React, { lazy, Suspense, useCallback, useEffect, useState } from 'react';
+import React, { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { Menu, MessageSquare, SquareTerminal, X } from 'lucide-react';
 
 import type { MainContentProps } from '../types/types';
@@ -7,10 +7,11 @@ import { usePaletteOpsRegister } from '../../../contexts/PaletteOpsContext';
 import { useTasksSettings } from '../../../contexts/TasksSettingsContext';
 import { useUiPreferences } from '../../../hooks/useUiPreferences';
 import { useFileOpenResolver } from '../../../hooks/useFileOpenResolver';
-import { authenticatedFetch } from '../../../utils/api';
+import { api, authenticatedFetch } from '../../../utils/api';
 import { useEditorSidebar } from '../../code-editor/hooks/useEditorSidebar';
 import LiveRelayComposer from '../../chat/view/subcomponents/LiveRelayComposer';
-import type { Project } from '../../../types/app';
+import type { ExternalTerminalTarget, Project } from '../../../types/app';
+import { tmuxPaneIdentityKey } from '../../../../shared/tmux';
 
 import MainContentHeader from './subcomponents/MainContentHeader';
 import MainContentStateView from './subcomponents/MainContentStateView';
@@ -36,6 +37,20 @@ type TaskMasterContextValue = {
   currentProject?: Project | null;
   setCurrentProject?: ((project: Project) => void) | null;
 };
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+function buildExactTmuxAttachCommand(target: ExternalTerminalTarget): string {
+  const { socketPath, sessionId, windowId, paneId } = target.tmux;
+  return [
+    'tmux',
+    '-S', shellQuote(socketPath),
+    'select-window', '-t', shellQuote(windowId),
+    '\\;', 'select-pane', '-t', shellQuote(paneId),
+    '\\;', 'attach-session', '-t', shellQuote(sessionId),
+  ].join(' ');
+}
 
 type TasksSettingsContextValue = {
   tasksEnabled: boolean;
@@ -47,9 +62,10 @@ function MainContent({
   selectedProject,
   selectedSession,
   isSessionReadOnly,
-  liveSessionTmuxName,
-  liveSessionTmuxId,
+  liveSessionTarget,
   liveSessionModel,
+  liveSessionEffort,
+  liveSessionName,
   liveSessionKind,
   activeTab,
   setActiveTab,
@@ -80,11 +96,39 @@ function MainContent({
   const [externalPaneOutput, setExternalPaneOutput] = useState('');
   const [externalPaneError, setExternalPaneError] = useState('');
   const [externalTranscriptView, setExternalTranscriptView] = useState<ExternalTranscriptView>('conversation');
-  const externalOutputTmuxName = externalTerminal && externalTerminal.cliKind !== 'ssh'
-    ? externalTerminal.tmuxName
-    : externalTranscript && externalTranscriptView === 'cli'
-      ? externalTranscript.tmuxName
-      : null;
+  const transcriptCliTarget = useMemo(() => {
+    if (externalTranscript?.process) {
+      return {
+        tmux: externalTranscript.tmux,
+        process: externalTranscript.process,
+        lane: 'external' as const,
+      };
+    }
+    if (liveSessionKind === 'gjc' && liveSessionTarget) {
+      return {
+        ...liveSessionTarget,
+        lane: 'live' as const,
+      };
+    }
+    return null;
+  }, [externalTranscript, liveSessionKind, liveSessionTarget]);
+  const transcriptCliProviderLabel = externalTranscript?.kind
+    ?? (liveSessionKind === 'gjc' ? 'GJC' : null);
+  const transcriptCliTmuxName = externalTranscript?.tmuxName
+    ?? (liveSessionKind === 'gjc' ? liveSessionName : null);
+  const externalOutputTarget = useMemo(() => (
+    externalTranscriptView === 'cli'
+      ? externalTerminal && externalTerminal.cliKind !== 'ssh' && externalTerminal.cliKind !== 'shell'
+        ? externalTerminal.process
+          ? {
+              tmux: externalTerminal.tmux,
+              process: externalTerminal.process,
+              lane: externalTerminal.cliKind === 'gjc' ? 'live' as const : 'external' as const,
+            }
+          : null
+        : transcriptCliTarget
+      : null
+  ), [externalTerminal, externalTranscriptView, transcriptCliTarget]);
   const [filesPanelOpen, setFilesPanelOpen] = useState(() => {
     try {
       return localStorage.getItem('files-panel-open') === 'true';
@@ -101,9 +145,15 @@ function MainContent({
     }
   }, [filesPanelOpen]);
 
+  const externalViewTargetKey = transcriptCliTarget
+    ? tmuxPaneIdentityKey(transcriptCliTarget.tmux)
+    : externalTerminal
+      ? tmuxPaneIdentityKey(externalTerminal.tmux)
+      : null;
+
   useEffect(() => {
     setExternalTranscriptView('conversation');
-  }, [externalTranscript?.tmuxName]);
+  }, [externalViewTargetKey]);
 
   const shouldShowTasksTab = Boolean(tasksEnabled && isTaskMasterInstalled);
   const shouldShowBrowserTab = browserUseEnabled;
@@ -169,7 +219,7 @@ function MainContent({
   }, [loadBrowserUseSettings]);
 
   useEffect(() => {
-    if (!externalOutputTmuxName) {
+    if (!externalOutputTarget) {
       setExternalPaneOutput('');
       setExternalPaneError('');
       return undefined;
@@ -181,11 +231,17 @@ function MainContent({
       controller?.abort();
       controller = new AbortController();
       try {
-        const params = new URLSearchParams({ tmuxName: externalOutputTmuxName });
-        const response = await authenticatedFetch(
-          `/api/providers/sessions/external/output?${params}`,
-          { signal: controller.signal },
-        );
+        const response = externalOutputTarget.lane === 'live'
+          ? await api.liveSessionOutput(
+              externalOutputTarget.tmux,
+              externalOutputTarget.process,
+              controller.signal,
+            )
+          : await api.externalCliSessionOutput(
+              externalOutputTarget.tmux,
+              externalOutputTarget.process,
+              controller.signal,
+            );
         const payload = await response.json().catch(() => null);
         if (cancelled) return;
         if (response.ok) {
@@ -215,7 +271,7 @@ function MainContent({
       controller?.abort();
       window.clearInterval(interval);
     };
-  }, [externalOutputTmuxName]);
+  }, [externalOutputTarget]);
 
   useEffect(() => {
     if (!shouldShowBrowserTab && activeTab === 'browser') {
@@ -238,10 +294,10 @@ function MainContent({
     return <MainContentStateView mode="loading" isMobile={isMobile} onMenuClick={onMenuClick} />;
   }
 
-  // Fresh local agent panes have no transcript file until their first turn.
-  // Keep them in the transcript-style surface from the start; the first prompt
-  // is relayed to tmux, then AppContent switches to the indexed transcript.
-  if (externalTerminal && externalTerminal.cliKind !== 'ssh') {
+  // Fresh local panes open on an empty conversation surface. Raw tmux output
+  // remains available behind the explicit CLI output tab instead of replacing
+  // the chat before the provider creates its first transcript record.
+  if (externalTerminal && externalTerminal.cliKind !== 'ssh' && externalTerminal.cliKind !== 'shell' && externalTerminal.process) {
     const isGjc = externalTerminal.cliKind === 'gjc';
     const providerLabel = {
       gjc: 'GJC',
@@ -280,11 +336,27 @@ function MainContent({
             <X className="h-4 w-4" />
           </button>
         </div>
-        <PendingExternalCliOutput providerLabel={providerLabel} output={externalPaneOutput} />
-        <LiveRelayComposer
-          key={`pending-${externalTerminal.cliKind}:${externalTerminal.tmuxName}`}
+        <ExternalTranscriptViewSwitcher
+          mode={externalTranscriptView}
+          providerLabel={providerLabel}
           tmuxName={externalTerminal.tmuxName}
-          tmuxId={isGjc ? externalTerminal.tmuxId : null}
+          onChange={setExternalTranscriptView}
+        />
+        {externalTranscriptView === 'cli' ? (
+          <PendingExternalCliOutput providerLabel={providerLabel} output={externalPaneOutput} />
+        ) : (
+          <PendingExternalCliOutput
+            providerLabel={providerLabel}
+            output=""
+            emptyMessage={`아직 대화 기록이 없습니다. 첫 지시를 보내면 ${providerLabel} 대화가 이 화면에 표시됩니다.`}
+          />
+        )}
+        <LiveRelayComposer
+          key={`pending-${externalTerminal.cliKind}:${tmuxPaneIdentityKey(externalTerminal.tmux)}:${externalTerminal.process?.startedAtMs ?? 'unknown'}`}
+          target={{ tmux: externalTerminal.tmux, process: externalTerminal.process! }}
+          model={'model' in externalTerminal ? externalTerminal.model : null}
+          effort={'effort' in externalTerminal ? externalTerminal.effort : null}
+          sessionName={externalTerminal.tmuxName}
           workspacePath={isGjc ? null : (externalTerminal.project.fullPath || externalTerminal.project.path)}
           relayKind={externalTerminal.cliKind}
         />
@@ -292,10 +364,10 @@ function MainContent({
     );
   }
 
-  // Remote SSH remains a terminal-only target because its process and
-  // transcript are not observable on the ChatMux host.
+  // Targets without a locally observable process remain terminal-only.
   if (externalTerminal) {
-    const safeName = /^[A-Za-z0-9._-]{1,64}$/.test(externalTerminal.tmuxName) ? externalTerminal.tmuxName : null;
+    const targetKey = tmuxPaneIdentityKey(externalTerminal.tmux);
+    const attachCommand = buildExactTmuxAttachCommand(externalTerminal);
     return (
       <div className="flex h-full flex-col">
         <div className="flex flex-shrink-0 items-center justify-between border-b border-border/50 px-3 py-2">
@@ -326,24 +398,17 @@ function MainContent({
           </button>
         </div>
         <div className="min-h-0 flex-1 overflow-hidden">
-          {safeName && (
-            <Suspense fallback={null}>
-              <StandaloneShell
-                // key: switching targets must remount the Shell — its websocket
-                // does NOT reconnect when only initialCommand changes, so without
-                // this the previous session's terminal keeps showing (stock→test).
-                key={safeName}
-                project={externalTerminal.project}
-                command={`tmux attach-session -t '=${safeName}'`}
-                isActive
-                // minimal: drop the Shell's own status bar ("New Session" +
-                // Disconnect/Restart) — our header above already names the
-                // target and closes the view; minimal also auto-connects.
-                minimal
-                onComplete={() => onExternalTerminalClose()}
-              />
-            </Suspense>
-          )}
+          <Suspense fallback={null}>
+            <StandaloneShell
+              // Switching exact pane targets must remount the Shell.
+              key={targetKey}
+              project={externalTerminal.project}
+              command={attachCommand}
+              isActive
+              minimal
+              onComplete={() => onExternalTerminalClose()}
+            />
+          </Suspense>
         </div>
       </div>
     );
@@ -371,24 +436,25 @@ function MainContent({
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <div className={`flex min-h-0 min-w-[200px] flex-col overflow-hidden ${editorExpanded ? 'hidden' : ''} flex-1`}>
           <div className={`min-h-0 flex-1 ${activeTab === 'chat' ? 'flex flex-col' : 'hidden'}`}>
-            {externalTranscript && (
+            {transcriptCliTarget && transcriptCliProviderLabel && transcriptCliTmuxName && (
               <ExternalTranscriptViewSwitcher
                 mode={externalTranscriptView}
-                providerLabel={externalTranscript.kind}
-                tmuxName={externalTranscript.tmuxName}
+                providerLabel={transcriptCliProviderLabel}
+                tmuxName={transcriptCliTmuxName}
                 onChange={setExternalTranscriptView}
               />
             )}
-            <div className={`min-h-0 flex-1 ${externalTranscript && externalTranscriptView === 'cli' ? 'hidden' : 'block'}`}>
+            <div className={`min-h-0 flex-1 ${transcriptCliTarget && externalTranscriptView === 'cli' ? 'hidden' : 'block'}`}>
               <ErrorBoundary showDetails>
                 <Suspense fallback={null}>
                   <ChatInterface
                     selectedProject={selectedProject}
                     selectedSession={selectedSession}
                     isSessionReadOnly={isSessionReadOnly}
-                    liveSessionTmuxName={liveSessionTmuxName}
-                    liveSessionTmuxId={liveSessionTmuxId}
+                    liveSessionTarget={liveSessionTarget}
                     liveSessionModel={liveSessionModel}
+                    liveSessionEffort={liveSessionEffort}
+                    liveSessionName={liveSessionName}
                     liveSessionKind={liveSessionKind}
                     ws={ws}
                     sendMessage={sendMessage}
@@ -410,10 +476,12 @@ function MainContent({
                 </Suspense>
               </ErrorBoundary>
             </div>
-            {externalTranscript && externalTranscriptView === 'cli' && (
+            {transcriptCliTarget
+              && transcriptCliProviderLabel
+              && externalTranscriptView === 'cli' && (
               <div
                 role="tabpanel"
-                aria-label={`${externalTranscript.kind} CLI 출력`}
+                aria-label={`${transcriptCliProviderLabel} CLI 출력`}
                 className="flex min-h-0 flex-1 flex-col"
               >
                 {externalPaneError ? (
@@ -425,7 +493,7 @@ function MainContent({
                   </div>
                 ) : (
                   <PendingExternalCliOutput
-                    providerLabel={externalTranscript.kind}
+                    providerLabel={transcriptCliProviderLabel}
                     output={externalPaneOutput}
                     emptyMessage="실시간 CLI 출력을 불러오는 중입니다."
                   />

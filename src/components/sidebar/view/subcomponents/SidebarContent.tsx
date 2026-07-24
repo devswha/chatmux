@@ -6,6 +6,7 @@ import { ScrollArea } from '../../../../shared/view/ui';
 import type { ExternalTerminalTarget, Project } from '../../../../types/app';
 import type { ReleaseInfo } from '../../../../types/sharedTypes';
 import type { ConversationSearchResults, SearchProgress } from '../../hooks/useSidebarController';
+import type { TmuxPaneTarget } from '../../../../../shared/tmux';
 import type { ArchivedProjectListItem, ArchivedSessionListItem, SidebarSearchMode } from '../../types/types';
 import { useExternalCliSessions } from '../../hooks/useExternalCliSessions';
 import SessionProviderLogo from '../../../llm-logo-provider/SessionProviderLogo';
@@ -153,8 +154,10 @@ type SidebarContentProps = {
   onShowSettings: () => void;
   projectListProps: SidebarProjectListProps;
   liveSessionNames: ReadonlyMap<string, string>;
+  liveSessionModels: ReadonlyMap<string, string>;
+  liveSessionEfforts: ReadonlyMap<string, string>;
   liveSessionLineage: ReadonlySet<string>;
-  liveSessionTmuxIds: ReadonlyMap<string, string>;
+  liveSessionTargets: ReadonlyMap<string, TmuxPaneTarget>;
   liveSessionKinds: ReadonlyMap<string, string>;
   liveSessionRunning: ReadonlySet<string>;
   liveSessionsLoaded: boolean;
@@ -198,8 +201,10 @@ export default function SidebarContent({
   onShowSettings,
   projectListProps,
   liveSessionNames,
+  liveSessionModels,
+  liveSessionEfforts,
   liveSessionLineage,
-  liveSessionTmuxIds,
+  liveSessionTargets,
   liveSessionKinds,
   liveSessionRunning,
   liveSessionsLoaded,
@@ -280,8 +285,10 @@ export default function SidebarContent({
                 onProjectSelect={projectListProps.onProjectSelect}
                 onSessionSelect={projectListProps.onSessionSelect}
                 liveSessionNames={liveSessionNames}
+                liveSessionModels={liveSessionModels}
+                liveSessionEfforts={liveSessionEfforts}
                 liveSessionLineage={liveSessionLineage}
-                liveSessionTmuxIds={liveSessionTmuxIds}
+                liveSessionTargets={liveSessionTargets}
                 liveSessionKinds={liveSessionKinds}
                 liveSessionRunning={liveSessionRunning}
                 onExternalTerminalOpen={onExternalTerminalOpen}

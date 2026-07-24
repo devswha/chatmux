@@ -29,8 +29,10 @@ function Sidebar({
   attentionSessionIds,
   liveSessionIds,
   liveSessionNames,
+  liveSessionModels,
+  liveSessionEfforts,
   liveSessionLineage,
-  liveSessionTmuxIds,
+  liveSessionTargets,
   liveSessionKinds,
   liveSessionRunning,
   liveSessionsLoaded,
@@ -316,8 +318,10 @@ function Sidebar({
             onShowSettings={onShowSettings}
             projectListProps={projectListProps}
             liveSessionNames={liveSessionNames}
+            liveSessionModels={liveSessionModels}
+            liveSessionEfforts={liveSessionEfforts}
             liveSessionLineage={liveSessionLineage}
-            liveSessionTmuxIds={liveSessionTmuxIds}
+            liveSessionTargets={liveSessionTargets}
             liveSessionKinds={liveSessionKinds}
             liveSessionRunning={liveSessionRunning}
             liveSessionsLoaded={liveSessionsLoaded}

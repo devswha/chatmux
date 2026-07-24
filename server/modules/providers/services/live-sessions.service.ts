@@ -3,6 +3,12 @@ import { open, readdir, readFile, realpath, stat } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 
+import {
+  tmuxPaneIdentityKey,
+  type TmuxPaneIdentity,
+  type TmuxProcessGeneration,
+} from '../../../../shared/tmux.js';
+
 /**
  * Live gjc session detection + tmux-session naming.
  *
@@ -35,13 +41,10 @@ const TMUX_FIELD_SEP = '\t';
 export type LiveGjcSession = {
   id: string;
   tmuxName: string | null;
-  /**
-   * tmux server-unique session id (`$N`) of the pane backing this row — a
-   * GENERATION token: tmux never reuses `$N` within one server lifetime, so a
-   * kill/send request carrying it cannot hit a same-named replacement session
-   * created after the client's snapshot (이름 재사용 race 차단).
-   */
-  tmuxId: string | null;
+  /** Exact tmux pane backing this row; null when only transcript history is known. */
+  tmux: TmuxPaneIdentity | null;
+  /** Agent PID plus start time; changes whenever a pane starts a new agent process. */
+  process: TmuxProcessGeneration | null;
   /**
    * How the tmux name was resolved: 'lineage' = the gjc process runs INSIDE
    * that tmux session (safe to kill/relay); 'cwd' = label-only directory match
@@ -59,6 +62,7 @@ export type LiveGjcSession = {
    */
   kind: 'interactive' | 'batch' | null;
   model: string | null;
+  effort: string | null;
   /**
    * Whether the transcript tail shows a turn in progress (assistant answering
    * or tool loop running). null = undeterminable (no transcript yet, no
@@ -71,9 +75,6 @@ export type LiveGjcSession = {
 /** Synthetic id prefix for gjc panes that opened no transcript yet (first message pending). */
 export const IDLE_GJC_ID_PREFIX = 'idle-gjc:';
 
-// Matches live-send/tower tmux-name discipline; unsafe names get no synthetic row
-// (they could not be killed/relayed anyway).
-const IDLE_TMUX_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
 /**
  * True when a process's argv belongs to gjc — whether it runs as a native `gjc`
@@ -167,11 +168,16 @@ function paneKind(cmd: string | null | undefined): 'interactive' | 'batch' | nul
  * Sorted by name for stable rendering; dedupe keeps the first pane's sid.
  */
 export function findIdleGjcTmuxSessions(args: {
-  panes: Array<{ name: string; sid: string; pid: number; cmd?: string }>;
+  panes: Array<{ name: string; tmux: TmuxPaneIdentity; pid: number; cmd?: string }>;
   /** From `ps -eo pid,ppid,args` — argv, not comm: an interpreter-launched gjc reports comm 'bun'/'node' (#1). */
   procs: Array<{ pid: number; ppid: number; args: string }>;
-  excludedNames: ReadonlySet<string>;
-}): Array<{ name: string; sid: string; kind: 'interactive' | 'batch' | null }> {
+  excludedPaneIds: ReadonlySet<string>;
+}): Array<{
+  name: string;
+  tmux: TmuxPaneIdentity;
+  agentPid: number;
+  kind: 'interactive' | 'batch' | null;
+}> {
   const children = new Map<number, number[]>();
   const argsByPid = new Map<number, string>();
   for (const proc of args.procs) {
@@ -184,37 +190,37 @@ export function findIdleGjcTmuxSessions(args: {
     argsByPid.set(proc.pid, proc.args);
   }
 
-  const subtreeHasGjc = (rootPid: number): boolean => {
+  const subtreeGjcPid = (rootPid: number): number | null => {
     const seen = new Set<number>();
     const queue: number[] = [rootPid];
     while (queue.length > 0 && seen.size < 4096) {
       const pid = queue.shift()!;
-      if (seen.has(pid)) {
-        continue;
-      }
+      if (seen.has(pid)) continue;
       seen.add(pid);
-      if (isGjcProcessArgs(argsByPid.get(pid) ?? '')) {
-        return true;
-      }
-      for (const child of children.get(pid) ?? []) {
-        queue.push(child);
-      }
+      if (isGjcProcessArgs(argsByPid.get(pid) ?? '')) return pid;
+      queue.push(...(children.get(pid) ?? []));
     }
-    return false;
+    return null;
   };
 
-  const idle = new Map<string, { sid: string; cmd: string | undefined }>();
+  const idle = [];
   for (const pane of args.panes) {
-    if (idle.has(pane.name) || args.excludedNames.has(pane.name) || !IDLE_TMUX_NAME_RE.test(pane.name)) {
+    if (args.excludedPaneIds.has(pane.tmux.paneId)) {
       continue;
     }
-    if (subtreeHasGjc(pane.pid)) {
-      idle.set(pane.name, { sid: pane.sid, cmd: pane.cmd });
+    const agentPid = subtreeGjcPid(pane.pid);
+    if (agentPid !== null) {
+      idle.push({
+        name: pane.name,
+        tmux: pane.tmux,
+        agentPid,
+        kind: paneKind(pane.cmd),
+      });
     }
   }
-  return [...idle]
-    .map(([name, entry]) => ({ name, sid: entry.sid, kind: paneKind(entry.cmd) }))
-    .sort((a, b) => a.name.localeCompare(b.name));
+  return idle.sort((a, b) => (
+    a.name.localeCompare(b.name) || a.tmux.paneId.localeCompare(b.tmux.paneId)
+  ));
 }
 
 /** True when `tmux list-panes` reported at least one pane (a tmux server is up). */
@@ -222,31 +228,46 @@ export function tmuxHasPanes(output: string): boolean {
   return output.split(/\r?\n/).some((line) => line.trim().length > 0);
 }
 
-/** Parses `#{session_name}\t#{session_id}\t#{pane_pid}\t#{pane_current_command}\t#{pane_current_path}` into {name, sid, pid, cmd, cwd}. */
-export function parseTmuxPanes(output: string): Array<{ name: string; sid: string; pid: number; cmd: string; cwd: string }> {
-  const panes: Array<{ name: string; sid: string; pid: number; cmd: string; cwd: string }> = [];
+/** Parses one exact tmux pane identity plus its process metadata. */
+export function parseTmuxPanes(output: string): Array<{
+  name: string;
+  tmux: TmuxPaneIdentity;
+  pid: number;
+  cmd: string;
+  cwd: string;
+}> {
+  const panes: Array<{
+    name: string;
+    tmux: TmuxPaneIdentity;
+    pid: number;
+    cmd: string;
+    cwd: string;
+  }> = [];
   for (const raw of output.split(/\r?\n/)) {
-    if (!raw.trim()) {
-      continue;
-    }
-    const first = raw.indexOf(TMUX_FIELD_SEP);
-    const second = raw.indexOf(TMUX_FIELD_SEP, first + 1);
-    const third = raw.indexOf(TMUX_FIELD_SEP, second + 1);
-    const fourth = raw.indexOf(TMUX_FIELD_SEP, third + 1);
-    if (first < 0 || second < 0 || third < 0 || fourth < 0) {
-      continue;
-    }
-    const name = raw.slice(0, first).trim();
-    const sid = raw.slice(first + 1, second).trim();
-    const pid = Number.parseInt(raw.slice(second + 1, third).trim(), 10);
-    // pane_current_command is a process name (no spaces); pane_current_path is
-    // LAST so a path with spaces survives (only a tab in a path could split it).
-    const cmd = raw.slice(third + 1, fourth).trim();
-    const cwd = raw.slice(fourth + 1).trim();
-    // tmux session ids are `$<number>` — anything else means a format drift we
-    // must not feed into the generation-token contract.
-    if (name && /^\$\d+$/.test(sid) && Number.isFinite(pid) && cwd) {
-      panes.push({ name, sid, pid, cmd, cwd });
+    if (!raw.trim()) continue;
+    const fields = raw.split(TMUX_FIELD_SEP);
+    if (fields.length < 8) continue;
+    const [socketPath, sessionId, windowId, paneId, rawName, rawPid, rawCmd, ...cwdFields] = fields;
+    const tmux = {
+      socketPath: socketPath.trim(),
+      sessionId: sessionId.trim(),
+      windowId: windowId.trim(),
+      paneId: paneId.trim(),
+    };
+    const name = rawName.trim();
+    const pid = Number.parseInt(rawPid.trim(), 10);
+    const cmd = rawCmd.trim();
+    const cwd = cwdFields.join(TMUX_FIELD_SEP).trim();
+    if (
+      tmux.socketPath
+      && /^\$\d+$/.test(tmux.sessionId)
+      && /^@\d+$/.test(tmux.windowId)
+      && /^%\d+$/.test(tmux.paneId)
+      && name
+      && Number.isFinite(pid)
+      && cwd
+    ) {
+      panes.push({ name, tmux, pid, cmd, cwd });
     }
   }
   return panes;
@@ -294,107 +315,121 @@ export function parseLsofPidSessions(output: string): Array<{ id: string; pid: n
  */
 export function computeLiveSessions(args: {
   tmuxPresent: boolean;
-  panes: Array<{ name: string; sid: string; pid: number; cwd: string; cmd?: string }>;
-  sessions: Array<{ id: string; pidChain: number[]; cwd: string | null }>;
-}): Array<Pick<LiveGjcSession, 'id' | 'tmuxName' | 'tmuxId' | 'claim' | 'kind'>> {
-  if (!args.tmuxPresent) {
-    return [];
-  }
+  panes: Array<{ name: string; tmux: TmuxPaneIdentity; pid: number; cwd: string; cmd?: string }>;
+  sessions: Array<{
+    id: string;
+    pidChain: number[];
+    cwd: string | null;
+    process: TmuxProcessGeneration | null;
+  }>;
+}): Array<Pick<LiveGjcSession, 'id' | 'tmuxName' | 'tmux' | 'process' | 'claim' | 'kind'>> {
+  if (!args.tmuxPresent) return [];
+
   const panePidToIndex = new Map<number, number>();
   args.panes.forEach((pane, index) => {
-    if (!panePidToIndex.has(pane.pid)) {
-      panePidToIndex.set(pane.pid, index);
-    }
+    if (!panePidToIndex.has(pane.pid)) panePidToIndex.set(pane.pid, index);
   });
 
-  // Merge holder rows into one entry per session id (a session may have several
-  // open-file holders); union their pid chains, keep the first resolved cwd.
-  const merged = new Map<string, { pidChain: number[]; cwd: string | null }>();
+  const merged = new Map<string, {
+    pidChain: number[];
+    cwd: string | null;
+    process: TmuxProcessGeneration | null;
+  }>();
   for (const session of args.sessions) {
     const existing = merged.get(session.id);
     if (!existing) {
-      merged.set(session.id, { pidChain: [...session.pidChain], cwd: session.cwd });
+      merged.set(session.id, {
+        pidChain: [...session.pidChain],
+        cwd: session.cwd,
+        process: session.process,
+      });
     } else {
       existing.pidChain.push(...session.pidChain);
-      if (!existing.cwd) {
-        existing.cwd = session.cwd;
-      }
+      if (!existing.cwd) existing.cwd = session.cwd;
     }
   }
 
   const claimed = new Set<number>();
-  // tmux session ids already proven by a lineage claim. A cwd fallback must not
-  // attach a second row to a sibling pane of an already-claimed session — that
-  // produced duplicate rows for one tmux session (patina 중복 관찰) and, worse,
-  // mislabeled an unrelated session onto that pane (실사고).
-  const claimedSids = new Set<string>();
-  const result = new Map<string, { tmuxName: string | null; tmuxId: string | null; claim: 'lineage' | 'cwd' | null; kind: 'interactive' | 'batch' | null }>();
+  const claimedSessionIds = new Set<string>();
+  const result = new Map<string, {
+    tmuxName: string | null;
+    tmux: TmuxPaneIdentity | null;
+    process: TmuxProcessGeneration | null;
+    claim: 'lineage' | 'cwd' | null;
+    kind: 'interactive' | 'batch' | null;
+  }>();
 
-  // Pass 1: lineage matches claim their pane (authoritative, run for ALL sessions
-  // before any cwd fallback so claims are complete).
   for (const [id, session] of merged) {
-    let name: string | null = null;
-    let sid: string | null = null;
-    let cmd: string | undefined;
+    let paneIndex: number | null = null;
     for (const pid of session.pidChain) {
       const index = panePidToIndex.get(pid);
       if (index !== undefined) {
-        name = args.panes[index].name;
-        sid = args.panes[index].sid;
-        cmd = args.panes[index].cmd;
-        claimed.add(index);
-        claimedSids.add(args.panes[index].sid);
+        paneIndex = index;
         break;
       }
     }
+    const pane = paneIndex === null ? null : args.panes[paneIndex];
+    if (pane && paneIndex !== null) {
+      claimed.add(paneIndex);
+      claimedSessionIds.add(pane.tmux.sessionId);
+    }
     result.set(id, {
-      tmuxName: name,
-      tmuxId: sid,
-      claim: name !== null ? 'lineage' : null,
-      // Lineage pane KNOWN to hold this gjc → classify by its foreground cmd.
-      kind: name !== null ? paneKind(cmd) : null,
+      tmuxName: pane?.name ?? null,
+      tmux: pane?.tmux ?? null,
+      process: pane ? session.process : null,
+      claim: pane ? 'lineage' : null,
+      kind: pane ? paneKind(pane.cmd) : null,
     });
   }
 
-  // Pass 2: cwd fallback to an UNCLAIMED pane, only when the match is unique.
   for (const [id, session] of merged) {
-    if (result.get(id)?.tmuxName !== null || !session.cwd) {
-      continue;
-    }
+    if (result.get(id)?.tmuxName !== null || !session.cwd) continue;
     const candidates = args.panes
       .map((pane, index) => ({ pane, index }))
-      .filter(({ pane, index }) => !claimed.has(index) && pane.cwd === session.cwd && !claimedSids.has(pane.sid));
+      .filter(({ pane, index }) => (
+        !claimed.has(index)
+        && pane.cwd === session.cwd
+        && !claimedSessionIds.has(pane.tmux.sessionId)
+      ));
     if (candidates.length === 1) {
-      // A cwd match only LABELS the row: the gjc process is NOT inside the
-      // pane, so tmux-session actions (kill/relay) must never key off it —
-      // 실사고: patina의 백그라운드 gjc 행을 닫자 무관한 claude tmux가 죽음.
-      // cwd = label-only (gjc runs elsewhere), so the pane's foreground command
-      // says nothing about this session → kind stays null.
-      result.set(id, { tmuxName: candidates[0].pane.name, tmuxId: candidates[0].pane.sid, claim: 'cwd', kind: null });
+      result.set(id, {
+        tmuxName: candidates[0].pane.name,
+        tmux: candidates[0].pane.tmux,
+        process: null,
+        claim: 'cwd',
+        kind: null,
+      });
       claimed.add(candidates[0].index);
     }
   }
 
-  return [...result].map(([id, entry]) => ({ id, tmuxName: entry.tmuxName, tmuxId: entry.tmuxId, claim: entry.claim, kind: entry.kind }));
+  return [...result].map(([id, entry]) => ({ id, ...entry }));
 }
 
 /**
  * A tmux session proven by lineage must not ALSO surface as a cwd label-only
  * row. cwd claims are guesses (the gjc runs elsewhere); when a lineage row from
- * any lane already covers that tmuxId, the cwd row is a spurious duplicate
+ * any lane already covers that exact tmux pane, the cwd row is a spurious duplicate
  * (patina 중복 — lsof cwd row + receipt/idle lineage row for one tmux session).
  * Lineage rows are never dropped — including several sharing one pane
  * (main+worker), which is a real configuration.
  */
-export function dedupeLiveSessionsByLineage<T extends { claim: 'lineage' | 'cwd' | null; tmuxId: string | null }>(
-  sessions: T[],
-): T[] {
-  const lineageTmuxIds = new Set(
-    sessions.flatMap((session) => (session.claim === 'lineage' && session.tmuxId ? [session.tmuxId] : [])),
+export function dedupeLiveSessionsByLineage<T extends {
+  claim: 'lineage' | 'cwd' | null;
+  tmux: TmuxPaneIdentity | null;
+}>(sessions: T[]): T[] {
+  const lineagePaneKeys = new Set(
+    sessions.flatMap((session) => (
+      session.claim === 'lineage' && session.tmux
+        ? [tmuxPaneIdentityKey(session.tmux)]
+        : []
+    )),
   );
-  return sessions.filter(
-    (session) => !(session.claim === 'cwd' && session.tmuxId !== null && lineageTmuxIds.has(session.tmuxId)),
-  );
+  return sessions.filter((session) => !(
+    session.claim === 'cwd'
+    && session.tmux !== null
+    && lineagePaneKeys.has(tmuxPaneIdentityKey(session.tmux))
+  ));
 }
 
 // Detection subprocess output is small (pane lists / lsof field lines); a multi-
@@ -522,6 +557,7 @@ export function pickPaneReceipt(args: {
 // A workspace .gjc dir accumulates one _session-* dir per session; cap the scan so
 // a pathological directory cannot stall the live poll.
 const RUNTIME_RECEIPT_DIR_LIMIT = 512;
+const RUNTIME_RECEIPT_READ_CONCURRENCY = 32;
 
 /** Reads all parseable session receipts under `<paneCwd>/.gjc` (missing dir → []). */
 async function readPaneRuntimeReceipts(paneCwd: string): Promise<RuntimeReceipt[]> {
@@ -531,28 +567,35 @@ async function readPaneRuntimeReceipts(paneCwd: string): Promise<RuntimeReceipt[
   } catch {
     return [];
   }
+  const candidates = entries
+    .filter((entry) => entry.startsWith('_session-'))
+    .slice(0, RUNTIME_RECEIPT_DIR_LIMIT);
   const receipts: RuntimeReceipt[] = [];
-  for (const entry of entries.slice(0, RUNTIME_RECEIPT_DIR_LIMIT)) {
-    if (!entry.startsWith('_session-')) {
-      continue;
-    }
-    const statePath = `${paneCwd}/.gjc/${entry}/runtime/runtime-state.json`;
-    try {
-      const [content, meta] = await Promise.all([readFile(statePath, 'utf8'), stat(statePath)]);
-      const parsed = JSON.parse(content) as { session_id?: unknown; cwd?: unknown; session_file?: unknown };
-      const sessionFile = typeof parsed.session_file === 'string' ? parsed.session_file : null;
-      if (sessionFile !== null) {
-        await stat(sessionFile); // the transcript must exist — throws (→ skip) otherwise
-      }
-      receipts.push({
-        sessionId: typeof parsed.session_id === 'string' ? parsed.session_id : '',
-        cwd: typeof parsed.cwd === 'string' ? ((await safeRealpath(parsed.cwd)) ?? parsed.cwd) : null,
-        sessionFile,
-        mtimeMs: meta.mtimeMs,
-      });
-    } catch {
-      // unreadable/corrupt receipt or missing transcript — skip this candidate
-    }
+  for (let offset = 0; offset < candidates.length; offset += RUNTIME_RECEIPT_READ_CONCURRENCY) {
+    const batch = await Promise.all(
+      candidates
+        .slice(offset, offset + RUNTIME_RECEIPT_READ_CONCURRENCY)
+        .map(async (entry): Promise<RuntimeReceipt | null> => {
+          const statePath = `${paneCwd}/.gjc/${entry}/runtime/runtime-state.json`;
+          try {
+            const [content, meta] = await Promise.all([readFile(statePath, 'utf8'), stat(statePath)]);
+            const parsed = JSON.parse(content) as { session_id?: unknown; cwd?: unknown; session_file?: unknown };
+            const sessionFile = typeof parsed.session_file === 'string' ? parsed.session_file : null;
+            if (sessionFile !== null) {
+              await stat(sessionFile); // the transcript must exist — throws (→ skip) otherwise
+            }
+            return {
+              sessionId: typeof parsed.session_id === 'string' ? parsed.session_id : '',
+              cwd: typeof parsed.cwd === 'string' ? ((await safeRealpath(parsed.cwd)) ?? parsed.cwd) : null,
+              sessionFile,
+              mtimeMs: meta.mtimeMs,
+            };
+          } catch {
+            return null;
+          }
+        }),
+    );
+    receipts.push(...batch.filter((receipt): receipt is RuntimeReceipt => receipt !== null));
   }
   return receipts;
 }
@@ -625,23 +668,57 @@ export function extractSessionPathsFromLsof(output: string): Map<string, string>
   return paths;
 }
 
-/** Last `model_change` model in a transcript tail (NDJSON lines, scanned backwards). */
-export function parseLastModelChange(tailText: string): string | null {
+export type GjcSessionPreferences = {
+  model: string | null;
+  effort: string | null;
+};
+
+/** Latest model and reasoning-effort changes in transcript text. */
+export function parseLastSessionPreferences(tailText: string): GjcSessionPreferences {
   const lines = tailText.split(/\r?\n/);
-  for (let i = lines.length - 1; i >= 0; i -= 1) {
-    if (!lines[i].includes('"model_change"')) {
+  let model: string | null = null;
+  let effort: string | null = null;
+  for (let i = lines.length - 1; i >= 0 && (!model || !effort); i -= 1) {
+    if (!lines[i].includes('"model_change"')
+      && !lines[i].includes('"thinking_level_change"')
+      && !lines[i].includes('"configured_model_chain"')
+      && !lines[i].includes('"thinkingLevel"')) {
       continue;
     }
     try {
-      const entry = JSON.parse(lines[i]) as { type?: unknown; model?: unknown };
-      if (entry.type === 'model_change' && typeof entry.model === 'string' && entry.model) {
-        return entry.model;
+      const entry = JSON.parse(lines[i]) as {
+        type?: unknown;
+        model?: unknown;
+        thinkingLevel?: unknown;
+        entries?: unknown;
+      };
+      if (!model && entry.type === 'model_change' && typeof entry.model === 'string' && entry.model) {
+        model = entry.model;
+      }
+      if (!effort
+        && (entry.type === 'thinking_level_change' || entry.type === 'session')
+        && typeof entry.thinkingLevel === 'string'
+        && entry.thinkingLevel
+        && entry.thinkingLevel !== 'inherit') {
+        effort = entry.thinkingLevel;
+      }
+      if (!effort && entry.type === 'configured_model_chain' && Array.isArray(entry.entries)) {
+        const configured = entry.entries.find((value): value is string => typeof value === 'string');
+        const separator = configured?.lastIndexOf(':') ?? -1;
+        if (configured && separator >= 0 && separator < configured.length - 1) {
+          effort = configured.slice(separator + 1);
+        }
       }
     } catch {
-      // partial first line of the tail window — keep scanning
+      // Partial boundary line or malformed entry — keep scanning.
     }
   }
-  return null;
+  return { model, effort };
+}
+
+/** Last `model_change` model in transcript text. */
+export function parseLastModelChange(tailText: string): string | null {
+  return parseLastSessionPreferences(tailText).model;
 }
 
 /**
@@ -717,13 +794,15 @@ const MODEL_SCAN_WINDOW_BYTES = 512 * 1024;
 const MODEL_SCAN_OVERLAP_BYTES = 2 * 1024;
 
 /**
- * Per-transcript incremental model cache. A session's model_change usually sits
- * near the START of a (potentially huge, append-only) transcript, so a fixed
- * tail read misses it. First sight does a windowed BACKWARD scan (with a small
- * overlap so a line split across windows is still seen); afterwards only the
- * appended delta is read per poll. A shrunken/rotated file triggers a rescan.
+ * Per-transcript incremental preference cache. Model and reasoning effort
+ * changes can sit near the start of a huge append-only transcript, so cold
+ * reads scan backwards and later polls inspect only the appended delta.
  */
-const modelCache = new Map<string, { scannedTo: number; model: string | null }>();
+const modelCache = new Map<string, {
+  scannedTo: number;
+  model: string | null;
+  effort: string | null;
+}>();
 
 async function readRange(path: string, start: number, end: number): Promise<Buffer> {
   const handle = await open(path, 'r');
@@ -737,30 +816,37 @@ async function readRange(path: string, start: number, end: number): Promise<Buff
 }
 
 /** Reads the session's current model from the transcript. null on any failure. */
-async function readLastModelFromFile(path: string): Promise<string | null> {
+async function readLastSessionPreferencesFromFile(
+  path: string,
+): Promise<GjcSessionPreferences> {
   try {
     const { size } = await stat(path);
     const cached = modelCache.get(path);
     if (cached && size >= cached.scannedTo) {
       if (size === cached.scannedTo) {
-        return cached.model;
+        return { model: cached.model, effort: cached.effort };
       }
       // Only the appended delta. Parse up to the last COMPLETE line so a
       // mid-write entry is re-read next poll instead of being lost.
       const delta = await readRange(path, cached.scannedTo, size);
       const lastNewline = delta.lastIndexOf(0x0a);
       if (lastNewline < 0) {
-        return cached.model;
+        return { model: cached.model, effort: cached.effort };
       }
-      const found = parseLastModelChange(delta.subarray(0, lastNewline + 1).toString('utf8'));
-      const next = { scannedTo: cached.scannedTo + lastNewline + 1, model: found ?? cached.model };
+      const found = parseLastSessionPreferences(
+        delta.subarray(0, lastNewline + 1).toString('utf8'),
+      );
+      const next = {
+        scannedTo: cached.scannedTo + lastNewline + 1,
+        model: found.model ?? cached.model,
+        effort: found.effort ?? cached.effort,
+      };
       modelCache.set(path, next);
-      return next.model;
+      return { model: next.model, effort: next.effort };
     }
 
     // Cold scan: parse only up to the last COMPLETE line, and remember that
-    // boundary — otherwise a model_change being written mid-scan would land in
-    // the skipped partial tail and never be re-read (리뷰 지적 반영).
+    // boundary so a preference entry being written mid-scan is retried.
     let parseEnd = size;
     if (size > 0) {
       const tail = await readRange(path, Math.max(0, size - MODEL_SCAN_WINDOW_BYTES), size);
@@ -768,16 +854,21 @@ async function readLastModelFromFile(path: string): Promise<string | null> {
       parseEnd = lastNewline < 0 ? 0 : Math.max(0, size - tail.length) + lastNewline + 1;
     }
     let model: string | null = null;
+    let effort: string | null = null;
     let end = parseEnd;
-    while (end > 0 && model === null) {
+    while (end > 0 && (!model || !effort)) {
       const start = Math.max(0, end - MODEL_SCAN_WINDOW_BYTES);
-      model = parseLastModelChange((await readRange(path, start, end)).toString('utf8'));
+      const found = parseLastSessionPreferences(
+        (await readRange(path, start, end)).toString('utf8'),
+      );
+      model ??= found.model;
+      effort ??= found.effort;
       end = start === 0 ? 0 : start + MODEL_SCAN_OVERLAP_BYTES;
     }
-    modelCache.set(path, { scannedTo: parseEnd, model });
-    return model;
+    modelCache.set(path, { scannedTo: parseEnd, model, effort });
+    return { model, effort };
   } catch {
-    return null;
+    return { model: null, effort: null };
   }
 }
 
@@ -851,16 +942,16 @@ async function runLsofOverSessionRoots(): Promise<string> {
 async function scanLiveGjcSessions(): Promise<LiveGjcScanResult> {
   let tmuxOutput: string;
   try {
-    tmuxOutput = await runCommand('tmux', ['list-panes', '-a', '-F', `#{session_name}${TMUX_FIELD_SEP}#{session_id}${TMUX_FIELD_SEP}#{pane_pid}${TMUX_FIELD_SEP}#{pane_current_command}${TMUX_FIELD_SEP}#{pane_current_path}`]);
+    tmuxOutput = await runCommand('tmux', ['list-panes', '-a', '-F', `#{socket_path}${TMUX_FIELD_SEP}#{session_id}${TMUX_FIELD_SEP}#{window_id}${TMUX_FIELD_SEP}#{pane_id}${TMUX_FIELD_SEP}#{session_name}${TMUX_FIELD_SEP}#{pane_pid}${TMUX_FIELD_SEP}#{pane_current_command}${TMUX_FIELD_SEP}#{pane_current_path}`]);
   } catch {
     return { sessions: [], transcriptPaths: new Map() };
   }
   if (!tmuxHasPanes(tmuxOutput)) {
     return { sessions: [], transcriptPaths: new Map() };
   }
-  const panes: Array<{ name: string; sid: string; pid: number; cwd: string; cmd: string }> = [];
+  const panes: Array<{ name: string; tmux: TmuxPaneIdentity; pid: number; cwd: string; cmd: string }> = [];
   for (const pane of parseTmuxPanes(tmuxOutput)) {
-    panes.push({ name: pane.name, sid: pane.sid, pid: pane.pid, cmd: pane.cmd, cwd: (await safeRealpath(pane.cwd)) ?? pane.cwd });
+    panes.push({ name: pane.name, tmux: pane.tmux, pid: pane.pid, cmd: pane.cmd, cwd: (await safeRealpath(pane.cwd)) ?? pane.cwd });
   }
 
   // Transcript lane (lsof). Selection is interpreter-agnostic: a gjc session is a
@@ -874,7 +965,12 @@ async function scanLiveGjcSessions(): Promise<LiveGjcScanResult> {
   } catch {
     lsofOutput = '';
   }
-  const sessions: Array<{ id: string; pidChain: number[]; cwd: string | null }> = [];
+  const sessions: Array<{
+    id: string;
+    pidChain: number[];
+    cwd: string | null;
+    process: TmuxProcessGeneration | null;
+  }> = [];
   for (const { id, pid } of parseLsofPidSessions(lsofOutput)) {
     // lsof over the session roots also lists non-gjc holders (e.g. this server
     // process tailing transcripts). Keep only holders whose argv is gjc itself.
@@ -885,6 +981,9 @@ async function scanLiveGjcSessions(): Promise<LiveGjcScanResult> {
       id,
       pidChain: await buildPidChain(pid),
       cwd: await safeRealpath(`/proc/${pid}/cwd`),
+      process: await processStartMs(pid).then((startedAtMs) => (
+        startedAtMs === null ? null : { pid, startedAtMs }
+      )),
     });
   }
 
@@ -894,16 +993,31 @@ async function scanLiveGjcSessions(): Promise<LiveGjcScanResult> {
   // gjc panes with no open transcript (first message pending). Best-effort:
   // a ps failure only hides idle rows, never the lsof-backed ones. Exclusion
   // is LINEAGE names only — a cwd label must not hide a subtree-proven pane.
-  let idlePanes: Array<{ name: string; sid: string; kind: 'interactive' | 'batch' | null }> = [];
+  let idlePanes: Array<{
+    name: string;
+    tmux: TmuxPaneIdentity;
+    agentPid: number;
+    process: TmuxProcessGeneration | null;
+    kind: 'interactive' | 'batch' | null;
+  }> = [];
   try {
     const psOutput = await runCommand('ps', ['-eo', 'pid,ppid,args']);
-    idlePanes = findIdleGjcTmuxSessions({
+    const discovered = findIdleGjcTmuxSessions({
       panes,
       procs: parsePsArgsTree(psOutput),
-      excludedNames: new Set(
-        named.flatMap((session) => (session.claim === 'lineage' && session.tmuxName ? [session.tmuxName] : [])),
+      excludedPaneIds: new Set(
+        named.flatMap((session) => (
+          session.claim === 'lineage' && session.tmux ? [session.tmux.paneId] : []
+        )),
       ),
     });
+    idlePanes = await Promise.all(discovered.map(async (idle) => {
+      const startedAtMs = await processStartMs(idle.agentPid);
+      return {
+        ...idle,
+        process: startedAtMs === null ? null : { pid: idle.agentPid, startedAtMs },
+      };
+    }));
   } catch {
     // ignore — the idle lane is additive
   }
@@ -920,7 +1034,7 @@ async function scanLiveGjcSessions(): Promise<LiveGjcScanResult> {
   const remainingIdlePanes: typeof idlePanes = [];
   for (const idle of idlePanes) {
     let bound = false;
-    for (const pane of panes.filter((candidate) => candidate.sid === idle.sid)) {
+    for (const pane of panes.filter((candidate) => candidate.tmux.paneId === idle.tmux.paneId)) {
       const terminalReceipt = await readPaneTerminalReceipt(pane.pid);
       const receipt = pickPaneReceipt({
         paneCwd: pane.cwd,
@@ -936,7 +1050,14 @@ async function scanLiveGjcSessions(): Promise<LiveGjcScanResult> {
       claimedIds.add(receipt.sessionId);
       // Subtree-proven pane + gjc-authored receipt = lineage-grade evidence
       // (identical rationale to the synthetic idle rows below).
-      upgradedRows.push({ id: receipt.sessionId, tmuxName: idle.name, tmuxId: idle.sid, claim: 'lineage', kind: idle.kind });
+      upgradedRows.push({
+        id: receipt.sessionId,
+        tmuxName: idle.name,
+        tmux: idle.tmux,
+        process: idle.process,
+        claim: 'lineage',
+        kind: idle.kind,
+      });
       if (receipt.sessionFile !== null) {
         sessionPaths.set(receipt.sessionId, receipt.sessionFile);
       }
@@ -953,29 +1074,38 @@ async function scanLiveGjcSessions(): Promise<LiveGjcScanResult> {
     (session) => !(session.tmuxName === null && upgradedRows.some((upgraded) => upgraded.id === session.id)),
   );
 
-  // Enrich with the current model (last model_change) and turn activity
-  // (running vs waiting) from the transcript tail.
+  // Enrich with the current model, reasoning effort, and turn activity from
+  // each transcript.
   const enriched = await Promise.all(
     [...namedFinal, ...upgradedRows].map(async (session) => {
       const path = sessionPaths.get(session.id);
+      const [preferences, running] = path
+        ? await Promise.all([
+            readLastSessionPreferencesFromFile(path),
+            readTurnActivityFromFile(path),
+          ])
+        : [{ model: null, effort: null }, null] as const;
       return {
         ...session,
-        model: path ? await readLastModelFromFile(path) : null,
-        running: path ? await readTurnActivityFromFile(path) : null,
+        model: preferences.model,
+        effort: preferences.effort,
+        running,
       };
     }),
   );
   const allSessions = [
     ...enriched,
-    ...remainingIdlePanes.map(({ name, sid, kind }) => ({
-      id: `${IDLE_GJC_ID_PREFIX}${name}`,
+    ...remainingIdlePanes.map(({ name, tmux, process: agentProcess, kind }) => ({
+      id: `${IDLE_GJC_ID_PREFIX}${name}:${tmux.paneId}`,
       tmuxName: name,
-      tmuxId: sid,
+      tmux,
+      process: agentProcess,
       // Subtree-proven: a gjc process runs INSIDE the pane — same evidence
-      // grade as a lineage claim, so kill/relay stay permitted and safe.
+      // as a lineage claim on transcript-backed rows.
       claim: 'lineage' as const,
       kind,
       model: null,
+      effort: null,
       running: null,
     })),
   ];

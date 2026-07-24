@@ -1,7 +1,6 @@
 import webPush from 'web-push';
 
 import { notificationPreferencesDb, pushSubscriptionsDb, sessionsDb } from '@/modules/database/index.js';
-import { sendDesktopNotification as sendDesktopNotificationToClients } from '@/modules/notifications/services/desktop-notification-clients.service.js';
 
 const KIND_TO_PREF_KEY = {
   action_required: 'actionRequired',
@@ -215,21 +214,6 @@ function sendWebPushPayload(userId, payload) {
   });
 }
 
-const notificationChannels = [
-  {
-    id: 'webPush',
-    // TODO: Web push still uses push_subscriptions. Do not remove that table until
-    // browser push subscriptions are migrated into notification_channel_endpoints.
-    isEnabled: (preferences) => Boolean(preferences?.channels?.webPush),
-    send: ({ userId, payload }) => sendWebPushPayload(userId, payload)
-  },
-  {
-    id: 'desktop',
-    isEnabled: (preferences) => Boolean(preferences?.channels?.desktop),
-    send: ({ userId, payload }) => sendDesktopNotificationToClients(userId, payload)
-  }
-];
-
 function notifyUserIfEnabled({ userId, event }) {
   if (!userId || !event) {
     return;
@@ -244,15 +228,14 @@ function notifyUserIfEnabled({ userId, event }) {
     return;
   }
 
-  const payload = buildNotificationPayload(normalizedEvent);
-  for (const channel of notificationChannels) {
-    if (!channel.isEnabled(preferences)) {
-      continue;
-    }
-    Promise.resolve(channel.send({ userId, event: normalizedEvent, payload })).catch((err) => {
-      console.error(`Notification channel "${channel.id}" send error:`, err);
-    });
+  if (!preferences?.channels?.webPush) {
+    return;
   }
+
+  const payload = buildNotificationPayload(normalizedEvent);
+  void sendWebPushPayload(userId, payload).catch((err) => {
+    console.error('Web push send error:', err);
+  });
 }
 
 function notifyRunStopped({ userId, provider, sessionId = null, stopReason = 'completed', sessionName = null }) {

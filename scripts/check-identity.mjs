@@ -6,15 +6,12 @@ import { dirname, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
-  ARTIFACT_PREFIX,
   AUTHOR,
   CLI_NAME,
-  DESKTOP_APP_ID,
   NODE_ENGINE_RANGE,
   PACKAGE_NAME,
   PRODUCT_NAME,
   REPOSITORY_URL,
-  URL_SCHEME,
 } from '../shared/productIdentity.js';
 
 const REPOSITORY_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -22,8 +19,8 @@ const MAX_FILE_BYTES = 64 * 1024 * 1024;
 const MAX_ARCHIVE_BYTES = 512 * 1024 * 1024;
 const MAX_REPORTED_ERRORS = 100;
 const GENERATED_DIRECTORIES = ['dist', 'dist-server', 'release'];
-const SKIPPED_DIRECTORIES = new Set(['.desktop-build', '.git', '.gjc', 'node_modules']);
-const ARCHIVE_FILE_PATTERN = /\.(?:tar|tgz|gz|zip|bz2|xz|deb|appimage)$/i;
+const SKIPPED_DIRECTORIES = new Set(['.git', '.gjc', 'node_modules']);
+const ARCHIVE_FILE_PATTERN = /\.(?:tar|tgz|gz|zip|bz2|xz)$/i;
 const LOCALIZED_READMES = new Set([
   'README.de.md',
   'README.ja.md',
@@ -256,9 +253,6 @@ async function walkDirectory(directoryPath, category) {
       if (relativePath.startsWith('release/server/.stage-')) {
         continue;
       }
-      if (relativePath === 'release/desktop') {
-        continue;
-      }
 
       if (category === 'source' && GENERATED_DIRECTORIES.includes(entry.name)) {
         continue;
@@ -315,32 +309,6 @@ function validatePackageMetadata(packageJson, packageLock) {
   assertEqual('package.json bugs URL', packageJson.bugs?.url, `${REPOSITORY_URL}/issues`);
   assertEqual('package.json author', packageJson.author, AUTHOR);
   assertEqual('package.json Node engine', packageJson.engines?.node, NODE_ENGINE_RANGE);
-  assertEqual('package.json build app ID', packageJson.build?.appId, DESKTOP_APP_ID);
-  assertEqual('package.json build product name', packageJson.build?.productName, PRODUCT_NAME);
-  assertEqual('package.json executable name', packageJson.build?.executableName, CLI_NAME);
-  assertEqual(
-    'package.json artifact name',
-    packageJson.build?.artifactName,
-    `${ARTIFACT_PREFIX}desktop-${'${version}'}-${'${os}'}-${'${arch}'}.${'${ext}'}`,
-  );
-  assertExactObject('package.json protocol metadata', packageJson.build?.protocols, [
-    {
-      name: PRODUCT_NAME,
-      schemes: [URL_SCHEME],
-    },
-  ]);
-  assertEqual('package.json mac bundle name', packageJson.build?.mac?.extendInfo?.CFBundleName, PRODUCT_NAME);
-  assertEqual('package.json mac bundle display name', packageJson.build?.mac?.extendInfo?.CFBundleDisplayName, PRODUCT_NAME);
-  assertEqual(
-    'package.json mac URL name',
-    packageJson.build?.mac?.extendInfo?.CFBundleURLTypes?.[0]?.CFBundleURLName,
-    PRODUCT_NAME,
-  );
-  assertExactObject(
-    'package.json mac URL scheme',
-    packageJson.build?.mac?.extendInfo?.CFBundleURLTypes?.[0]?.CFBundleURLSchemes,
-    [URL_SCHEME],
-  );
   assertEqual('package.json check script', packageJson.scripts?.['check:identity'], 'node scripts/check-identity.mjs');
 
   for (const [name, command] of Object.entries(packageJson.scripts ?? {})) {

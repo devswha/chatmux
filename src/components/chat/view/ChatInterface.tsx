@@ -21,9 +21,10 @@ function ChatInterface({
   selectedProject,
   selectedSession,
   isSessionReadOnly,
-  liveSessionTmuxName,
-  liveSessionTmuxId,
+  liveSessionTarget,
   liveSessionModel,
+  liveSessionEffort,
+  liveSessionName,
   liveSessionKind,
   ws,
   sendMessage,
@@ -146,7 +147,7 @@ function ChatInterface({
   useEffect(() => {
     if (
       !selectedSession
-      || !liveSessionTmuxName
+      || !liveSessionTarget
       || !liveSessionKind
       || liveSessionKind === 'gjc'
     ) {
@@ -162,7 +163,7 @@ function ChatInterface({
     return () => window.clearInterval(timer);
   }, [
     selectedSession,
-    liveSessionTmuxName,
+    liveSessionTarget,
     liveSessionKind,
     refreshCurrentMessages,
   ]);
@@ -449,17 +450,17 @@ function ChatInterface({
           )}
 
           {isSessionReadOnly ? (
-            liveSessionTmuxName ? (
-              // key: remount per tmux target — a draft/in-flight status typed
-              // for session A must never survive a switch to target B (리뷰 반영).
+            liveSessionTarget ? (
+              // key: remount per exact pane target — a draft/in-flight status
+              // must never survive a switch to another pane or process generation.
               <LiveRelayComposer
-                key={`${liveSessionKind ?? 'gjc'}:${liveSessionTmuxName}`}
-                tmuxName={liveSessionTmuxName}
-                tmuxId={liveSessionTmuxId}
+                key={`${liveSessionKind ?? 'gjc'}:${liveSessionTarget.tmux.paneId}:${liveSessionTarget.process.startedAtMs}`}
+                target={liveSessionTarget}
                 model={liveSessionModel}
+                effort={liveSessionEffort}
+                sessionName={liveSessionName}
                 workspacePath={selectedProject.fullPath || selectedProject.path}
                 relayKind={liveSessionKind ?? 'gjc'}
-                sessionId={selectedSession?.id ?? null}
               />
             ) : (
               <div className="chat-composer-shell relative flex-shrink-0 px-2 pb-3 pt-2 sm:px-4">

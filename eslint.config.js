@@ -257,7 +257,6 @@ export default tseslint.config(
   },
   {
     files: [
-      "electron/**/*.{js,cjs,mjs}",
       "shared/**/*.{js,cjs,mjs}",
       "scripts/**/*.{js,cjs,mjs}",
       "vite.config.js",

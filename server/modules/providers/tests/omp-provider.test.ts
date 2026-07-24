@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { parseOmpModelCatalog } from '@/modules/providers/list/omp/omp-models.provider.js';
+import {
+  parseOmpModelCatalog,
+  parseOmpTranscriptActiveModelLine,
+} from '@/modules/providers/list/omp/omp-models.provider.js';
 import { OmpSkillsProvider } from '@/modules/providers/list/omp/omp-skills.provider.js';
 
 test('parseOmpModelCatalog maps native selectors, reasoning levels, and context metadata', () => {
@@ -55,6 +58,37 @@ test('parseOmpModelCatalog rejects malformed model payloads without inventing ro
     DEFAULT: 'default',
   });
   assert.throws(() => parseOmpModelCatalog('not-json'), SyntaxError);
+});
+
+test('OMP transcript metadata exposes model and thinking level', () => {
+  assert.deepEqual(
+    parseOmpTranscriptActiveModelLine(JSON.stringify({
+      type: 'model_change',
+      model: 'openai-codex/gpt-5.6-sol',
+    })),
+    { model: 'openai-codex/gpt-5.6-sol' },
+  );
+  assert.deepEqual(
+    parseOmpTranscriptActiveModelLine(JSON.stringify({
+      type: 'thinking_level_change',
+      thinkingLevel: 'high',
+    })),
+    { effort: 'high' },
+  );
+  assert.equal(
+    parseOmpTranscriptActiveModelLine(JSON.stringify({
+      type: 'thinking_level_change',
+      thinkingLevel: 'inherit',
+    })),
+    null,
+  );
+  assert.deepEqual(
+    parseOmpTranscriptActiveModelLine(JSON.stringify({
+      type: 'configured_model_chain',
+      entries: ['openai-codex/gpt-5.6-sol:xhigh'],
+    })),
+    { effort: 'xhigh' },
+  );
 });
 
 class InspectableOmpSkillsProvider extends OmpSkillsProvider {

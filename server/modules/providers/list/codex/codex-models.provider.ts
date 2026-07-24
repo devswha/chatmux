@@ -72,18 +72,28 @@ const CODEX_MODEL_SCAN_CHUNK_BYTES = 256 * 1024;
 
 type CodexModelCacheEntry = {
   size: number;
-  model: string | null;
+  activeModel: ProviderCurrentActiveModel | null;
 };
 
 const codexSessionModelCache = new Map<string, CodexModelCacheEntry>();
 
-export const parseCodexTurnModel = (line: string): string | null => {
+export const parseCodexTurnActiveModel = (line: string): ProviderCurrentActiveModel | null => {
   try {
     const event = readObjectRecord(JSON.parse(line));
     if (event?.type !== 'turn_context') {
       return null;
     }
-    return readOptionalString(readObjectRecord(event.payload)?.model) ?? null;
+    const payload = readObjectRecord(event.payload);
+    const model = readOptionalString(payload?.model);
+    if (!model) {
+      return null;
+    }
+    const effort = readOptionalString(payload?.effort)
+      ?? readOptionalString(payload?.reasoning_effort);
+    return {
+      model,
+      ...(effort ? { effort } : {}),
+    };
   } catch {
     return null;
   }
@@ -103,12 +113,12 @@ export const readCodexSessionModelFromJsonl = async (
     const { size } = await handle.stat();
     const cached = codexSessionModelCache.get(jsonlPath);
     if (cached?.size === size) {
-      return cached.model ? { model: cached.model } : null;
+      return cached.activeModel;
     }
 
     const canResume = Boolean(cached && cached.size < size);
     let cursor = canResume ? (cached?.size ?? 0) : 0;
-    let model = canResume ? (cached?.model ?? null) : null;
+    let activeModel = canResume ? (cached?.activeModel ?? null) : null;
     let remainder = '';
     const decoder = new StringDecoder('utf8');
 
@@ -124,25 +134,25 @@ export const readCodexSessionModelFromJsonl = async (
       const lines = `${remainder}${decoder.write(buffer.subarray(0, bytesRead))}`.split(/\r?\n/);
       remainder = lines.pop() ?? '';
       for (const line of lines) {
-        const nextModel = parseCodexTurnModel(line);
-        if (nextModel) {
-          model = nextModel;
+        const nextActiveModel = parseCodexTurnActiveModel(line);
+        if (nextActiveModel) {
+          activeModel = nextActiveModel;
         }
       }
     }
 
     remainder += decoder.end();
-    const trailingModel = remainder ? parseCodexTurnModel(remainder) : null;
-    if (trailingModel) {
-      model = trailingModel;
+    const trailingActiveModel = remainder ? parseCodexTurnActiveModel(remainder) : null;
+    if (trailingActiveModel) {
+      activeModel = trailingActiveModel;
     }
 
     // Only cache a newline-terminated byte boundary. If Codex is mid-write, the
     // next poll must rescan from the last known complete boundary.
     if (!remainder) {
-      codexSessionModelCache.set(jsonlPath, { size, model });
+      codexSessionModelCache.set(jsonlPath, { size, activeModel });
     }
-    return model ? { model } : null;
+    return activeModel;
   } finally {
     await handle.close();
   }
@@ -249,8 +259,12 @@ export class CodexProviderModels implements IProviderModels {
       const raw = await readFile(CODEX_CONFIG_PATH, 'utf8');
       const parsed = readObjectRecord(TOML.parse(raw));
       const model = readOptionalString(parsed?.model);
+      const effort = readOptionalString(parsed?.model_reasoning_effort);
       if (model) {
-        return { model };
+        return {
+          model,
+          ...(effort ? { effort } : {}),
+        };
       }
     } catch {
       // Fall through to the supported-model default.

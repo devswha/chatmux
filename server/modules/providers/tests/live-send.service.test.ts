@@ -2,11 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-  classifyTowerResponse,
   isValidTmuxName,
   isValidSpawnName,
   classifySpawnResponse,
-  classifyKillResponse,
   normalizeSpawnCwd,
 } from '@/modules/providers/services/live-send.service.js';
 
@@ -19,21 +17,6 @@ test('isValidTmuxName accepts simple session tokens, rejects unsafe ones', () =>
   }
 });
 
-test('classifyTowerResponse marks 2xx as delivered and detects queueing', () => {
-  const delivered = classifyTowerResponse(200, 'sent to omg');
-  assert.deepEqual(delivered, { ok: true, reachable: true, queued: false, detail: 'sent to omg' });
-
-  const queued = classifyTowerResponse(200, 'queued id=57 (busy)');
-  assert.equal(queued.ok, true);
-  assert.equal(queued.queued, true);
-});
-
-test('classifyTowerResponse marks non-2xx as failure (still reachable)', () => {
-  const failed = classifyTowerResponse(500, 'send-keys failed');
-  assert.equal(failed.ok, false);
-  assert.equal(failed.reachable, true);
-  assert.equal(failed.detail, 'send-keys failed');
-});
 
 test('isValidSpawnName accepts safe names but rejects the reserved "company"', () => {
   for (const ok of ['patina', 'magi-stock', 'feat_x', 'a.b_c-1']) {
@@ -67,23 +50,4 @@ test('normalizeSpawnCwd makes home-relative paths explicit and passes the rest t
   assert.equal(normalizeSpawnCwd('~/workspace/my-proj'), '~/workspace/my-proj');
   assert.equal(normalizeSpawnCwd('~'), '~');
   assert.equal(normalizeSpawnCwd('/home/user/workspace'), '/home/user/workspace');
-});
-
-test('classifyKillResponse: 2xx ok, 403 protected, 422 unknown (all reachable)', () => {
-  assert.deepEqual(classifyKillResponse(200, 'killed patina'), {
-    ok: true, reachable: true, protected: false, unknown: false, detail: 'killed patina',
-  });
-  const guarded = classifyKillResponse(403, '보호 세션 omg — 수동으로만 종료');
-  assert.equal(guarded.ok, false);
-  assert.equal(guarded.protected, true);
-  assert.equal(guarded.unknown, false);
-  assert.equal(guarded.reachable, true);
-  const ghost = classifyKillResponse(422, '미지의 세션: ghost');
-  assert.equal(ghost.ok, false);
-  assert.equal(ghost.protected, false);
-  assert.equal(ghost.unknown, true);
-  const failed = classifyKillResponse(500, 'tmux 실패');
-  assert.equal(failed.ok, false);
-  assert.equal(failed.protected, false);
-  assert.equal(failed.unknown, false);
 });

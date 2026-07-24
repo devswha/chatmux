@@ -1,24 +1,28 @@
 import { useEffect, useState } from 'react';
 
 import { api } from '../../../utils/api';
+import type { TmuxPaneIdentity, TmuxProcessGeneration } from '../../../../shared/tmux';
 
 export type ExternalSessionActivity = 'running' | 'waiting_user' | 'asking_user' | 'unknown';
 
 export type ExternalCliSession = {
   tmuxName: string;
-  kind: 'claude' | 'codex' | 'cursor' | 'opencode' | 'omp' | 'ssh';
+  tmux: TmuxPaneIdentity;
+  process: TmuxProcessGeneration | null;
+  kind: 'claude' | 'codex' | 'cursor' | 'opencode' | 'omp' | 'ssh' | 'shell';
   projectPath?: string;
   transcriptSessionId?: string;
   sessionName?: string;
   model?: string | null;
+  effort?: string | null;
   activity?: ExternalSessionActivity;
 };
 
 const POLL_INTERVAL_MS = 5000;
 
 /**
- * Polls /sessions/external (5s, best-effort) for local coding-agent tmux
- * sessions. GJC remains on its dedicated live poll.
+ * Polls /sessions/external (5s, best-effort) for every non-GJC tmux pane.
+ * GJC remains on its dedicated live poll.
  */
 export function useExternalCliSessions(): { sessions: ExternalCliSession[]; loading: boolean; refresh: () => void } {
   const [sessions, setSessions] = useState<ExternalCliSession[]>([]);
@@ -40,7 +44,7 @@ export function useExternalCliSessions(): { sessions: ExternalCliSession[]; load
         const list: ExternalCliSession[] = body?.data?.externalSessions ?? body?.externalSessions ?? [];
         if (!cancelled && myGeneration > applied) {
           applied = myGeneration;
-          setSessions(list.filter((session) => session?.tmuxName && ['claude', 'codex', 'cursor', 'opencode', 'omp', 'ssh'].includes(session.kind)));
+          setSessions(list.filter((session) => session?.tmuxName && ['claude', 'codex', 'cursor', 'opencode', 'omp', 'ssh', 'shell'].includes(session.kind)));
         }
       } catch {
         // best-effort — no tmux / endpoint error just empties the tab

@@ -1,5 +1,5 @@
 <h3 align="center">every coding agent, one command deck</h3>
-<p align="center"><b>ChatMux</b> is a self-hosted web and desktop interface for discovering, reading, and controlling coding-agent sessions running in tmux.</p>
+<p align="center"><b>ChatMux</b> is a self-hosted web interface for discovering, reading, and controlling coding-agent sessions running in tmux.</p>
 
 <p align="center">
   <a href="https://github.com/devswha/chatmux/releases"><img src="https://img.shields.io/github/v/release/devswha/chatmux?display_name=tag&label=release" alt="GitHub release"></a>
@@ -98,8 +98,7 @@ configuration. Without Tailscale, use an SSH tunnel:
 ssh -N -L 3001:127.0.0.1:3001 user@server
 ```
 
-Then open <http://127.0.0.1:3001> locally. Remote Electron targets require
-HTTPS; plain HTTP is accepted only for an exact loopback origin.
+Then open <http://127.0.0.1:3001> locally.
 
 ## How it works
 
@@ -119,9 +118,7 @@ flowchart LR
   end
 
   API --> WEB[Web / PWA]
-  API --> DESKTOP[Desktop]
   WEB -->|spawn · relay · resume · kill| API
-  DESKTOP -->|spawn · relay · resume · kill| API
 ```
 
 ChatMux links tmux process ancestry to native transcript identifiers. A matching
@@ -153,9 +150,8 @@ the tmux session identifier is rechecked before relay or termination.
 | Command | Purpose |
 |---|---|
 | `npm run dev` | Vite client and development backend |
-| `npm run desktop:dev` | Electron connected to the development web stack |
 | `npm run typecheck` | Client and server TypeScript checks |
-| `npm test` | Server, client, and Electron tests |
+| `npm test` | Server and client tests |
 | `npm run lint` | ESLint for product and tooling code |
 | `npm run check:identity` | Product name, storage path, and repository identity checks |
 | `npm run build` | Production client, server, and Rust core build |
@@ -164,9 +160,6 @@ the tmux session identifier is rechecked before relay or termination.
 ```bash
 npm run verify
 ```
-
-To run the desktop client during development, keep `npm run dev` active in one
-terminal and run `npm run desktop:dev` in another.
 
 ## Security and data boundaries
 
@@ -181,7 +174,6 @@ terminal and run `npm run desktop:dev` in another.
   the `X-API-Key` header.
 - Project file access normalizes paths, checks symlinks, and rejects project-root
   escapes.
-- Electron isolates cookies and storage by remote target.
 - State and indexes live below `~/.chatmux`. Back up `~/.chatmux/data` before
   migration or upgrade.
 
@@ -189,7 +181,7 @@ terminal and run `npm run desktop:dev` in another.
 
 - [Production installation](docs/INSTALL.md)
 - [Self-hosted operations](docs/SELF-HOST.md)
-- [MVP and product direction](docs/MVP.md)
+- [Product scope and roadmap](docs/ROADMAP.md)
 - [Upstream provenance](docs/UPSTREAM.md)
 - [Contributing](CONTRIBUTING.md)
 - [Issue tracker](https://github.com/devswha/chatmux/issues)

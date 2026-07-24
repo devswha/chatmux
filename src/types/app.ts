@@ -1,3 +1,5 @@
+import type { TmuxPaneIdentity, TmuxProcessGeneration } from '../../shared/tmux';
+
 export type LLMProvider = 'claude' | 'cursor' | 'codex' | 'opencode' | 'gjc' | 'omp';
 
 export type ProviderModelOption = {
@@ -24,29 +26,35 @@ export type ProviderModelsCacheInfo = {
   source: 'memory' | 'disk' | 'fresh';
 };
 
+
 export type AppTab = 'chat' | 'files' | 'shell' | 'git' | 'tasks' | 'browser' | `plugin:${string}`;
 
 /**
  * A discovered external CLI target. Local coding-agent sessions open their
  * structured transcript when indexed; `project` supplies the pending-relay or
- * terminal-fallback cwd before that handoff. Remote SSH remains attach-only.
+ * terminal-fallback cwd before that handoff. SSH and shell panes are attach-only.
  */
 export type ExternalTerminalTarget = {
   tmuxName: string;
+  tmux: TmuxPaneIdentity;
+  process: TmuxProcessGeneration | null;
   kind: string;
-  cliKind: 'claude' | 'codex' | 'cursor' | 'opencode' | 'omp' | 'ssh';
+  cliKind: 'claude' | 'codex' | 'cursor' | 'opencode' | 'omp' | 'ssh' | 'shell';
   project: Project;
   /** Opens the structured transcript instead of attaching a terminal. */
   transcriptSessionId?: string;
   /** Transcript-derived display metadata for a running CLI session. */
   sessionName?: string;
   model?: string | null;
+  effort?: string | null;
 } | {
   /** A freshly opened GJC pane has no transcript id until its first message. */
   tmuxName: string;
-  tmuxId: string | null;
+  tmux: TmuxPaneIdentity;
+  process: TmuxProcessGeneration | null;
   kind: 'GJC';
   cliKind: 'gjc';
+  project: Project;
 };
 
 export interface ProjectSession {

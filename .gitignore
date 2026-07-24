@@ -153,10 +153,7 @@ tasks/
 # Deploy state (last-good commit marker for scripts/deploy.sh)
 /.deploy/
 
-# Local desktop packaging artifacts
-/.desktop-build/
+# Local release artifacts
 /release/
-/electron/server-bundle-config.json
 chatmux-source.tar.gz
 chatmux-sidebar.html
-electron/*.tar.gz

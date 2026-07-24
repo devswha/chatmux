@@ -4,6 +4,12 @@ import test from 'node:test';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
+import type { TmuxPaneTarget } from '../../../../../shared/tmux';
+
+const target: TmuxPaneTarget = {
+  tmux: { socketPath: '/tmp/chatmux.sock', sessionId: 'session-1', windowId: '@1', paneId: '%9' },
+  process: { pid: 909, startedAtMs: 1_700_000_000_909 },
+};
 import SidebarIdleComposer from './SidebarIdleComposer';
 
 // First-message composer for '대기' (idle, pre-transcript) gjc panes. SSR
@@ -13,7 +19,7 @@ import SidebarIdleComposer from './SidebarIdleComposer';
 
 test('collapsed idle composer offers the first-message affordance', () => {
   const html = renderToStaticMarkup(
-    createElement(SidebarIdleComposer, { tmuxName: 'flask', tmuxId: '$9' }),
+    createElement(SidebarIdleComposer, { tmuxName: 'flask', target }),
   );
   assert.ok(html.includes('첫 메시지 보내기'), 'entry button is visible');
   assert.ok(!html.includes('textarea'), 'no editor until the user opens it');
@@ -23,7 +29,7 @@ test('composing state renders an editable textarea and a send button', () => {
   const html = renderToStaticMarkup(
     createElement(SidebarIdleComposer, {
       tmuxName: 'flask',
-      tmuxId: '$9',
+      target,
       initialStatus: { kind: 'composing' },
     }),
   );
@@ -36,7 +42,7 @@ test('promoting state shows the waiting notice and hides the editor', () => {
   const html = renderToStaticMarkup(
     createElement(SidebarIdleComposer, {
       tmuxName: 'flask',
-      tmuxId: '$9',
+      target,
       initialStatus: { kind: 'promoting' },
     }),
   );
@@ -48,7 +54,7 @@ test('error state fails closed back to an editable composer with the reason', ()
   const html = renderToStaticMarkup(
     createElement(SidebarIdleComposer, {
       tmuxName: 'flask',
-      tmuxId: '$9',
+      target,
       initialStatus: { kind: 'error', text: '관제탑 미가동 — 전송 불가' },
     }),
   );

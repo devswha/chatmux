@@ -1,4 +1,6 @@
 import { readFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 
 import { sessionsDb } from '@/modules/database/index.js';
 import type { IProviderModels } from '@/shared/interfaces.js';
@@ -126,6 +128,7 @@ type ClaudeInitEvent = {
   type?: string;
   subtype?: string;
   model?: string;
+  effort?: string;
   message?: {
     content?: unknown;
     model?: string;
@@ -157,6 +160,24 @@ const extractClaudeEventModel = (event: ClaudeInitEvent, sessionId: string): str
 
   const messageModel = event.message?.model?.trim();
   return messageModel || null;
+};
+
+export const parseClaudeActiveModelLine = (
+  line: string,
+  sessionId: string,
+): ProviderCurrentActiveModel | null => {
+  try {
+    const event = JSON.parse(line) as ClaudeInitEvent;
+    const model = extractClaudeEventModel(event, sessionId);
+    if (!model) return null;
+    const effort = event.effort?.trim();
+    return {
+      model,
+      ...(effort ? { effort } : {}),
+    };
+  } catch {
+    return null;
+  }
 };
 
 const stripAnsi = (value: string): string => value.replace(ANSI_PATTERN, '');
@@ -204,6 +225,24 @@ const extractClaudeModelFromMessageContent = (content: unknown): string | null =
   return null;
 };
 
+async function readClaudeSettingsActiveModel(
+  fallback: ProviderCurrentActiveModel,
+): Promise<ProviderCurrentActiveModel> {
+  try {
+    const parsed = JSON.parse(
+      await readFile(join(homedir(), '.claude', 'settings.json'), 'utf8'),
+    ) as Record<string, unknown>;
+    const model = typeof parsed.model === 'string' ? parsed.model.trim() : '';
+    const effort = typeof parsed.effortLevel === 'string' ? parsed.effortLevel.trim() : '';
+    return {
+      model: model || fallback.model,
+      ...(effort ? { effort } : {}),
+    };
+  } catch {
+    return fallback;
+  }
+}
+
 const readClaudeSessionModelFromJsonl = async (
   sessionId: string,
   jsonlPath: string,
@@ -215,14 +254,9 @@ const readClaudeSessionModelFromJsonl = async (
     .filter(Boolean);
 
   for (let index = lines.length - 1; index >= 0; index -= 1) {
-    try {
-      const event = JSON.parse(lines[index]) as ClaudeInitEvent;
-      const model = extractClaudeEventModel(event, sessionId);
-      if (model) {
-        return { model };
-      }
-    } catch {
-      // Skip malformed JSONL lines that can happen during concurrent writes.
+    const activeModel = parseClaudeActiveModelLine(lines[index]!, sessionId);
+    if (activeModel) {
+      return activeModel;
     }
   }
 
@@ -246,23 +280,26 @@ export class ClaudeProviderModels implements IProviderModels {
   }
 
   async getCurrentActiveModel(sessionId?: string): Promise<ProviderCurrentActiveModel> {
-    if (!sessionId?.trim()) {
-      return buildDefaultProviderCurrentActiveModel(await this.getSupportedModels());
-    }
-
-    try {
-      const jsonlPath = sessionsDb.getSessionById(sessionId)?.jsonl_path;
-      const activeModel = jsonlPath
-        ? await readClaudeSessionModelFromJsonl(sessionId, jsonlPath)
-        : null;
-      if (activeModel?.model) {
-        return activeModel;
+    const configuredModel = await readClaudeSettingsActiveModel(
+      buildDefaultProviderCurrentActiveModel(await this.getSupportedModels()),
+    );
+    if (sessionId?.trim()) {
+      try {
+        const jsonlPath = sessionsDb.getSessionById(sessionId)?.jsonl_path;
+        const activeModel = jsonlPath
+          ? await readClaudeSessionModelFromJsonl(sessionId, jsonlPath)
+          : null;
+        if (activeModel?.model) {
+          return activeModel.effort || !configuredModel.effort
+            ? activeModel
+            : { ...activeModel, effort: configuredModel.effort };
+        }
+      } catch {
+        // Fall through to the configured Claude CLI model and effort.
       }
-    } catch {
-      // Fall through to the provider default when the session-backed lookup fails.
     }
 
-    return buildDefaultProviderCurrentActiveModel(await this.getSupportedModels());
+    return configuredModel;
   }
 
   async changeActiveModel(

@@ -5,24 +5,26 @@ import {
   buildOpenCodeDefinitionFromVerboseModels,
   buildOpenCodeDefinitionFromIds,
   parseOpenCodeModelsStdout,
-  parseOpenCodeSessionModelValue,
+  parseOpenCodeSessionActiveModelValue,
   parseOpenCodeVerboseModelsStdout,
 } from '@/modules/providers/list/opencode/opencode-models.provider.js';
 
-test('OpenCode session model parser preserves the provider-qualified model id', () => {
-  assert.equal(
-    parseOpenCodeSessionModelValue(JSON.stringify({
+test('OpenCode session metadata exposes provider-qualified model and effort variant', () => {
+  assert.deepEqual(
+    parseOpenCodeSessionActiveModelValue(JSON.stringify({
       id: 'gpt-5.5',
       providerID: 'openai',
+      variant: 'medium',
     })),
-    'openai/gpt-5.5',
+    { model: 'openai/gpt-5.5', effort: 'medium' },
   );
-  assert.equal(
-    parseOpenCodeSessionModelValue({
+  assert.deepEqual(
+    parseOpenCodeSessionActiveModelValue({
       id: 'anthropic/claude-sonnet-4-5',
       providerID: 'anthropic',
+      variant: 'high',
     }),
-    'anthropic/claude-sonnet-4-5',
+    { model: 'anthropic/claude-sonnet-4-5', effort: 'high' },
   );
 });
 

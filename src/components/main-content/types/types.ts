@@ -1,6 +1,7 @@
 import type { Dispatch, SetStateAction } from 'react';
 
 import type { AppTab, ExternalTerminalTarget, Project, ProjectSession } from '../../../types/app';
+import type { TmuxPaneTarget } from '../../../../shared/tmux';
 import type {
   MarkSessionIdle,
   MarkSessionProcessing,
@@ -42,9 +43,10 @@ export type MainContentProps = {
   selectedProject: Project | null;
   selectedSession: ProjectSession | null;
   isSessionReadOnly: boolean;
-  liveSessionTmuxName: string | null;
-  liveSessionTmuxId: string | null;
+  liveSessionTarget: TmuxPaneTarget | null;
   liveSessionModel: string | null;
+  liveSessionEffort: string | null;
+  liveSessionName: string | null;
   liveSessionKind: 'gjc' | 'codex' | 'claude' | 'cursor' | 'opencode' | 'omp' | null;
   activeTab: AppTab;
   setActiveTab: Dispatch<SetStateAction<AppTab>>;

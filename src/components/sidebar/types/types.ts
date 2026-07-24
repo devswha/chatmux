@@ -1,5 +1,6 @@
 import type { ExternalTerminalTarget, LoadingProgress, Project, ProjectSession, LLMProvider } from '../../../types/app';
 import type { SessionActivityMap } from '../../../hooks/useSessionProtection';
+import type { TmuxPaneTarget } from '../../../../shared/tmux';
 
 export type ProjectSortOrder = 'name' | 'date';
 export type SidebarSearchMode = 'projects' | 'conversations' | 'running' | 'archived';
@@ -45,11 +46,12 @@ export type SidebarProps = {
   attentionSessionIds: ReadonlySet<string>;
   liveSessionIds: ReadonlySet<string>;
   liveSessionNames: ReadonlyMap<string, string>;
+  liveSessionModels: ReadonlyMap<string, string>;
+  liveSessionEfforts: ReadonlyMap<string, string>;
   // Ids whose tmux name is a lineage claim — the only rows allowed tmux actions.
   liveSessionLineage: ReadonlySet<string>;
-  // `$N` tmux generation token per id — passed with kill so a same-named
-  // replacement session is refused server-side.
-  liveSessionTmuxIds: ReadonlyMap<string, string>;
+  // Exact pane and process generation per actionable row.
+  liveSessionTargets: ReadonlyMap<string, TmuxPaneTarget>;
   // Foreground-command classification per live id ('interactive' | 'batch').
   // Presentational badge only — never gates tmux actions.
   liveSessionKinds: ReadonlyMap<string, string>;

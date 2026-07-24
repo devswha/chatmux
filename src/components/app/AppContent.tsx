@@ -12,6 +12,7 @@ import { useSessionProtection } from '../../hooks/useSessionProtection';
 import { useProjectsState } from '../../hooks/useProjectsState';
 import { useQueuedMessageAutoSend } from '../../hooks/useQueuedMessageAutoSend';
 import { api } from '../../utils/api';
+import { findGjcPromotionCandidate } from '../../utils/liveSessions';
 import type { ExternalTerminalTarget } from '../../types/app';
 
 type RunningSessionApiItem = {
@@ -66,6 +67,7 @@ function AppContentInner() {
     selectedProject,
     selectedSession,
     liveSessionModels,
+    liveSessionEfforts,
     activeTab,
     sidebarOpen,
     isLoadingProjects,
@@ -88,14 +90,14 @@ function AppContentInner() {
   });
 
   // Local coding-agent targets switch to structured transcripts when indexed;
-  // terminal attach is only the fallback before indexing and for remote SSH.
+  // terminal attach is the fallback before indexing and the only view for SSH/shell.
   const [externalTerminal, setExternalTerminal] = useState<ExternalTerminalTarget | null>(null);
   const [externalTranscript, setExternalTranscript] = useState<ExternalTerminalTarget | null>(null);
   const selectExternalProject = sidebarSharedProps.onProjectSelect;
   const selectExternalSession = sidebarSharedProps.onSessionSelect;
 
   const openExternalTerminal = useCallback((target: ExternalTerminalTarget) => {
-    if (target.cliKind !== 'gjc' && target.cliKind !== 'ssh' && target.transcriptSessionId) {
+    if (target.cliKind !== 'gjc' && target.cliKind !== 'ssh' && target.cliKind !== 'shell' && target.transcriptSessionId) {
       setExternalTerminal(null);
       setExternalTranscript(target);
       setActiveTab('chat');
@@ -123,6 +125,7 @@ function AppContentInner() {
       !externalTerminal
       || externalTerminal.cliKind === 'gjc'
       || externalTerminal.cliKind === 'ssh'
+      || externalTerminal.cliKind === 'shell'
       || externalTerminal.transcriptSessionId
     ) return undefined;
     let cancelled = false;
@@ -137,6 +140,7 @@ function AppContentInner() {
           transcriptSessionId?: unknown;
           sessionName?: unknown;
           model?: unknown;
+          effort?: unknown;
         }) => (
           session.tmuxName === externalTerminal.tmuxName
           && typeof session.transcriptSessionId === 'string'
@@ -147,6 +151,7 @@ function AppContentInner() {
             transcriptSessionId: ready.transcriptSessionId,
             sessionName: typeof ready.sessionName === 'string' ? ready.sessionName : externalTerminal.sessionName,
             model: typeof ready.model === 'string' ? ready.model : externalTerminal.model,
+            effort: typeof ready.effort === 'string' ? ready.effort : externalTerminal.effort,
           });
         }
       } catch {
@@ -173,15 +178,10 @@ function AppContentInner() {
         const body = await response.json();
         const sessions = (body?.data?.liveSessions ?? body?.liveSessions ?? []) as Array<{
           id?: unknown;
-          tmuxName?: unknown;
-          tmuxId?: unknown;
+          tmux?: unknown;
+          process?: unknown;
         }>;
-        const ready = sessions.find((session) => (
-          typeof session.id === 'string'
-          && !session.id.startsWith('idle-gjc:')
-          && session.tmuxName === externalTerminal.tmuxName
-          && (externalTerminal.tmuxId === null || session.tmuxId === externalTerminal.tmuxId)
-        ));
+        const ready = findGjcPromotionCandidate(sessions, externalTerminal);
         if (!ready || typeof ready.id !== 'string') return;
 
         resolving = true;
@@ -257,6 +257,7 @@ function AppContentInner() {
 
   const activeExternalTranscript = externalTranscript
     && externalTranscript.cliKind !== 'ssh'
+    && externalTranscript.cliKind !== 'shell'
     && externalTranscript.cliKind !== 'gjc'
     && externalTranscript.transcriptSessionId === sessionId
     ? externalTranscript
@@ -425,22 +426,23 @@ function AppContentInner() {
             selectedSession
             && (sidebarSharedProps.liveSessionIds.has(selectedSession.id) || activeExternalTranscript),
           )}
-          liveSessionTmuxName={
-            // Relay (tower /send types into the tmux pane) only for LINEAGE
-            // claims — a cwd-fallback label points at someone else's pane.
+          liveSessionTarget={
+            // Relay only for exact pane and process generations. A cwd-only
+            // label may point at another pane and is never actionable.
             selectedSession && sidebarSharedProps.liveSessionLineage.has(selectedSession.id)
-              ? (sidebarSharedProps.liveSessionNames.get(selectedSession.id) ?? null)
-              : activeExternalTranscript?.tmuxName ?? null
-          }
-          liveSessionTmuxId={
-            selectedSession && sidebarSharedProps.liveSessionLineage.has(selectedSession.id)
-              ? (sidebarSharedProps.liveSessionTmuxIds.get(selectedSession.id) ?? null)
-              : null
+              ? (sidebarSharedProps.liveSessionTargets.get(selectedSession.id) ?? null)
+              : activeExternalTranscript?.process
+                ? { tmux: activeExternalTranscript.tmux, process: activeExternalTranscript.process }
+                : null
           }
           liveSessionModel={activeExternalTranscript?.model
             ?? (selectedSession ? (liveSessionModels.get(selectedSession.id) ?? null) : null)}
+          liveSessionEffort={activeExternalTranscript?.effort
+            ?? (selectedSession ? (liveSessionEfforts.get(selectedSession.id) ?? null) : null)}
+          liveSessionName={activeExternalTranscript?.tmuxName
+            ?? (selectedSession ? (sidebarSharedProps.liveSessionNames.get(selectedSession.id) ?? null) : null)}
           liveSessionKind={activeExternalTranscript
-            ? activeExternalTranscript.cliKind as Exclude<ExternalTerminalTarget['cliKind'], 'ssh'>
+            ? activeExternalTranscript.cliKind as Exclude<ExternalTerminalTarget['cliKind'], 'ssh' | 'shell'>
             : selectedSession && sidebarSharedProps.liveSessionLineage.has(selectedSession.id)
               ? 'gjc'
               : null}

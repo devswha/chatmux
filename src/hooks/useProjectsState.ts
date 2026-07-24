@@ -2,6 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { NavigateFunction } from 'react-router-dom';
 
 import { api } from '../utils/api';
+import {
+  retainTransientlyMissingLiveRows,
+  type LiveSessionSnapshotRow,
+} from '../utils/liveSessions';
 import type { ServerEvent } from '../contexts/WebSocketContext';
 import type {
   AppTab,
@@ -10,6 +14,11 @@ import type {
   Project,
   ProjectSession,
 } from '../types/app';
+import type {
+  TmuxPaneIdentity,
+  TmuxPaneTarget,
+  TmuxProcessGeneration,
+} from '../../shared/tmux';
 
 import type { SessionActivityMap } from './useSessionProtection';
 
@@ -365,6 +374,7 @@ export function useProjectsState({
   const [liveSessionIds, setLiveSessionIds] = useState<Set<string>>(new Set());
   const [liveSessionNames, setLiveSessionNames] = useState<Map<string, string>>(new Map());
   const [liveSessionModels, setLiveSessionModels] = useState<Map<string, string>>(new Map());
+  const [liveSessionEfforts, setLiveSessionEfforts] = useState<Map<string, string>>(new Map());
   // Session ids whose tmux name is a LINEAGE claim (gjc runs inside that tmux
   // session). Only these may carry tmux actions (kill/relay) — cwd-fallback
   // labels killed an unrelated claude tmux session (patina 실사고).
@@ -376,9 +386,8 @@ export function useProjectsState({
   // Session ids whose transcript tail shows a turn in progress (assistant
   // answering / tool loop). Presentational only — drives the RUN badge.
   const [liveSessionRunning, setLiveSessionRunning] = useState<Set<string>>(new Set());
-  // `$N` tmux generation token per session id — sent with kill/relay so the
-  // server can refuse a same-named session recreated after this snapshot.
-  const [liveSessionTmuxIds, setLiveSessionTmuxIds] = useState<Map<string, string>>(new Map());
+  // Exact pane and process generation per actionable live row.
+  const [liveSessionTargets, setLiveSessionTargets] = useState<Map<string, TmuxPaneTarget>>(new Map());
   // False until the first live poll settles, so the sidebar shows a loading
   // state instead of a false "no sessions" during the initial fetch.
   const [liveSessionsLoaded, setLiveSessionsLoaded] = useState(false);
@@ -395,17 +404,18 @@ export function useProjectsState({
   // Poll which sessions are live in a tmux gjc pane (server tmux+lsof endpoint).
   // Best-effort: on any error / no tmux the set is empty and the UI shows nothing live.
   //
-  // Two race guards (리뷰 반영):
+  // Race guards (리뷰 반영):
   // - generation counter: a delayed older response must never overwrite a newer
   //   snapshot (stale ownership/action state resurrection).
-  // - removal debounce: a session leaves the live set only after TWO consecutive
-  //   snapshots without it. One transient lsof/tmux hiccup returning an empty/
-  //   partial list must not flip an externally driven session writable.
+  // - removal debounce: an ordinary session leaves the live set only after TWO
+  //   consecutive missing snapshots.
+  // - promotion cutover: a synthetic idle row is removed immediately when its
+  //   exact tmux generation appears under a structured transcript id.
   useEffect(() => {
     let cancelled = false;
     let generation = 0;
     let applied = 0;
-    let prevRows = new Map<string, { tmuxName: string | null; tmuxId: string | null; model: string | null; lineage: boolean; kind: string | null; running: boolean | null }>();
+    let prevRows = new Map<string, LiveSessionSnapshotRow>();
     let missedOnce = new Set<string>();
     const poll = async () => {
       const myGeneration = ++generation;
@@ -413,40 +423,33 @@ export function useProjectsState({
         const response = await api.liveSessions();
         if (!response.ok) return;
         const body = await response.json();
-        const liveSessions: Array<{ id: string; tmuxName?: string | null; tmuxId?: string | null; model?: string | null; claim?: string | null; kind?: string | null; running?: boolean | null }> =
+        const liveSessions: Array<{ id: string; tmuxName?: string | null; tmux?: TmuxPaneIdentity | null; process?: TmuxProcessGeneration | null; model?: string | null; effort?: string | null; claim?: string | null; kind?: string | null; running?: boolean | null }> =
           body?.data?.liveSessions ?? body?.liveSessions ?? [];
         if (cancelled || myGeneration <= applied) {
           return; // a newer response already landed
         }
         applied = myGeneration;
 
-        const rows = new Map<string, { tmuxName: string | null; tmuxId: string | null; model: string | null; lineage: boolean; kind: string | null; running: boolean | null }>();
+        const rows = new Map<string, LiveSessionSnapshotRow>();
         for (const session of liveSessions) {
           rows.set(session.id, {
             tmuxName: session.tmuxName ?? null,
-            tmuxId: session.tmuxId ?? null,
+            tmux: session.tmux ?? null,
+            process: session.process ?? null,
             model: session.model ?? null,
+            effort: session.effort ?? null,
             lineage: session.claim === 'lineage',
             kind: session.kind ?? null,
             running: session.running ?? null,
           });
         }
-        // Removal debounce: keep a previously seen row for one missing snapshot.
-        const nextMissed = new Set<string>();
-        for (const [id, row] of prevRows) {
-          if (!rows.has(id)) {
-            if (!missedOnce.has(id)) {
-              nextMissed.add(id);
-              rows.set(id, row); // grace period — still treated as live
-            }
-          }
-        }
-        missedOnce = nextMissed;
+        missedOnce = retainTransientlyMissingLiveRows(rows, prevRows, missedOnce);
         prevRows = rows;
 
         const names = new Map<string, string>();
-        const tmuxIds = new Map<string, string>();
+        const targets = new Map<string, TmuxPaneTarget>();
         const models = new Map<string, string>();
+        const efforts = new Map<string, string>();
         const lineage = new Set<string>();
         const kinds = new Map<string, string>();
         const runningIds = new Set<string>();
@@ -454,11 +457,14 @@ export function useProjectsState({
           if (row.tmuxName) {
             names.set(id, row.tmuxName);
           }
-          if (row.tmuxId) {
-            tmuxIds.set(id, row.tmuxId);
+          if (row.tmux && row.process) {
+            targets.set(id, { tmux: row.tmux, process: row.process });
           }
           if (row.model) {
             models.set(id, row.model);
+          }
+          if (row.effort) {
+            efforts.set(id, row.effort);
           }
           if (row.lineage) {
             lineage.add(id);
@@ -472,8 +478,9 @@ export function useProjectsState({
         }
         setLiveSessionIds(new Set(rows.keys()));
         setLiveSessionNames(names);
-        setLiveSessionTmuxIds(tmuxIds);
+        setLiveSessionTargets(targets);
         setLiveSessionModels(models);
+        setLiveSessionEfforts(efforts);
         setLiveSessionLineage(lineage);
         setLiveSessionKinds(kinds);
         setLiveSessionRunning(runningIds);
@@ -1158,8 +1165,10 @@ export function useProjectsState({
       attentionSessionIds,
       liveSessionIds,
       liveSessionNames,
+      liveSessionEfforts,
+      liveSessionModels,
       liveSessionLineage,
-      liveSessionTmuxIds,
+      liveSessionTargets,
       liveSessionKinds,
       liveSessionRunning,
       liveSessionsLoaded,
@@ -1182,8 +1191,10 @@ export function useProjectsState({
       attentionSessionIds,
       liveSessionIds,
       liveSessionNames,
+      liveSessionEfforts,
+      liveSessionModels,
       liveSessionLineage,
-      liveSessionTmuxIds,
+      liveSessionTargets,
       liveSessionKinds,
       liveSessionRunning,
       liveSessionsLoaded,
@@ -1211,6 +1222,7 @@ export function useProjectsState({
     selectedProject,
     selectedSession,
     liveSessionModels,
+    liveSessionEfforts,
     activeTab,
     sidebarOpen,
     isLoadingProjects,

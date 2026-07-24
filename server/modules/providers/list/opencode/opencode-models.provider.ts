@@ -357,7 +357,9 @@ export const buildOpenCodeDefinitionFromVerboseModels = (
   };
 };
 
-export const parseOpenCodeSessionModelValue = (rawModel: unknown): string | null => {
+export const parseOpenCodeSessionActiveModelValue = (
+  rawModel: unknown,
+): ProviderCurrentActiveModel | null => {
   if (typeof rawModel === 'string') {
     const trimmed = rawModel.trim();
     if (!trimmed) {
@@ -365,9 +367,9 @@ export const parseOpenCodeSessionModelValue = (rawModel: unknown): string | null
     }
 
     try {
-      return parseOpenCodeSessionModelValue(JSON.parse(trimmed));
+      return parseOpenCodeSessionActiveModelValue(JSON.parse(trimmed));
     } catch {
-      return trimmed;
+      return { model: trimmed };
     }
   }
 
@@ -378,14 +380,21 @@ export const parseOpenCodeSessionModelValue = (rawModel: unknown): string | null
 
   const id = readOptionalString(record.id);
   const providerId = readOptionalString(record.providerID);
-  if (id) {
-    return id.includes('/') || !providerId ? id : `${providerId}/${id}`;
+  const model = id
+    ? (id.includes('/') || !providerId ? id : `${providerId}/${id}`)
+    : readOptionalString(record.model)
+      ?? readOptionalString(record.name)
+      ?? readOptionalString(record.value);
+  if (!model) {
+    return null;
   }
-
-  return readOptionalString(record.model)
-    ?? readOptionalString(record.name)
-    ?? readOptionalString(record.value)
-    ?? null;
+  const effort = readOptionalString(record.variant)
+    ?? readOptionalString(record.reasoningEffort)
+    ?? readOptionalString(record.effort);
+  return {
+    model,
+    ...(effort ? { effort } : {}),
+  };
 };
 
 const runOpenCodeModelsCommand = (): Promise<string> => new Promise((resolve, reject) => {
@@ -495,11 +504,9 @@ export class OpenCodeProviderModels implements IProviderModels {
           timeCreated?: number | null;
         } | undefined;
 
-        const model = parseOpenCodeSessionModelValue(row?.model);
-        if (model) {
-          return {
-            model,
-          };
+        const activeModel = parseOpenCodeSessionActiveModelValue(row?.model);
+        if (activeModel) {
+          return activeModel;
         }
       } finally {
         db.close();

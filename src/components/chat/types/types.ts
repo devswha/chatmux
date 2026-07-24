@@ -1,4 +1,5 @@
 import type { Project, ProjectSession, LLMProvider } from '../../../types/app';
+import type { TmuxPaneTarget } from '../../../../shared/tmux';
 import type {
   MarkSessionIdle,
   MarkSessionProcessing,
@@ -121,10 +122,10 @@ export interface ChatInterfaceProps {
   selectedProject: Project | null;
   selectedSession: ProjectSession | null;
   isSessionReadOnly: boolean;
-  liveSessionTmuxName: string | null;
-  // `$N` generation token of the tmux session backing the relay target (kill/send race guard).
-  liveSessionTmuxId: string | null;
+  liveSessionTarget: TmuxPaneTarget | null;
   liveSessionModel: string | null;
+  liveSessionEffort: string | null;
+  liveSessionName: string | null;
   liveSessionKind: 'gjc' | 'codex' | 'claude' | 'cursor' | 'opencode' | 'omp' | null;
   ws: WebSocket | null;
   sendMessage: (message: unknown) => void;

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 
 import { api } from '../../../../utils/api';
+import type { TmuxPaneTarget } from '../../../../../shared/tmux';
 
 import CommandMenu from './CommandMenu';
 
@@ -70,24 +71,26 @@ function filterCommands(commands: LiveGjcCommand[], query: string, trigger: stri
  * the native TUI and is not exposed as a stable external API.
  *
  * The status line leads with the session's current model when available. The
- * tmux name stays as a muted suffix so the send target remains identifiable.
+ * human-readable tmux session name identifies the send target; internal tmux
+ * coordinates remain transport-only.
  */
 export default function LiveRelayComposer({
-  tmuxName,
-  tmuxId = null,
+  target,
   model = null,
+  effort = null,
+  sessionName = null,
   workspacePath = null,
   relayKind = 'gjc',
-  sessionId = null,
 }: {
-  tmuxName: string;
-  tmuxId?: string | null;
+  target: TmuxPaneTarget;
   model?: string | null;
+  effort?: string | null;
+  sessionName?: string | null;
   workspacePath?: string | null;
   relayKind?: 'gjc' | 'codex' | 'claude' | 'cursor' | 'opencode' | 'omp';
-  sessionId?: string | null;
 }) {
   const commandTrigger = relayKind === 'codex' ? '$' : '/';
+  const displayName = sessionName?.trim() || '현재 세션';
   const [input, setInput] = useState('');
   const [status, setStatus] = useState<RelayStatus>({ kind: 'idle' });
 
@@ -194,17 +197,24 @@ export default function LiveRelayComposer({
     setStatus({ kind: 'sending' });
     try {
       const response = relayKind !== 'gjc'
-        ? await api.externalCliSessionSend(tmuxName, sessionId, message)
-        : await api.liveSessionSend(tmuxName, message, tmuxId);
+        ? await api.externalCliSessionSend(target.tmux, target.process, message)
+        : await api.liveSessionSend(target.tmux, target.process, message);
       const body = await response.json().catch(() => null);
       const data = (body?.data ?? body ?? {}) as { ok?: boolean; reachable?: boolean; queued?: boolean; detail?: string };
+      const apiError = typeof body?.error?.message === 'string'
+        ? body.error.message
+        : typeof body?.message === 'string'
+          ? body.message
+          : null;
       // ok === false covers "tower reachable but refused/failed" (server wraps a
       // tower non-2xx in HTTP 200) — without it a failed relay showed 전달됨 and
       // silently discarded the draft.
       if (!response.ok || data.reachable === false || data.ok === false) {
         setStatus({
           kind: 'error',
-          text: data.reachable === false ? '관제탑 미가동 — 전송 불가' : data.detail || '전송 실패',
+          text: data.reachable === false
+            ? '관제탑 미가동 — 전송 불가'
+            : data.detail || apiError || '전송 실패',
         });
         return;
       }
@@ -213,7 +223,7 @@ export default function LiveRelayComposer({
     } catch {
       setStatus({ kind: 'error', text: '전송 실패' });
     }
-  }, [input, status.kind, tmuxName, tmuxId, relayKind, sessionId]);
+  }, [input, status.kind, target, relayKind]);
 
   const handleKeyDown = useCallback(
     (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -265,10 +275,11 @@ export default function LiveRelayComposer({
           {model ? (
             <span>
               <span className="font-semibold">{model.split('/').pop()}</span>
-              <span className="text-muted-foreground"> · {tmuxName}</span>
+              {effort && <span className="text-muted-foreground"> · {effort} effort</span>}
+              <span className="text-muted-foreground"> · {displayName}</span>
             </span>
           ) : (
-            <span><span className="font-semibold">{tmuxName}</span> 세션</span>
+            <span className="font-semibold">{displayName}</span>
           )}
           {status.kind !== 'idle' && status.kind !== 'sending' && (
             <span className={status.kind === 'error' ? 'text-red-500' : 'text-muted-foreground'}>· {status.text}</span>
@@ -286,7 +297,7 @@ export default function LiveRelayComposer({
             onKeyDown={handleKeyDown}
             onClick={(event) => syncCommandMenu(input, event.currentTarget.selectionStart ?? input.length)}
             rows={1}
-            placeholder={`${tmuxName}에 지시… (${commandTrigger} 명령, Enter 전송, Shift+Enter 줄바꿈)`}
+            placeholder={`${displayName}에 지시… (${commandTrigger} 명령, Enter 전송, Shift+Enter 줄바꿈)`}
             className="max-h-40 min-h-9 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm outline-none"
           />
           <button

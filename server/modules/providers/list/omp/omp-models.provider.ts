@@ -75,28 +75,66 @@ const OMP_FALLBACK_MODELS: ProviderModelsDefinition = {
   DEFAULT: 'default',
 };
 
-async function readLastTranscriptModel(filePath: string): Promise<string | null> {
+export function parseOmpTranscriptActiveModelLine(
+  line: string,
+): Partial<ProviderCurrentActiveModel> | null {
+  try {
+    const entry = readObjectRecord(JSON.parse(line));
+    if (!entry) {
+      return null;
+    }
+    if (entry.type === 'thinking_level_change') {
+      const effort = readOptionalString(entry.thinkingLevel);
+      return effort && effort !== 'inherit' ? { effort } : null;
+    }
+    if (entry.type === 'configured_model_chain' && Array.isArray(entry.entries)) {
+      const configured = entry.entries.find((value): value is string => typeof value === 'string');
+      const separator = configured?.lastIndexOf(':') ?? -1;
+      return configured && separator >= 0 && separator < configured.length - 1
+        ? { effort: configured.slice(separator + 1) }
+        : null;
+    }
+    const model = readOptionalString(entry.model)
+      ?? readOptionalString(readObjectRecord(entry.message)?.model);
+    return model ? { model } : null;
+  } catch {
+    return null;
+  }
+}
+
+async function readLastTranscriptActiveModel(
+  filePath: string,
+): Promise<ProviderCurrentActiveModel | null> {
   let model: string | null = null;
+  let effort: string | null = null;
   const lines = createInterface({
     input: createReadStream(filePath, { encoding: 'utf8' }),
     crlfDelay: Infinity,
   });
   try {
     for await (const line of lines) {
-      if (!line.includes('"model"')) continue;
-      try {
-        const entry = readObjectRecord(JSON.parse(line));
-        const entryModel = readOptionalString(entry?.model)
-          ?? readOptionalString(readObjectRecord(entry?.message)?.model);
-        if (entryModel) model = entryModel;
-      } catch {
-        // A partially written tail line is retried by the next poll.
+      if (!line.includes('"model"')
+        && !line.includes('"thinking_level_change"')
+        && !line.includes('"configured_model_chain"')) {
+        continue;
+      }
+      const activeModel = parseOmpTranscriptActiveModelLine(line);
+      if (activeModel?.model) {
+        model = activeModel.model;
+      }
+      if (activeModel?.effort) {
+        effort = activeModel.effort;
       }
     }
   } finally {
     lines.close();
   }
-  return model;
+  return model
+    ? {
+        model,
+        ...(effort ? { effort } : {}),
+      }
+    : null;
 }
 
 export class OmpProviderModels implements IProviderModels {
@@ -107,8 +145,8 @@ export class OmpProviderModels implements IProviderModels {
   async getCurrentActiveModel(sessionId?: string): Promise<ProviderCurrentActiveModel> {
     const row = sessionId ? sessionsDb.getSessionById(sessionId) : null;
     if (row?.jsonl_path) {
-      const model = await readLastTranscriptModel(row.jsonl_path).catch(() => null);
-      if (model) return { model };
+      const activeModel = await readLastTranscriptActiveModel(row.jsonl_path).catch(() => null);
+      if (activeModel) return activeModel;
     }
     return buildDefaultProviderCurrentActiveModel(await this.getSupportedModels());
   }

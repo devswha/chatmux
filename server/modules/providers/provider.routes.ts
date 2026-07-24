@@ -9,22 +9,33 @@ import { providerSkillsService } from '@/modules/providers/services/skills.servi
 import { sessionConversationsSearchService } from '@/modules/providers/services/session-conversations-search.service.js';
 import { sessionsService } from '@/modules/providers/services/sessions.service.js';
 import { sessionSynchronizerService } from '@/modules/providers/services/session-synchronizer.service.js';
-import { getLiveGjcSessions, IDLE_GJC_ID_PREFIX } from '@/modules/providers/services/live-sessions.service.js';
+import { getLiveGjcSessions } from '@/modules/providers/services/live-sessions.service.js';
 import {
-  captureExternalCliSessionOutput,
-  getCurrentTmuxSessionName,
+  getCurrentTmuxPaneIdentity,
   getExternalCliSessions,
-  killExternalCliSession,
+  normalizeExternalPaneOutput,
   resolveCodexRolloutPath,
   resolveExternalCliCwd,
-  sendToExternalCliSession,
   spawnExternalCliSession,
+  type ExternalCliSession,
   type ExternalSpawnCli,
 } from '@/modules/providers/services/external-cli-sessions.service.js';
 import { readExternalSessionActivity } from '@/modules/providers/services/external-session-activity.service.js';
 import { getHomeDir, getHomeDirSuggestions } from '@/modules/providers/services/home-dirs.service.js';
-import { isValidTmuxName, sendToLiveSession, isValidSpawnName, spawnLiveSession, killLiveSession } from '@/modules/providers/services/live-send.service.js';
+import { isValidSpawnName, spawnLiveSession } from '@/modules/providers/services/live-send.service.js';
 import { listLiveGjcCommands } from '@/modules/providers/services/live-commands.service.js';
+import { assertLineageTmuxTarget } from '@/modules/providers/services/tmux-target-guard.service.js';
+import {
+  assertTmuxPaneIdentity,
+  captureTmuxPane,
+  killTmuxPane,
+  killTmuxSession,
+  readTmuxPaneIdentity,
+  readTmuxProcessGeneration,
+  sameTmuxPaneIdentity,
+  sendToTmuxPane,
+  stopAgentProcessInPane,
+} from '@/modules/providers/services/tmux-pane-actions.service.js';
 import type {
   LLMProvider,
   McpScope,
@@ -36,7 +47,73 @@ import type {
 } from '@/shared/types.js';
 import { AppError, asyncHandler, createApiSuccessResponse } from '@/shared/utils.js';
 
+import type { TmuxPaneIdentity } from '../../../shared/tmux.js';
+
 const router = express.Router();
+
+type TmuxTerminationMode = 'process' | 'pane' | 'session';
+
+function readTerminationMode(value: unknown): TmuxTerminationMode {
+  if (value === undefined || value === null || value === '') return 'process';
+  if (value === 'process' || value === 'pane' || value === 'session') return value;
+  throw new AppError('mode must be process, pane, or session.', {
+    code: 'INVALID_TMUX_TERMINATION_MODE',
+    statusCode: 400,
+  });
+}
+
+function externalProcessGeneration(session: ExternalCliSession) {
+  return session.agentPid !== undefined && session.startedAtMs !== undefined
+    ? { pid: session.agentPid, startedAtMs: session.startedAtMs }
+    : null;
+}
+
+async function requireExternalPaneTarget(tmuxValue: unknown, processValue: unknown) {
+  const tmux = readTmuxPaneIdentity(tmuxValue);
+  const processGeneration = readTmuxProcessGeneration(processValue);
+  const target = (await getExternalCliSessions()).find((session) => {
+    const currentProcess = externalProcessGeneration(session);
+    return session.kind !== 'ssh' && session.kind !== 'shell'
+      && sameTmuxPaneIdentity(session.tmux, tmux)
+      && currentProcess?.pid === processGeneration.pid
+      && currentProcess.startedAtMs === processGeneration.startedAtMs;
+  });
+  if (!target) {
+    throw new AppError('The selected tmux pane now belongs to a different agent process.', {
+      code: 'TMUX_PROCESS_GENERATION_MISMATCH',
+      statusCode: 409,
+    });
+  }
+  await assertTmuxPaneIdentity(tmux);
+  return { target, tmux, process: processGeneration };
+}
+
+async function assertTerminationAllowed(
+  target: { tmuxName: string | null },
+  tmux: TmuxPaneIdentity,
+  mode: TmuxTerminationMode,
+): Promise<void> {
+  if ((target.tmuxName ?? '').toLowerCase().startsWith('company')) {
+    throw new AppError('This tmux target is protected.', {
+      code: 'EXTERNAL_CLI_SESSION_PROTECTED',
+      statusCode: 403,
+    });
+  }
+  const current = await getCurrentTmuxPaneIdentity();
+  if (
+    current
+    && current.socketPath === tmux.socketPath
+    && (
+      (mode === 'session' && current.sessionId === tmux.sessionId)
+      || (mode === 'pane' && current.paneId === tmux.paneId)
+    )
+  ) {
+    throw new AppError('The tmux target hosting ChatMux is protected.', {
+      code: 'EXTERNAL_CLI_SESSION_PROTECTED',
+      statusCode: 403,
+    });
+  }
+}
 
 const readPathParam = (value: unknown, name: string): string => {
   if (typeof value === 'string') {
@@ -579,36 +656,40 @@ router.get(
 router.get(
   '/sessions/live',
   asyncHandler(async (_req: Request, res: Response) => {
-    // Sessions live in a tmux gjc pane, each with its tmux session name (tmux+lsof;
-    // empty if no tmux). gjc panes with no transcript yet (first message pending)
-    // appear as synthetic `idle-gjc:<tmux name>` rows. liveSessionIds kept for
-    // backward compatibility.
+    // Sessions live in exact tmux panes. Fresh GJC panes without transcripts
+    // appear as synthetic idle rows until the first message is indexed.
     const liveSessions = await getLiveGjcSessions();
-    res.json(createApiSuccessResponse({
-      liveSessions,
-      // Legacy consumers treat these as transcript-backed session ids — keep
-      // synthetic idle-gjc rows out of this surface.
-      liveSessionIds: liveSessions
-        .filter((session) => !session.id.startsWith(IDLE_GJC_ID_PREFIX))
-        .map((session) => session.id),
-    }));
+    res.json(createApiSuccessResponse({ liveSessions }));
   }),
 );
 
 router.get(
   '/sessions/external',
   asyncHandler(async (_req: Request, res: Response) => {
-    // Local coding-agent tmux sessions open structured transcripts when a
-    // native session id is available, with terminal attach as the fallback.
-    // GJC panes stay in the dedicated live lane; SSH is always attach-only.
+    // Coding-agent panes open structured transcripts when a native session id
+    // is available, with terminal attach as the fallback. GJC stays in the
+    // dedicated live lane; SSH and unclassified shell panes are attach-only.
     const externalSessions = await Promise.all((await getExternalCliSessions()).map(async (session) => {
-      if (session.kind === 'ssh') {
-        return { tmuxName: session.tmuxName, kind: session.kind };
-      }
+      const base = {
+        tmuxName: session.tmuxName,
+        tmux: session.tmux,
+        process: externalProcessGeneration(session),
+        kind: session.kind,
+      };
+      if (session.kind === 'ssh' || session.kind === 'shell') return base;
       const projectPath = session.cwd;
       const providerSessionId = session.providerSessionId;
       if (!providerSessionId) {
-        return { tmuxName: session.tmuxName, kind: session.kind, projectPath, activity: 'unknown' as const };
+        const activeModel = session.kind === 'claude'
+          ? await providerModelsService.getCurrentActiveModel('claude').catch(() => null)
+          : null;
+        return {
+          ...base,
+          projectPath,
+          model: activeModel?.model ?? null,
+          effort: activeModel?.effort ?? null,
+          activity: 'unknown' as const,
+        };
       }
       let appSession = sessionsDb.getSessionByProviderSessionId(session.kind, providerSessionId);
       if (!appSession && session.kind === 'codex') {
@@ -619,12 +700,23 @@ router.get(
         }
       }
       if (!appSession) {
-        const activity = await readExternalSessionActivity({
-          kind: session.kind,
-          providerSessionId,
-          jsonlPath: null,
-        });
-        return { tmuxName: session.tmuxName, kind: session.kind, projectPath, activity };
+        const [activeModel, activity] = await Promise.all([
+          session.kind === 'claude'
+            ? providerModelsService.getCurrentActiveModel('claude').catch(() => null)
+            : Promise.resolve(null),
+          readExternalSessionActivity({
+            kind: session.kind,
+            providerSessionId,
+            jsonlPath: null,
+          }),
+        ]);
+        return {
+          ...base,
+          projectPath,
+          model: activeModel?.model ?? null,
+          effort: activeModel?.effort ?? null,
+          activity,
+        };
       }
       const [activeModel, activity] = await Promise.all([
         providerModelsService
@@ -637,12 +729,12 @@ router.get(
         }),
       ]);
       return {
-        tmuxName: session.tmuxName,
-        kind: session.kind,
+        ...base,
         projectPath: appSession.project_path ?? projectPath,
         transcriptSessionId: appSession.session_id,
         sessionName: appSession.custom_name,
         model: activeModel?.model ?? null,
+        effort: activeModel?.effort ?? null,
         activity,
       };
     }));
@@ -650,23 +742,12 @@ router.get(
   }),
 );
 
-router.get(
+router.post(
   '/sessions/external/output',
   asyncHandler(async (req: Request, res: Response) => {
-    const tmuxName = typeof req.query.tmuxName === 'string' ? req.query.tmuxName : '';
-    if (!isValidTmuxName(tmuxName)) {
-      throw new AppError('A valid tmuxName is required.', { code: 'INVALID_TMUX_NAME', statusCode: 400 });
-    }
-    const external = (await getExternalCliSessions()).find(
-      (session) => session.tmuxName === tmuxName && session.kind !== 'ssh',
-    );
-    if (!external) {
-      throw new AppError('The selected tmux session is no longer a supported local CLI session.', {
-        code: 'EXTERNAL_CLI_SESSION_MISMATCH',
-        statusCode: 409,
-      });
-    }
-    const output = await captureExternalCliSessionOutput(tmuxName);
+    const body = (req.body ?? {}) as { tmux?: unknown; process?: unknown };
+    const { tmux } = await requireExternalPaneTarget(body.tmux, body.process);
+    const output = normalizeExternalPaneOutput(await captureTmuxPane(tmux));
     res.json(createApiSuccessResponse({ output }));
   }),
 );
@@ -717,74 +798,42 @@ router.post(
 router.post(
   '/sessions/external/kill',
   asyncHandler(async (req: Request, res: Response) => {
-    const body = (req.body ?? {}) as { tmuxName?: unknown };
-    if (!isValidTmuxName(body.tmuxName)) {
-      throw new AppError('A valid tmuxName is required.', { code: 'INVALID_TMUX_NAME', statusCode: 400 });
-    }
-    if (body.tmuxName === await getCurrentTmuxSessionName()) {
-      throw new AppError('The tmux session hosting ChatMux is protected.', {
-        code: 'EXTERNAL_CLI_SESSION_PROTECTED',
-        statusCode: 403,
-      });
-    }
-    const target = (await getExternalCliSessions()).find(
-      (session) => session.tmuxName === body.tmuxName && session.kind !== 'ssh',
+    const body = (req.body ?? {}) as {
+      tmux?: unknown;
+      process?: unknown;
+      mode?: unknown;
+    };
+    const mode = readTerminationMode(body.mode);
+    const { target, tmux } = await requireExternalPaneTarget(
+      body.tmux,
+      body.process,
     );
-    if (!target) {
-      throw new AppError('The selected tmux session is no longer a supported local CLI session.', {
-        code: 'EXTERNAL_CLI_SESSION_MISMATCH',
-        statusCode: 409,
-      });
+    await assertTerminationAllowed(target, tmux, mode);
+    if (mode === 'process') {
+      await stopAgentProcessInPane(tmux);
+    } else if (mode === 'pane') {
+      await killTmuxPane(tmux);
+    } else {
+      await killTmuxSession(tmux);
     }
-    try {
-      await killExternalCliSession(body.tmuxName);
-    } catch {
-      throw new AppError('The external CLI tmux session could not be stopped.', {
-        code: 'EXTERNAL_CLI_KILL_FAILED',
-        statusCode: 409,
-      });
-    }
-    res.json(createApiSuccessResponse({ ok: true }));
+    res.json(createApiSuccessResponse({ ok: true, mode }));
   }),
 );
 
 router.post(
   '/sessions/external/send',
   asyncHandler(async (req: Request, res: Response) => {
-    const body = (req.body ?? {}) as { tmuxName?: unknown; sessionId?: unknown; message?: unknown };
-    if (!isValidTmuxName(body.tmuxName)) {
-      throw new AppError('A valid tmuxName is required.', { code: 'INVALID_TMUX_NAME', statusCode: 400 });
-    }
-    const sessionId = typeof body.sessionId === 'string' ? body.sessionId : null;
+    const body = (req.body ?? {}) as {
+      tmux?: unknown;
+      process?: unknown;
+      message?: unknown;
+    };
     const message = typeof body.message === 'string' ? body.message : '';
-    if (sessionId !== null && !SESSION_ID_PATTERN.test(sessionId)) {
-      throw new AppError('A valid sessionId is required.', { code: 'INVALID_SESSION_ID', statusCode: 400 });
-    }
     if (!message.trim()) {
       throw new AppError('message is required.', { code: 'EMPTY_MESSAGE', statusCode: 400 });
     }
-
-    const external = (await getExternalCliSessions()).find(
-      (session) => session.tmuxName === body.tmuxName && session.kind !== 'ssh',
-    );
-    if (!external) {
-      throw new AppError('External CLI tmux session changed; reopen it from the session list.', {
-        code: 'EXTERNAL_CLI_SESSION_MISMATCH',
-        statusCode: 409,
-      });
-    }
-    const providerSessionId = external.providerSessionId;
-    const mapped = sessionId && providerSessionId
-      ? sessionsDb.getSessionByProviderSessionId(external.kind, providerSessionId)
-      : null;
-    if (sessionId && (!mapped || mapped.session_id !== sessionId)) {
-      throw new AppError('External CLI tmux session changed; reopen it from the session list.', {
-        code: 'EXTERNAL_CLI_SESSION_MISMATCH',
-        statusCode: 409,
-      });
-    }
-
-    await sendToExternalCliSession(body.tmuxName, message);
+    const { tmux } = await requireExternalPaneTarget(body.tmux, body.process);
+    await sendToTmuxPane(tmux, message);
     res.json(createApiSuccessResponse({ ok: true }));
   }),
 );
@@ -800,65 +849,38 @@ router.get(
   }),
 );
 
-/**
- * Server-side lineage gate for tmux-destructive/injective actions (kill, send).
- * The client hides these controls for non-lineage rows, but a stale UI snapshot
- * or a direct authenticated request could still target a tmux session that no
- * gjc provably runs inside (실사고: patina — cwd-label row killed an unrelated
- * claude tmux). Fail-closed: transient lsof misses deny the action; retrying
- * once detection recovers is the intended UX for a destructive operation.
- *
- * `tmuxId` (`$N`, tmux server-unique) is the GENERATION token: when the client
- * sends the id it observed, a same-named session recreated after that snapshot
- * fails the match and the action is refused (이름 재사용 race 차단). The tower
- * still acts by name, so a residual window of one detection→proxy hop remains —
- * documented, and closable only by a tower-side id-addressed API.
- */
-const TMUX_ID_RE = /^\$\d+$/;
-
-async function assertLineageTmuxTarget(tmuxName: string, tmuxId: string | null): Promise<void> {
-  const live = await getLiveGjcSessions();
-  const matches = live.filter((session) => session.tmuxName === tmuxName && session.claim === 'lineage');
-  if (matches.length === 0) {
-    throw new AppError('tmux 세션에 대한 조작이 거부되었습니다 — gjc가 그 세션 안에서 실행 중임이 확인될 때만 허용됩니다.', {
-      code: 'TMUX_ACTION_NOT_LINEAGE',
-      statusCode: 403,
-    });
-  }
-  if (tmuxId !== null && !matches.some((session) => session.tmuxId === tmuxId)) {
-    throw new AppError('tmux 세션이 그 사이 교체되었습니다 — 같은 이름의 다른 세션입니다. 목록을 새로고침한 뒤 다시 시도하세요.', {
-      code: 'TMUX_GENERATION_MISMATCH',
-      statusCode: 409,
-    });
-  }
-}
-
-/** Optional `$N` generation token from the request body; malformed values are rejected. */
-function readTmuxIdParam(value: unknown): string | null {
-  if (value === undefined || value === null || value === '') {
-    return null;
-  }
-  if (typeof value === 'string' && TMUX_ID_RE.test(value)) {
-    return value;
-  }
-  throw new AppError('tmuxId must look like "$<number>".', { code: 'INVALID_TMUX_ID', statusCode: 400 });
-}
+router.post(
+  '/sessions/live/output',
+  asyncHandler(async (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as { tmux?: unknown; process?: unknown };
+    const tmux = readTmuxPaneIdentity(body.tmux);
+    const processGeneration = readTmuxProcessGeneration(body.process);
+    await assertLineageTmuxTarget(tmux, processGeneration);
+    await assertTmuxPaneIdentity(tmux);
+    const output = normalizeExternalPaneOutput(await captureTmuxPane(tmux));
+    res.json(createApiSuccessResponse({ output }));
+  }),
+);
 
 router.post(
   '/sessions/live/send',
   asyncHandler(async (req: Request, res: Response) => {
-    // Relay a message into a live tmux gjc session via the control tower's /send.
-    const body = (req.body ?? {}) as { tmuxName?: unknown; tmuxId?: unknown; message?: unknown };
-    if (!isValidTmuxName(body.tmuxName)) {
-      throw new AppError('A valid tmuxName is required.', { code: 'INVALID_TMUX_NAME', statusCode: 400 });
-    }
+    const body = (req.body ?? {}) as { tmux?: unknown; process?: unknown; message?: unknown };
+    const tmux = readTmuxPaneIdentity(body.tmux);
+    const processGeneration = readTmuxProcessGeneration(body.process);
     const message = typeof body.message === 'string' ? body.message : '';
     if (!message.trim()) {
       throw new AppError('message is required.', { code: 'EMPTY_MESSAGE', statusCode: 400 });
     }
-    await assertLineageTmuxTarget(body.tmuxName, readTmuxIdParam(body.tmuxId));
-    const result = await sendToLiveSession(body.tmuxName, message);
-    res.json(createApiSuccessResponse(result));
+    await assertLineageTmuxTarget(tmux, processGeneration);
+    await assertTmuxPaneIdentity(tmux);
+    await sendToTmuxPane(tmux, message);
+    res.json(createApiSuccessResponse({
+      ok: true,
+      reachable: true,
+      queued: false,
+      detail: `Delivered to ${tmux.paneId}`,
+    }));
   }),
 );
 
@@ -882,15 +904,25 @@ router.post(
 router.post(
   '/sessions/live/kill',
   asyncHandler(async (req: Request, res: Response) => {
-    // Kill a live tmux session via the control tower's /kill. The tower is the
-    // fleet-lifecycle authority (protected sessions → 403, unknown → 422).
-    const body = (req.body ?? {}) as { tmuxName?: unknown; tmuxId?: unknown };
-    if (!isValidTmuxName(body.tmuxName)) {
-      throw new AppError('A valid tmuxName is required.', { code: 'INVALID_TMUX_NAME', statusCode: 400 });
+    const body = (req.body ?? {}) as {
+      tmux?: unknown;
+      process?: unknown;
+      mode?: unknown;
+    };
+    const tmux = readTmuxPaneIdentity(body.tmux);
+    const processGeneration = readTmuxProcessGeneration(body.process);
+    const mode = readTerminationMode(body.mode);
+    const target = await assertLineageTmuxTarget(tmux, processGeneration);
+    await assertTmuxPaneIdentity(tmux);
+    await assertTerminationAllowed(target, tmux, mode);
+    if (mode === 'process') {
+      await stopAgentProcessInPane(tmux);
+    } else if (mode === 'pane') {
+      await killTmuxPane(tmux);
+    } else {
+      await killTmuxSession(tmux);
     }
-    await assertLineageTmuxTarget(body.tmuxName, readTmuxIdParam(body.tmuxId));
-    const result = await killLiveSession(body.tmuxName);
-    res.json(createApiSuccessResponse(result));
+    res.json(createApiSuccessResponse({ ok: true, mode }));
   }),
 );
 

@@ -742,6 +742,19 @@ const resolveCursorSessionStorePath = async (sessionId: string): Promise<string 
   return null;
 };
 
+/**
+ * Cursor encodes reasoning depth in the selected model id instead of storing a
+ * separate session field (for example `gpt-5.5-high-fast`).
+ */
+export const parseCursorModelEffort = (model: string): string | null => {
+  const normalized = model.trim().toLowerCase().replace(/-fast$/, '');
+  if (/(?:^|-)extra-high(?:-|$)/.test(normalized)) {
+    return 'xhigh';
+  }
+  const matches = [...normalized.matchAll(/(?:^|-)(xhigh|high|medium|low|none)(?=-|$)/g)];
+  return matches.at(-1)?.[1] ?? null;
+};
+
 export class CursorProviderModels implements IProviderModels {
   async getSupportedModels(): Promise<ProviderModelsDefinition> {
     try {
@@ -782,8 +795,11 @@ export class CursorProviderModels implements IProviderModels {
 
         const metadata = JSON.parse(metadataText) as { lastUsedModel?: string };
         if (typeof metadata.lastUsedModel === 'string' && metadata.lastUsedModel.trim()) {
+          const model = metadata.lastUsedModel.trim();
+          const effort = parseCursorModelEffort(model);
           return {
-            model: metadata.lastUsedModel.trim(),
+            model,
+            ...(effort ? { effort } : {}),
           };
         }
       } finally {

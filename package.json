@@ -2,16 +2,14 @@
   "name": "chatmux",
   "private": true,
   "version": "1.3.5",
-  "desktopVersion": "0.2.0",
   "productName": "ChatMux",
-  "description": "A self-hosted web and desktop interface for GJC, Claude Code, Cursor, Codex, and OpenCode",
+  "description": "A self-hosted web interface for coding-agent sessions running in tmux",
   "type": "module",
   "main": "dist-server/server/index.js",
   "bin": {
     "chatmux": "dist-server/server/cli.js"
   },
   "files": [
-    "electron/",
     "server/",
     "shared/",
     "public/api-docs.html",
@@ -37,15 +35,7 @@
     "server:dev-watch": "tsx watch --tsconfig server/tsconfig.json server/index.js",
     "preserver:dev-watch": "npm run build:core:dev",
     "client": "vite",
-    "desktop": "electron electron/main.js",
-    "desktop:dev": "cross-env ELECTRON_DEV_URL=http://127.0.0.1:5173 electron electron/main.js",
-    "desktop:stage": "node scripts/release/prepare-desktop-app.js",
-    "desktop:pack": "npm run build && npm run desktop:stage && electron-builder --projectDir .desktop-build/desktop-app --dir",
-    "desktop:dist:mac": "npm run build && npm run desktop:stage && electron-builder --projectDir .desktop-build/desktop-app --mac dmg",
-    "desktop:dist:win": "npm run build && npm run desktop:stage && electron-builder --projectDir .desktop-build/desktop-app --win nsis",
-    "desktop:dist:linux": "npm run build && npm run desktop:stage && electron-builder --projectDir .desktop-build/desktop-app --linux",
     "server:bundle": "npm run build && node scripts/release/build-server-bundle.js",
-    "desktop:icon:mac": "node electron/scripts/generate-macos-icon.js",
     "build": "npm run build:client && npm run build:server && npm run build:core",
     "build:client": "vite build",
     "build:core": "node scripts/build-rust-core.mjs --release",
@@ -59,80 +49,12 @@
     "check:core": "cargo fmt --manifest-path native/chatmux-core/Cargo.toml -- --check && cargo clippy --locked --manifest-path native/chatmux-core/Cargo.toml --all-targets -- -D warnings && cargo test --locked --manifest-path native/chatmux-core/Cargo.toml",
     "test": "node scripts/run-tests.mjs",
     "pretest": "npm run build:core:dev",
-    "lint": "eslint src/ server/ electron/ shared/ scripts/ vite.config.js tailwind.config.js",
-    "lint:fix": "eslint src/ server/ electron/ shared/ scripts/ vite.config.js tailwind.config.js --fix",
+    "lint": "eslint src/ server/ shared/ scripts/ vite.config.js tailwind.config.js",
+    "lint:fix": "eslint src/ server/ shared/ scripts/ vite.config.js tailwind.config.js --fix",
     "verify": "npm run audit && npm run typecheck && npm run check:core && npm test && npm run lint && npm run check:identity && npm run build",
     "start": "npm run build && npm run server",
     "postinstall": "node scripts/fix-node-pty.js",
     "prepare": "husky"
-  },
-  "build": {
-    "appId": "app.chatmux.desktop",
-    "productName": "ChatMux",
-    "asar": false,
-    "executableName": "chatmux",
-    "artifactName": "chatmux-desktop-${version}-${os}-${arch}.${ext}",
-    "directories": {
-      "output": "release/desktop"
-    },
-    "extraMetadata": {
-      "main": "electron/main.js"
-    },
-    "files": [
-      "electron/",
-      "public/",
-      "dist/",
-      "dist-server/",
-      "dist-native/",
-      "shared/",
-      "server/",
-      "package.json",
-      "!**/node_modules/@anthropic-ai/claude-agent-sdk-{darwin,linux,win32}-*/**"
-    ],
-    "protocols": [
-      {
-        "name": "ChatMux",
-        "schemes": [
-          "chatmux"
-        ]
-      }
-    ],
-    "mac": {
-      "category": "public.app-category.developer-tools",
-      "icon": "public/icons/icon-512x512.png",
-      "notarize": false,
-      "target": [
-        "dmg"
-      ],
-      "extendInfo": {
-        "CFBundleName": "ChatMux",
-        "CFBundleDisplayName": "ChatMux",
-        "CFBundleURLTypes": [
-          {
-            "CFBundleURLName": "ChatMux",
-            "CFBundleURLSchemes": [
-              "chatmux"
-            ]
-          }
-        ]
-      }
-    },
-    "win": {
-      "icon": "public/icons/icon-512x512.png",
-      "target": [
-        "nsis"
-      ]
-    },
-    "linux": {
-      "icon": "public/icons/icon-512x512.png",
-      "category": "Development",
-      "maintainer": "devswha <devswha@gmail.com>",
-      "synopsis": "ChatMux desktop app",
-      "target": [
-        "AppImage",
-        "deb"
-      ]
-    }
   },
   "keywords": [
     "chatmux",
@@ -234,9 +156,6 @@
     "auto-changelog": "^2.5.0",
     "autoprefixer": "^10.4.16",
     "concurrently": "^8.2.2",
-    "cross-env": "^10.1.0",
-    "electron": "^43.1.1",
-    "electron-builder": "^26.15.3",
     "eslint": "^9.39.3",
     "eslint-import-resolver-typescript": "^4.4.4",
     "eslint-plugin-boundaries": "^6.0.2",
@@ -263,6 +182,6 @@
   "lint-staged": {
     "src/**/*.{ts,tsx,js,jsx}": "eslint",
     "server/**/*.{js,ts}": "eslint",
-    "{electron,shared,scripts}/**/*.{js,mjs,cjs,ts}": "eslint"
+    "{shared,scripts}/**/*.{js,mjs,cjs,ts}": "eslint"
   }
 }

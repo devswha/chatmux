@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Loader2, MessageSquarePlus } from 'lucide-react';
 
 import { api } from '../../../../utils/api';
+import type { TmuxPaneTarget } from '../../../../../shared/tmux';
 
 /**
  * How long a sent-but-unpromoted idle session may sit in "promoting" before
@@ -21,8 +22,8 @@ export type IdleComposerStatus =
 
 type SidebarIdleComposerProps = {
   tmuxName: string;
-  /** `$N` generation token observed with this row; refuses a renamed-reuse race server-side. */
-  tmuxId: string | null;
+  /** Exact pane and process generation observed with this row. */
+  target: TmuxPaneTarget | null;
   /** Test-only: SSR tests cannot drive internal state, so they pin renders per status. */
   initialStatus?: IdleComposerStatus;
 };
@@ -37,7 +38,7 @@ type SidebarIdleComposerProps = {
  * with its row. Send failures and a promotion that never materializes both
  * fail closed back to an editable composer with an explanation.
  */
-export default function SidebarIdleComposer({ tmuxName, tmuxId, initialStatus }: SidebarIdleComposerProps) {
+export default function SidebarIdleComposer({ tmuxName, target, initialStatus }: SidebarIdleComposerProps) {
   const [status, setStatus] = useState<IdleComposerStatus>(initialStatus ?? { kind: 'collapsed' });
   const [message, setMessage] = useState('');
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -53,9 +54,13 @@ export default function SidebarIdleComposer({ tmuxName, tmuxId, initialStatus }:
     if (!text || status.kind === 'sending' || status.kind === 'promoting') {
       return;
     }
+    if (!target) {
+      setStatus({ kind: 'error', text: '대상이 교체됨 — 목록을 새로고침해 주세요' });
+      return;
+    }
     setStatus({ kind: 'sending' });
     try {
-      const response = await api.liveSessionSend(tmuxName, text, tmuxId);
+      const response = await api.liveSessionSend(target.tmux, target.process, text);
       const body = await response.json().catch(() => null);
       const data = (body?.data ?? body ?? {}) as { ok?: boolean; reachable?: boolean; detail?: string };
       if (response.ok && data.ok) {

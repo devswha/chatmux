@@ -6,6 +6,58 @@ future server artifacts are published only through
 
 ## Unreleased
 
+### Testing
+
+- Added a real-tmux E2E harness with isolated sockets and controllable fake
+  Codex/GJC CLIs. It verifies pre-existing, idle, and same-directory discovery,
+  Node/Bun/npm-shim wrapper lineage, concurrent exact-target input,
+  fresh-process rediscovery, required generation tokens, same-name replacement,
+  rejected stale input and termination, and tmux session survival.
+- Added first-turn GJC promotion coverage from a synthetic idle tmux row to one
+  generation-matched, indexed structured session. The client now removes the
+  idle row atomically instead of retaining a duplicate grace-period row.
+
+### Changed
+
+- Agent rows are now identified by immutable tmux socket, session, window, and
+  pane coordinates plus the current process generation, so multiple agents in
+  one tmux session remain independently selectable and actionable. Rows use
+  the tmux session name as the primary label and transcript titles as metadata;
+  raw tmux coordinates remain internal instead of appearing in UI labels.
+- Existing Bun-launched Oh My Pi panes are now recognized from their
+  shell-owned process and active transcript, so they open as structured chats
+  instead of terminal-only rows.
+- Oh My Pi and OpenCode provider badges now use their official marks, including
+  OpenCode's published light and dark color variants.
+- Live CLI output now preserves tmux ANSI foreground/background styles and
+  fixed-width terminal layout instead of flattening panes to black-and-white text.
+- External Claude panes now stay transcript-first, with raw tmux output isolated
+  behind the CLI output tab. Model and reasoning-effort metadata survive
+  first-turn transcript promotion, and sends target the live pane identity
+  instead of a stale transcript ID.
+  User turns now use the same right-aligned message bubbles as GJC chats.
+- Live GJC, Claude, Cursor, Codex, Oh My Pi, and OpenCode rows now show the
+  provider-reported current model followed by its reasoning effort. Long-running
+  OpenCode panes recover metadata only from a unique provider-and-workspace
+  transcript match; providers that expose no effort value remain unlabeled.
+- Structured GJC sessions now provide the same conversation/CLI output switcher
+  as other local agents. CLI capture remains bound to the exact tmux pane and
+  GJC process generation, so a replaced pane is rejected instead of displayed.
+- Local agent rows now offer four explicit Korean termination choices:
+  stop the agent while preserving its pane, kill only that pane, kill the
+  whole tmux session, or cancel. SSH rows remain attach-only.
+- The unified session list now includes unclassified tmux panes as attach-only
+  terminal rows instead of dropping them. GJC runtime-receipt discovery reads
+  bounded batches concurrently so large workspaces no longer leave live rows
+  missing behind a slow poll. Non-tmux processes remain in transcript history
+  instead of appearing in the tmux roster.
+
+### Removed
+
+- Removed the Electron shell, desktop packaging and build dependencies, remote
+  desktop targets, desktop notification transport, and its endpoint API and
+  storage scaffolding. ChatMux now ships only the self-hosted web/PWA and server.
+
 ## 1.3.5 (2026-07-22)
 
 ### Installation
