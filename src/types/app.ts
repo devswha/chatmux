@@ -47,6 +47,8 @@ export type ExternalTerminalTarget = {
   sessionName?: string;
   model?: string | null;
   effort?: string | null;
+  /** Transcript stream closed (recorder died) while the pane may still run. */
+  transcriptEnded?: boolean;
 } | {
   /** A freshly opened GJC pane has no transcript id until its first message. */
   tmuxName: string;

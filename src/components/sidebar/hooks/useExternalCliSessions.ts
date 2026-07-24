@@ -16,6 +16,8 @@ export type ExternalCliSession = {
   model?: string | null;
   effort?: string | null;
   activity?: ExternalSessionActivity;
+  /** True when the transcript stream is closed while the pane may still run. */
+  transcriptEnded?: boolean;
 };
 
 const POLL_INTERVAL_MS = 5000;

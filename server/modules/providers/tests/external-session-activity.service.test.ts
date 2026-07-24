@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   parseExternalJsonlActivity,
+  parseOmpTranscriptEnded,
   parseOpenCodeActivity,
 } from '@/modules/providers/services/external-session-activity.service.js';
 
@@ -28,6 +29,19 @@ test('Oh My Pi recognizes a native user question inside a tool-use turn', () => 
       content: [{ type: 'toolCall', name: 'ask' }],
     },
   })), 'asking_user');
+});
+
+test('Oh My Pi transcript-ended matches only a trailing session_exit record', () => {
+  assert.equal(parseOmpTranscriptEnded([
+    { type: 'message', message: { role: 'assistant', stopReason: 'stop' } },
+    { type: 'custom', customType: 'session_exit', data: { reason: 'dispose' } },
+  ]), true);
+  // A record after session_exit means the stream resumed — not ended.
+  assert.equal(parseOmpTranscriptEnded([
+    { type: 'custom', customType: 'session_exit' },
+    { type: 'message', message: { role: 'user', content: 'resumed' } },
+  ]), false);
+  assert.equal(parseOmpTranscriptEnded([]), false);
 });
 
 test('Claude activity distinguishes tool execution, questions, and completed turns', () => {

@@ -112,6 +112,7 @@ export default function SidebarExternalSection({ sessions, projects, onOpen, onC
       sessionName: session.sessionName,
       model: session.model,
       effort: session.effort,
+      transcriptEnded: session.transcriptEnded,
     });
   };
 
@@ -136,6 +137,7 @@ export default function SidebarExternalSection({ sessions, projects, onOpen, onC
       sessionName: session.sessionName,
       model: session.model,
       effort: session.effort,
+      transcriptEnded: session.transcriptEnded,
     });
   }, [onOpen, sessions, projects]);
 

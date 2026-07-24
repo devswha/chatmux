@@ -221,6 +221,37 @@ async function readFileTail(filePath: string): Promise<{ size: number; text: str
   }
 }
 
+const transcriptEndedCache = new Map<string, { size: number; ended: boolean }>();
+
+/**
+ * Detects a transcript whose final record marks the session stream as closed
+ * while the CLI process may still be alive in tmux (recorder died mid-run).
+ * Currently only omp writes an explicit `session_exit` custom record.
+ */
+export function parseOmpTranscriptEnded(records: JsonRecord[]): boolean {
+  const last = records[records.length - 1];
+  if (!last || last.type !== 'custom') return false;
+  return readString(last.customType) === 'session_exit';
+}
+
+export async function readExternalTranscriptEnded(input: {
+  kind: ExternalLocalCliKind;
+  jsonlPath: string | null | undefined;
+}): Promise<boolean> {
+  if (input.kind !== 'omp' || !input.jsonlPath) return false;
+  try {
+    const fileStat = await stat(input.jsonlPath);
+    const cached = transcriptEndedCache.get(input.jsonlPath);
+    if (cached?.size === fileStat.size) return cached.ended;
+    const tail = await readFileTail(input.jsonlPath);
+    const ended = parseOmpTranscriptEnded(parseJsonLines(tail.text));
+    transcriptEndedCache.set(input.jsonlPath, { size: tail.size, ended });
+    return ended;
+  } catch {
+    return false;
+  }
+}
+
 async function readJsonlActivity(
   kind: Exclude<ExternalLocalCliKind, 'opencode'>,
   filePath: string,

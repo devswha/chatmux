@@ -20,7 +20,7 @@ import {
   type ExternalCliSession,
   type ExternalSpawnCli,
 } from '@/modules/providers/services/external-cli-sessions.service.js';
-import { readExternalSessionActivity } from '@/modules/providers/services/external-session-activity.service.js';
+import { readExternalSessionActivity, readExternalTranscriptEnded } from '@/modules/providers/services/external-session-activity.service.js';
 import { getHomeDir, getHomeDirSuggestions } from '@/modules/providers/services/home-dirs.service.js';
 import { isValidSpawnName, spawnLiveSession } from '@/modules/providers/services/live-send.service.js';
 import { listLiveGjcCommands } from '@/modules/providers/services/live-commands.service.js';
@@ -718,13 +718,17 @@ router.get(
           activity,
         };
       }
-      const [activeModel, activity] = await Promise.all([
+      const [activeModel, activity, transcriptEnded] = await Promise.all([
         providerModelsService
           .getCurrentActiveModel(session.kind, appSession.session_id)
           .catch(() => null),
         readExternalSessionActivity({
           kind: session.kind,
           providerSessionId,
+          jsonlPath: appSession.jsonl_path,
+        }),
+        readExternalTranscriptEnded({
+          kind: session.kind,
           jsonlPath: appSession.jsonl_path,
         }),
       ]);
@@ -736,6 +740,7 @@ router.get(
         model: activeModel?.model ?? null,
         effort: activeModel?.effort ?? null,
         activity,
+        transcriptEnded,
       };
     }));
     res.json(createApiSuccessResponse({ externalSessions }));

@@ -1,5 +1,9 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
+
+// renderToStaticMarkup-based tests render this component server-side, where
+// useLayoutEffect warns; the fallback to useEffect there is behavior-neutral.
+const useIsomorphicLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect;
 
 export type AnsiTerminalToken = {
   text: string;
@@ -189,6 +193,13 @@ type PendingExternalCliOutputProps = {
   emptyMessage?: string;
 };
 
+// Fit-to-width bounds: desktop keeps the regular 12px (text-xs); narrow
+// screens shrink toward MIN so a full tmux row fits without side-scrolling.
+const MAX_TERMINAL_FONT_PX = 12;
+const MIN_TERMINAL_FONT_PX = 6.5;
+// Approximate glyph width/em ratio of the mono stack, with safety margin.
+const MONO_GLYPH_WIDTH_RATIO = 0.62;
+
 export default function PendingExternalCliOutput({
   providerLabel,
   output,
@@ -196,8 +207,12 @@ export default function PendingExternalCliOutput({
 }: PendingExternalCliOutputProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const followTailRef = useRef(true);
+  const [viewportWidth, setViewportWidth] = useState(0);
 
-  useEffect(() => {
+  // Layout effect: the tail must be pinned before paint, otherwise every
+  // 1s poll paints the shifted capture window at the old scrollTop and then
+  // jumps — a visible flicker while the CLI is streaming.
+  useIsomorphicLayoutEffect(() => {
     if (!output) {
       followTailRef.current = true;
       return;
@@ -212,12 +227,13 @@ export default function PendingExternalCliOutput({
     if (!output) return undefined;
     const viewport = viewportRef.current;
     if (!viewport) return undefined;
-    const keepTailVisible = () => {
+    const handleResize = () => {
+      setViewportWidth(viewport.clientWidth);
       if (followTailRef.current) {
         viewport.scrollTop = viewport.scrollHeight;
       }
     };
-    const observer = new ResizeObserver(keepTailVisible);
+    const observer = new ResizeObserver(handleResize);
     observer.observe(viewport);
     return () => observer.disconnect();
   }, [output]);
@@ -240,18 +256,34 @@ export default function PendingExternalCliOutput({
 
   const tokens = parseAnsiTerminalOutput(output);
 
+  // The tmux pane is a fixed character grid (often 80-200 columns). On narrow
+  // screens the font shrinks so one full row fits the viewport — wrapping
+  // would shred TUI layouts. Below MIN the pane side-scrolls instead.
+  let maxColumns = 0;
+  for (const line of tokens.map((token) => token.text).join('').split('\n')) {
+    if (line.length > maxColumns) maxColumns = line.length;
+  }
+  const availableWidth = viewportWidth - 32; // px-4 horizontal padding
+  const fitFontPx = maxColumns > 0 && availableWidth > 0
+    ? availableWidth / (maxColumns * MONO_GLYPH_WIDTH_RATIO)
+    : MAX_TERMINAL_FONT_PX;
+  const fontSizePx = Math.max(MIN_TERMINAL_FONT_PX, Math.min(MAX_TERMINAL_FONT_PX, fitFontPx));
+
   return (
     <div
       ref={viewportRef}
       onScroll={handleScroll}
-      className="min-h-0 flex-1 overflow-auto bg-[#1e1e1e] px-4 py-3 text-left"
+      className="min-h-0 flex-1 overflow-auto bg-[#1e1e1e] px-4 py-3 text-left [scrollbar-gutter:stable]"
     >
       <pre
         aria-label={`${providerLabel} live terminal output`}
-        className="mx-auto w-max min-w-full whitespace-pre font-mono text-xs leading-relaxed text-zinc-100"
+        className="mx-auto w-max min-w-full whitespace-pre font-mono leading-relaxed text-zinc-100"
+        style={{ fontSize: `${fontSizePx}px` }}
       >
         {tokens.map((token, index) => (
-          <span key={`${index}-${token.text.length}`} style={token.style}>{token.text}</span>
+          // Index keys keep spans mounted across polls so React mutates text
+          // in place instead of remounting the whole terminal frame.
+          <span key={index} style={token.style}>{token.text}</span>
         ))}
       </pre>
     </div>

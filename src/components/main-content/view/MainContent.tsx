@@ -1,4 +1,4 @@
-import React, { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Menu, MessageSquare, SquareTerminal, X } from 'lucide-react';
 
 import type { MainContentProps } from '../types/types';
@@ -218,8 +218,21 @@ function MainContent({
     return () => window.removeEventListener('browserUseSettingsChanged', loadBrowserUseSettings);
   }, [loadBrowserUseSettings]);
 
+  // The polling effect is keyed on a stable identity STRING, not the target
+  // object: upstream props re-derive objects freely, and an identity-churned
+  // dep would tear the effect down every render — blanking the pane for one
+  // fetch round-trip each time (visible flicker). The ref feeds the interval
+  // the latest equivalent object without retriggering the effect.
+  const externalOutputTargetRef = useRef(externalOutputTarget);
   useEffect(() => {
-    if (!externalOutputTarget) {
+    externalOutputTargetRef.current = externalOutputTarget;
+  });
+  const externalOutputTargetKey = externalOutputTarget
+    ? `${externalOutputTarget.lane}:${tmuxPaneIdentityKey(externalOutputTarget.tmux)}:${externalOutputTarget.process.pid}:${externalOutputTarget.process.startedAtMs}`
+    : null;
+
+  useEffect(() => {
+    if (!externalOutputTargetKey) {
       setExternalPaneOutput('');
       setExternalPaneError('');
       return undefined;
@@ -228,27 +241,23 @@ function MainContent({
     let cancelled = false;
     let controller: AbortController | null = null;
     const loadOutput = async () => {
+      const target = externalOutputTargetRef.current;
+      if (!target) return;
       controller?.abort();
       controller = new AbortController();
       try {
-        const response = externalOutputTarget.lane === 'live'
-          ? await api.liveSessionOutput(
-              externalOutputTarget.tmux,
-              externalOutputTarget.process,
-              controller.signal,
-            )
-          : await api.externalCliSessionOutput(
-              externalOutputTarget.tmux,
-              externalOutputTarget.process,
-              controller.signal,
-            );
+        const response = target.lane === 'live'
+          ? await api.liveSessionOutput(target.tmux, target.process, controller.signal)
+          : await api.externalCliSessionOutput(target.tmux, target.process, controller.signal);
         const payload = await response.json().catch(() => null);
         if (cancelled) return;
         if (response.ok) {
           setExternalPaneOutput(typeof payload?.data?.output === 'string' ? payload.data.output : '');
           setExternalPaneError('');
         } else {
-          setExternalPaneOutput('');
+          // Keep the last frame: the error panel replaces the view, and a
+          // transient failure recovering on the next tick should not flash
+          // the empty state in between.
           setExternalPaneError(
             payload?.error?.message
               ?? 'CLI 출력을 불러오지 못했습니다. tmux 세션이 종료되었을 수 있습니다.',
@@ -256,7 +265,6 @@ function MainContent({
         }
       } catch (error) {
         if (!cancelled && !(error instanceof DOMException && error.name === 'AbortError')) {
-          setExternalPaneOutput('');
           setExternalPaneError('CLI 출력을 불러오지 못했습니다. tmux 세션 연결을 확인하세요.');
         }
       }
@@ -271,7 +279,7 @@ function MainContent({
       controller?.abort();
       window.clearInterval(interval);
     };
-  }, [externalOutputTarget]);
+  }, [externalOutputTargetKey]);
 
   useEffect(() => {
     if (!shouldShowBrowserTab && activeTab === 'browser') {
@@ -443,6 +451,19 @@ function MainContent({
                 tmuxName={transcriptCliTmuxName}
                 onChange={setExternalTranscriptView}
               />
+            )}
+            {externalTranscript && 'transcriptEnded' in externalTranscript && externalTranscript.transcriptEnded
+              && externalTranscriptView === 'conversation' && (
+              <div
+                role="status"
+                className="flex flex-shrink-0 items-start gap-2 border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs text-amber-600 dark:text-amber-400"
+              >
+                <SquareTerminal className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" aria-hidden />
+                <span>
+                  이 세션의 대화 기록이 중단되었습니다 (세션은 실행 중일 수 있음).
+                  새 메시지는 <strong>CLI 출력</strong> 탭에서 확인하세요.
+                </span>
+              </div>
             )}
             <div className={`min-h-0 flex-1 ${transcriptCliTarget && externalTranscriptView === 'cli' ? 'hidden' : 'block'}`}>
               <ErrorBoundary showDetails>

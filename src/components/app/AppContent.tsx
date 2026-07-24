@@ -263,6 +263,23 @@ function AppContentInner() {
     ? externalTranscript
     : null;
 
+  // Relay only for exact pane and process generations. A cwd-only label may
+  // point at another pane and is never actionable. Memoized: an inline object
+  // literal here changes identity every render, which tears down MainContent's
+  // pane-output polling effect and blanks the CLI output view (visible flicker).
+  const liveSessionTarget = useMemo(() => (
+    selectedSession && sidebarSharedProps.liveSessionLineage.has(selectedSession.id)
+      ? (sidebarSharedProps.liveSessionTargets.get(selectedSession.id) ?? null)
+      : activeExternalTranscript?.process
+        ? { tmux: activeExternalTranscript.tmux, process: activeExternalTranscript.process }
+        : null
+  ), [
+    selectedSession,
+    sidebarSharedProps.liveSessionLineage,
+    sidebarSharedProps.liveSessionTargets,
+    activeExternalTranscript,
+  ]);
+
   // Queued messages for sessions that finish while another session (or none)
   // is being viewed are sent from here; the viewed session's composer handles
   // its own queue.
@@ -426,15 +443,7 @@ function AppContentInner() {
             selectedSession
             && (sidebarSharedProps.liveSessionIds.has(selectedSession.id) || activeExternalTranscript),
           )}
-          liveSessionTarget={
-            // Relay only for exact pane and process generations. A cwd-only
-            // label may point at another pane and is never actionable.
-            selectedSession && sidebarSharedProps.liveSessionLineage.has(selectedSession.id)
-              ? (sidebarSharedProps.liveSessionTargets.get(selectedSession.id) ?? null)
-              : activeExternalTranscript?.process
-                ? { tmux: activeExternalTranscript.tmux, process: activeExternalTranscript.process }
-                : null
-          }
+          liveSessionTarget={liveSessionTarget}
           liveSessionModel={activeExternalTranscript?.model
             ?? (selectedSession ? (liveSessionModels.get(selectedSession.id) ?? null) : null)}
           liveSessionEffort={activeExternalTranscript?.effort
