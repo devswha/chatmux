@@ -125,6 +125,15 @@
         "label": "字型大小",
         "description": "編輯器字型大小（px）"
       }
+    },
+    "installApp": {
+      "title": "安裝為應用程式",
+      "description": "將 ChatMux 作為獨立的網頁應用程式（PWA）安裝到此裝置。",
+      "installButton": "安裝應用程式",
+      "installed": "ChatMux 已經以已安裝的應用程式執行。",
+      "iosHint": "在 iOS 上，點選 Safari 中的分享按鈕，然後選擇「加入主畫面」。",
+      "browserMenuHint": "安裝提示尚不可用。請改用瀏覽器選單：「安裝應用程式」（Chrome/Edge）或「加入主畫面」。",
+      "insecureHint": "安裝應用程式需要安全連線。請透過 HTTPS 或 localhost 開啟 ChatMux — 瀏覽器會在一般 http:// 位址上停用安裝功能。"
     }
   },
   "mcpForm": {

@@ -61,6 +61,7 @@
   "actions": {
     "refresh": "重新整理",
     "settings": "設定",
+    "installApp": "安裝應用程式",
     "collapseAll": "全部收合",
     "expandAll": "全部展開",
     "cancel": "取消",
@@ -120,6 +121,7 @@
     "open": "新增工作階段",
     "sessionNamePlaceholder": "工作階段名稱（英文字母和數字，例如 my-feature）",
     "workingDirectoryPlaceholder": "工作資料夾（例如 ~/workspace/my-proj，也可使用絕對路徑）",
+    "recentPaths": "最近使用的路徑",
     "cancel": "取消",
     "creating": "建立中…",
     "create": "建立",

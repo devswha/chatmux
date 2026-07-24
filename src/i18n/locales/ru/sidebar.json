@@ -62,6 +62,7 @@
   "actions": {
     "refresh": "Обновить",
     "settings": "Настройки",
+    "installApp": "Установить приложение",
     "collapseAll": "Свернуть все",
     "expandAll": "Развернуть все",
     "cancel": "Отмена",
@@ -121,6 +122,7 @@
     "open": "Новый сеанс",
     "sessionNamePlaceholder": "Имя сеанса (буквы и цифры, например my-feature)",
     "workingDirectoryPlaceholder": "Рабочая папка (например ~/workspace/my-proj или абсолютный путь)",
+    "recentPaths": "Недавние пути",
     "cancel": "Отмена",
     "creating": "Создание…",
     "create": "Создать",

@@ -3,6 +3,8 @@ import type { TFunction } from 'i18next';
 
 import type { ReleaseInfo } from '../../../../types/sharedTypes';
 
+import SidebarInstallButton from './SidebarInstallButton';
+
 const GITHUB_REPO_URL = 'https://github.com/devswha/chatmux';
 
 type SidebarFooterProps = {
@@ -94,6 +96,9 @@ export default function SidebarFooter({
 
       {/* Settings */}
       <div className="nav-divider" />
+
+      {/* PWA install (renders only when the browser offers the prompt) */}
+      <SidebarInstallButton />
 
       {/* Desktop settings */}
       <div className="hidden px-2 py-1.5 md:block">

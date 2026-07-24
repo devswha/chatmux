@@ -62,6 +62,7 @@
   "actions": {
     "refresh": "Aktualisieren",
     "settings": "Einstellungen",
+    "installApp": "Als App installieren",
     "collapseAll": "Alle einklappen",
     "expandAll": "Alle ausklappen",
     "cancel": "Abbrechen",
@@ -121,6 +122,7 @@
     "open": "Neue Sitzung",
     "sessionNamePlaceholder": "Sitzungsname (Buchstaben und Zahlen, z. B. mein-feature)",
     "workingDirectoryPlaceholder": "Arbeitsordner (z. B. ~/workspace/mein-projekt oder absoluter Pfad)",
+    "recentPaths": "Zuletzt verwendete Pfade",
     "cancel": "Abbrechen",
     "creating": "Wird erstellt…",
     "create": "Erstellen",

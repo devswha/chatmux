@@ -62,6 +62,7 @@
   "actions": {
     "refresh": "Actualiser",
     "settings": "Paramètres",
+    "installApp": "Installer l'application",
     "collapseAll": "Tout réduire",
     "expandAll": "Tout développer",
     "cancel": "Annuler",
@@ -121,6 +122,7 @@
     "open": "Nouvelle session",
     "sessionNamePlaceholder": "Nom de session (lettres et chiffres, ex. ma-fonctionnalite)",
     "workingDirectoryPlaceholder": "Dossier de travail (ex. ~/workspace/mon-projet ou chemin absolu)",
+    "recentPaths": "Chemins récents",
     "cancel": "Annuler",
     "creating": "Création…",
     "create": "Créer",

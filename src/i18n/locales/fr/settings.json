@@ -124,6 +124,15 @@
         "label": "Taille de police",
         "description": "Taille de police de l'éditeur en pixels"
       }
+    },
+    "installApp": {
+      "title": "Installer comme application",
+      "description": "Installez ChatMux sur cet appareil comme une application web autonome (PWA).",
+      "installButton": "Installer l’application",
+      "installed": "ChatMux fonctionne déjà comme une application installée.",
+      "iosHint": "Sur iOS, touchez le bouton Partager dans Safari et choisissez « Ajouter à l’écran d’accueil ».",
+      "browserMenuHint": "La fenêtre d’installation n’est pas encore disponible. Utilisez plutôt le menu du navigateur : « Installer l’application » (Chrome/Edge) ou « Ajouter à l’écran d’accueil ».",
+      "insecureHint": "L’installation de l’application nécessite une connexion sécurisée. Ouvrez ChatMux via HTTPS ou localhost — les navigateurs désactivent l’installation sur les adresses http:// simples."
     }
   },
   "mcpForm": {

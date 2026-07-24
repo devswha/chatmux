@@ -9,6 +9,8 @@ import SettingsRow from '../SettingsRow';
 import SettingsSection from '../SettingsSection';
 import SettingsToggle from '../SettingsToggle';
 
+import InstallAppSection from './InstallAppSection';
+
 type AppearanceSettingsTabProps = {
   projectSortOrder: ProjectSortOrder;
   onProjectSortOrderChange: (value: ProjectSortOrder) => void;
@@ -167,6 +169,8 @@ export default function AppearanceSettingsTab({
           </SettingsRow>
         </SettingsCard>
       </SettingsSection>
+
+      <InstallAppSection />
     </div>
   );
 }

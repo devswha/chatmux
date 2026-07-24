@@ -61,6 +61,7 @@
   "actions": {
     "refresh": "새로고침",
     "settings": "설정",
+    "installApp": "앱 설치",
     "collapseAll": "모두 접기",
     "expandAll": "모두 펼치기",
     "cancel": "취소",
@@ -120,6 +121,7 @@
     "open": "새 세션",
     "sessionNamePlaceholder": "세션 이름 (영숫자, 예: my-feature)",
     "workingDirectoryPlaceholder": "작업 폴더 (예: ~/workspace/my-proj, 절대 경로 가능)",
+    "recentPaths": "최근 사용 경로",
     "cancel": "취소",
     "creating": "생성 중…",
     "create": "만들기",

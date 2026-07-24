@@ -125,6 +125,15 @@
         "label": "Yazı Tipi Boyutu",
         "description": "Editör yazı tipi boyutu (piksel)"
       }
+    },
+    "installApp": {
+      "title": "Uygulama Olarak Yükle",
+      "description": "ChatMux'u bu cihaza bağımsız bir web uygulaması (PWA) olarak yükleyin.",
+      "installButton": "Uygulamayı yükle",
+      "installed": "ChatMux zaten yüklü bir uygulama olarak çalışıyor.",
+      "iosHint": "iOS'ta Safari'deki Paylaş düğmesine dokunun ve \"Ana Ekrana Ekle\" seçeneğini belirleyin.",
+      "browserMenuHint": "Yükleme istemi henüz kullanılamıyor. Bunun yerine tarayıcı menüsünü kullanın: \"Uygulamayı yükle\" (Chrome/Edge) veya \"Ana Ekrana Ekle\".",
+      "insecureHint": "Uygulama yüklemek için güvenli bir bağlantı gerekir. ChatMux'u HTTPS veya localhost üzerinden açın — tarayıcılar düz http:// adreslerinde yüklemeyi devre dışı bırakır."
     }
   },
   "mcpForm": {

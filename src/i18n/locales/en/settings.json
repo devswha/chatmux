@@ -126,6 +126,15 @@
         "label": "Font Size",
         "description": "Editor font size in pixels"
       }
+    },
+    "installApp": {
+      "title": "Install as App",
+      "description": "Install ChatMux on this device as a standalone web app (PWA).",
+      "installButton": "Install app",
+      "installed": "ChatMux is already running as an installed app.",
+      "iosHint": "On iOS, tap the Share button in Safari and choose \"Add to Home Screen\".",
+      "browserMenuHint": "The install prompt is not available yet. Use your browser menu instead: \"Install app\" (Chrome/Edge) or \"Add to Home Screen\".",
+      "insecureHint": "App installation requires a secure connection. Open ChatMux over HTTPS or localhost — browsers disable install on plain http:// addresses."
     }
   },
   "mcpForm": {

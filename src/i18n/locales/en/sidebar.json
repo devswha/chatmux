@@ -62,6 +62,7 @@
   "actions": {
     "refresh": "Refresh",
     "settings": "Settings",
+    "installApp": "Install app",
     "collapseAll": "Collapse All",
     "expandAll": "Expand All",
     "cancel": "Cancel",
@@ -121,6 +122,7 @@
     "open": "New session",
     "sessionNamePlaceholder": "Session name (letters and numbers, e.g. my-feature)",
     "workingDirectoryPlaceholder": "Working folder (e.g. ~/workspace/my-proj or an absolute path)",
+    "recentPaths": "Recent paths",
     "cancel": "Cancel",
     "creating": "Creating…",
     "create": "Create",
