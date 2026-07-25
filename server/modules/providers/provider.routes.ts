@@ -1,6 +1,7 @@
 import express, { type Request, type Response } from 'express';
 
 import { projectsDb, sessionsDb } from '@/modules/database/index.js';
+import { emitRelayKeyDiagnostic } from '@/modules/notifications/index.js';
 import { providerAuthService } from '@/modules/providers/services/provider-auth.service.js';
 import { providerCapabilitiesService } from '@/modules/providers/services/provider-capabilities.service.js';
 import { providerMcpService } from '@/modules/providers/services/mcp.service.js';
@@ -13,7 +14,7 @@ import {
   type LiveGjcSession,
 } from '@/modules/providers/services/live-sessions.service.js';
 import {
-  getCurrentTmuxPaneIdentity,
+  getCurrentTmuxPaneIdentityState,
   getExternalCliSessionsDetailed,
   normalizeExternalPaneOutput,
   resolveExternalCliCwd,
@@ -38,8 +39,10 @@ import {
   killTmuxSession,
   readTmuxPaneIdentity,
   readTmuxProcessGeneration,
+  sendTmuxProcessAction,
   sendToTmuxPane,
   stopAgentProcessInPane,
+  type TmuxProcessAction,
 } from '@/modules/providers/services/tmux-pane-actions.service.js';
 import type {
   LLMProvider,
@@ -63,6 +66,14 @@ function readTerminationMode(value: unknown): TmuxTerminationMode {
   if (value === undefined || value === null || value === '') return 'process';
   if (value === 'process' || value === 'pane' || value === 'session') return value;
   throw new AppError('mode must be process, pane, or session.', {
+    code: 'INVALID_TMUX_TERMINATION_MODE',
+    statusCode: 400,
+  });
+}
+function readTmuxProcessAction(value: unknown): TmuxProcessAction {
+  if (value === 'interrupt' || value === 'escape') return value;
+  // No action-specific error code exists in the established control API.
+  throw new AppError('action must be interrupt or escape.', {
     code: 'INVALID_TMUX_TERMINATION_MODE',
     statusCode: 400,
   });
@@ -135,13 +146,16 @@ async function assertTerminationAllowed(
       statusCode: 403,
     });
   }
-  const current = await getCurrentTmuxPaneIdentity();
+  const current = await getCurrentTmuxPaneIdentityState();
   if (
-    current
-    && current.socketPath === tmux.socketPath
-    && (
-      (mode === 'session' && current.sessionId === tmux.sessionId)
-      || (mode === 'pane' && current.paneId === tmux.paneId)
+    current.state === 'unavailable'
+    || (
+      current.state === 'hosted'
+      && current.tmux.socketPath === tmux.socketPath
+      && (
+        (mode === 'session' && current.tmux.sessionId === tmux.sessionId)
+        || ((mode === 'process' || mode === 'pane') && current.tmux.paneId === tmux.paneId)
+      )
     )
   ) {
     throw new AppError('The tmux target hosting ChatMux is protected.', {
@@ -855,6 +869,31 @@ router.post(
     res.json(createApiSuccessResponse({ ok: true }));
   }),
 );
+router.post(
+  '/sessions/external/actions',
+  asyncHandler(async (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as { tmux?: unknown; process?: unknown; action?: unknown };
+    const action = readTmuxProcessAction(body.action);
+    try {
+      const target = await assertFreshExternalTmuxTarget(body.tmux, body.process);
+      // Process actions share the pane-level self/company protection boundary:
+      // an interrupt is non-destructive, but must not be misdirected to those targets.
+      await assertTerminationAllowed(target, 'pane');
+      await sendTmuxProcessAction(target, action);
+      emitRelayKeyDiagnostic('relay_key_sent', target.kind);
+    } catch (error) {
+      if (
+        error instanceof AppError
+        && (error.code === 'TMUX_PROCESS_GENERATION_MISMATCH' || error.code === 'TMUX_PANE_GENERATION_MISMATCH')
+      ) {
+        emitRelayKeyDiagnostic('relay_key_refused_generation', 'external');
+      }
+      throw error;
+    }
+    res.json(createApiSuccessResponse({ ok: true }));
+  }),
+);
+
 
 router.get(
   '/fs/dir-suggestions',
@@ -891,6 +930,40 @@ router.post(
     }
     const target = await assertLineageTmuxTarget(tmux, processGeneration);
     await sendToTmuxPane(target, message);
+    res.json(createApiSuccessResponse({
+      ok: true,
+      reachable: true,
+      queued: false,
+      detail: `Delivered to ${tmux.paneId}`,
+    }));
+  }),
+);
+router.post(
+  '/sessions/live/actions',
+  asyncHandler(async (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as { tmux?: unknown; process?: unknown; action?: unknown };
+    const action = readTmuxProcessAction(body.action);
+    const tmux = readTmuxPaneIdentity(body.tmux);
+    const processGeneration = readTmuxProcessGeneration(body.process);
+    try {
+      const target = await assertLineageTmuxTarget(tmux, processGeneration);
+      // Keep the same pane-level protection as termination for all control keys.
+      await assertTerminationAllowed(target, 'pane');
+      await sendTmuxProcessAction(target, action);
+      emitRelayKeyDiagnostic('relay_key_sent', target.kind);
+    } catch (error) {
+      if (error instanceof AppError) {
+        if (error.code === 'TMUX_ACTION_NOT_LINEAGE') {
+          emitRelayKeyDiagnostic('relay_key_refused_lineage', 'gjc');
+        } else if (
+          error.code === 'TMUX_PROCESS_GENERATION_MISMATCH'
+          || error.code === 'TMUX_PANE_GENERATION_MISMATCH'
+        ) {
+          emitRelayKeyDiagnostic('relay_key_refused_generation', 'gjc');
+        }
+      }
+      throw error;
+    }
     res.json(createApiSuccessResponse({
       ok: true,
       reachable: true,

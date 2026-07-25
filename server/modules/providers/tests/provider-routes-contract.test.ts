@@ -32,9 +32,14 @@ case "$*" in
     esac
     ;;
   *display-message*)
+    if [ -n "$CHATMUX_CONTRACT_SELF_PANE_FAIL" ]; then
+      case "$*" in *" -t %9 "*) exit 1 ;; esac
+    fi
     case "$*" in
+      *'%2'*socket_path*) printf '/tmp/chatmux-contract.sock\t$2\t@2\t%%2\n' ;;
+      *socket_path*) printf '/tmp/chatmux-contract.sock\t$1\t@1\t%%1\n' ;;
       *pane_pid*) printf '%s\n' "$PPID" ;;
-      *pane_current_path*'%2'*) printf '$2\t@2\t%%2\t/tmp\n' ;;
+      *'%2'*pane_current_path*) printf '$2\t@2\t%%2\t/tmp\n' ;;
       *pane_current_path*) printf '$1\t@1\t%%1\t/tmp\n' ;;
       *'%2'*) printf '$2\t@2\t%%2\n' ;;
       *) printf '$1\t@1\t%%1\n' ;;
@@ -59,6 +64,8 @@ await chmod(fixtureTmux, 0o755);
 await chmod(fixtureCodex, 0o755);
 await chmod(fixturePs, 0o755);
 process.env.PATH = `${fixtureBin}${path.delimiter}${process.env.PATH ?? ''}`;
+const originalTmuxPane = process.env.TMUX_PANE;
+delete process.env.TMUX_PANE;
 process.env.CHATMUX_AUTH = 'password';
 process.env.JWT_SECRET = 'provider-routes-contract-secret';
 process.env.DATABASE_PATH = path.join(await mkdtemp(path.join(os.tmpdir(), 'chatmux-provider-routes-')), 'auth.db');
@@ -66,6 +73,7 @@ process.env.DATABASE_PATH = path.join(await mkdtemp(path.join(os.tmpdir(), 'chat
 const { authenticateToken, generateToken, AUTH_MODE } = await import('@/middleware/auth.js');
 assert.equal(AUTH_MODE, 'password');
 const { default: providerRoutes } = await import('../provider.routes.js');
+const { getCurrentTmuxPaneIdentityState } = await import('../services/external-cli-sessions.service.js');
 const { initializeDatabase, userDb } = await import('@/modules/database/index.js');
 
 type ApiError = { error?: string; code?: string };
@@ -112,6 +120,8 @@ before(async () => {
 after(async () => {
   delete process.env.CHATMUX_CONTRACT_EXTERNAL_NAME;
   delete process.env.TOWER_URL;
+  if (originalTmuxPane === undefined) delete process.env.TMUX_PANE;
+  else process.env.TMUX_PANE = originalTmuxPane;
   await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
 });
 
@@ -190,17 +200,73 @@ test('auth-disabled mode accepts loopback provider requests without a bearer tok
   assert.deepEqual(result.statuses, [200, 200]);
 });
 
-test('all nine tmux provider routes have deterministic successful HTTP paths', async () => {
+test('all eleven tmux provider routes have deterministic successful HTTP paths', async () => {
   assertSuccess(await request('/sessions/external/output', { tmux: externalTmux, process: validProcess }));
   assertSuccess(await request('/sessions/external/send', { tmux: externalTmux, process: validProcess, message: 'hello' }));
+  assertSuccess(await request('/sessions/external/actions', { tmux: externalTmux, process: validProcess, action: 'interrupt' }));
   assertSuccess(await request('/sessions/external/kill', { tmux: externalTmux, process: validProcess }));
   // Product intentionally returns 201 for resource creation; source changes are out of scope.
   assertSuccess(await request('/sessions/external/spawn', { name: 'external-contract', cwd: '~', cli: 'codex' }), 201);
   assertSuccess(await request('/sessions/live/output', { tmux: liveTmux, process: validProcess }));
   assertSuccess(await request('/sessions/live/send', { tmux: liveTmux, process: validProcess, message: 'hello' }));
+  assertSuccess(await request('/sessions/live/actions', { tmux: liveTmux, process: validProcess, action: 'escape' }));
   assertSuccess(await request('/sessions/live/kill', { tmux: liveTmux, process: validProcess, mode: 'pane' }));
   assertSuccess(await request('/sessions/live/spawn', { name: 'live-contract', cwd: '~' }));
   assertSuccess(await request('/sessions/live/commands'));
+});
+test('process action routes reject unallowlisted keys and preserve freshness and lineage boundaries', async () => {
+  assertError(
+    await request('/sessions/external/actions', { tmux: externalTmux, process: validProcess, action: 'Enter' }),
+    400,
+    'INVALID_TMUX_TERMINATION_MODE',
+  );
+  assertError(
+    await request('/sessions/external/actions', {
+      tmux: externalTmux,
+      process: { ...validProcess, startedAtMs: validProcess.startedAtMs + 1 },
+      action: 'interrupt',
+    }),
+    409,
+    'TMUX_PROCESS_GENERATION_MISMATCH',
+  );
+  assertError(
+    await request('/sessions/live/actions', { tmux: externalTmux, process: validProcess, action: 'interrupt' }),
+    403,
+    'TMUX_ACTION_NOT_LINEAGE',
+  );
+});
+test('termination routes fail closed when the ChatMux pane is unavailable and protect the hosted pane', async () => {
+  const previousTmuxPane = process.env.TMUX_PANE;
+  try {
+    delete process.env.TMUX_PANE;
+    assertSuccess(await request('/sessions/external/actions', { tmux: externalTmux, process: validProcess, action: 'interrupt' }));
+    assertSuccess(await request('/sessions/external/kill', { tmux: externalTmux, process: validProcess, mode: 'pane' }));
+
+    for (const [pathname, tmux] of [
+      ['/sessions/external/kill', externalTmux],
+      ['/sessions/live/kill', liveTmux],
+    ] as const) {
+      process.env.TMUX_PANE = tmux.paneId;
+      assert.deepEqual(await getCurrentTmuxPaneIdentityState(), { state: 'hosted', tmux });
+      for (const mode of ['process', 'pane', 'session'] as const) {
+        assertError(
+          await request(pathname, { tmux, process: validProcess, mode }),
+          403,
+          'EXTERNAL_CLI_SESSION_PROTECTED',
+        );
+      }
+    }
+
+    process.env.TMUX_PANE = '%9';
+    process.env.CHATMUX_CONTRACT_SELF_PANE_FAIL = '1';
+    assert.deepEqual(await getCurrentTmuxPaneIdentityState(), { state: 'unavailable' });
+    assertError(await request('/sessions/external/actions', { tmux: externalTmux, process: validProcess, action: 'interrupt' }), 403, 'EXTERNAL_CLI_SESSION_PROTECTED');
+    assertError(await request('/sessions/external/kill', { tmux: externalTmux, process: validProcess, mode: 'pane' }), 403, 'EXTERNAL_CLI_SESSION_PROTECTED');
+  } finally {
+    delete process.env.CHATMUX_CONTRACT_SELF_PANE_FAIL;
+    if (previousTmuxPane === undefined) delete process.env.TMUX_PANE;
+    else process.env.TMUX_PANE = previousTmuxPane;
+  }
 });
 test('external session route issues capabilities only for ssh and shell branches', async () => {
   const response = await request('/sessions/external');

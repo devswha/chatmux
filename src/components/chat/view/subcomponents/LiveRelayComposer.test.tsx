@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
 
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import '../../../../i18n/config';
 
 import { api } from '../../../../utils/api';
 import type { TmuxPaneTarget } from '../../../../../shared/tmux';
@@ -86,5 +88,59 @@ test('LiveRelayComposer does not discover files until an @ mention is active', (
   } finally {
     api.projects = projects;
     api.getFiles = getFiles;
+  }
+});
+test('LiveRelayComposer exposes interrupt only for supported relay providers and never exposes escape', () => {
+  const supported = renderToStaticMarkup(createElement(LiveRelayComposer, { target, relayKind: 'codex' }));
+  const unsupported = renderToStaticMarkup(createElement(LiveRelayComposer, {
+    target,
+    relayKind: 'unsupported' as never,
+  }));
+
+  assert.ok(supported.includes('Interrupt'));
+  assert.ok(!supported.includes('Escape'));
+  assert.ok(!unsupported.includes('Interrupt'));
+});
+
+test('relay action API posts the exact interrupt body once without retrying', async () => {
+  const originalFetch = globalThis.fetch;
+  const calls: Array<{ url: string; options?: RequestInit }> = [];
+  globalThis.fetch = (async (url: string | URL | Request, options?: RequestInit) => {
+    calls.push({ url: String(url), options });
+    return {
+      headers: { get: () => null },
+      ok: false,
+      json: async () => ({ error: { message: 'refused' } }),
+    } as unknown as Response;
+  }) as typeof fetch;
+
+  try {
+    await api.externalCliSessionAction(target.tmux, target.process, 'interrupt');
+    assert.deepEqual(calls, [{
+      url: '/api/providers/sessions/external/actions',
+      options: {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tmux: target.tmux, process: target.process, action: 'interrupt' }),
+      },
+    }]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('relay translations exist in every supported locale', () => {
+  for (const locale of ['en', 'fr', 'ko', 'zh-CN', 'ja', 'ru', 'de', 'tr', 'it', 'zh-TW']) {
+    const translation = JSON.parse(readFileSync(
+      new URL(`../../../../i18n/locales/${locale}/chat.json`, import.meta.url),
+      'utf8',
+    )) as { relay?: Record<string, string> };
+    assert.deepEqual(Object.keys(translation.relay ?? {}).sort(), [
+      'interrupt',
+      'interruptFailed',
+      'interruptSent',
+      'interrupting',
+    ]);
   }
 });

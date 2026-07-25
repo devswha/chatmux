@@ -85,13 +85,10 @@ test('verified-target factory is neither imported nor called outside the two ver
   const { readdir, readFile } = await import('node:fs/promises');
   const { join } = await import('node:path');
   const root = join(process.cwd(), 'server');
-  // The two verifiers own the brand. The providers barrel only re-exports what
-  // they already expose, so cross-module callers still cannot mint a target
-  // without importing one of those verifiers.
+  // The two verifiers exclusively own the target brand.
   const allowed = new Set([
     join(root, 'modules/providers/services/tmux-fresh-verifier.service.ts'),
     join(root, 'modules/providers/services/tmux-target-guard.service.ts'),
-    join(root, 'modules/providers/index.ts'),
   ]);
   const offenders: string[] = [];
   async function walk(dir: string): Promise<void> {

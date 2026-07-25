@@ -217,5 +217,11 @@
   },
   "tasks": {
     "nextTaskPrompt": "Начать следующую задачу"
+  },
+  "relay": {
+    "interrupt": "Прервать",
+    "interrupting": "Прерывание…",
+    "interruptSent": "Прерывание отправлено",
+    "interruptFailed": "Не удалось прервать"
   }
 }

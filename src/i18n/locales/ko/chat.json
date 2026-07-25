@@ -217,5 +217,11 @@
   },
   "tasks": {
     "nextTaskPrompt": "다음 작업 시작"
+  },
+  "relay": {
+    "interrupt": "중단",
+    "interrupting": "중단 요청 중…",
+    "interruptSent": "중단 요청을 보냈습니다",
+    "interruptFailed": "중단 요청 실패"
   }
 }

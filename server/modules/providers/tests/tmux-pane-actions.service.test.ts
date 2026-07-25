@@ -8,6 +8,7 @@ import {
   killTmuxSession,
   readTmuxPaneIdentity,
   readTmuxProcessGeneration,
+  sendTmuxProcessAction,
   sendToTmuxPane,
   stopAgentProcessInPane,
 } from '@/modules/providers/services/tmux-pane-actions.service.js';
@@ -105,6 +106,29 @@ test('send refuses a stale pane before staging bytes in a tmux buffer', async ()
     (error) => error instanceof AppError && error.code === 'TMUX_PANE_GENERATION_MISMATCH',
   );
   assert.equal(calls.some(({ args }) => args.includes('load-buffer')), false);
+});
+test('process actions assemble only the typed interrupt and escape argv arrays', async () => {
+  const interrupt = recordingRunner(['$7\t@8\t%9\n']);
+  await sendTmuxProcessAction(target, 'interrupt', interrupt.run);
+  assert.deepEqual(interrupt.calls.map(({ args }) => args), [
+    ['-S', identity.socketPath, 'display-message', '-p', '-t', identity.paneId, '#{session_id}\t#{window_id}\t#{pane_id}'],
+    ['-S', identity.socketPath, 'send-keys', '-t', identity.paneId, 'C-c'],
+  ]);
+
+  const escape = recordingRunner(['$7\t@8\t%9\n']);
+  await sendTmuxProcessAction(target, 'escape', escape.run);
+  assert.deepEqual(escape.calls[1]?.args, [
+    '-S', identity.socketPath, 'send-keys', '-t', identity.paneId, 'Escape',
+  ]);
+});
+
+test('process action refuses a stale pane before sending keys', async () => {
+  const { calls, run } = recordingRunner(['$7\t@8\t%99\n']);
+  await assert.rejects(
+    sendTmuxProcessAction(target, 'interrupt', run),
+    (error) => error instanceof AppError && error.code === 'TMUX_PANE_GENERATION_MISMATCH',
+  );
+  assert.equal(calls.some(({ args }) => args.includes('send-keys')), false);
 });
 
 test('default process stop respawns a shell in the same pane', async () => {

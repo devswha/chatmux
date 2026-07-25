@@ -154,6 +154,36 @@ This intentionally leaves `~/.chatmux/data` and
 `~/.local/share/chatmux` untouched. Back up or remove either path only
 through an explicit, separately reviewed data-retention decision.
 
+## Control refusal diagnostics
+
+ChatMux logs a fixed set of counters when it refuses a tmux control request.
+They exist to answer "is the deck refusing my input, and why" without
+recording anything about the target.
+
+| Code | Emitted when |
+|---|---|
+| `attach_refused_identity` | A terminal attach was rejected because the pane identity, process generation or attach capability did not verify |
+| `attach_refused_protected` | A terminal attach targeted a protected session (a `company*` name or the pane hosting ChatMux itself) |
+| `relay_key_sent` | An interrupt or escape key was delivered to a verified pane |
+| `relay_key_refused_lineage` | A key was refused because the target did not prove agent lineage |
+| `relay_key_refused_generation` | A key was refused because the pane or process generation had changed |
+
+Each line carries only the code, the provider lane and an occurrence count, and
+each code is emitted at most once per minute per lane. Pane coordinates, socket
+paths, tmux session names and transcript contents are deliberately excluded, so
+these counters stay safe to paste into a bug report.
+
+Read them from the service journal:
+
+```sh
+journalctl --user -u chatmux -o cat | grep -E 'attach_refused_|relay_key_'
+```
+
+A burst of `*_refused_generation` after restarting an agent is expected: the
+pane was reused and ChatMux is refusing to send input to the replacement. A
+persistent `relay_key_refused_lineage` means the row is not an agent ChatMux can
+prove it owns, so it stays read-only.
+
 ## Source and upstream boundaries
 
 The checkout at `~/.local/share/chatmux` is for source review and deliberate

@@ -217,5 +217,11 @@
   },
   "tasks": {
     "nextTaskPrompt": "Sonraki görevi başlat"
+  },
+  "relay": {
+    "interrupt": "Durdur",
+    "interrupting": "Durduruluyor…",
+    "interruptSent": "Durdurma gönderildi",
+    "interruptFailed": "Durdurulamadı"
   }
 }

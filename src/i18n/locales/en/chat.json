@@ -238,5 +238,11 @@
   },
   "tasks": {
     "nextTaskPrompt": "Start the next task"
+  },
+  "relay": {
+    "interrupt": "Interrupt",
+    "interrupting": "Interrupting…",
+    "interruptSent": "Interrupt sent",
+    "interruptFailed": "Unable to interrupt"
   }
 }

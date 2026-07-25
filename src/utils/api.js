@@ -111,6 +111,11 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ tmux, process, message }),
     }),
+  liveSessionAction: (tmux, process, action) =>
+    authenticatedFetch('/api/providers/sessions/live/actions', {
+      method: 'POST',
+      body: JSON.stringify({ tmux, process, action }),
+    }),
   liveSessionOutput: (tmux, process, options = {}) =>
     authenticatedFetch('/api/providers/sessions/live/output', {
       ...options,
@@ -121,6 +126,11 @@ export const api = {
     authenticatedFetch('/api/providers/sessions/external/send', {
       method: 'POST',
       body: JSON.stringify({ tmux, process, message }),
+    }),
+  externalCliSessionAction: (tmux, process, action) =>
+    authenticatedFetch('/api/providers/sessions/external/actions', {
+      method: 'POST',
+      body: JSON.stringify({ tmux, process, action }),
     }),
   externalCliSessionOutput: (tmux, process, options = {}) =>
     authenticatedFetch('/api/providers/sessions/external/output', {

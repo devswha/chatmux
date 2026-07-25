@@ -253,5 +253,11 @@
   },
   "tasks": {
     "nextTaskPrompt": "開始下一個任務"
+  },
+  "relay": {
+    "interrupt": "中斷",
+    "interrupting": "正在中斷…",
+    "interruptSent": "已傳送中斷",
+    "interruptFailed": "無法中斷"
   }
 }

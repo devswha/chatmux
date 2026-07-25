@@ -4,7 +4,9 @@ import path from 'node:path';
 import { EventEmitter } from 'node:events';
 import test from 'node:test';
 
-import { createAttachCapabilityService, createVerifiedTmuxActionTarget } from '@/modules/providers/index.js';
+import { createAttachCapabilityService } from '@/modules/providers/index.js';
+// eslint-disable-next-line boundaries/dependencies -- tests must not mint verified targets through a public barrel.
+import { createVerifiedTmuxActionTarget } from '@/modules/providers/services/tmux-fresh-verifier.service.js';
 
 import {
   handleShellConnection,

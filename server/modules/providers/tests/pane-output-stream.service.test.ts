@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import test from 'node:test';
 
-import { createVerifiedTmuxActionTarget } from '@/modules/providers/index.js';
+import { createVerifiedTmuxActionTarget } from '@/modules/providers/services/tmux-fresh-verifier.service.js';
 
 import type { DiscoverySnapshot } from '../services/discovery-collector.service.js';
 import { PANE_OUTPUT_MAX_BUFFERED_BYTES, PANE_REMINT_MS, createPaneOutputStream } from '../services/pane-output-stream.service.js';

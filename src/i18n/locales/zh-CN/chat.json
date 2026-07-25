@@ -217,5 +217,11 @@
   },
   "tasks": {
     "nextTaskPrompt": "开始下一个任务"
+  },
+  "relay": {
+    "interrupt": "中断",
+    "interrupting": "正在中断…",
+    "interruptSent": "已发送中断",
+    "interruptFailed": "无法中断"
   }
 }

@@ -18,6 +18,7 @@ import {
   killTmuxPane,
   readTmuxPaneIdentity,
   readTmuxProcessGeneration,
+  sendTmuxProcessAction,
   sendToTmuxPane,
 } from '@/modules/providers/services/tmux-pane-actions.service.js';
 import {
@@ -348,6 +349,48 @@ test('real tmux preserves pre-existing agents across fresh discovery processes a
   assert.equal(await harness.hasSession('e2e-alpha'), true, 'a rejected target must not disturb a live session');
   assert.equal(await harness.hasSession('e2e-beta'), true, 'test completion must leave tmux ownership external to ChatMux');
 });
+test('real tmux interrupt cancels a running verified fake-agent turn and repeats on the same generation', {
+  skip: tmuxE2ESkip,
+  timeout: 30_000,
+  concurrency: false,
+}, async (t) => {
+  const harness = await createTmuxE2EHarness();
+  t.after(() => harness.dispose());
+
+  const sessionName = 'e2e-interrupt';
+  const agent = await harness.startFakeCodex(sessionName);
+  await agent.waitUntilReady();
+  const discovered = (await harness.discoverFromFreshProcess()).find(
+    (session) => session.tmuxName === sessionName,
+  );
+  assert.ok(discovered);
+  const target = await assertFreshExternalTmuxTarget(
+    discovered.tmux,
+    { pid: discovered.agentPid, startedAtMs: discovered.startedAtMs },
+  );
+
+  await sendToTmuxPane(target, '__fake_long_running_turn__');
+  await agent.waitForTurnStarted();
+
+  await sendTmuxProcessAction(target, 'interrupt');
+  await agent.waitForInterrupt();
+  await agent.waitForTurnInterrupted();
+  await delay(1_100);
+  const eventsAfterRunningTurnInterrupt = await agent.events();
+  assert.equal(
+    eventsAfterRunningTurnInterrupt.some((event) => event.type === 'turn_completed'),
+    false,
+    'interrupting a running turn must prevent its normal completion',
+  );
+
+  await sendTmuxProcessAction(target, 'interrupt');
+  await delay(100);
+  assert.equal(
+    (await agent.events()).filter((event) => event.type === 'interrupt').length,
+    2,
+    'same-generation interrupts are intentional repeatable user gestures',
+  );
+});
 
 test('real tmux external monitor notifies once per observed Codex turn and rebaselines restarts', {
   skip: tmuxE2ESkip,
@@ -558,6 +601,26 @@ test('real tmux rejects stale process generations after respawning the same pane
     await harness.capturePane(replacementTarget.tmux.paneId),
     beforeStaleSend,
     'rejecting a stale send must leave pane bytes unchanged',
+  );
+  const beforeStaleInterrupt = await harness.capturePane(replacementTarget.tmux.paneId);
+  const interruptCountBeforeStaleReplay = (await replacementAgent.events())
+    .filter((event) => event.type === 'interrupt').length;
+  await assert.rejects(
+    async () => {
+      const staleTarget = await assertFreshExternalTmuxTarget(originalTarget.tmux, staleProcess);
+      await sendTmuxProcessAction(staleTarget, 'interrupt');
+    },
+    isGenerationMismatch,
+  );
+  assert.equal(
+    await harness.capturePane(replacementTarget.tmux.paneId),
+    beforeStaleInterrupt,
+    'rejecting a stale interrupt replay must leave pane bytes unchanged',
+  );
+  assert.equal(
+    (await replacementAgent.events()).filter((event) => event.type === 'interrupt').length,
+    interruptCountBeforeStaleReplay,
+    'rejecting a stale interrupt replay must not signal the replacement process',
   );
 
   const beforeStaleKill = await harness.capturePane(replacementTarget.tmux.paneId);

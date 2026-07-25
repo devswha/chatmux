@@ -11,6 +11,12 @@ const SESSION_ID_RE = /^\$\d+$/;
 const WINDOW_ID_RE = /^@\d+$/;
 const PANE_ID_RE = /^%\d+$/;
 let pasteBufferSequence = 0;
+export type TmuxProcessAction = 'interrupt' | 'escape';
+
+const TMUX_PROCESS_ACTION_KEYS: Readonly<Record<TmuxProcessAction, 'C-c' | 'Escape'>> = {
+  interrupt: 'C-c',
+  escape: 'Escape',
+};
 
 export function readTmuxPaneIdentity(value: unknown): TmuxPaneIdentity {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -131,6 +137,22 @@ export async function sendToTmuxPane(
     'paste-buffer', '-d', '-p', '-b', bufferName, '-t', identity.paneId,
   ], run);
   await requireTmuxSuccess(identity, ['send-keys', '-t', identity.paneId, 'Enter'], run);
+}
+/**
+ * Sends only a typed process action. The caller never supplies a tmux key token.
+ * Rechecking the pane coordinate immediately before send-keys rejects replacement
+ * panes before any key bytes reach them.
+ */
+export async function sendTmuxProcessAction(
+  target: VerifiedTmuxActionTarget,
+  action: TmuxProcessAction,
+  run: TmuxRunner = runTmux,
+): Promise<void> {
+  const identity = target.tmux;
+  await assertTmuxPaneIdentity(identity, run);
+  await requireTmuxSuccess(identity, [
+    'send-keys', '-t', identity.paneId, TMUX_PROCESS_ACTION_KEYS[action],
+  ], run);
 }
 
 export async function captureTmuxPane(

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { api } from '../../../../utils/api';
 import type { TmuxPaneTarget } from '../../../../../shared/tmux';
@@ -70,6 +71,14 @@ export default function LiveRelayComposer({
   const displayName = sessionName?.trim() || '현재 세션';
   const [input, setInput] = useState('');
   const [status, setStatus] = useState<RelayStatus>({ kind: 'idle' });
+  const { t } = useTranslation('chat');
+  const [isInterrupting, setIsInterrupting] = useState(false);
+  const canInterrupt = relayKind === 'gjc'
+    || relayKind === 'codex'
+    || relayKind === 'claude'
+    || relayKind === 'cursor'
+    || relayKind === 'opencode'
+    || relayKind === 'omp';
 
   const [commands, setCommands] = useState<LiveGjcCommand[]>([]);
   const [filteredCommands, setFilteredCommands] = useState<LiveGjcCommand[]>([]);
@@ -360,6 +369,29 @@ export default function LiveRelayComposer({
       setStatus({ kind: 'error', text: '전송 실패' });
     }
   }, [input, status.kind, target, relayKind]);
+  const interrupt = useCallback(async () => {
+    if (!canInterrupt || isInterrupting) {
+      return;
+    }
+
+    setIsInterrupting(true);
+    try {
+      const response = relayKind !== 'gjc'
+        ? await api.externalCliSessionAction(target.tmux, target.process, 'interrupt')
+        : await api.liveSessionAction(target.tmux, target.process, 'interrupt');
+      const body = await response.json().catch(() => null);
+      const data = (body?.data ?? body ?? {}) as { ok?: boolean };
+      if (!response.ok || data.ok === false) {
+        setStatus({ kind: 'error', text: t('relay.interruptFailed', { defaultValue: 'Unable to interrupt' }) });
+        return;
+      }
+      setStatus({ kind: 'ok', text: t('relay.interruptSent', { defaultValue: 'Interrupt sent' }) });
+    } catch {
+      setStatus({ kind: 'error', text: t('relay.interruptFailed', { defaultValue: 'Unable to interrupt' }) });
+    } finally {
+      setIsInterrupting(false);
+    }
+  }, [canInterrupt, isInterrupting, relayKind, t, target]);
 
   const handleKeyDown = useCallback(
     (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -441,7 +473,7 @@ export default function LiveRelayComposer({
             <span className="font-semibold">{displayName}</span>
           )}
           {status.kind !== 'idle' && status.kind !== 'sending' && (
-            <span className={status.kind === 'error' ? 'text-red-500' : 'text-muted-foreground'}>· {status.text}</span>
+            <span aria-live="polite" className={status.kind === 'error' ? 'text-red-500' : 'text-muted-foreground'}>· {status.text}</span>
           )}
         </div>
         <div className="flex items-end gap-2 rounded-xl border border-border bg-card p-2">
@@ -464,6 +496,16 @@ export default function LiveRelayComposer({
             placeholder={`${displayName}에 지시… (${commandTrigger} 명령, @ 파일, Enter 전송, Shift+Enter 줄바꿈)`}
             className="max-h-40 min-h-9 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm outline-none"
           />
+          {canInterrupt && (
+            <button
+              type="button"
+              onClick={() => void interrupt()}
+              disabled={isInterrupting}
+              className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-sm font-medium transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isInterrupting ? t('relay.interrupting', { defaultValue: 'Interrupting…' }) : t('relay.interrupt', { defaultValue: 'Interrupt' })}
+            </button>
+          )}
           <button
             type="button"
             onClick={() => void send()}

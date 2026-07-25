@@ -217,5 +217,11 @@
   },
   "tasks": {
     "nextTaskPrompt": "Nächste Aufgabe starten"
+  },
+  "relay": {
+    "interrupt": "Unterbrechen",
+    "interrupting": "Unterbrechung wird gesendet…",
+    "interruptSent": "Unterbrechung gesendet",
+    "interruptFailed": "Unterbrechen fehlgeschlagen"
   }
 }

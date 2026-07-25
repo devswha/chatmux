@@ -27,7 +27,6 @@ export {
 } from './services/external-cli-sessions.service.js';
 export {
   assertFreshExternalTmuxTarget,
-  createVerifiedTmuxActionTarget,
   type VerifiedTmuxActionTarget,
 } from './services/tmux-fresh-verifier.service.js';
 export {

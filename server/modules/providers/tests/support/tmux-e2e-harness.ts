@@ -20,6 +20,10 @@ type EnvironmentSnapshot = Record<EnvironmentKey, string | undefined>;
 type FakeAgentEvent =
   | { type: 'ready'; pid: number }
   | { type: 'input'; value: string }
+  | { type: 'interrupt' }
+  | { type: 'turn_started' }
+  | { type: 'turn_interrupted' }
+  | { type: 'turn_completed' }
   | { type: 'transcript'; path: string; sessionId: string };
 
 export type FakeTmuxAgent = {
@@ -28,6 +32,9 @@ export type FakeTmuxAgent = {
   events: () => Promise<FakeAgentEvent[]>;
   waitUntilReady: () => Promise<void>;
   waitForInput: (value: string) => Promise<void>;
+  waitForInterrupt: () => Promise<void>;
+  waitForTurnStarted: () => Promise<void>;
+  waitForTurnInterrupted: () => Promise<void>;
 };
 
 export type FakeTranscriptTmuxAgent = FakeTmuxAgent & {
@@ -125,11 +132,31 @@ const cwd = process.argv[5];
 const emit = (event) => fs.appendFileSync(logPath, JSON.stringify(event) + '\\n');
 let transcriptFd;
 let turn = 0;
+let runningTurn;
 const appendRecord = (record) => fs.appendFileSync(transcriptFd, JSON.stringify(record) + '\\n');
+const startLongRunningTurn = () => {
+  emit({ type: 'turn_started' });
+  runningTurn = setTimeout(() => {
+    runningTurn = undefined;
+    emit({ type: 'turn_completed' });
+  }, 1_000);
+};
 emit({ type: 'ready', pid: process.pid });
 const input = readline.createInterface({ input: process.stdin, crlfDelay: Infinity, terminal: false });
+process.on('SIGINT', () => {
+  emit({ type: 'interrupt' });
+  if (runningTurn !== undefined) {
+    clearTimeout(runningTurn);
+    runningTurn = undefined;
+    emit({ type: 'turn_interrupted' });
+  }
+});
 input.on('line', (value) => {
   emit({ type: 'input', value });
+  if (value === '__fake_long_running_turn__') {
+    startLongRunningTurn();
+    return;
+  }
   if (!transcriptPath || !sessionId || !cwd) return;
   if (transcriptFd === undefined) {
     fs.mkdirSync(path.dirname(transcriptPath), { recursive: true });
@@ -292,6 +319,18 @@ export async function createTmuxE2EHarness(): Promise<TmuxE2EHarness> {
         async () => (await events()).some((event) => event.type === 'input' && event.value === value),
         `${sessionName} input ${JSON.stringify(value)}`,
       ),
+      waitForInterrupt: () => waitFor(
+        async () => (await events()).some((event) => event.type === 'interrupt'),
+        `${sessionName} SIGINT`,
+      ),
+      waitForTurnStarted: () => waitFor(
+        async () => (await events()).some((event) => event.type === 'turn_started'),
+        `${sessionName} long-running turn start`,
+      ),
+      waitForTurnInterrupted: () => waitFor(
+        async () => (await events()).some((event) => event.type === 'turn_interrupted'),
+        `${sessionName} long-running turn interruption`,
+      ),
     };
   };
 
@@ -384,6 +423,18 @@ export async function createTmuxE2EHarness(): Promise<TmuxE2EHarness> {
         waitForInput: (value) => waitFor(
           async () => (await events()).some((event) => event.type === 'input' && event.value === value),
           `${sessionName} input ${JSON.stringify(value)}`,
+        ),
+        waitForInterrupt: () => waitFor(
+          async () => (await events()).some((event) => event.type === 'interrupt'),
+          `${sessionName} SIGINT`,
+        ),
+        waitForTurnStarted: () => waitFor(
+          async () => (await events()).some((event) => event.type === 'turn_started'),
+          `${sessionName} long-running turn start`,
+        ),
+        waitForTurnInterrupted: () => waitFor(
+          async () => (await events()).some((event) => event.type === 'turn_interrupted'),
+          `${sessionName} long-running turn interruption`,
         ),
       };
     },
