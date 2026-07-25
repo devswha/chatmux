@@ -35,3 +35,24 @@ export {
   readTmuxPaneIdentity,
 } from './services/tmux-pane-actions.service.js';
 export { createProviderToolApprovals } from './services/provider-tool-approvals.service.js';
+export {
+  createDiscoveryCollector,
+  type DiscoveryCollector,
+  type DiscoveryCollectorOptions,
+  type DiscoveryEpoch,
+  type DiscoveryLane,
+  type DiscoveryLaneHealth,
+  type DiscoveryLiveScanResult,
+  type DiscoveryRow,
+  type DiscoveryRowKey,
+  type DiscoverySnapshot,
+} from './services/discovery-collector.service.js';
+export {
+  C_CAPTURE_MS,
+  PANE_REMINT_MS,
+  PANE_OUTPUT_MAX_QUEUED,
+  PANE_OUTPUT_HASH,
+  PANE_UNAVAILABLE_TIMEOUT_MS,
+  createPaneOutputStream,
+  type PaneSubscriptionKey,
+} from './services/pane-output-stream.service.js';

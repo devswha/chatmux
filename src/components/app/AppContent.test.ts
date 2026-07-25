@@ -50,7 +50,7 @@ test('does not refresh a selected terminal from a different pane', () => {
   assert.equal(refreshed && 'attachCapability' in refreshed ? refreshed.attachCapability : undefined, 'stale-capability');
 });
 
-test('capability refresh consumes the sidebar poll without adding a request or interval', () => {
+test('capability refresh consumes the discovery roster without adding its own request', () => {
   const hook = readFileSync(new URL('../sidebar/hooks/useExternalCliSessions.ts', import.meta.url), 'utf8');
   const appContent = readFileSync(new URL('./AppContent.tsx', import.meta.url), 'utf8');
   const refreshCallback = appContent.slice(
@@ -58,8 +58,14 @@ test('capability refresh consumes the sidebar poll without adding a request or i
     appContent.indexOf('const openExternalTerminal'),
   );
 
-  assert.equal((hook.match(/api\.externalSessions\(\)/g) ?? []).length, 1);
-  assert.equal((hook.match(/setInterval\(poll, POLL_INTERVAL_MS\)/g) ?? []).length, 1);
-  assert.match(hook, /onSessionsChangeRef\.current\?\.\(sessions\)/);
+  // B15 replaced the unconditional 5s roster poll with the discovery stream.
+  // Two REST call sites remain by design: a non-cancellable hydration that
+  // seeds transcript/model/capability metadata the stream does not carry, and
+  // a bounded fallback that only runs while the stream is unhealthy. Neither
+  // belongs to the capability refresh, which reads the roster the sidebar
+  // already publishes.
+  assert.equal((hook.match(/api\.externalSessions\(\)/g) ?? []).length, 2);
+  assert.match(hook, /if \(streamHealthy\) return undefined;/);
+  assert.match(hook, /onSessionsChangeRef\.current\?\.\(/);
   assert.doesNotMatch(refreshCallback, /api\.externalSessions/);
 });

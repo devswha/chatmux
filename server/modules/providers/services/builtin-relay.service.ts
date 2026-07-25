@@ -3,6 +3,7 @@ import { stat, realpath } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
 
+import { recordHostCommand } from './host-command-metrics.service.js';
 import type { LiveSpawnResult } from './live-send.service.js';
 
 /**
@@ -24,8 +25,17 @@ export interface TmuxRunResult {
 }
 
 export type TmuxRunner = (args: string[], stdin?: string) => Promise<TmuxRunResult>;
+function tmuxSubcommand(args: readonly string[]): string {
+  for (let index = 0; index < args.length; index += 1) {
+    if (args[index] === '-S') { index += 1; continue; }
+    if (!args[index].startsWith('-')) return args[index];
+  }
+  return 'unknown';
+}
+
 
 export function runTmux(args: string[], stdin?: string): Promise<TmuxRunResult> {
+  recordHostCommand('tmux', [tmuxSubcommand(args)]);
   return new Promise((resolve, reject) => {
     const child = spawn('tmux', args, { stdio: [stdin === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'] });
     let output = '';

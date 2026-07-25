@@ -14,6 +14,8 @@ import {
   type TmuxPaneIdentity,
 } from '../../../../shared/tmux.js';
 
+import { recordHostCommand } from './host-command-metrics.service.js';
+
 /**
  * Discovers every tmux pane. GJC keeps its dedicated live lane; Claude,
  * Codex, Cursor, OpenCode, and Oh My Pi are surfaced with native transcript
@@ -531,7 +533,14 @@ export function classifyExternalSessions(args: {
   ));
 }
 
+export type ExternalCliSessionCommandRunner = (
+  command: string,
+  cmdArgs: string[],
+  timeoutMs?: number,
+) => Promise<string>;
+
 function runCommand(command: string, cmdArgs: string[], timeoutMs = 4000): Promise<string> {
+  recordHostCommand(command, cmdArgs);
   return new Promise((resolve, reject) => {
     const child = spawn(command, cmdArgs, { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
     let stdout = '';
@@ -1076,17 +1085,27 @@ export async function resolveCodexRolloutPath(threadId: string): Promise<string 
  * Scans local coding-agent tmux sessions. Command failures are unavailable so
  * callers can avoid treating a failed scan as a confirmed empty result.
  */
+async function runDiscoveryCommand(
+  commandRunner: ExternalCliSessionCommandRunner,
+  command: string,
+  cmdArgs: string[],
+): Promise<string> {
+  if (commandRunner !== runCommand) recordHostCommand(command, cmdArgs);
+  return commandRunner(command, cmdArgs);
+}
+
 async function discoverExternalCliSessions(
   retryBackoff: ExternalCliSessionInferenceRetryBackoff,
+  commandRunner: ExternalCliSessionCommandRunner = runCommand,
 ): Promise<ExternalCliSessionsDetailedResult> {
   let tmuxOutput: string;
   let psOutput: string;
   try {
-    tmuxOutput = await runCommand('tmux', [
+    tmuxOutput = await runDiscoveryCommand(commandRunner, 'tmux', [
       'list-panes', '-a', '-F',
       `#{socket_path}${TMUX_FIELD_SEP}#{session_id}${TMUX_FIELD_SEP}#{window_id}${TMUX_FIELD_SEP}#{pane_id}${TMUX_FIELD_SEP}#{session_name}${TMUX_FIELD_SEP}#{pane_pid}${TMUX_FIELD_SEP}#{pane_current_command}${TMUX_FIELD_SEP}#{@chatmux_codex_thread_id}${TMUX_FIELD_SEP}#{pane_current_path}${TMUX_FIELD_SEP}#{@chatmux_cli_kind}${TMUX_FIELD_SEP}#{@chatmux_provider_session_id}`,
     ]);
-    psOutput = await runCommand('ps', ['-eo', 'pid,ppid,comm,args']);
+    psOutput = await runDiscoveryCommand(commandRunner, 'ps', ['-eo', 'pid,ppid,comm,args']);
   } catch {
     return { ok: false, sessions: [] };
   }
@@ -1119,6 +1138,7 @@ export type ExternalCliSessionDiscovery = {
 };
 
 export type ExternalCliSessionDiscoveryOptions = {
+  commandRunner?: ExternalCliSessionCommandRunner;
   now?: () => number;
   cacheTtlMs?: number;
   discover?: (
@@ -1141,7 +1161,8 @@ export function createExternalCliSessionDiscovery(
     ? requestedCacheTtlMs
     : 1_000;
   const retryBackoff = createExternalCliSessionInferenceRetryBackoff({ now });
-  const discover = options.discover ?? (() => discoverExternalCliSessions(retryBackoff));
+  const discover = options.discover
+    ?? ((backoff) => discoverExternalCliSessions(backoff, options.commandRunner));
   let cached: { result: ExternalCliSessionsDetailedResult; expiresAtMs: number } | null = null;
   let inFlight: Promise<ExternalCliSessionsDetailedResult> | null = null;
 

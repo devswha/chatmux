@@ -77,6 +77,8 @@ type ChatWebSocketDependencies = {
   ) => void;
   /** Provider-runtime approvals included in `chat_subscribed` after reconnect. */
   getPendingApprovalsForSession: (providerSessionId: string) => unknown[];
+  /** Optional non-chat protocol mounted on the authenticated /ws gateway. */
+  handleDiscovery?: (ws: WebSocket, data: AnyRecord) => boolean;
 };
 
 /**
@@ -406,6 +408,9 @@ export function handleChatConnection(
           handlePermissionResponse(data, dependencies);
           return;
         default:
+          if (dependencies.handleDiscovery?.(ws, data)) {
+            return;
+          }
           sendProtocolError(ws, 'UNKNOWN_MESSAGE_TYPE', `Unknown message type "${messageType}".`);
           return;
       }

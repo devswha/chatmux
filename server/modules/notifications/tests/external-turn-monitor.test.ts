@@ -100,6 +100,17 @@ test('external monitor emits once per armed running-to-waiting transition withou
   assert.equal(h.notifications.length, 2);
   assert.match(h.notifications[1].completionKey, /^[a-f0-9]{64}:2$/);
 });
+test('external monitor does not expose a provider-native id as an app session id', async () => {
+  const h = makeHarness();
+  h.setDiscovery({ ok: true, sessions: [session({ providerSessionId: 'native-only' })] });
+  h.setResolution({ status: 'resolved', activity: 'running' });
+  await h.monitor.tick();
+  h.setResolution({ status: 'resolved', activity: 'waiting_user' });
+  await h.monitor.tick();
+
+  assert.equal(h.notifications.length, 1);
+  assert.equal(h.notifications[0]?.sessionId, null);
+});
 
 test('late provider-session binding rebaselines once, persists through omissions, and fails closed on conflict', async () => {
   const h = makeHarness();

@@ -8,11 +8,12 @@ import { usePaletteOpsRegister } from '../../../contexts/PaletteOpsContext';
 import { useTasksSettings } from '../../../contexts/TasksSettingsContext';
 import { useUiPreferences } from '../../../hooks/useUiPreferences';
 import { useFileOpenResolver } from '../../../hooks/useFileOpenResolver';
-import { api, authenticatedFetch } from '../../../utils/api';
+import { authenticatedFetch, api } from '../../../utils/api';
 import { useEditorSidebar } from '../../code-editor/hooks/useEditorSidebar';
 import LiveRelayComposer from '../../chat/view/subcomponents/LiveRelayComposer';
 import type { Project } from '../../../types/app';
-import { tmuxPaneIdentityKey } from '../../../../shared/tmux';
+import { paneSubscriptionKey, tmuxPaneIdentityKey } from '../../../../shared/tmux';
+import { useWebSocket } from '../../../contexts/WebSocketContext';
 
 import MainContentHeader from './subcomponents/MainContentHeader';
 import MainContentStateView from './subcomponents/MainContentStateView';
@@ -44,6 +45,31 @@ type TasksSettingsContextValue = {
   isTaskMasterInstalled: boolean | null;
   isTaskMasterReady: boolean | null;
 };
+export function paneStreamFrame(
+  event: { kind?: unknown; key?: unknown; subscriptionId?: unknown; output?: unknown },
+  targetKey: string,
+  subscriptionId: string | null,
+): { subscriptionId: string; output?: string; invalidated: boolean } | null {
+  if (event.kind === 'pane.attached') {
+    if (event.key !== targetKey || typeof event.subscriptionId !== 'string') return null;
+    return {
+      subscriptionId: event.subscriptionId,
+      ...(typeof event.output === 'string' ? { output: event.output } : {}),
+      invalidated: false,
+    };
+  }
+  if ((event.kind !== 'pane.output' && event.kind !== 'pane.invalidated') || event.subscriptionId !== subscriptionId || subscriptionId === null) return null;
+  return {
+    subscriptionId,
+    ...(typeof event.output === 'string' ? { output: event.output } : {}),
+    invalidated: event.kind === 'pane.invalidated',
+  };
+}
+export function paneStreamFallbackNeeded(isConnected: boolean, streamSubscribed: boolean): boolean {
+  return !isConnected || !streamSubscribed;
+}
+ 
+
 
 function MainContent({
   selectedProject,
@@ -211,12 +237,13 @@ function MainContent({
   // dep would tear the effect down every render — blanking the pane for one
   // fetch round-trip each time (visible flicker). The ref feeds the interval
   // the latest equivalent object without retriggering the effect.
+  const { isConnected, subscribe } = useWebSocket();
   const externalOutputTargetRef = useRef(externalOutputTarget);
   useEffect(() => {
     externalOutputTargetRef.current = externalOutputTarget;
   });
   const externalOutputTargetKey = externalOutputTarget
-    ? `${externalOutputTarget.lane}:${tmuxPaneIdentityKey(externalOutputTarget.tmux)}:${externalOutputTarget.process.pid}:${externalOutputTarget.process.startedAtMs}`
+    ? paneSubscriptionKey(externalOutputTarget.lane, externalOutputTarget.tmux, externalOutputTarget.process)
     : null;
 
   useEffect(() => {
@@ -227,6 +254,8 @@ function MainContent({
     }
 
     let cancelled = false;
+    let subscriptionId: string | null = null;
+    let streamSubscribed = false;
     let controller: AbortController | null = null;
     const loadOutput = async () => {
       const target = externalOutputTargetRef.current;
@@ -260,14 +289,41 @@ function MainContent({
 
     setExternalPaneOutput('');
     setExternalPaneError('');
+    // One REST read preserves the rollback path when a stream is unavailable.
     void loadOutput();
-    const interval = window.setInterval(() => void loadOutput(), 1_000);
+    const unsubscribe = subscribe((event) => {
+      const frame = paneStreamFrame(event, externalOutputTargetKey, subscriptionId);
+      if (!frame || cancelled) return;
+      subscriptionId = frame.subscriptionId;
+      streamSubscribed = true;
+      if (frame.invalidated) {
+        setExternalPaneError('CLI 출력을 불러오지 못했습니다. tmux 세션이 종료되었을 수 있습니다.');
+      } else if (typeof frame.output === 'string') {
+        setExternalPaneOutput(frame.output);
+        setExternalPaneError('');
+      }
+    });
+    if (isConnected) {
+      const target = externalOutputTargetRef.current;
+      if (target) sendMessage({
+        type: 'pane.subscribe',
+        protocolVersion: 1,
+        lane: target.lane,
+        tmux: target.tmux,
+        process: target.process,
+      });
+    }
+    const fallbackTimer = window.setInterval(() => {
+      if (paneStreamFallbackNeeded(isConnected, streamSubscribed)) void loadOutput();
+    }, 5_000);
     return () => {
       cancelled = true;
+      window.clearInterval(fallbackTimer);
+      unsubscribe();
+      if (subscriptionId) sendMessage({ type: 'pane.unsubscribe', subscriptionId });
       controller?.abort();
-      window.clearInterval(interval);
     };
-  }, [externalOutputTargetKey]);
+  }, [externalOutputTargetKey, isConnected, sendMessage, subscribe]);
 
   useEffect(() => {
     if (!shouldShowBrowserTab && activeTab === 'browser') {

@@ -153,8 +153,8 @@ function asResolvedActivity(value: unknown): ResolvedActivity | null {
   return result as ResolvedActivity;
 }
 
-function notificationSessionId(result: ResolvedActivity, boundProviderSessionId: string | null): string | null {
-  return providerSessionId(result.appSession?.session_id) ?? boundProviderSessionId;
+function notificationSessionId(result: ResolvedActivity): string | null {
+  return providerSessionId(result.appSession?.session_id);
 }
 
 /**
@@ -202,7 +202,7 @@ export function createExternalTurnMonitor(deps: MonitorDeps) {
         deps.notify({
           userId,
           provider: session.kind,
-          sessionId: notificationSessionId(resolved, state.providerSessionId),
+          sessionId: notificationSessionId(resolved),
           tmuxName: session.tmuxName,
           completionKey: completionKey(key, state.ordinal),
         });

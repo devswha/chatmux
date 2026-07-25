@@ -76,7 +76,7 @@ function AppContentInner() {
   const { sessionId } = useParams<{ sessionId?: string }>();
   const { t } = useTranslation('common');
   const { isMobile } = useDeviceSettings({ trackPWA: false });
-  const { ws, sendMessage, subscribe } = useWebSocket();
+  const { ws, isConnected, sendMessage, subscribe } = useWebSocket();
 
   const {
     processingSessions,
@@ -107,6 +107,8 @@ function AppContentInner() {
     sessionId,
     navigate,
     subscribe,
+    isConnected,
+    sendMessage,
     isMobile,
     activeSessions: processingSessions,
   });
@@ -184,12 +186,14 @@ function AppContentInner() {
       }
     };
     void poll();
-    const timer = window.setInterval(() => void poll(), 2000);
+    const unsubscribe = subscribe((event) => {
+      if (event.kind === 'discovery.snapshot' || event.kind === 'discovery.delta') void poll();
+    });
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      unsubscribe();
     };
-  }, [externalTerminal, openExternalTerminal]);
+  }, [externalTerminal, openExternalTerminal, subscribe]);
 
   useEffect(() => {
     if (externalTerminal?.cliKind !== 'gjc') return undefined;
@@ -251,12 +255,14 @@ function AppContentInner() {
       }
     };
     void poll();
-    const timer = window.setInterval(() => void poll(), 2000);
+    const unsubscribe = subscribe((event) => {
+      if (event.kind === 'discovery.snapshot' || event.kind === 'discovery.delta') void poll();
+    });
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      unsubscribe();
     };
-  }, [externalTerminal, setActiveTab, sidebarSharedProps]);
+  }, [externalTerminal, setActiveTab, sidebarSharedProps, subscribe]);
 
   // Wrap navigation-ish sidebar handlers so leaving for a session/project/new
   // chat drops the terminal takeover — without modifying the originals.

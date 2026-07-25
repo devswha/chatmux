@@ -12,6 +12,7 @@ import {
   type ExternalCliSession,
   type ExternalLocalCliKind,
 } from './external-cli-sessions.service.js';
+import { recordHostCommand } from './host-command-metrics.service.js';
 
 export type ExternalSessionActivity = 'running' | 'waiting_user' | 'asking_user' | 'unknown';
 export type ExternalSessionActivityUnavailableReasonCode =
@@ -294,6 +295,7 @@ export function parseOpenCodeActivity(
 }
 
 async function readFileTail(filePath: string): Promise<FileTail> {
+  recordHostCommand('read', ['transcript']);
   const fileStat = await stat(filePath);
   const size = fileStat.size;
   const start = Math.max(0, size - FILE_TAIL_BYTES);

@@ -1,11 +1,14 @@
 import type { Server as HttpServer } from 'node:http';
 
-import { WebSocketServer, type VerifyClientCallbackSync } from 'ws';
+import { WebSocketServer, type VerifyClientCallbackSync, type WebSocket } from 'ws';
 
 import { handleChatConnection } from '@/modules/websocket/services/chat-websocket.service.js';
 import { verifyWebSocketClient } from '@/modules/websocket/services/websocket-auth.service.js';
 import { handlePluginWsProxy } from '@/modules/websocket/services/plugin-websocket-proxy.service.js';
 import { handleShellConnection } from '@/modules/websocket/services/shell-websocket.service.js';
+import { createDiscoveryStream } from '@/modules/websocket/services/discovery-stream.service.js';
+import type { DiscoveryCollector } from '@/modules/providers/index.js';
+import { createPaneOutputStream } from '@/modules/providers/index.js';
 import type { AuthenticatedWebSocketRequest } from '@/shared/types.js';
 
 type WebSocketServerDependencies = {
@@ -13,7 +16,19 @@ type WebSocketServerDependencies = {
   chat: Parameters<typeof handleChatConnection>[2];
   shell: Parameters<typeof handleShellConnection>[1];
   getPluginPort: Parameters<typeof handlePluginWsProxy>[2];
+  discovery?: DiscoveryCollector;
+  panes?: ReturnType<typeof createPaneOutputStream>;
 };
+function sendPaneProtocolError(ws: WebSocket, error: unknown): void {
+  if (ws.readyState !== ws.OPEN) return;
+  ws.send(JSON.stringify({
+    kind: 'protocol_error',
+    code: 'INVALID_PANE_SUBSCRIPTION',
+    error: error instanceof Error ? error.message : 'Invalid pane subscription.',
+    sessionId: null,
+    timestamp: new Date().toISOString(),
+  }));
+}
 
 /**
  * Creates and wires the server-wide websocket gateway used for chat, shell, and
@@ -29,7 +44,9 @@ export function createWebSocketServer(
       info: Parameters<VerifyClientCallbackSync<AuthenticatedWebSocketRequest>>[0]
     ) => verifyWebSocketClient(info, dependencies.verifyClient)),
   });
-
+  const discovery = dependencies.discovery ? createDiscoveryStream(dependencies.discovery) : undefined;
+  const panes = dependencies.panes ?? createPaneOutputStream();
+  dependencies.discovery?.onSnapshot((snapshot) => panes.reconcile(snapshot));
   wss.on('connection', (ws, request) => {
     // Keep WebSocket alive across reverse-proxy idle timeouts (Cloudflare ~100s,
     // AWS ALB 60s, nginx 60s, etc.). Without app-level pings these connections
@@ -60,7 +77,32 @@ export function createWebSocketServer(
     }
 
     if (pathname === '/ws') {
-      handleChatConnection(ws, incomingRequest, dependencies.chat);
+      handleChatConnection(ws, incomingRequest, {
+        ...dependencies.chat,
+        handleDiscovery: (socket, data) => {
+          if (discovery?.handle(socket, data)) return true;
+          if (data.type === 'pane.subscribe') {
+            try {
+              panes.validateSubscription(data);
+            } catch (error) {
+              sendPaneProtocolError(socket, error);
+              return true;
+            }
+            panes.start();
+            void panes.subscribe(socket, data).catch((error: unknown) => sendPaneProtocolError(socket, error));
+            return true;
+          }
+          if (data.type === 'pane.unsubscribe' && typeof data.subscriptionId === 'string') {
+            panes.unsubscribe(socket, data.subscriptionId);
+            return true;
+          }
+          return false;
+        },
+      });
+      ws.on('close', () => {
+        discovery?.close(ws);
+        panes.close(ws);
+      });
       return;
     }
 

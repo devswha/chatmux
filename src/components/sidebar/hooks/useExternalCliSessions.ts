@@ -1,7 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { api } from '../../../utils/api';
-import type { TmuxPaneIdentity, TmuxProcessGeneration } from '../../../../shared/tmux';
+import { tmuxPaneIdentityKey, type TmuxPaneIdentity, type TmuxProcessGeneration } from '../../../../shared/tmux';
+import { readDiscoveryOk } from '../../../utils/liveSessions';
+import { useWebSocket } from '../../../contexts/WebSocketContext';
+import { useDiscoveryStream, type DiscoveryRow } from '../../../hooks/useDiscoveryStream';
 
 export type ExternalSessionActivity = 'running' | 'waiting_user' | 'asking_user' | 'unknown';
 
@@ -21,26 +24,91 @@ export type ExternalCliSession = {
   /** Opaque server-issued token required to attach SSH and shell panes. */
   attachCapability?: string;
 };
-
-const POLL_INTERVAL_MS = 5000;
+export function mergeExternalDiscoveryRows(
+  rows: DiscoveryRow[],
+  restSessions: Map<string, ExternalCliSession>,
+  previousSessions: ExternalCliSession[],
+): ExternalCliSession[] {
+  const previous = new Map(previousSessions.map((session) => [
+    tmuxPaneIdentityKey(session.tmux),
+    session,
+  ]));
+  return rows
+    .filter((row) => row.lane === 'external' && ['claude', 'codex', 'cursor', 'opencode', 'omp', 'ssh', 'shell'].includes(row.kind))
+    .map((row) => {
+      const metadata = restSessions.get(tmuxPaneIdentityKey(row.tmux)) ?? previous.get(tmuxPaneIdentityKey(row.tmux));
+      return {
+        ...metadata,
+        tmuxName: row.tmuxName,
+        tmux: row.tmux,
+        process: row.process,
+        kind: row.kind as ExternalCliSession['kind'],
+        activity: row.activity,
+        projectPath: row.cwd ?? metadata?.projectPath,
+      };
+    });
+}
 
 /**
- * Polls /sessions/external (5s, best-effort) for every non-GJC tmux pane.
- * GJC remains on its dedicated live poll.
+ * Seeds the display from REST, uses discovery while it is healthy, and resumes
+ * bounded REST fallback polling after stream loss.
  */
 export function useExternalCliSessions(
   onSessionsChange?: (sessions: ExternalCliSession[]) => void,
-): { sessions: ExternalCliSession[]; loading: boolean; refresh: () => void } {
+): {
+  sessions: ExternalCliSession[];
+  loading: boolean;
+  discoveryOk: boolean;
+  refresh: () => void;
+} {
   const [sessions, setSessions] = useState<ExternalCliSession[]>([]);
   const [loading, setLoading] = useState(true);
+  const [discoveryOk, setDiscoveryOk] = useState(true);
   const [refreshToken, setRefreshToken] = useState(0);
+  const { isConnected, sendMessage, subscribe } = useWebSocket();
+  const sessionsRef = useRef<ExternalCliSession[]>([]);
   const onSessionsChangeRef = useRef(onSessionsChange);
   onSessionsChangeRef.current = onSessionsChange;
+  const restSessionsRef = useRef(new Map<string, ExternalCliSession>());
+  sessionsRef.current = sessions;
+  const streamRowsRef = useRef<DiscoveryRow[] | null>(null);
 
+  const applyRows = useCallback((rows: DiscoveryRow[]) => {
+    streamRowsRef.current = rows;
+    const next = mergeExternalDiscoveryRows(rows, restSessionsRef.current, sessionsRef.current);
+    setSessions(next);
+    onSessionsChangeRef.current?.(next);
+    setLoading(false);
+  }, []);
+  const applyRestSessions = useCallback((list: ExternalCliSession[], discoveryOk: boolean) => {
+    const next = list.filter((session) => session?.tmuxName && ['claude', 'codex', 'cursor', 'opencode', 'omp', 'ssh', 'shell'].includes(session.kind));
+    restSessionsRef.current = new Map(next.map((session) => [tmuxPaneIdentityKey(session.tmux), session]));
+    setDiscoveryOk(discoveryOk);
+    if (streamRowsRef.current !== null) {
+      applyRows(streamRowsRef.current);
+      return;
+    }
+    setSessions(next);
+    onSessionsChangeRef.current?.(next);
+  }, [applyRows]);
+  const streamHealthy = useDiscoveryStream({ lanes: ['external', 'live'], isConnected, sendMessage, subscribe, onRows: applyRows });
   useEffect(() => {
     let cancelled = false;
-    // Generation guard: a delayed older response must not overwrite a newer
-    // snapshot (stale name could attach a terminal to a reused tmux session).
+    void api.externalSessions()
+      .then(async (response) => response.ok ? response.json() : null)
+      .then((body) => {
+        if (cancelled || !body) return;
+        const data = body?.data ?? body ?? {};
+        applyRestSessions(data.externalSessions ?? [], readDiscoveryOk(data));
+      })
+      .catch(() => undefined)
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [applyRestSessions]);
+
+  useEffect(() => {
+    if (streamHealthy) return undefined;
+    let cancelled = false;
     let generation = 0;
     let applied = 0;
     const poll = async () => {
@@ -49,30 +117,30 @@ export function useExternalCliSessions(
         const response = await api.externalSessions();
         if (!response.ok) return;
         const body = await response.json();
-        const list: ExternalCliSession[] = body?.data?.externalSessions ?? body?.externalSessions ?? [];
+        const data = body?.data ?? body ?? {};
         if (!cancelled && myGeneration > applied) {
           applied = myGeneration;
-          const sessions = list.filter((session) => session?.tmuxName && ['claude', 'codex', 'cursor', 'opencode', 'omp', 'ssh', 'shell'].includes(session.kind));
-          setSessions(sessions);
-          onSessionsChangeRef.current?.(sessions);
+          applyRestSessions(data.externalSessions ?? [], readDiscoveryOk(data));
         }
       } catch {
-        // best-effort — no tmux / endpoint error just empties the tab
-      } finally {
-        if (!cancelled) setLoading(false);
+        // Best-effort: retain the last known roster while the fallback retries.
       }
     };
-    void poll();
-    const timer = setInterval(poll, POLL_INTERVAL_MS);
+    if (refreshToken > 0) void poll();
+    const timer = window.setInterval(() => { void poll(); }, 5_000);
     return () => {
       cancelled = true;
-      clearInterval(timer);
+      window.clearInterval(timer);
     };
-  }, [refreshToken]);
+  }, [applyRestSessions, refreshToken, streamHealthy]);
 
   return {
     sessions,
     loading,
-    refresh: () => setRefreshToken((value) => value + 1),
+    discoveryOk,
+    refresh: () => {
+      setRefreshToken((value) => value + 1);
+      sendMessage({ type: 'discovery.resync', reason: 'client_refresh' });
+    },
   };
 }

@@ -9,6 +9,8 @@ import {
   type TmuxProcessGeneration,
 } from '../../../../shared/tmux.js';
 
+import { recordHostCommand } from './host-command-metrics.service.js';
+
 /**
  * Live gjc session detection + tmux-session naming.
  *
@@ -437,7 +439,14 @@ export function dedupeLiveSessionsByLineage<T extends {
 // buffering without bound (리뷰 반영: timeout 뒤에도 listener/버퍼가 남던 문제).
 const RUN_COMMAND_MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 
+export type LiveGjcSessionCommandRunner = (
+  command: string,
+  cmdArgs: string[],
+  timeoutMs?: number,
+) => Promise<string>;
+
 function runCommand(command: string, cmdArgs: string[], timeoutMs = 4000): Promise<string> {
+  recordHostCommand(command, cmdArgs);
   return new Promise((resolve, reject) => {
     const child = spawn(command, cmdArgs, { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
     let stdout = '';
@@ -480,6 +489,7 @@ async function safeRealpath(target: string): Promise<string | null> {
 /** Reads the parent pid from /proc/<pid>/stat (comm may contain spaces/parens). */
 async function readParentPid(pid: number): Promise<number | null> {
   try {
+    recordHostCommand('read', ['proc']);
     const content = await readFile(`/proc/${pid}/stat`, 'utf8');
     const rparen = content.lastIndexOf(')');
     if (rparen < 0) {
@@ -578,6 +588,7 @@ async function readPaneRuntimeReceipts(paneCwd: string): Promise<RuntimeReceipt[
         .map(async (entry): Promise<RuntimeReceipt | null> => {
           const statePath = `${paneCwd}/.gjc/${entry}/runtime/runtime-state.json`;
           try {
+            recordHostCommand('read', ['runtime-receipt']);
             const [content, meta] = await Promise.all([readFile(statePath, 'utf8'), stat(statePath)]);
             const parsed = JSON.parse(content) as { session_id?: unknown; cwd?: unknown; session_file?: unknown };
             const sessionFile = typeof parsed.session_file === 'string' ? parsed.session_file : null;
@@ -603,6 +614,7 @@ async function readPaneRuntimeReceipts(paneCwd: string): Promise<RuntimeReceipt[
 /** Reads gjc 0.11+'s pane-specific `terminal-sessions/tmux-%N` receipt. */
 async function readPaneTerminalReceipt(panePid: number): Promise<RuntimeReceipt | null> {
   try {
+    recordHostCommand('read', ['proc']);
     const environment = await readFile(`/proc/${panePid}/environ`, 'utf8');
     const paneValue = environment
       .split('\0')
@@ -612,6 +624,7 @@ async function readPaneTerminalReceipt(panePid: number): Promise<RuntimeReceipt 
       return null;
     }
     const receiptPath = join(homedir(), '.gjc', 'agent', 'terminal-sessions', `tmux-${paneValue}`);
+    recordHostCommand('read', ['runtime-receipt']);
     const [content, meta] = await Promise.all([readFile(receiptPath, 'utf8'), stat(receiptPath)]);
     const receipt = parseTerminalSessionReceipt(content, meta.mtimeMs);
     if (!receipt?.sessionFile) {
@@ -882,35 +895,69 @@ async function readLastSessionPreferencesFromFile(
  * clients poll every 5s, and overlapping tmux/lsof/ps storms were themselves
  * causing the transient misses this lane exists to avoid.
  */
-export type LiveGjcScanResult = {
+export type LiveGjcSessionsDetailedResult = {
+  /** False only when tmux could not provide a pane roster. */
+  ok: boolean;
   sessions: LiveGjcSession[];
   /** session id → open transcript path (server-internal; NOT for API responses). */
   transcriptPaths: Map<string, string>;
 };
 
-let liveScanInFlight: Promise<LiveGjcScanResult> | null = null;
+export type LiveGjcSessionDiscovery = {
+  getLiveGjcSessions(): Promise<LiveGjcSession[]>;
+  getLiveGjcSessionsDetailed(): Promise<LiveGjcSessionsDetailedResult>;
+};
 
-function scanShared(): Promise<LiveGjcScanResult> {
-  if (!liveScanInFlight) {
-    liveScanInFlight = scanLiveGjcSessions().finally(() => {
-      liveScanInFlight = null;
-    });
-  }
-  return liveScanInFlight;
+export type LiveGjcSessionDiscoveryOptions = {
+  commandRunner?: LiveGjcSessionCommandRunner;
+};
+
+async function runDiscoveryCommand(
+  commandRunner: LiveGjcSessionCommandRunner,
+  command: string,
+  cmdArgs: string[],
+): Promise<string> {
+  if (commandRunner !== runCommand) recordHostCommand(command, cmdArgs);
+  return commandRunner(command, cmdArgs);
 }
 
+export function createLiveGjcSessionDiscovery(
+  options: LiveGjcSessionDiscoveryOptions = {},
+): LiveGjcSessionDiscovery {
+  const commandRunner = options.commandRunner ?? runCommand;
+  let inFlight: Promise<LiveGjcSessionsDetailedResult> | null = null;
+  const scanShared = (): Promise<LiveGjcSessionsDetailedResult> => {
+    if (!inFlight) {
+      inFlight = scanLiveGjcSessions(commandRunner).finally(() => {
+        inFlight = null;
+      });
+    }
+    return inFlight;
+  };
+  return {
+    async getLiveGjcSessions() {
+      return (await scanShared()).sessions;
+    },
+    getLiveGjcSessionsDetailed: scanShared,
+  };
+}
+
+const defaultLiveGjcSessionDiscovery = createLiveGjcSessionDiscovery();
+
+/** Compatible session-only wrapper for existing callers. */
 export async function getLiveGjcSessions(): Promise<LiveGjcSession[]> {
-  return (await scanShared()).sessions;
+  return defaultLiveGjcSessionDiscovery.getLiveGjcSessions();
 }
 
-/** Detailed view for server-internal consumers (live turn monitor) — shares the single-flight scan. */
-export async function getLiveGjcSessionsDetailed(): Promise<LiveGjcScanResult> {
-  return scanShared();
+/** Distinguishes a confirmed empty roster from unavailable tmux evidence. */
+export async function getLiveGjcSessionsDetailed(): Promise<LiveGjcSessionsDetailedResult> {
+  return defaultLiveGjcSessionDiscovery.getLiveGjcSessionsDetailed();
 }
 
 /** True when the pid holding a transcript is itself a gjc process (not e.g. this server). */
 async function isGjcHolderPid(pid: number): Promise<boolean> {
   try {
+    recordHostCommand('read', ['proc']);
     return isGjcCommandLine(await readFile(`/proc/${pid}/cmdline`, 'utf8'));
   } catch {
     return false;
@@ -922,7 +969,9 @@ async function isGjcHolderPid(pid: number): Promise<boolean> {
  * aborts entirely if ANY path argument is missing, so absent roots are dropped
  * first; with no root present we fall back to the legacy comm selector.
  */
-async function runLsofOverSessionRoots(): Promise<string> {
+async function runLsofOverSessionRoots(
+  commandRunner: LiveGjcSessionCommandRunner = runCommand,
+): Promise<string> {
   const roots: string[] = [];
   for (const root of gjcSessionRoots()) {
     try {
@@ -936,18 +985,20 @@ async function runLsofOverSessionRoots(): Promise<string> {
   const args = roots.length > 0
     ? ['-F', 'pn', ...roots.flatMap((root) => ['+D', root])]
     : ['-c', 'gjc', '-F', 'pn'];
-  return runCommand('lsof', args);
+  return runDiscoveryCommand(commandRunner, 'lsof', args);
 }
 
-async function scanLiveGjcSessions(): Promise<LiveGjcScanResult> {
+async function scanLiveGjcSessions(
+  commandRunner: LiveGjcSessionCommandRunner = runCommand,
+): Promise<LiveGjcSessionsDetailedResult> {
   let tmuxOutput: string;
   try {
-    tmuxOutput = await runCommand('tmux', ['list-panes', '-a', '-F', `#{socket_path}${TMUX_FIELD_SEP}#{session_id}${TMUX_FIELD_SEP}#{window_id}${TMUX_FIELD_SEP}#{pane_id}${TMUX_FIELD_SEP}#{session_name}${TMUX_FIELD_SEP}#{pane_pid}${TMUX_FIELD_SEP}#{pane_current_command}${TMUX_FIELD_SEP}#{pane_current_path}`]);
+    tmuxOutput = await runDiscoveryCommand(commandRunner, 'tmux', ['list-panes', '-a', '-F', `#{socket_path}${TMUX_FIELD_SEP}#{session_id}${TMUX_FIELD_SEP}#{window_id}${TMUX_FIELD_SEP}#{pane_id}${TMUX_FIELD_SEP}#{session_name}${TMUX_FIELD_SEP}#{pane_pid}${TMUX_FIELD_SEP}#{pane_current_command}${TMUX_FIELD_SEP}#{pane_current_path}`]);
   } catch {
-    return { sessions: [], transcriptPaths: new Map() };
+    return { ok: false, sessions: [], transcriptPaths: new Map() };
   }
   if (!tmuxHasPanes(tmuxOutput)) {
-    return { sessions: [], transcriptPaths: new Map() };
+    return { ok: false, sessions: [], transcriptPaths: new Map() };
   }
   const panes: Array<{ name: string; tmux: TmuxPaneIdentity; pid: number; cwd: string; cmd: string }> = [];
   for (const pane of parseTmuxPanes(tmuxOutput)) {
@@ -961,7 +1012,7 @@ async function scanLiveGjcSessions(): Promise<LiveGjcScanResult> {
   // failure must not blank the whole fleet — the idle lane still reports panes.
   let lsofOutput = '';
   try {
-    lsofOutput = await runLsofOverSessionRoots();
+    lsofOutput = await runLsofOverSessionRoots(commandRunner);
   } catch {
     lsofOutput = '';
   }
@@ -1001,7 +1052,7 @@ async function scanLiveGjcSessions(): Promise<LiveGjcScanResult> {
     kind: 'interactive' | 'batch' | null;
   }> = [];
   try {
-    const psOutput = await runCommand('ps', ['-eo', 'pid,ppid,args']);
+    const psOutput = await runDiscoveryCommand(commandRunner, 'ps', ['-eo', 'pid,ppid,args']);
     const discovered = findIdleGjcTmuxSessions({
       panes,
       procs: parsePsArgsTree(psOutput),
@@ -1110,6 +1161,7 @@ async function scanLiveGjcSessions(): Promise<LiveGjcScanResult> {
     })),
   ];
   return {
+    ok: true,
     sessions: dedupeLiveSessionsByLineage(allSessions),
     transcriptPaths: sessionPaths,
   };

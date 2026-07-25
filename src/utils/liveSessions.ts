@@ -1,21 +1,16 @@
-import {
-  tmuxPaneIdentityKey,
-  type TmuxPaneIdentity,
-  type TmuxProcessGeneration,
-} from '../../shared/tmux';
+import type { TmuxPaneIdentity, TmuxProcessGeneration } from '../../shared/tmux';
 
 export const GJC_IDLE_SESSION_PREFIX = 'idle-gjc:';
 
-export type LiveSessionSnapshotRow = {
-  tmuxName: string | null;
-  tmux: TmuxPaneIdentity | null;
-  process: TmuxProcessGeneration | null;
-  model: string | null;
-  effort: string | null;
-  lineage: boolean;
-  kind: string | null;
-  running: boolean | null;
-};
+
+/** Missing discovery metadata is a legacy successful response. */
+export function readDiscoveryOk(value: unknown): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return true;
+  const discovery = (value as { discovery?: unknown }).discovery;
+  if (!discovery || typeof discovery !== 'object' || Array.isArray(discovery)) return true;
+  const ok = (discovery as { ok?: unknown }).ok;
+  return typeof ok === 'boolean' ? ok : true;
+}
 
 type PromotionApiRow = {
   id?: unknown;
@@ -51,9 +46,6 @@ function isSameProcessGeneration(value: unknown, expected: TmuxProcessGeneration
   return candidate.pid === expected.pid && candidate.startedAtMs === expected.startedAtMs;
 }
 
-function liveTargetKey(tmux: TmuxPaneIdentity, process: TmuxProcessGeneration): string {
-  return `${tmuxPaneIdentityKey(tmux)}\u0000${process.pid}\u0000${process.startedAtMs}`;
-}
 
 export function findGjcPromotionCandidate(
   sessions: readonly PromotionApiRow[],
@@ -81,47 +73,4 @@ export function findGjcPromotionCandidate(
     }
   }
   return null;
-}
-
-/**
- * Keeps an ordinary row through one missing poll, but removes a synthetic idle
- * row immediately when the same tmux generation appears under a real transcript
- * id. This preserves transient-scan protection without rendering both sides of
- * one terminal-to-structured handoff.
- */
-export function retainTransientlyMissingLiveRows(
-  rows: Map<string, LiveSessionSnapshotRow>,
-  previousRows: ReadonlyMap<string, LiveSessionSnapshotRow>,
-  missedOnce: ReadonlySet<string>,
-): Set<string> {
-  const promotedTargets = new Set<string>();
-  for (const [id, row] of rows) {
-    if (
-      !id.startsWith(GJC_IDLE_SESSION_PREFIX)
-      && row.lineage
-      && row.tmux !== null
-      && row.process !== null
-    ) {
-      promotedTargets.add(liveTargetKey(row.tmux, row.process));
-    }
-  }
-
-  const nextMissed = new Set<string>();
-  for (const [id, row] of previousRows) {
-    if (rows.has(id)) {
-      continue;
-    }
-    const wasPromoted = id.startsWith(GJC_IDLE_SESSION_PREFIX)
-      && row.tmux !== null
-      && row.process !== null
-      && promotedTargets.has(liveTargetKey(row.tmux, row.process));
-    if (wasPromoted) {
-      continue;
-    }
-    if (!missedOnce.has(id)) {
-      nextMissed.add(id);
-      rows.set(id, row);
-    }
-  }
-  return nextMissed;
 }

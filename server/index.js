@@ -18,6 +18,7 @@ import {
     attachCapabilityService,
     closeSessionsWatcher,
     createProviderToolApprovals,
+    createDiscoveryCollector,
     getCurrentTmuxPaneIdentity,
     getCurrentTmuxPaneIdentityState,
     initializeSessionsWatcher,
@@ -131,6 +132,10 @@ const app = express();
 app.set('trust proxy', 1);
 const server = http.createServer(app);
 
+// The collector is inert until the first authenticated discovery subscription.
+const discoveryCollector = createDiscoveryCollector();
+app.locals.discoveryCollector = discoveryCollector;
+
 // Single WebSocket server that handles chat, shell, and plugin proxy paths.
 const wss = createWebSocketServer(server, {
     verifyClient: {
@@ -178,6 +183,7 @@ const wss = createWebSocketServer(server, {
         runTmux,
     },
     getPluginPort,
+    discovery: discoveryCollector,
 });
 
 // Make WebSocket server available to routes

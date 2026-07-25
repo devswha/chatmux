@@ -2,10 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { NavigateFunction } from 'react-router-dom';
 
 import { api } from '../utils/api';
-import {
-  retainTransientlyMissingLiveRows,
-  type LiveSessionSnapshotRow,
-} from '../utils/liveSessions';
 import type { ServerEvent } from '../contexts/WebSocketContext';
 import type {
   AppTab,
@@ -14,12 +10,9 @@ import type {
   Project,
   ProjectSession,
 } from '../types/app';
-import type {
-  TmuxPaneIdentity,
-  TmuxPaneTarget,
-  TmuxProcessGeneration,
-} from '../../shared/tmux';
+import { tmuxPaneIdentityKey, type TmuxPaneTarget } from '../../shared/tmux';
 
+import { useDiscoveryStream, type DiscoveryRow } from './useDiscoveryStream';
 import type { SessionActivityMap } from './useSessionProtection';
 import {
   mergeExpandedSessionPages,
@@ -38,6 +31,8 @@ type UseProjectsStateArgs = {
   navigate: NavigateFunction;
   /** Subscription to the unified websocket event stream. */
   subscribe: (listener: (event: ServerEvent) => void) => () => void;
+  sendMessage: (message: unknown) => void;
+  isConnected: boolean;
   isMobile: boolean;
   activeSessions: SessionActivityMap;
 };
@@ -97,6 +92,8 @@ export function useProjectsState({
   sessionId,
   navigate,
   subscribe,
+  isConnected,
+  sendMessage,
   isMobile,
   activeSessions,
 }: UseProjectsStateArgs) {
@@ -124,6 +121,15 @@ export function useProjectsState({
   // False until the first live poll settles, so the sidebar shows a loading
   // state instead of a false "no sessions" during the initial fetch.
   const [liveSessionsLoaded, setLiveSessionsLoaded] = useState(false);
+  const liveRestMetadataRef = useRef(new Map<string, {
+    id: string;
+    model?: string;
+    effort?: string;
+    claim?: string;
+    kind?: string;
+    running?: boolean;
+  }>());
+  const liveRowsRef = useRef<DiscoveryRow[] | null>(null);
   const [activeTab, setActiveTab] = useState<AppTab>(readPersistedTab);
 
   useEffect(() => {
@@ -134,105 +140,124 @@ export function useProjectsState({
     }
   }, [activeTab]);
 
-  // Poll which sessions are live in a tmux gjc pane (server tmux+lsof endpoint).
-  // Best-effort: on any error / no tmux the set is empty and the UI shows nothing live.
-  //
-  // Race guards (리뷰 반영):
-  // - generation counter: a delayed older response must never overwrite a newer
-  //   snapshot (stale ownership/action state resurrection).
-  // - removal debounce: an ordinary session leaves the live set only after TWO
-  //   consecutive missing snapshots.
-  // - promotion cutover: a synthetic idle row is removed immediately when its
-  //   exact tmux generation appears under a structured transcript id.
+  const applyLiveRows = useCallback((rows: DiscoveryRow[]) => {
+    liveRowsRef.current = rows;
+    const names = new Map<string, string>();
+    const targets = new Map<string, TmuxPaneTarget>();
+    const models = new Map<string, string>();
+    const efforts = new Map<string, string>();
+    const lineage = new Set<string>();
+    const kinds = new Map<string, string>();
+    const runningIds = new Set<string>();
+    for (const row of rows) {
+      if (row.lane !== 'live') continue;
+      const metadata = liveRestMetadataRef.current.get(tmuxPaneIdentityKey(row.tmux));
+      const sessionId = metadata?.id ?? row.providerSessionId;
+      if (!sessionId) continue;
+      names.set(sessionId, row.tmuxName);
+      if (row.process) targets.set(sessionId, { tmux: row.tmux, process: row.process });
+      if (typeof metadata?.model === 'string') models.set(sessionId, metadata.model);
+      if (typeof metadata?.effort === 'string') efforts.set(sessionId, metadata.effort);
+      if (metadata?.claim === 'lineage') lineage.add(sessionId);
+      if (typeof metadata?.kind === 'string') kinds.set(sessionId, metadata.kind);
+      if (row.activity === 'running' || metadata?.running === true) runningIds.add(sessionId);
+    }
+    setLiveSessionIds(new Set(names.keys()));
+    setLiveSessionNames(names);
+    setLiveSessionTargets(targets);
+    setLiveSessionModels(models);
+    setLiveSessionEfforts(efforts);
+    setLiveSessionLineage(lineage);
+    setLiveSessionKinds(kinds);
+    setLiveSessionRunning(runningIds);
+    setLiveSessionsLoaded(true);
+  }, []);
+  const streamHealthy = useDiscoveryStream({
+    lanes: ['external', 'live'],
+    isConnected,
+    sendMessage,
+    subscribe,
+    onRows: applyLiveRows,
+  });
+  const applyLiveRestSessions = useCallback((sessions: Array<{
+    id?: unknown; tmuxName?: unknown; tmux?: unknown; process?: unknown; model?: unknown;
+    effort?: unknown; claim?: unknown; kind?: unknown; running?: unknown;
+  }>) => {
+    const names = new Map<string, string>();
+    const targets = new Map<string, TmuxPaneTarget>();
+    const models = new Map<string, string>();
+    const efforts = new Map<string, string>();
+    const lineage = new Set<string>();
+    const kinds = new Map<string, string>();
+    const running = new Set<string>();
+    const metadata = new Map<string, {
+      id: string; model?: string; effort?: string; claim?: string; kind?: string; running?: boolean;
+    }>();
+    for (const session of sessions) {
+      if (typeof session.id !== 'string') continue;
+      if (session.tmux && typeof session.tmux === 'object') {
+        metadata.set(tmuxPaneIdentityKey(session.tmux as TmuxPaneTarget['tmux']), {
+          id: session.id,
+          model: typeof session.model === 'string' ? session.model : undefined,
+          effort: typeof session.effort === 'string' ? session.effort : undefined,
+          claim: typeof session.claim === 'string' ? session.claim : undefined,
+          kind: typeof session.kind === 'string' ? session.kind : undefined,
+          running: session.running === true,
+        });
+      }
+      if (typeof session.tmuxName === 'string') names.set(session.id, session.tmuxName);
+      if (session.tmux && session.process) targets.set(session.id, { tmux: session.tmux as TmuxPaneTarget['tmux'], process: session.process as TmuxPaneTarget['process'] });
+      if (typeof session.model === 'string') models.set(session.id, session.model);
+      if (typeof session.effort === 'string') efforts.set(session.id, session.effort);
+      if (session.claim === 'lineage') lineage.add(session.id);
+      if (typeof session.kind === 'string') kinds.set(session.id, session.kind);
+      if (session.running === true) running.add(session.id);
+    }
+    liveRestMetadataRef.current = metadata;
+    if (liveRowsRef.current !== null) {
+      applyLiveRows(liveRowsRef.current);
+      return;
+    }
+    setLiveSessionIds(new Set(sessions.flatMap((session) => typeof session.id === 'string' ? [session.id] : [])));
+    setLiveSessionNames(names);
+    setLiveSessionTargets(targets);
+    setLiveSessionModels(models);
+    setLiveSessionEfforts(efforts);
+    setLiveSessionLineage(lineage);
+    setLiveSessionKinds(kinds);
+    setLiveSessionRunning(running);
+  }, [applyLiveRows]);
+  const loadLiveSessions = useCallback(async () => {
+    const response = await api.liveSessions();
+    if (!response.ok) return;
+    const body = await response.json();
+    applyLiveRestSessions((body?.data?.liveSessions ?? body?.liveSessions ?? []) as Array<{
+      id?: unknown; tmuxName?: unknown; tmux?: unknown; process?: unknown; model?: unknown;
+      effort?: unknown; claim?: unknown; kind?: unknown; running?: unknown;
+    }>);
+  }, [applyLiveRestSessions]);
   useEffect(() => {
     let cancelled = false;
-    let generation = 0;
-    let applied = 0;
-    let prevRows = new Map<string, LiveSessionSnapshotRow>();
-    let missedOnce = new Set<string>();
-    const poll = async () => {
-      const myGeneration = ++generation;
-      try {
-        const response = await api.liveSessions();
-        if (!response.ok) return;
-        const body = await response.json();
-        const liveSessions: Array<{ id: string; tmuxName?: string | null; tmux?: TmuxPaneIdentity | null; process?: TmuxProcessGeneration | null; model?: string | null; effort?: string | null; claim?: string | null; kind?: string | null; running?: boolean | null }> =
-          body?.data?.liveSessions ?? body?.liveSessions ?? [];
-        if (cancelled || myGeneration <= applied) {
-          return; // a newer response already landed
-        }
-        applied = myGeneration;
+    void loadLiveSessions()
+      .catch(() => undefined)
+      .finally(() => { if (!cancelled) setLiveSessionsLoaded(true); });
+    return () => { cancelled = true; };
+  }, [loadLiveSessions]);
 
-        const rows = new Map<string, LiveSessionSnapshotRow>();
-        for (const session of liveSessions) {
-          rows.set(session.id, {
-            tmuxName: session.tmuxName ?? null,
-            tmux: session.tmux ?? null,
-            process: session.process ?? null,
-            model: session.model ?? null,
-            effort: session.effort ?? null,
-            lineage: session.claim === 'lineage',
-            kind: session.kind ?? null,
-            running: session.running ?? null,
-          });
-        }
-        missedOnce = retainTransientlyMissingLiveRows(rows, prevRows, missedOnce);
-        prevRows = rows;
-
-        const names = new Map<string, string>();
-        const targets = new Map<string, TmuxPaneTarget>();
-        const models = new Map<string, string>();
-        const efforts = new Map<string, string>();
-        const lineage = new Set<string>();
-        const kinds = new Map<string, string>();
-        const runningIds = new Set<string>();
-        for (const [id, row] of rows) {
-          if (row.tmuxName) {
-            names.set(id, row.tmuxName);
-          }
-          if (row.tmux && row.process) {
-            targets.set(id, { tmux: row.tmux, process: row.process });
-          }
-          if (row.model) {
-            models.set(id, row.model);
-          }
-          if (row.effort) {
-            efforts.set(id, row.effort);
-          }
-          if (row.lineage) {
-            lineage.add(id);
-          }
-          if (row.kind) {
-            kinds.set(id, row.kind);
-          }
-          if (row.running === true) {
-            runningIds.add(id);
-          }
-        }
-        setLiveSessionIds(new Set(rows.keys()));
-        setLiveSessionNames(names);
-        setLiveSessionTargets(targets);
-        setLiveSessionModels(models);
-        setLiveSessionEfforts(efforts);
-        setLiveSessionLineage(lineage);
-        setLiveSessionKinds(kinds);
-        setLiveSessionRunning(runningIds);
-      } catch {
-        // ignore — live detection is best-effort; last snapshot stays (fail-closed
-        // for read-only protection).
-      } finally {
-        // First poll settled (success or error) — the sessions list can stop
-        // showing its loading state and trust an empty result.
-        if (!cancelled) setLiveSessionsLoaded(true);
-      }
+  useEffect(() => {
+    if (streamHealthy) return undefined;
+    let cancelled = false;
+    const poll = () => {
+      void loadLiveSessions()
+        .catch(() => undefined)
+        .finally(() => { if (!cancelled) setLiveSessionsLoaded(true); });
     };
-    void poll();
-    const timer = setInterval(poll, 5000);
+    const timer = window.setInterval(poll, 5_000);
     return () => {
       cancelled = true;
-      clearInterval(timer);
+      window.clearInterval(timer);
     };
-  }, []);
+  }, [loadLiveSessions, streamHealthy]);
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isLoadingProjects, setIsLoadingProjects] = useState(true);

@@ -19,6 +19,7 @@ const fixturePs = path.join(fixtureBin, 'ps');
 // Route imports bind their process runners at module evaluation time. These command
 // fixtures make the complete HTTP path deterministic without changing product DI.
 await writeFile(fixtureTmux, `#!/bin/sh
+if [ -n "$CHATMUX_CONTRACT_TMUX_FAIL" ]; then exit 1; fi
 case "$*" in
   *list-panes*)
     case "$*" in
@@ -204,8 +205,11 @@ test('all nine tmux provider routes have deterministic successful HTTP paths', a
 test('external session route issues capabilities only for ssh and shell branches', async () => {
   const response = await request('/sessions/external');
   assertSuccess(response);
-  const rows = response.body.data?.externalSessions as Array<Record<string, unknown>>;
+  const data = response.body.data!;
+  const rows = data.externalSessions as Array<Record<string, unknown>>;
+  assert.deepEqual(data.discovery, { ok: true });
   assert.equal(rows.length, 1);
+  assert.equal(rows[0].presence, 'present');
   assert.equal('attachCapability' in rows[0], false);
 
   const routeSource = await (await import('node:fs/promises')).readFile(
@@ -214,6 +218,68 @@ test('external session route issues capabilities only for ssh and shell branches
   );
   assert.match(routeSource, /session\.kind === 'ssh' \|\| session\.kind === 'shell'/);
   assert.match(routeSource, /return attachCapability \? \{ \.\.\.base, attachCapability \} : base;/);
+});
+
+test('live and external roster responses expose availability without changing roster rows', async () => {
+  const liveResponse = await request('/sessions/live');
+  assertSuccess(liveResponse);
+  const liveData = liveResponse.body.data!;
+  assert.deepEqual(liveData.discovery, { ok: true });
+  assert.ok((liveData.liveSessions as Array<Record<string, unknown>>).every((row) => row.presence === 'present'));
+});
+
+test('unavailable roster responses retain authoritative stale snapshot rows while actions still fresh-verify', async () => {
+  app.locals.discoveryCollector = {
+    currentSnapshot: () => ({
+      rows: [{
+        key: 'external\\0snapshot',
+        lane: 'external',
+        tmuxName: 'snapshot-shell',
+        tmux: externalTmux,
+        process: validProcess,
+        kind: 'ssh',
+        providerSessionId: null,
+        activity: 'unknown',
+        cwd: '/tmp',
+        lastSeenRevision: 1,
+        presence: 'stale',
+        staleSinceRevision: 1,
+      }, {
+        key: 'live\\0snapshot',
+        lane: 'live',
+        tmuxName: 'snapshot-live',
+        tmux: liveTmux,
+        process: validProcess,
+        kind: 'gjc',
+        providerSessionId: 'live-snapshot',
+        activity: 'running',
+        cwd: null,
+        lastSeenRevision: 1,
+        presence: 'stale',
+        staleSinceRevision: 1,
+      }],
+    }),
+  };
+  process.env.CHATMUX_CONTRACT_TMUX_FAIL = '1';
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 1_100));
+    const response = await request('/sessions/external');
+    assertSuccess(response);
+    assert.deepEqual(response.body.data?.discovery, { ok: false });
+    const rows = response.body.data?.externalSessions as Array<Record<string, unknown>>;
+    assert.equal(rows[0]?.tmuxName, 'snapshot-shell');
+    assert.equal(rows[0]?.presence, 'stale');
+    const liveResponse = await request('/sessions/live');
+    assertSuccess(liveResponse);
+    assert.deepEqual(liveResponse.body.data?.discovery, { ok: false });
+    const liveRows = liveResponse.body.data?.liveSessions as Array<Record<string, unknown>>;
+    assert.equal(liveRows[0]?.tmuxName, 'snapshot-live');
+    assert.equal(liveRows[0]?.presence, 'stale');
+    assertError(await request('/sessions/external/output', { tmux: externalTmux, process: validProcess }), 409, 'TMUX_PROCESS_GENERATION_MISMATCH');
+  } finally {
+    delete process.env.CHATMUX_CONTRACT_TMUX_FAIL;
+    delete app.locals.discoveryCollector;
+  }
 });
 
 test('external output, send, and kill preserve their format-error contracts', async () => {

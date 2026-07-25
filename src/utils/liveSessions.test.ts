@@ -6,8 +6,7 @@ import type { TmuxPaneIdentity, TmuxProcessGeneration } from '../../shared/tmux'
 import {
   findGjcPromotionCandidate,
   GJC_IDLE_SESSION_PREFIX,
-  retainTransientlyMissingLiveRows,
-  type LiveSessionSnapshotRow,
+  readDiscoveryOk,
 } from './liveSessions';
 
 
@@ -31,16 +30,6 @@ const processById: Record<string, TmuxProcessGeneration> = {
   '$8': process(8),
   '$9': process(9),
 };
-const row = (generationKey: string, lineage = true): LiveSessionSnapshotRow => ({
-  tmuxName: 'agent',
-  tmux: tmuxById[generationKey],
-  process: processById[generationKey],
-  model: null,
-  effort: null,
-  lineage,
-  kind: 'interactive',
-  running: null,
-});
 
 test('findGjcPromotionCandidate requires one structured row from the exact tmux generation', () => {
   const sessions = [
@@ -63,31 +52,8 @@ test('findGjcPromotionCandidate requires one structured row from the exact tmux 
   );
 });
 
-test('retainTransientlyMissingLiveRows replaces promoted idle ids without a duplicate grace row', () => {
-  const idleId = `${GJC_IDLE_SESSION_PREFIX}agent`;
-  const previous = new Map([[idleId, row('$8')]]);
-  const current = new Map([['current-session', row('$8')]]);
-
-  const missed = retainTransientlyMissingLiveRows(current, previous, new Set());
-
-  assert.deepEqual([...current.keys()], ['current-session']);
-  assert.deepEqual([...missed], []);
-});
-
-test('retainTransientlyMissingLiveRows keeps ordinary or different-generation misses for one poll', () => {
-  const idleId = `${GJC_IDLE_SESSION_PREFIX}agent`;
-  const previous = new Map([
-    [idleId, row('$7')],
-    ['ordinary-session', row('$6')],
-  ]);
-  const current = new Map([['current-session', row('$8')]]);
-
-  const firstMiss = retainTransientlyMissingLiveRows(current, previous, new Set());
-  assert.deepEqual(new Set(current.keys()), new Set(['current-session', idleId, 'ordinary-session']));
-  assert.deepEqual(firstMiss, new Set([idleId, 'ordinary-session']));
-
-  const secondSnapshot = new Map([['current-session', row('$8')]]);
-  const secondMiss = retainTransientlyMissingLiveRows(secondSnapshot, current, firstMiss);
-  assert.deepEqual([...secondSnapshot.keys()], ['current-session']);
-  assert.deepEqual([...secondMiss], []);
+test('readDiscoveryOk treats missing discovery metadata as a legacy available response', () => {
+  assert.equal(readDiscoveryOk({ externalSessions: [] }), true);
+  assert.equal(readDiscoveryOk({ discovery: {} }), true);
+  assert.equal(readDiscoveryOk({ discovery: { ok: false } }), false);
 });

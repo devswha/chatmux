@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { chmod, mkdtemp, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 
 import {
   computeLiveSessions,
@@ -18,6 +21,7 @@ import {
   parseLsofPidSessions,
   parseTmuxPanes,
   pickPaneReceipt,
+  getLiveGjcSessionsDetailed,
   tmuxHasPanes,
 } from '@/modules/providers/services/live-sessions.service.js';
 
@@ -35,6 +39,35 @@ test('tmuxHasPanes detects a running tmux server (>=1 pane line)', () => {
   assert.equal(tmuxHasPanes('alpha\t111\t/workspace/project-alpha\n'), true);
   assert.equal(tmuxHasPanes('   \n\n'), false);
   assert.equal(tmuxHasPanes(''), false);
+});
+
+test('getLiveGjcSessionsDetailed distinguishes unavailable tmux from a confirmed empty scan', async () => {
+  const bin = await mkdtemp(path.join(os.tmpdir(), 'chatmux-live-scan-'));
+  const tmux = path.join(bin, 'tmux');
+  const lsof = path.join(bin, 'lsof');
+  const ps = path.join(bin, 'ps');
+  const previousPath = process.env.PATH;
+  await writeFile(tmux, `#!/bin/sh
+case "$*" in
+  *list-panes*) printf '%s\\n' "$CHATMUX_LIVE_TMUX_OUTPUT" ;;
+esac
+`);
+  await writeFile(lsof, '#!/bin/sh\nexit 0\n');
+  await writeFile(ps, '#!/bin/sh\nexit 0\n');
+  await Promise.all([chmod(tmux, 0o755), chmod(lsof, 0o755), chmod(ps, 0o755)]);
+  process.env.PATH = `${bin}${path.delimiter}${previousPath ?? ''}`;
+  try {
+    process.env.CHATMUX_LIVE_TMUX_OUTPUT = '';
+    assert.equal((await getLiveGjcSessionsDetailed()).ok, false);
+
+    process.env.CHATMUX_LIVE_TMUX_OUTPUT = '/tmp/chatmux.sock\t$1\t@1\t%1\tlive\t1\tgjc\t/tmp\n';
+    const result = await getLiveGjcSessionsDetailed();
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.sessions, []);
+  } finally {
+    process.env.PATH = previousPath;
+    delete process.env.CHATMUX_LIVE_TMUX_OUTPUT;
+  }
 });
 
 test('parseTmuxPanes splits exact identity<TAB>name<TAB>pid<TAB>pane_current_command<TAB>cwd (cwd may contain spaces; empty cmd tolerated)', () => {

@@ -8,15 +8,24 @@ import { providerModelsService } from '@/modules/providers/services/provider-mod
 import { providerSkillsService } from '@/modules/providers/services/skills.service.js';
 import { sessionConversationsSearchService } from '@/modules/providers/services/session-conversations-search.service.js';
 import { sessionsService } from '@/modules/providers/services/sessions.service.js';
-import { getLiveGjcSessions } from '@/modules/providers/services/live-sessions.service.js';
+import {
+  getLiveGjcSessionsDetailed,
+  type LiveGjcSession,
+} from '@/modules/providers/services/live-sessions.service.js';
 import {
   getCurrentTmuxPaneIdentity,
   getExternalCliSessionsDetailed,
   normalizeExternalPaneOutput,
   resolveExternalCliCwd,
   spawnExternalCliSession,
+  type ExternalCliSession,
   type ExternalSpawnCli,
 } from '@/modules/providers/services/external-cli-sessions.service.js';
+import {
+  type DiscoveryCollector,
+  type DiscoveryLane,
+  type DiscoveryRow,
+} from '@/modules/providers/services/discovery-collector.service.js';
 import { resolveExternalSessionActivity } from '@/modules/providers/services/external-session-activity.service.js';
 import { getHomeDir, getHomeDirSuggestions } from '@/modules/providers/services/home-dirs.service.js';
 import { isValidSpawnName, spawnLiveSession } from '@/modules/providers/services/live-send.service.js';
@@ -65,6 +74,53 @@ function externalProcessGeneration(session: {
   return session.agentPid !== undefined && session.startedAtMs !== undefined
     ? { pid: session.agentPid, startedAtMs: session.startedAtMs }
     : null;
+}
+
+function discoveryRows(req: Request, lane: DiscoveryLane): readonly DiscoveryRow[] {
+  const collector = req.app.locals.discoveryCollector as DiscoveryCollector | undefined;
+  return collector?.currentSnapshot().rows.filter((row) => row.lane === lane) ?? [];
+}
+
+function snapshotExternalSessions(rows: readonly DiscoveryRow[]): ExternalCliSession[] {
+  return rows.map((row) => ({
+    tmuxName: row.tmuxName,
+    tmux: row.tmux,
+    kind: row.kind as ExternalCliSession['kind'],
+    providerSessionId: row.providerSessionId ?? undefined,
+    cwd: row.cwd ?? undefined,
+    agentPid: row.process?.pid,
+    startedAtMs: row.process?.startedAtMs,
+  }));
+}
+
+function snapshotLiveSessions(rows: readonly DiscoveryRow[]): LiveGjcSession[] {
+  return rows.flatMap((row) => (
+    row.providerSessionId === null ? [] : [{
+      id: row.providerSessionId,
+      tmuxName: row.tmuxName,
+      tmux: row.tmux,
+      process: row.process,
+      claim: 'lineage' as const,
+      kind: null,
+      model: null,
+      effort: null,
+      running: row.activity === 'running',
+    }]
+  ));
+}
+
+function snapshotPresence(rows: readonly DiscoveryRow[]): Map<string, DiscoveryRow['presence']> {
+  return new Map(rows.map((row) => [
+    `${row.tmux.socketPath}\0${row.tmux.sessionId}\0${row.tmux.windowId}\0${row.tmux.paneId}`,
+    row.presence,
+  ]));
+}
+
+function rowPresence(
+  presence: ReadonlyMap<string, DiscoveryRow['presence']>,
+  tmux: { socketPath: string; sessionId: string; windowId: string; paneId: string },
+): DiscoveryRow['presence'] {
+  return presence.get(`${tmux.socketPath}\0${tmux.sessionId}\0${tmux.windowId}\0${tmux.paneId}`) ?? 'present';
 }
 
 
@@ -638,8 +694,16 @@ router.get(
   asyncHandler(async (_req: Request, res: Response) => {
     // Sessions live in exact tmux panes. Fresh GJC panes without transcripts
     // appear as synthetic idle rows until the first message is indexed.
-    const liveSessions = await getLiveGjcSessions();
-    res.json(createApiSuccessResponse({ liveSessions }));
+    const result = await getLiveGjcSessionsDetailed();
+    const snapshotRows = result.ok ? [] : discoveryRows(_req, 'live');
+    const presence = snapshotPresence(snapshotRows);
+    const liveSessions = (result.ok ? result.sessions : snapshotLiveSessions(snapshotRows)).map((session) => ({
+      ...session,
+      presence: session.tmux === null
+        ? 'present'
+        : rowPresence(presence, session.tmux),
+    }));
+    res.json(createApiSuccessResponse({ liveSessions, discovery: { ok: result.ok } }));
   }),
 );
 
@@ -649,13 +713,17 @@ router.get(
     // Coding-agent panes open structured transcripts when a native session id
     // is available, with terminal attach as the fallback. GJC stays in the
     // dedicated live lane; SSH and unclassified shell panes are attach-only.
-    const { sessions } = await getExternalCliSessionsDetailed();
+    const result = await getExternalCliSessionsDetailed();
+    const snapshotRows = result.ok ? [] : discoveryRows(req, 'external');
+    const presence = snapshotPresence(snapshotRows);
+    const sessions = result.ok ? result.sessions : snapshotExternalSessions(snapshotRows);
     const externalSessions = await Promise.all(sessions.map(async (session) => {
       const base = {
         tmuxName: session.tmuxName,
         tmux: session.tmux,
         process: externalProcessGeneration(session),
         kind: session.kind,
+        presence: rowPresence(presence, session.tmux),
       };
       if (session.kind === 'ssh' || session.kind === 'shell') {
         const attachCapability = await attachCapabilityService.issue(
@@ -691,7 +759,7 @@ router.get(
         ...(appSession ? { transcriptEnded: resolution.transcriptEnded } : {}),
       };
     }));
-    res.json(createApiSuccessResponse({ externalSessions }));
+    res.json(createApiSuccessResponse({ externalSessions, discovery: { ok: result.ok } }));
   }),
 );
 
