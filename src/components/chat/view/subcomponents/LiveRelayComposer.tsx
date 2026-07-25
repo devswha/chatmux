@@ -3,6 +3,22 @@ import type { KeyboardEvent } from 'react';
 
 import { api } from '../../../../utils/api';
 import type { TmuxPaneTarget } from '../../../../../shared/tmux';
+import {
+  filterCommands,
+  filterMentionableFiles,
+  flattenProjectFileTree,
+  getActiveMentionToken,
+  getActiveSlashToken,
+  normalizeWorkspacePath,
+  type LiveGjcCommand,
+  type MentionableFile,
+  type ProjectFileNode,
+} from '../../utils/liveRelayComposer';
+export {
+  filterMentionableFiles,
+  flattenProjectFileTree,
+  getActiveMentionToken,
+} from '../../utils/liveRelayComposer';
 
 import CommandMenu from './CommandMenu';
 
@@ -13,23 +29,6 @@ type RelayStatus =
   | { kind: 'queued'; text: string }
   | { kind: 'error'; text: string };
 
-type LiveGjcCommand = {
-  name: string;
-  description?: string;
-  namespace?: string;
-  scope?: string;
-  sourcePath?: string;
-};
-type MentionableFile = {
-  name: string;
-  path: string;
-};
-
-type ProjectFileNode = {
-  name: string;
-  type: 'file' | 'directory';
-  children?: ProjectFileNode[];
-};
 
 type WorkspaceProject = {
   projectId?: string;
@@ -37,69 +36,6 @@ type WorkspaceProject = {
   path?: string;
 };
 
-export function getActiveMentionToken(text: string, caret: number): { start: number; query: string } | null {
-  return getActiveSlashToken(text, caret, '@');
-}
-
-export function filterMentionableFiles(files: MentionableFile[], query: string): MentionableFile[] {
-  const normalized = query.toLowerCase();
-  return files
-    .filter((file) => file.name.toLowerCase().includes(normalized) || file.path.toLowerCase().includes(normalized))
-    .slice(0, 10);
-}
-
-export function flattenProjectFileTree(files: ProjectFileNode[], basePath = ''): MentionableFile[] {
-  return files.flatMap((file) => {
-    const path = basePath ? `${basePath}/${file.name}` : file.name;
-    if (file.type === 'directory') {
-      return file.children ? flattenProjectFileTree(file.children, path) : [];
-    }
-    return [{ name: file.name, path }];
-  });
-}
-
-function normalizeWorkspacePath(path: string): string {
-  return path.replace(/\/+$/, '');
-}
-
-/** The active trigger token (`/…` for gjc, `$…` for codex) under the caret, or null. */
-function getActiveSlashToken(text: string, caret: number, trigger: string): { start: number; query: string } | null {
-  for (let index = caret - 1; index >= 0; index -= 1) {
-    const char = text[index];
-    if (char === trigger) {
-      const precededByBoundary = index === 0 || /\s/.test(text[index - 1]);
-      if (!precededByBoundary) {
-        return null;
-      }
-      const query = text.slice(index, caret);
-      // A whitespace inside the token means the command is already fully typed.
-      return /\s/.test(query) ? null : { start: index, query };
-    }
-    if (/\s/.test(char)) {
-      return null;
-    }
-  }
-  return null;
-}
-
-function filterCommands(commands: LiveGjcCommand[], query: string, trigger: string): LiveGjcCommand[] {
-  const normalized = query.trim().toLowerCase();
-  if (!normalized || normalized === trigger) {
-    return commands;
-  }
-  const prefix = normalized.startsWith(trigger) ? normalized : `${trigger}${normalized}`;
-  const bare = prefix.slice(1);
-
-  const byPrefix = commands.filter((command) => command.name.toLowerCase().startsWith(prefix));
-  if (byPrefix.length > 0) {
-    return byPrefix;
-  }
-  const bySubstring = commands.filter((command) => command.name.toLowerCase().includes(bare));
-  if (bySubstring.length > 0) {
-    return bySubstring;
-  }
-  return commands.filter((command) => command.description?.toLowerCase().includes(bare));
-}
 
 /**
  * Composer for a live (read-only) session. It does NOT inject into the

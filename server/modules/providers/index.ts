@@ -34,3 +34,4 @@ export {
   assertTmuxPaneIdentity,
   readTmuxPaneIdentity,
 } from './services/tmux-pane-actions.service.js';
+export { createProviderToolApprovals } from './services/provider-tool-approvals.service.js';

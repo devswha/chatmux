@@ -6,12 +6,13 @@ import { renderToStaticMarkup } from 'react-dom/server';
 
 import { api } from '../../../../utils/api';
 import type { TmuxPaneTarget } from '../../../../../shared/tmux';
-
-import LiveRelayComposer, {
+import {
   filterMentionableFiles,
   flattenProjectFileTree,
   getActiveMentionToken,
-} from './LiveRelayComposer';
+} from '../../utils/liveRelayComposer';
+
+import LiveRelayComposer from './LiveRelayComposer';
 
 const target: TmuxPaneTarget = {
   tmux: {

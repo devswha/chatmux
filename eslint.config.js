@@ -162,6 +162,7 @@ export default tseslint.config(
             "server/shared/claude-cli-path.ts",
             "server/shared/image-attachments.ts",
             "server/shared/project-file-containment.ts",
+            "server/shared/workspace-paths.ts",
             "server/middleware/auth.js",
             "server/tailscale-auth.ts",
             "server/tailscale-access.ts",
