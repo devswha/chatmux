@@ -69,6 +69,16 @@ An SSH tunnel remains the local-only fallback when Tailscale is unavailable:
 ```sh
 ssh -N -L 3001:127.0.0.1:3001 user@server
 ```
+## Plugin trust boundary
+
+Plugins run code trusted by the owner with the host user's permissions. They are
+not sandboxed. A manifest's `permissions` field is metadata only: ChatMux
+validates that it is an array of strings, then stores it with the plugin; it
+does not enforce those permissions. Review a plugin repository directly before
+installing it, including its dependencies and build scripts.
+
+Plugin functionality is frozen for this release. Do not treat plugin
+installation as a safe way to add unreviewed host capabilities.
 
 ## Cutover to a verified release
 

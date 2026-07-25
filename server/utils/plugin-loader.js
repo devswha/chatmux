@@ -97,7 +97,7 @@ export function validateManifest(manifest) {
 const BUILD_TIMEOUT_MS = 60_000;
 
 /** Run `npm run build` if the plugin's package.json declares a build script. */
-function runBuildIfNeeded(dir, packageJsonPath, onSuccess, onError) {
+function runBuildIfNeeded(dir, packageJsonPath, onSuccess, onError, spawnFn = spawn) {
   try {
     const pkg = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
     if (!pkg.scripts?.build) {
@@ -107,7 +107,7 @@ function runBuildIfNeeded(dir, packageJsonPath, onSuccess, onError) {
     return onSuccess(); // Unreadable package.json — skip build
   }
 
-  const buildProcess = spawn('npm', ['run', 'build'], {
+  const buildProcess = spawnFn('npm', ['run', 'build'], {
     cwd: dir,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -143,9 +143,7 @@ function runBuildIfNeeded(dir, packageJsonPath, onSuccess, onError) {
   });
 }
 
-export function scanPlugins() {
-  const pluginsDir = getPluginsDir();
-  const config = getPluginsConfig();
+function scanPluginsInDir(pluginsDir, config = {}) {
   const plugins = [];
 
   let entries;
@@ -222,6 +220,10 @@ export function scanPlugins() {
 
   return plugins;
 }
+export function scanPlugins() {
+  return scanPluginsInDir(getPluginsDir(), getPluginsConfig());
+}
+
 
 export function getPluginDir(name) {
   const plugins = scanPlugins();
@@ -248,7 +250,7 @@ export function resolvePluginAssetPath(name, assetPath) {
   return realResolved;
 }
 
-export function installPluginFromGit(url) {
+export function installPluginFromGit(url, { pluginsDir = getPluginsDir(), spawnFn = spawn } = {}) {
   return new Promise((resolve, reject) => {
     if (typeof url !== 'string' || !url.trim()) {
       return reject(new Error('Invalid URL: must be a non-empty string'));
@@ -265,7 +267,6 @@ export function installPluginFromGit(url) {
       return reject(new Error('Could not determine a valid directory name from the URL'));
     }
 
-    const pluginsDir = getPluginsDir();
     const targetDir = path.resolve(pluginsDir, repoName);
 
     // Ensure the resolved target directory stays within the plugins directory
@@ -298,7 +299,7 @@ export function installPluginFromGit(url) {
       resolve(manifest);
     };
 
-    const gitProcess = spawn('git', ['clone', '--depth', '1', '--', url, tempDir], {
+    const gitProcess = spawnFn('git', ['clone', '--depth', '1', '--', url, tempDir], {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
@@ -333,7 +334,7 @@ export function installPluginFromGit(url) {
       }
 
       // Reject if another installed plugin already uses this name
-      const existing = scanPlugins().find(p => p.name === manifest.name);
+      const existing = scanPluginsInDir(pluginsDir).find(p => p.name === manifest.name);
       if (existing) {
         cleanupTemp();
         return reject(new Error(`A plugin named "${manifest.name}" is already installed (in "${existing.dirName}")`));
@@ -343,7 +344,7 @@ export function installPluginFromGit(url) {
       // --ignore-scripts prevents postinstall hooks from executing arbitrary code.
       const packageJsonPath = path.join(tempDir, 'package.json');
       if (fs.existsSync(packageJsonPath)) {
-        const npmProcess = spawn('npm', ['install', '--ignore-scripts'], {
+        const npmProcess = spawnFn('npm', ['install', '--ignore-scripts'], {
           cwd: tempDir,
           stdio: ['ignore', 'pipe', 'pipe'],
         });
@@ -353,7 +354,7 @@ export function installPluginFromGit(url) {
             cleanupTemp();
             return reject(new Error(`npm install for ${repoName} failed (exit code ${npmCode})`));
           }
-          runBuildIfNeeded(tempDir, packageJsonPath, () => finalize(manifest), (err) => { cleanupTemp(); reject(err); });
+          runBuildIfNeeded(tempDir, packageJsonPath, () => finalize(manifest), (err) => { cleanupTemp(); reject(err); }, spawnFn);
         });
 
         npmProcess.on('error', (err) => {
@@ -372,15 +373,15 @@ export function installPluginFromGit(url) {
   });
 }
 
-export function updatePluginFromGit(name) {
+export function updatePluginFromGit(name, { pluginDir: configuredPluginDir, spawnFn = spawn } = {}) {
   return new Promise((resolve, reject) => {
-    const pluginDir = getPluginDir(name);
+    const pluginDir = configuredPluginDir || getPluginDir(name);
     if (!pluginDir) {
       return reject(new Error(`Plugin "${name}" not found`));
     }
 
     // Only fast-forward to avoid silent divergence
-    const gitProcess = spawn('git', ['pull', '--ff-only', '--'], {
+    const gitProcess = spawnFn('git', ['pull', '--ff-only', '--'], {
       cwd: pluginDir,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -410,7 +411,7 @@ export function updatePluginFromGit(name) {
       // Re-run npm install if package.json exists
       const packageJsonPath = path.join(pluginDir, 'package.json');
       if (fs.existsSync(packageJsonPath)) {
-        const npmProcess = spawn('npm', ['install', '--ignore-scripts'], {
+        const npmProcess = spawnFn('npm', ['install', '--ignore-scripts'], {
           cwd: pluginDir,
           stdio: ['ignore', 'pipe', 'pipe'],
         });
@@ -418,7 +419,7 @@ export function updatePluginFromGit(name) {
           if (npmCode !== 0) {
             return reject(new Error(`npm install for ${name} failed (exit code ${npmCode})`));
           }
-          runBuildIfNeeded(pluginDir, packageJsonPath, () => resolve(manifest), (err) => reject(err));
+          runBuildIfNeeded(pluginDir, packageJsonPath, () => resolve(manifest), (err) => reject(err), spawnFn);
         });
         npmProcess.on('error', (err) => reject(err));
       } else {

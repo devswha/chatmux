@@ -75,15 +75,17 @@ async function fetchWithTimeout(url, options = {}) {
  * Turn a backend fetch failure into a clear, actionable client response:
  * 504 on timeout (AbortError), 502 otherwise.
  * @param {import('express').Response} res
+ * @param {'transcribe' | 'tts'} operation
  * @param {Error} e
  */
-function backendError(res, e) {
+function backendError(res, operation, e) {
+  logUpstreamFailure(operation, null);
   if (e && e.name === 'AbortError') {
     return res.status(504).json({
       error: `Voice backend timed out after ${Math.round(VOICE_TIMEOUT_MS / 1000)}s. Check your voice backend.`,
     });
   }
-  return res.status(502).json({ error: `Voice backend unreachable: ${e.message}` });
+  return res.status(502).json({ error: 'Voice backend unreachable. Check your voice backend.' });
 }
 
 /**
@@ -107,17 +109,23 @@ function isAllowedBackendUrl(raw) {
 }
 
 /**
- * Relay an upstream (backend) error to the client without making an upstream
- * 401/403 look like the user's own app login failed.
+ * Relay an upstream (backend) error to the client without exposing its response
+ * body, which can include backend diagnostics or credentials.
  * @param {import('express').Response} res
+ * @param {'transcribe' | 'tts'} operation
  * @param {number} status
- * @param {string} [text]
  */
-function upstreamError(res, status, text) {
+function logUpstreamFailure(operation, upstreamStatus) {
+  console.error({ operation, upstreamStatus });
+}
+
+function upstreamError(res, operation, status) {
+  logUpstreamFailure(operation, status);
+  // Do not surface an upstream credential failure as an app authentication failure.
   if (status === 401 || status === 403) {
     return res.status(502).json({ error: 'Voice backend rejected the request (check the API key).' });
   }
-  return res.status(status).json({ error: text || 'voice backend error' });
+  return res.status(status).json({ error: `Voice backend returned status ${status}.` });
 }
 
 let _upload = null;
@@ -177,12 +185,12 @@ router.post('/transcribe', async (req, res) => {
         body: fd,
       });
       const text = await r.text();
-      if (!r.ok) return upstreamError(res, r.status, text);
+      if (!r.ok) return upstreamError(res, 'transcribe', r.status);
       let data;
       try { data = JSON.parse(text); } catch { data = { text }; }
       res.json({ text: data.text ?? '' });
     } catch (e) {
-      backendError(res, e);
+      backendError(res, 'transcribe', e);
     }
   });
 });
@@ -209,15 +217,15 @@ router.post('/tts', async (req, res) => {
       }),
     });
     if (!r.ok) {
-      const errText = await r.text().catch(() => 'tts failed');
-      return upstreamError(res, r.status, errText);
+      await r.text().catch(() => {});
+      return upstreamError(res, 'tts', r.status);
     }
     res.setHeader('Content-Type', r.headers.get('content-type') || 'audio/mpeg');
     res.setHeader('Cache-Control', 'no-store');
     if (!r.body) return res.end();
     Readable.fromWeb(r.body).on('error', (error) => res.destroy(error)).pipe(res);
   } catch (e) {
-    backendError(res, e);
+    backendError(res, 'tts', e);
   }
 });
 

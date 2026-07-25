@@ -159,11 +159,8 @@ const rebuildProjectsTableWithPrimaryKeySchema = (db: Database): void => {
        END`
     : SQLITE_UUID_SQL;
 
-  db.exec('PRAGMA foreign_keys = OFF');
-  try {
-    db.exec('BEGIN TRANSACTION');
-    db.exec('DROP TABLE IF EXISTS projects__new');
-    db.exec(`
+  db.exec('DROP TABLE IF EXISTS projects__new');
+  db.exec(`
       CREATE TABLE projects__new (
         project_id TEXT PRIMARY KEY NOT NULL,
         project_path TEXT NOT NULL UNIQUE,
@@ -172,7 +169,7 @@ const rebuildProjectsTableWithPrimaryKeySchema = (db: Database): void => {
         isArchived BOOLEAN DEFAULT 0
       )
     `);
-    db.exec(`
+  db.exec(`
       WITH source_rows AS (
         SELECT
           ${projectPathExpression} AS project_path,
@@ -224,15 +221,8 @@ const rebuildProjectsTableWithPrimaryKeySchema = (db: Database): void => {
         isArchived
       FROM prepared_rows
     `);
-    db.exec('DROP TABLE projects');
-    db.exec('ALTER TABLE projects__new RENAME TO projects');
-    db.exec('COMMIT');
-  } catch (migrationError) {
-    db.exec('ROLLBACK');
-    throw migrationError;
-  } finally {
-    db.exec('PRAGMA foreign_keys = ON');
-  }
+  db.exec('DROP TABLE projects');
+  db.exec('ALTER TABLE projects__new RENAME TO projects');
 };
 
 const rebuildSessionsTableWithProjectSchema = (db: Database): void => {
@@ -298,11 +288,8 @@ const rebuildSessionsTableWithProjectSchema = (db: Database): void => {
     ? 'COALESCE(updated_at, CURRENT_TIMESTAMP)'
     : 'CURRENT_TIMESTAMP';
 
-  db.exec('PRAGMA foreign_keys = OFF');
-  try {
-    db.exec('BEGIN TRANSACTION');
-    db.exec('DROP TABLE IF EXISTS sessions__new');
-    db.exec(`
+  db.exec('DROP TABLE IF EXISTS sessions__new');
+  db.exec(`
       CREATE TABLE sessions__new (
         session_id TEXT NOT NULL,
         provider TEXT NOT NULL DEFAULT 'claude',
@@ -318,7 +305,7 @@ const rebuildSessionsTableWithProjectSchema = (db: Database): void => {
         ON UPDATE CASCADE
       )
     `);
-    db.exec(`
+  db.exec(`
       WITH source_rows AS (
         SELECT
           session_id,
@@ -371,15 +358,8 @@ const rebuildSessionsTableWithProjectSchema = (db: Database): void => {
       FROM ranked_rows
       WHERE session_rank = 1
     `);
-    db.exec('DROP TABLE sessions');
-    db.exec('ALTER TABLE sessions__new RENAME TO sessions');
-    db.exec('COMMIT');
-  } catch (migrationError) {
-    db.exec('ROLLBACK');
-    throw migrationError;
-  } finally {
-    db.exec('PRAGMA foreign_keys = ON');
-  }
+  db.exec('DROP TABLE sessions');
+  db.exec('ALTER TABLE sessions__new RENAME TO sessions');
 };
 
 /**
@@ -420,56 +400,113 @@ const ensureProjectsForSessionPaths = (db: Database): void => {
   `);
 };
 
+type Migration = {
+  version: number;
+  migrate: (db: Database) => void;
+};
+
+const SCHEMA_MIGRATIONS_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS schema_migrations (
+    version INTEGER PRIMARY KEY,
+    applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )
+`;
+
+/**
+ * A journaled migration is committed atomically with its version record. Existing
+ * installations without the journal replay every step once; all legacy helpers
+ * are intentionally idempotent, so that replay is safe.
+ */
+const MIGRATIONS: Migration[] = [
+  {
+    version: 1,
+    migrate: (db) => {
+      const userColumnNames = getTableInfo(db, 'users').map((column) => column.name);
+      addColumnToTableIfNotExists(db, 'users', userColumnNames, 'git_name', 'TEXT');
+      addColumnToTableIfNotExists(db, 'users', userColumnNames, 'git_email', 'TEXT');
+      addColumnToTableIfNotExists(
+        db,
+        'users',
+        userColumnNames,
+        'has_completed_onboarding',
+        'BOOLEAN DEFAULT 0'
+      );
+    },
+  },
+  {
+    version: 2,
+    migrate: (db) => {
+      db.exec(APP_CONFIG_TABLE_SCHEMA_SQL);
+      db.exec(USER_NOTIFICATION_PREFERENCES_TABLE_SCHEMA_SQL);
+      db.exec(VAPID_KEYS_TABLE_SCHEMA_SQL);
+      db.exec(PUSH_SUBSCRIPTIONS_TABLE_SCHEMA_SQL);
+      db.exec('CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user_id ON push_subscriptions(user_id)');
+    },
+  },
+  { version: 3, migrate: (db) => db.exec(PROJECTS_TABLE_SCHEMA_SQL) },
+  { version: 4, migrate: rebuildProjectsTableWithPrimaryKeySchema },
+  { version: 5, migrate: migrateLegacyWorkspaceTableIntoProjects },
+  { version: 6, migrate: rebuildSessionsTableWithProjectSchema },
+  { version: 7, migrate: migrateLegacySessionNames },
+  { version: 8, migrate: addProviderSessionIdMapping },
+  { version: 9, migrate: ensureProjectsForSessionPaths },
+  {
+    version: 10,
+    migrate: (db) => {
+      db.exec('CREATE INDEX IF NOT EXISTS idx_session_ids_lookup ON sessions(session_id)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_sessions_provider_session_id ON sessions(provider_session_id)');
+      // A unique index is unsafe for existing databases, which may already contain duplicate mappings.
+      db.exec('CREATE INDEX IF NOT EXISTS idx_sessions_provider_provider_session_id ON sessions(provider, provider_session_id)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_sessions_project_path ON sessions(project_path)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_sessions_is_archived ON sessions(isArchived)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_projects_is_starred ON projects(isStarred)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_projects_is_archived ON projects(isArchived)');
+    },
+  },
+  {
+    version: 11,
+    migrate: (db) => {
+      db.exec('DROP INDEX IF EXISTS idx_session_names_lookup');
+      db.exec('DROP INDEX IF EXISTS idx_sessions_workspace_path');
+      db.exec('DROP INDEX IF EXISTS idx_workspace_original_paths_is_starred');
+      db.exec('DROP INDEX IF EXISTS idx_workspace_original_paths_workspace_id');
+
+      if (tableExists(db, 'workspace_original_paths')) {
+        console.log('Running migration: Dropping legacy workspace_original_paths table');
+        db.exec('DROP TABLE workspace_original_paths');
+      }
+    },
+  },
+  { version: 12, migrate: (db) => db.exec(LAST_SCANNED_AT_SQL) },
+];
+
 export const runMigrations = (db: Database) => {
   try {
-    const usersTableInfo = db.prepare('PRAGMA table_info(users)').all() as { name: string }[];
-    const userColumnNames = usersTableInfo.map((column) => column.name);
+    db.exec(SCHEMA_MIGRATIONS_TABLE_SQL);
+    const appliedVersions = db
+      .prepare('SELECT version FROM schema_migrations')
+      .all() as { version: number }[];
+    const appliedVersionSet = new Set(appliedVersions.map(({ version }) => version));
 
-    addColumnToTableIfNotExists(db, 'users', userColumnNames, 'git_name', 'TEXT');
-    addColumnToTableIfNotExists(db, 'users', userColumnNames, 'git_email', 'TEXT');
-    addColumnToTableIfNotExists(
-      db,
-      'users',
-      userColumnNames,
-      'has_completed_onboarding',
-      'BOOLEAN DEFAULT 0'
-    );
+    for (const migration of MIGRATIONS) {
+      if (appliedVersionSet.has(migration.version)) {
+        continue;
+      }
 
-    db.exec(APP_CONFIG_TABLE_SCHEMA_SQL);
-    db.exec(USER_NOTIFICATION_PREFERENCES_TABLE_SCHEMA_SQL);
-    db.exec(VAPID_KEYS_TABLE_SCHEMA_SQL);
-    db.exec(PUSH_SUBSCRIPTIONS_TABLE_SCHEMA_SQL);
-    db.exec('CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user_id ON push_subscriptions(user_id)');
-
-    db.exec(PROJECTS_TABLE_SCHEMA_SQL);
-    rebuildProjectsTableWithPrimaryKeySchema(db);
-
-    migrateLegacyWorkspaceTableIntoProjects(db);
-    rebuildSessionsTableWithProjectSchema(db);
-    migrateLegacySessionNames(db);
-    addProviderSessionIdMapping(db);
-    ensureProjectsForSessionPaths(db);
-
-    db.exec('CREATE INDEX IF NOT EXISTS idx_session_ids_lookup ON sessions(session_id)');
-    db.exec('CREATE INDEX IF NOT EXISTS idx_sessions_provider_session_id ON sessions(provider_session_id)');
-    // A unique index is unsafe for existing databases, which may already contain duplicate mappings.
-    db.exec('CREATE INDEX IF NOT EXISTS idx_sessions_provider_provider_session_id ON sessions(provider, provider_session_id)');
-    db.exec('CREATE INDEX IF NOT EXISTS idx_sessions_project_path ON sessions(project_path)');
-    db.exec('CREATE INDEX IF NOT EXISTS idx_sessions_is_archived ON sessions(isArchived)');
-    db.exec('CREATE INDEX IF NOT EXISTS idx_projects_is_starred ON projects(isStarred)');
-    db.exec('CREATE INDEX IF NOT EXISTS idx_projects_is_archived ON projects(isArchived)');
-
-    db.exec('DROP INDEX IF EXISTS idx_session_names_lookup');
-    db.exec('DROP INDEX IF EXISTS idx_sessions_workspace_path');
-    db.exec('DROP INDEX IF EXISTS idx_workspace_original_paths_is_starred');
-    db.exec('DROP INDEX IF EXISTS idx_workspace_original_paths_workspace_id');
-
-    if (tableExists(db, 'workspace_original_paths')) {
-      console.log('Running migration: Dropping legacy workspace_original_paths table');
-      db.exec('DROP TABLE workspace_original_paths');
+      db.exec('PRAGMA foreign_keys = OFF');
+      try {
+        db.exec('BEGIN TRANSACTION');
+        migration.migrate(db);
+        db.prepare('INSERT INTO schema_migrations (version) VALUES (?)').run(migration.version);
+        db.exec('COMMIT');
+      } catch (migrationError) {
+        db.exec('ROLLBACK');
+        throw migrationError;
+      } finally {
+        db.exec('PRAGMA foreign_keys = ON');
+      }
     }
 
-    db.exec(LAST_SCANNED_AT_SQL);
     console.log('Database migrations completed successfully');
   } catch (error: any) {
     console.error('Error running migrations:', error.message);
