@@ -154,5 +154,25 @@
     "deleteAllData": "Tüm veriyi kalıcı olarak sil",
     "allConversationsDeleted": "Proje kenar çubuğundan kaldırılacak. Dosyaların, bellek verilerin ve oturum verilerin korunacak.",
     "cannotUndo": "Projeyi sonra tekrar ekleyebilirsin."
+  },
+  "externalSessions": {
+    "viewInTerminal": "'{{name}}' tmux oturumunu terminalde görüntüle",
+    "openConversation": "{{name}} için konuşmayı aç",
+    "stopOptions": "{{name}} durdurma seçenekleri",
+    "stopFailed": "Oturum durdurulamadı",
+    "stopping": "Durduruluyor…",
+    "stopScope": "Durdurma kapsamı",
+    "agent": "Aracı",
+    "session": "Oturum",
+    "cancel": "İptal",
+    "activity": {
+      "running": "Aracı yanıt veriyor veya araçları çalıştırıyor",
+      "waitingUser": "Bekliyor",
+      "waitingUserTitle": "Geçerli tur tamamlandı ve sonraki girdinizi bekliyor",
+      "approvalPending": "Onay bekliyor",
+      "approvalPendingTitle": "Aracı seçiminizi veya onayınızı bekliyor",
+      "unknown": "Kullanılamıyor",
+      "unknownTitle": "Geçerli durum sağlayıcı kayıtlarından güvenle belirlenemiyor"
+    }
   }
 }

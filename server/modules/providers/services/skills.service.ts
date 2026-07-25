@@ -5,6 +5,10 @@ import type {
   ProviderSkillListOptions,
   ProviderSkillRemoveInput,
 } from '@/shared/types.js';
+import {
+  dedupeProviderSkillsByCommand,
+  listProviderCommands,
+} from '@/modules/providers/services/provider-commands.service.js';
 
 export const providerSkillsService = {
   /**
@@ -15,7 +19,9 @@ export const providerSkillsService = {
     options?: ProviderSkillListOptions,
   ): Promise<ProviderSkill[]> {
     const provider = providerRegistry.resolveProvider(providerName);
-    return provider.skills.listSkills(options);
+    const skills = await provider.skills.listSkills(options);
+    const commands = await listProviderCommands(provider.id, options);
+    return dedupeProviderSkillsByCommand([...skills, ...commands]);
   },
 
   /**

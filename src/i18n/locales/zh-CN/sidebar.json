@@ -154,5 +154,25 @@
     "deleteAllData": "永久删除所有数据",
     "allConversationsDeleted": "项目将从侧边栏中移除。您的文件、记忆和会话数据将会保留。",
     "cannotUndo": "您可以稍后重新添加此项目。"
+  },
+  "externalSessions": {
+    "viewInTerminal": "在终端中查看 tmux 会话“{{name}}”",
+    "openConversation": "打开 {{name}} 的对话",
+    "stopOptions": "{{name}} 停止选项",
+    "stopFailed": "无法停止会话",
+    "stopping": "正在停止…",
+    "stopScope": "停止范围",
+    "agent": "代理",
+    "session": "会话",
+    "cancel": "取消",
+    "activity": {
+      "running": "代理正在响应或运行工具",
+      "waitingUser": "等待中",
+      "waitingUserTitle": "当前轮次已完成，正在等待你的下一次输入",
+      "approvalPending": "等待批准",
+      "approvalPendingTitle": "代理正在等待你的选择或批准",
+      "unknown": "无法确认",
+      "unknownTitle": "无法根据提供商记录安全地确定当前状态"
+    }
   }
 }

@@ -79,20 +79,34 @@ const PROVIDER_CAPABILITIES: Record<LLMProvider, ProviderCapabilities> = {
     provider: 'gjc',
     permissionModes: ['default'],
     defaultPermissionMode: 'default',
+    // Runtime unsupported: spawnGjcWithRuntime only reads session/project/cwd/model
+    // options (`server/gjc-cli.js:255`), so image attachments are never forwarded.
     supportsImages: false,
     supportsAbort: true,
     supportsPermissionRequests: true,
     supportsTokenUsage: true,
+    // Runtime unsupported: spawnGjcWithRuntime does not read an effort option
+    // (`server/gjc-cli.js:255`), so no reasoning-effort control reaches GJC.
     supportsEffort: false,
   },
   omp: {
     provider: 'omp',
     permissionModes: ['default'],
     defaultPermissionMode: 'default',
+    // B11x-omp-images: buildOmpArgs forwards image paths as @<path>
+    // (`server/omp-cli.ts:51-55`), but this matrix still hides the UI control.
     supportsImages: false,
+    // B11x-omp-abort: abortOmpSession terminates the tracked child with SIGTERM
+    // (`server/omp-cli.ts:248-253`), but this matrix still hides the abort control.
     supportsAbort: false,
+    // Deferred to M4b exit: normalizeOmpEvent only maps session, message, tool, and error
+    // events (`server/omp-cli.ts:60-139`); the Oh My Pi runtime's approval event contract is unverified.
     supportsPermissionRequests: false,
+    // Deferred to M4b exit: normalizeOmpEvent has no token-usage mapping (`server/omp-cli.ts:60-139`);
+    // the Oh My Pi JSON runtime's usage contract is unverified.
     supportsTokenUsage: false,
+    // B11x-omp-effort: buildOmpArgs passes effort through --thinking
+    // (`server/omp-cli.ts:48-49`), but this matrix still hides the effort control.
     supportsEffort: false,
   },
 };

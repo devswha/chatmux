@@ -43,6 +43,24 @@ const requiredKeys = [
   'errors.nameConflict',
   'errors.createFailed',
 ];
+const externalSessionRequiredKeys = [
+  'viewInTerminal',
+  'openConversation',
+  'stopOptions',
+  'stopFailed',
+  'stopping',
+  'stopScope',
+  'agent',
+  'session',
+  'cancel',
+  'activity.running',
+  'activity.waitingUser',
+  'activity.waitingUserTitle',
+  'activity.approvalPending',
+  'activity.approvalPendingTitle',
+  'activity.unknown',
+  'activity.unknownTitle',
+];
 
 const readPath = (value: unknown, keyPath: string): unknown => (
   keyPath.split('.').reduce<unknown>((current, segment) => (
@@ -58,6 +76,15 @@ test('all supported sidebar locales define the complete new-session form', () =>
       const value = readPath(resource.newSessionForm, key);
       assert.equal(typeof value, 'string', `${locale} is missing newSessionForm.${key}`);
       assert.notEqual(value, '', `${locale} has an empty newSessionForm.${key}`);
+    }
+  }
+});
+test('all supported sidebar locales define external-session copy consumed by SidebarExternalSection', () => {
+  for (const [locale, resource] of Object.entries(localeResources)) {
+    for (const key of externalSessionRequiredKeys) {
+      const value = readPath(resource.externalSessions, key);
+      assert.equal(typeof value, 'string', `${locale} is missing externalSessions.${key}`);
+      assert.notEqual(value, '', `${locale} has an empty externalSessions.${key}`);
     }
   }
 });

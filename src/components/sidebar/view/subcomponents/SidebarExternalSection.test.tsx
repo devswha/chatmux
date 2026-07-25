@@ -1,9 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import i18next from 'i18next';
+import { I18nextProvider } from 'react-i18next';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
+import enSidebar from '../../../../i18n/locales/en/sidebar.json';
+import koSidebar from '../../../../i18n/locales/ko/sidebar.json';
 import type { ExternalTerminalTarget, Project } from '../../../../types/app';
 import type { TmuxPaneIdentity, TmuxProcessGeneration } from '../../../../../shared/tmux';
 
@@ -40,6 +44,27 @@ const otherProject = {
 
 const noop = () => {};
 const onOpen = noop as unknown as (target: ExternalTerminalTarget) => void;
+const renderSection = async (
+  locale: 'en' | 'ko',
+  props: React.ComponentProps<typeof SidebarExternalSection>,
+) => {
+  const instance = i18next.createInstance();
+  await instance.init({
+    lng: locale,
+    fallbackLng: false,
+    resources: { [locale]: { sidebar: locale === 'en' ? enSidebar : koSidebar } },
+    ns: ['sidebar'],
+    defaultNS: 'sidebar',
+    interpolation: { escapeValue: false },
+  });
+  return renderToStaticMarkup(
+    createElement(
+      I18nextProvider,
+      { i18n: instance },
+      createElement(SidebarExternalSection, props),
+    ),
+  );
+};
 
 test('resolveExternalSessionProject selects the transcript owner instead of the first project', () => {
   assert.equal(
@@ -101,19 +126,19 @@ test('SidebarExternalSection renders an indexed Oh My Pi transcript with its pro
   assert.ok(html.includes('aria-label="Oh My Pi"'));
 });
 
-test('SidebarExternalSection opens a fresh local agent in the pending conversation surface', () => {
-  const html = renderToStaticMarkup(createElement(SidebarExternalSection, {
+test('SidebarExternalSection opens a fresh local agent in the pending conversation surface', async () => {
+  const html = await renderSection('ko', {
     sessions: [external('omp-fresh', 'omp', '%4', 104)],
     projects: [project],
     onOpen,
     onChanged: noop,
-  }));
-  assert.ok(html.includes('omp-fresh — 대화 열기'));
+  });
+  assert.ok(html.includes(koSidebar.externalSessions.openConversation.replace('{{name}}', 'omp-fresh')));
   assert.ok(!html.includes('터미널로 보기'));
 });
 
-test('SidebarExternalSection renders provider-native activity states without labelling SSH', () => {
-  const html = renderToStaticMarkup(createElement(SidebarExternalSection, {
+test('SidebarExternalSection renders provider-native activity states without labelling SSH', async () => {
+  const html = await renderSection('ko', {
     sessions: [
       external('claude-run', 'claude', '%5', 105, { activity: 'running' }),
       external('codex-wait', 'codex', '%6', 106, { activity: 'waiting_user' }),
@@ -124,21 +149,21 @@ test('SidebarExternalSection renders provider-native activity states without lab
     projects: [project],
     onOpen,
     onChanged: noop,
-  }));
-  assert.ok(html.includes('>RUN<'));
+  });
+  assert.ok(html.includes('RUN'), html);
   assert.ok(html.includes('>대기<'));
-  assert.ok(html.includes('>질문<'));
+  assert.ok(html.includes('>승인 대기<'));
   assert.ok(html.includes('>확인 불가<'));
   assert.ok(html.includes('다음 사용자 입력을 기다립니다'));
 });
 
-test('SidebarExternalSection renders an unclassified shell pane as attach-only', () => {
-  const html = renderToStaticMarkup(createElement(SidebarExternalSection, {
+test('SidebarExternalSection renders an unclassified shell pane as attach-only', async () => {
+  const html = await renderSection('ko', {
     sessions: [external('scratch', 'shell', '%10', null)],
     projects: [project],
     onOpen,
     onChanged: noop,
-  }));
+  });
   assert.ok(html.includes('scratch'));
   assert.ok(html.includes('terminal'));
   assert.ok(html.includes('터미널로 보기'));

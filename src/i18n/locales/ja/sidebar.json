@@ -140,5 +140,25 @@
     "deleteAllData": "すべてのデータを完全に削除",
     "allConversationsDeleted": "プロジェクトはサイドバーから除去されます。ファイル、メモリ、セッションデータは保持されます。",
     "cannotUndo": "後からプロジェクトを再追加できます。"
+  },
+  "externalSessions": {
+    "viewInTerminal": "tmux セッション '{{name}}' をターミナルで表示",
+    "openConversation": "{{name}} の会話を開く",
+    "stopOptions": "{{name}} の停止オプション",
+    "stopFailed": "セッションを停止できませんでした",
+    "stopping": "停止中…",
+    "stopScope": "停止範囲",
+    "agent": "エージェント",
+    "session": "セッション",
+    "cancel": "キャンセル",
+    "activity": {
+      "running": "エージェントが応答中またはツールを実行中です",
+      "waitingUser": "待機中",
+      "waitingUserTitle": "現在のターンは完了し、次の入力を待っています",
+      "approvalPending": "承認待ち",
+      "approvalPendingTitle": "エージェントが選択または承認を待っています",
+      "unknown": "確認不可",
+      "unknownTitle": "プロバイダーの記録から現在の状態を安全に判定できません"
+    }
   }
 }

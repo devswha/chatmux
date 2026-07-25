@@ -154,5 +154,25 @@
     "deleteAllData": "Alle Daten dauerhaft löschen",
     "allConversationsDeleted": "Das Projekt wird aus der Seitenleiste entfernt. Deine Dateien, Erinnerungen und Sitzungsdaten bleiben erhalten.",
     "cannotUndo": "Du kannst das Projekt später erneut hinzufügen."
+  },
+  "externalSessions": {
+    "viewInTerminal": "Tmux-Sitzung '{{name}}' im Terminal anzeigen",
+    "openConversation": "Unterhaltung für {{name}} öffnen",
+    "stopOptions": "Optionen zum Beenden von {{name}}",
+    "stopFailed": "Sitzung konnte nicht beendet werden",
+    "stopping": "Wird beendet…",
+    "stopScope": "Beendigungsbereich",
+    "agent": "Agent",
+    "session": "Sitzung",
+    "cancel": "Abbrechen",
+    "activity": {
+      "running": "Agent antwortet oder führt Tools aus",
+      "waitingUser": "Warten",
+      "waitingUserTitle": "Der aktuelle Zug ist beendet und wartet auf deine nächste Eingabe",
+      "approvalPending": "Genehmigung ausstehend",
+      "approvalPendingTitle": "Der Agent wartet auf deine Auswahl oder Genehmigung",
+      "unknown": "Nicht verfügbar",
+      "unknownTitle": "Der aktuelle Zustand kann aus Provider-Daten nicht sicher bestimmt werden"
+    }
   }
 }

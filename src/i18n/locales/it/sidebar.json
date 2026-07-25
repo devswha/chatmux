@@ -154,5 +154,25 @@
     "deleteAllData": "Elimina tutti i dati permanentemente",
     "allConversationsDeleted": "Il progetto verrà rimosso dalla barra laterale. I tuoi file, memorie e dati delle sessioni verranno preservati.",
     "cannotUndo": "Puoi riaggiungerlo in seguito."
+  },
+  "externalSessions": {
+    "viewInTerminal": "Visualizza la sessione tmux '{{name}}' nel terminale",
+    "openConversation": "Apri conversazione per {{name}}",
+    "stopOptions": "Opzioni di arresto per {{name}}",
+    "stopFailed": "Impossibile arrestare la sessione",
+    "stopping": "Arresto…",
+    "stopScope": "Ambito di arresto",
+    "agent": "Agente",
+    "session": "Sessione",
+    "cancel": "Annulla",
+    "activity": {
+      "running": "L'agente sta rispondendo o eseguendo strumenti",
+      "waitingUser": "In attesa",
+      "waitingUserTitle": "Il turno corrente è completato e attende il prossimo input",
+      "approvalPending": "Approvazione in attesa",
+      "approvalPendingTitle": "L'agente attende la selezione o l'approvazione",
+      "unknown": "Non disponibile",
+      "unknownTitle": "Lo stato corrente non può essere determinato in modo sicuro dai dati del provider"
+    }
   }
 }

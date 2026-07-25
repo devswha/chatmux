@@ -20,6 +20,47 @@ type LiveGjcCommand = {
   scope?: string;
   sourcePath?: string;
 };
+type MentionableFile = {
+  name: string;
+  path: string;
+};
+
+type ProjectFileNode = {
+  name: string;
+  type: 'file' | 'directory';
+  children?: ProjectFileNode[];
+};
+
+type WorkspaceProject = {
+  projectId?: string;
+  fullPath?: string;
+  path?: string;
+};
+
+export function getActiveMentionToken(text: string, caret: number): { start: number; query: string } | null {
+  return getActiveSlashToken(text, caret, '@');
+}
+
+export function filterMentionableFiles(files: MentionableFile[], query: string): MentionableFile[] {
+  const normalized = query.toLowerCase();
+  return files
+    .filter((file) => file.name.toLowerCase().includes(normalized) || file.path.toLowerCase().includes(normalized))
+    .slice(0, 10);
+}
+
+export function flattenProjectFileTree(files: ProjectFileNode[], basePath = ''): MentionableFile[] {
+  return files.flatMap((file) => {
+    const path = basePath ? `${basePath}/${file.name}` : file.name;
+    if (file.type === 'directory') {
+      return file.children ? flattenProjectFileTree(file.children, path) : [];
+    }
+    return [{ name: file.name, path }];
+  });
+}
+
+function normalizeWorkspacePath(path: string): string {
+  return path.replace(/\/+$/, '');
+}
 
 /** The active trigger token (`/…` for gjc, `$…` for codex) under the caret, or null. */
 function getActiveSlashToken(text: string, caret: number, trigger: string): { start: number; query: string } | null {
@@ -100,6 +141,18 @@ export default function LiveRelayComposer({
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
   const slashTokenStartRef = useRef(-1);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [files, setFiles] = useState<MentionableFile[]>([]);
+  const [mentionToken, setMentionToken] = useState<{ start: number; query: string } | null>(null);
+  const [filteredFiles, setFilteredFiles] = useState<MentionableFile[]>([]);
+  const [showFileMenu, setShowFileMenu] = useState(false);
+  const [selectedFileIndex, setSelectedFileIndex] = useState(0);
+  const mentionTokenStartRef = useRef(-1);
+  const loadedFileWorkspaceRef = useRef<string | null>(null);
+  const fileWorkspaceRequestRef = useRef<string | null>(null);
+  const workspacePathRef = useRef(workspacePath);
+  const isMountedRef = useRef(true);
+  const mentionQuery = mentionToken?.query ?? null;
+  workspacePathRef.current = workspacePath;
 
   // GJC exposes its live command catalog; native external agents expose their
   // provider skills. Failure is non-fatal because free-text relay still works.
@@ -140,12 +193,134 @@ export default function LiveRelayComposer({
       cancelled = true;
     };
   }, [workspacePath, relayKind, commandTrigger]);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   const closeCommandMenu = useCallback(() => {
     setShowCommandMenu(false);
     slashTokenStartRef.current = -1;
     setSelectedCommandIndex(0);
   }, []);
+  const closeFileMenu = useCallback(() => {
+    setShowFileMenu(false);
+    setSelectedFileIndex(0);
+    mentionTokenStartRef.current = -1;
+  }, []);
+
+  const syncFileMenu = useCallback(
+    (nextValue: string, caret: number) => {
+      const token = workspacePath ? getActiveMentionToken(nextValue, caret) : null;
+      setMentionToken(token);
+      if (!token) {
+        closeFileMenu();
+        return;
+      }
+
+      mentionTokenStartRef.current = token.start;
+      const filtered = filterMentionableFiles(files, token.query.slice(1));
+      setFilteredFiles(filtered);
+      setShowFileMenu(filtered.length > 0);
+      setSelectedFileIndex(0);
+      if (filtered.length > 0) {
+        closeCommandMenu();
+      }
+    },
+    [workspacePath, files, closeFileMenu, closeCommandMenu],
+  );
+
+  useEffect(() => {
+    if (!mentionToken) {
+      return;
+    }
+
+    const filtered = filterMentionableFiles(files, mentionToken.query.slice(1));
+    setFilteredFiles(filtered);
+    setShowFileMenu(filtered.length > 0);
+    setSelectedFileIndex(0);
+    if (filtered.length > 0) {
+      closeCommandMenu();
+    }
+  }, [mentionToken, files, closeCommandMenu]);
+
+  useEffect(() => {
+    if (
+      !workspacePath
+      || !mentionQuery
+      || loadedFileWorkspaceRef.current === workspacePath
+      || fileWorkspaceRequestRef.current === workspacePath
+    ) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      if (
+        loadedFileWorkspaceRef.current === workspacePath
+        || fileWorkspaceRequestRef.current === workspacePath
+      ) {
+        return;
+      }
+
+      fileWorkspaceRequestRef.current = workspacePath;
+      void (async () => {
+        try {
+          const projectsResponse = await api.projects();
+          if (!projectsResponse.ok || workspacePathRef.current !== workspacePath) {
+            return;
+          }
+
+          const projects = (await projectsResponse.json()) as WorkspaceProject[];
+          if (!Array.isArray(projects)) {
+            return;
+          }
+
+          const normalizedWorkspacePath = normalizeWorkspacePath(workspacePath);
+          const project = projects.find((candidate) =>
+            [candidate.fullPath, candidate.path]
+              .filter((path): path is string => typeof path === 'string')
+              .some((path) => normalizeWorkspacePath(path) === normalizedWorkspacePath),
+          );
+          if (!project?.projectId) {
+            return;
+          }
+
+          const filesResponse = await api.getFiles(project.projectId);
+          if (!filesResponse.ok || workspacePathRef.current !== workspacePath) {
+            return;
+          }
+
+          const tree = (await filesResponse.json()) as ProjectFileNode[];
+          if (!Array.isArray(tree) || workspacePathRef.current !== workspacePath || !isMountedRef.current) {
+            return;
+          }
+
+          loadedFileWorkspaceRef.current = workspacePath;
+          setFiles(flattenProjectFileTree(tree));
+        } catch {
+          // File mentions are optional; the relay remains usable without them.
+        } finally {
+          if (fileWorkspaceRequestRef.current === workspacePath) {
+            fileWorkspaceRequestRef.current = null;
+          }
+        }
+      })();
+    }, 200);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [workspacePath, mentionQuery]);
+
+  useEffect(() => {
+    setFiles([]);
+    setFilteredFiles([]);
+    loadedFileWorkspaceRef.current = null;
+    fileWorkspaceRequestRef.current = null;
+    closeFileMenu();
+  }, [workspacePath, closeFileMenu]);
 
   const syncCommandMenu = useCallback(
     (nextValue: string, caret: number) => {
@@ -154,6 +329,7 @@ export default function LiveRelayComposer({
         if (showCommandMenu) {
           closeCommandMenu();
         }
+        closeFileMenu();
         return;
       }
       const filtered = filterCommands(commands, token.query, commandTrigger);
@@ -161,8 +337,9 @@ export default function LiveRelayComposer({
       setFilteredCommands(filtered);
       setShowCommandMenu(filtered.length > 0);
       setSelectedCommandIndex(0);
+      closeFileMenu();
     },
-    [commands, showCommandMenu, closeCommandMenu, commandTrigger],
+    [commands, showCommandMenu, closeCommandMenu, closeFileMenu, commandTrigger],
   );
 
   const insertCommand = useCallback(
@@ -187,6 +364,29 @@ export default function LiveRelayComposer({
       });
     },
     [input, closeCommandMenu],
+  );
+  const insertFile = useCallback(
+    (file: MentionableFile) => {
+      const textarea = textareaRef.current;
+      const caret = textarea?.selectionStart ?? input.length;
+      const start = mentionTokenStartRef.current >= 0 ? mentionTokenStartRef.current : caret;
+      const before = input.slice(0, start);
+      const after = input.slice(caret);
+      const needsGap = after.length > 0 && !after.startsWith(' ');
+      const nextValue = `${before}${file.path} ${needsGap ? after.trimStart() : after}`;
+      setInput(nextValue);
+      closeFileMenu();
+
+      const nextCaret = before.length + file.path.length + 1;
+      requestAnimationFrame(() => {
+        const node = textareaRef.current;
+        if (node) {
+          node.focus();
+          node.setSelectionRange(nextCaret, nextCaret);
+        }
+      });
+    },
+    [input, closeFileMenu],
   );
 
   const send = useCallback(async () => {
@@ -250,13 +450,36 @@ export default function LiveRelayComposer({
           return;
         }
       }
+      if (showFileMenu && filteredFiles.length > 0) {
+        if (event.key === 'ArrowDown') {
+          event.preventDefault();
+          setSelectedFileIndex((index) => (index + 1) % filteredFiles.length);
+          return;
+        }
+        if (event.key === 'ArrowUp') {
+          event.preventDefault();
+          setSelectedFileIndex((index) => (index - 1 + filteredFiles.length) % filteredFiles.length);
+          return;
+        }
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          closeFileMenu();
+          return;
+        }
+        if ((event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) || event.key === 'Tab') {
+          event.preventDefault();
+          const index = selectedFileIndex >= 0 && selectedFileIndex < filteredFiles.length ? selectedFileIndex : 0;
+          insertFile(filteredFiles[index]);
+          return;
+        }
+      }
 
       if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
         event.preventDefault();
         void send();
       }
     },
-    [showCommandMenu, filteredCommands, selectedCommandIndex, closeCommandMenu, insertCommand, send],
+    [showCommandMenu, filteredCommands, selectedCommandIndex, closeCommandMenu, insertCommand, showFileMenu, filteredFiles, selectedFileIndex, closeFileMenu, insertFile, send],
   );
 
   const menuPosition = (() => {
@@ -293,11 +516,16 @@ export default function LiveRelayComposer({
               const nextValue = event.target.value;
               setInput(nextValue);
               syncCommandMenu(nextValue, event.target.selectionStart ?? nextValue.length);
+              syncFileMenu(nextValue, event.target.selectionStart ?? nextValue.length);
             }}
             onKeyDown={handleKeyDown}
-            onClick={(event) => syncCommandMenu(input, event.currentTarget.selectionStart ?? input.length)}
+            onClick={(event) => {
+              const caret = event.currentTarget.selectionStart ?? input.length;
+              syncCommandMenu(input, caret);
+              syncFileMenu(input, caret);
+            }}
             rows={1}
-            placeholder={`${displayName}에 지시… (${commandTrigger} 명령, Enter 전송, Shift+Enter 줄바꿈)`}
+            placeholder={`${displayName}에 지시… (${commandTrigger} 명령, @ 파일, Enter 전송, Shift+Enter 줄바꿈)`}
             className="max-h-40 min-h-9 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm outline-none"
           />
           <button
@@ -323,6 +551,20 @@ export default function LiveRelayComposer({
           insertCommand(command as LiveGjcCommand);
         }}
         onClose={closeCommandMenu}
+        position={menuPosition}
+      />
+      <CommandMenu
+        isOpen={showFileMenu}
+        commands={filteredFiles.map((file) => ({ name: file.path, path: file.path, namespace: 'project' }))}
+        selectedIndex={selectedFileIndex}
+        onSelect={(file, index, isHover) => {
+          if (isHover) {
+            setSelectedFileIndex(index);
+            return;
+          }
+          insertFile({ name: file.name, path: file.path ?? file.name });
+        }}
+        onClose={closeFileMenu}
         position={menuPosition}
       />
     </div>

@@ -31,12 +31,13 @@ The services that consume them are:
 - `sessionsService`
 - `sessionSynchronizerService`
 
-Current provider ids in this repo are:
-
+Current provider ids accepted by the registry and `parseProvider` are:
 - `claude`
 - `codex`
 - `cursor`
 - `opencode`
+- `gjc`
+- `omp`
 
 Those ids are mirrored in backend unions and frontend provider constants. If
 adding a new provider, update every place that hardcodes this list.
@@ -55,7 +56,7 @@ server/modules/providers/list/<provider>/
   <provider>-session-synchronizer.provider.ts
 ```
 
-The existing provider folders are `claude`, `codex`, `cursor`, and `opencode`.
+The existing provider folders are `claude`, `codex`, `cursor`, `gjc`, `omp`, and `opencode`.
 
 ## What Each Facet Does
 

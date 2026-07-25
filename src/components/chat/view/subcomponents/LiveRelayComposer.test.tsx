@@ -4,9 +4,14 @@ import test from 'node:test';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
+import { api } from '../../../../utils/api';
 import type { TmuxPaneTarget } from '../../../../../shared/tmux';
 
-import LiveRelayComposer from './LiveRelayComposer';
+import LiveRelayComposer, {
+  filterMentionableFiles,
+  flattenProjectFileTree,
+  getActiveMentionToken,
+} from './LiveRelayComposer';
 
 const target: TmuxPaneTarget = {
   tmux: {
@@ -41,4 +46,44 @@ test('LiveRelayComposer uses a neutral label when no tmux name is available', ()
   assert.ok(html.includes('현재 세션'));
   assert.ok(!html.includes('$117'));
   assert.ok(!html.includes('%123'));
+});
+test('LiveRelayComposer file mentions only activate at a token boundary and filter relative paths', () => {
+  assert.deepEqual(getActiveMentionToken('review @src/com', 15), { start: 7, query: '@src/com' });
+  assert.equal(getActiveMentionToken('email@src/com', 13), null);
+
+  const files = flattenProjectFileTree([
+    {
+      name: 'src',
+      type: 'directory',
+      children: [{ name: 'composer.tsx', type: 'file' }],
+    },
+    { name: 'README.md', type: 'file' },
+  ]);
+
+  assert.deepEqual(filterMentionableFiles(files, '@composer'.slice(1)), [
+    { name: 'composer.tsx', path: 'src/composer.tsx' },
+  ]);
+  assert.deepEqual(filterMentionableFiles(files, ''), files);
+});
+
+test('LiveRelayComposer does not discover files until an @ mention is active', () => {
+  const projects = api.projects;
+  const getFiles = api.getFiles;
+  let calls = 0;
+  api.projects = () => {
+    calls += 1;
+    return Promise.reject(new Error('unexpected request'));
+  };
+  api.getFiles = () => {
+    calls += 1;
+    return Promise.reject(new Error('unexpected request'));
+  };
+
+  try {
+    renderToStaticMarkup(createElement(LiveRelayComposer, { target, workspacePath: '/workspace/project' }));
+    assert.equal(calls, 0);
+  } finally {
+    api.projects = projects;
+    api.getFiles = getFiles;
+  }
 });

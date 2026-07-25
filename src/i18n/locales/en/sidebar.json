@@ -154,5 +154,25 @@
     "deleteAllData": "Delete all data permanently",
     "allConversationsDeleted": "The project will be removed from the sidebar. Your files, memories, and session data will be preserved.",
     "cannotUndo": "You can re-add the project later."
+  },
+  "externalSessions": {
+    "viewInTerminal": "View tmux session '{{name}}' in terminal",
+    "openConversation": "Open conversation for {{name}}",
+    "stopOptions": "{{name}} stop options",
+    "stopFailed": "Failed to stop session",
+    "stopping": "Stopping…",
+    "stopScope": "Stop scope",
+    "agent": "Agent",
+    "session": "Session",
+    "cancel": "Cancel",
+    "activity": {
+      "running": "Agent is responding or running tools",
+      "waitingUser": "Waiting",
+      "waitingUserTitle": "The current turn is complete and waiting for your next input",
+      "approvalPending": "Approval pending",
+      "approvalPendingTitle": "The agent is waiting for your selection or approval",
+      "unknown": "Unavailable",
+      "unknownTitle": "The current state cannot be determined safely from provider records"
+    }
   }
 }

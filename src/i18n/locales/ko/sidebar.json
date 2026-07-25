@@ -141,5 +141,25 @@
     "deleteAllData": "모든 데이터 영구 삭제",
     "allConversationsDeleted": "프로젝트가 사이드바에서 제거됩니다. 파일, 메모리 및 세션 데이터는 보존됩니다.",
     "cannotUndo": "나중에 프로젝트를 다시 추가할 수 있습니다."
+  },
+  "externalSessions": {
+    "viewInTerminal": "tmux 세션 '{{name}}' 터미널로 보기",
+    "openConversation": "{{name}} 대화 열기",
+    "stopOptions": "{{name}} 종료 옵션",
+    "stopFailed": "세션을 종료하지 못했습니다",
+    "stopping": "종료 중…",
+    "stopScope": "종료 범위",
+    "agent": "에이전트",
+    "session": "세션",
+    "cancel": "취소",
+    "activity": {
+      "running": "에이전트가 응답하거나 도구를 실행 중입니다",
+      "waitingUser": "대기",
+      "waitingUserTitle": "현재 턴이 끝나 다음 사용자 입력을 기다립니다",
+      "approvalPending": "승인 대기",
+      "approvalPendingTitle": "에이전트가 사용자 선택이나 승인을 기다립니다",
+      "unknown": "확인 불가",
+      "unknownTitle": "provider 기록에서 현재 상태를 안전하게 판정할 수 없습니다"
+    }
   }
 }

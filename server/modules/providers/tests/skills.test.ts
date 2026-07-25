@@ -5,6 +5,10 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { providerSkillsService } from '@/modules/providers/services/skills.service.js';
+import {
+  dedupeProviderSkillsByCommand,
+  listProviderCommands,
+} from '@/modules/providers/services/provider-commands.service.js';
 
 const patchHomeDir = (nextHomeDir: string) => {
   const original = os.homedir;
@@ -66,6 +70,101 @@ const writeClaudePluginCommand = async (
   );
   return commandPath;
 };
+const writeCommand = async (
+  commandsRoot: string,
+  name: string,
+  description = '',
+): Promise<void> => {
+  await fs.mkdir(commandsRoot, { recursive: true });
+  await fs.writeFile(
+    path.join(commandsRoot, `${name}.md`),
+    description ? `---\ndescription: ${description}\n---\n` : '# command\n',
+    'utf8',
+  );
+};
+
+test('provider command discovery uses documented roots and preserves containment', { concurrency: false }, async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'provider-commands-'));
+  const workspacePath = path.join(tempRoot, 'workspace');
+  const outsidePath = path.join(tempRoot, 'outside');
+  await fs.mkdir(workspacePath, { recursive: true });
+  const restoreHomeDir = patchHomeDir(tempRoot);
+  try {
+    await Promise.all([
+      writeCommand(path.join(tempRoot, '.claude', 'commands'), 'claude-user'),
+      writeCommand(path.join(workspacePath, '.claude', 'commands'), 'claude-project'),
+      writeCommand(path.join(tempRoot, '.codex', 'prompts'), 'codex-prompt'),
+      writeCommand(path.join(workspacePath, '.cursor', 'commands'), 'cursor-project'),
+      writeCommand(path.join(tempRoot, '.config', 'opencode', 'commands'), 'opencode-user'),
+      writeCommand(path.join(workspacePath, '.opencode', 'commands'), 'opencode-project'),
+      writeCommand(path.join(tempRoot, '.omp', 'agent', 'commands'), 'omp-user'),
+      writeCommand(path.join(workspacePath, '.omp', 'commands'), 'omp-project'),
+    ]);
+    await writeCommand(outsidePath, 'escaped');
+    await fs.symlink(outsidePath, path.join(workspacePath, '.claude', 'commands', 'escaped'));
+
+    assert.deepEqual(
+      (await listProviderCommands('claude', { workspacePath })).map((skill) => skill.command).sort(),
+      ['/claude-project', '/claude-user'],
+    );
+    assert.deepEqual(
+      (await listProviderCommands('codex', { workspacePath })).map((skill) => skill.command),
+      ['/prompts:codex-prompt'],
+    );
+    assert.deepEqual(
+      (await listProviderCommands('cursor', { workspacePath })).map((skill) => skill.command),
+      ['/cursor-project'],
+    );
+    assert.deepEqual(
+      (await listProviderCommands('opencode', { workspacePath })).map((skill) => skill.command).sort(),
+      ['/opencode-project', '/opencode-user'],
+    );
+    assert.deepEqual(
+      (await listProviderCommands('omp', { workspacePath })).map((skill) => skill.command).sort(),
+      ['/omp-project', '/omp-user'],
+    );
+    assert.deepEqual(await listProviderCommands('gjc', { workspacePath }), []);
+    assert.deepEqual(
+      await listProviderCommands('cursor', {
+        workspacePath: path.join(tempRoot, 'missing-workspace'),
+      }),
+      [],
+    );
+  } finally {
+    restoreHomeDir();
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('provider command discovery caps files and skills responses retain existing skills', { concurrency: false }, async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'provider-commands-cap-'));
+  const workspacePath = path.join(tempRoot, 'workspace');
+  const restoreHomeDir = patchHomeDir(tempRoot);
+  try {
+    await fs.mkdir(workspacePath, { recursive: true });
+    await Promise.all(
+      Array.from({ length: 501 }, (_, index) =>
+        writeCommand(path.join(tempRoot, '.codex', 'prompts'), `prompt-${index}`),
+      ),
+    );
+    assert.equal((await listProviderCommands('codex', { workspacePath })).length, 500);
+
+    await writeSkill(path.join(tempRoot, '.claude', 'skills'), 'keep-skill', 'keep-skill', 'existing skill');
+    await writeCommand(path.join(tempRoot, '.claude', 'commands'), 'keep-command', 'command');
+    const skills = await providerSkillsService.listProviderSkills('claude', { workspacePath });
+    assert.equal(skills.some((skill) => skill.command === '/keep-skill'), true);
+    assert.equal(skills.some((skill) => skill.command === '/keep-command'), true);
+
+    const deduped = dedupeProviderSkillsByCommand([
+      { provider: 'claude', name: 'first', description: '', command: '/same', scope: 'user', sourcePath: '/first.md' },
+      { provider: 'claude', name: 'second', description: '', command: '/same', scope: 'project', sourcePath: '/second.md' },
+    ]);
+    assert.deepEqual(deduped.map((skill) => skill.name), ['first']);
+  } finally {
+    restoreHomeDir();
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  }
+});
 
 /**
  * This test covers Claude user/project skill folders plus plugin discovery from
