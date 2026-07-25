@@ -19,7 +19,17 @@ import {
     resolveProjectFileForRead,
     resolveProjectFileForWrite
 } from '@/shared/project-file-containment.js';
-import { closeSessionsWatcher, initializeSessionsWatcher } from '@/modules/providers/index.js';
+import {
+    assertFreshExternalTmuxTarget,
+    assertTmuxPaneIdentity,
+    attachCapabilityService,
+    closeSessionsWatcher,
+    getCurrentTmuxPaneIdentity,
+    getCurrentTmuxPaneIdentityState,
+    initializeSessionsWatcher,
+    readTmuxPaneIdentity,
+    runTmux,
+} from '@/modules/providers/index.js';
 import { createWebSocketServer } from '@/modules/websocket/index.js';
 
 import { getConnectableHost } from '../shared/networkHosts.js';
@@ -170,6 +180,13 @@ const wss = createWebSocketServer(server, {
         normalizeDetectedUrl,
         extractUrlsFromText,
         shouldAutoOpenUrlFromOutput,
+        assertFreshExternalTmuxTarget,
+        assertTmuxPaneIdentity,
+        attachCapabilities: attachCapabilityService,
+        getCurrentTmuxPaneIdentity,
+        getCurrentTmuxPaneIdentityState,
+        readTmuxPaneIdentity,
+        runTmux,
     },
     getPluginPort,
 });

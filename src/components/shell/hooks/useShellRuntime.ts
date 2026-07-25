@@ -12,6 +12,7 @@ export function useShellRuntime({
   selectedSession,
   initialCommand,
   isPlainShell,
+  attachTarget,
   minimal,
   autoConnect,
   isRestarting,
@@ -27,6 +28,7 @@ export function useShellRuntime({
   const selectedSessionRef = useRef(selectedSession);
   const initialCommandRef = useRef(initialCommand);
   const isPlainShellRef = useRef(isPlainShell);
+  const attachTargetRef = useRef(attachTarget);
   const onProcessCompleteRef = useRef(onProcessComplete);
   const lastSessionIdRef = useRef<string | null>(selectedSession?.id ?? null);
 
@@ -36,8 +38,9 @@ export function useShellRuntime({
     selectedSessionRef.current = selectedSession;
     initialCommandRef.current = initialCommand;
     isPlainShellRef.current = isPlainShell;
+    attachTargetRef.current = attachTarget;
     onProcessCompleteRef.current = onProcessComplete;
-  }, [selectedProject, selectedSession, initialCommand, isPlainShell, onProcessComplete]);
+  }, [selectedProject, selectedSession, initialCommand, isPlainShell, attachTarget, onProcessComplete]);
 
   const closeSocket = useCallback(() => {
     const activeSocket = wsRef.current;
@@ -66,7 +69,7 @@ export function useShellRuntime({
     closeSocket,
   });
 
-  const { isConnected, isConnecting, connectToShell, disconnectFromShell } = useShellConnection({
+  const { isConnected, isConnecting, isProtocolOutdated, connectToShell, disconnectFromShell } = useShellConnection({
     wsRef,
     terminalRef,
     fitAddonRef,
@@ -74,6 +77,7 @@ export function useShellRuntime({
     selectedSessionRef,
     initialCommandRef,
     isPlainShellRef,
+    attachTargetRef,
     onProcessCompleteRef,
     isInitialized,
     autoConnect,
@@ -116,6 +120,7 @@ export function useShellRuntime({
     isConnected,
     isInitialized,
     isConnecting,
+    isProtocolOutdated,
     connectToShell,
     disconnectFromShell,
   };

@@ -14,6 +14,7 @@ import { useQueuedMessageAutoSend } from '../../hooks/useQueuedMessageAutoSend';
 import { api } from '../../utils/api';
 import { findGjcPromotionCandidate } from '../../utils/liveSessions';
 import type { ExternalTerminalTarget } from '../../types/app';
+import type { ExternalCliSession } from '../sidebar/hooks/useExternalCliSessions';
 
 type RunningSessionApiItem = {
   sessionId?: unknown;
@@ -40,6 +41,27 @@ const parseStartedAt = (value: unknown): number | undefined => {
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) ? parsed : undefined;
 };
+export function refreshExternalTerminalAttachCapability(
+  target: ExternalTerminalTarget | null,
+  sessions: readonly ExternalCliSession[],
+): ExternalTerminalTarget | null {
+  if (!target || (target.cliKind !== 'ssh' && target.cliKind !== 'shell')) {
+    return target;
+  }
+
+  const session = sessions.find((candidate) => (
+    candidate.tmux.socketPath === target.tmux.socketPath
+    && candidate.tmux.sessionId === target.tmux.sessionId
+    && candidate.tmux.windowId === target.tmux.windowId
+    && candidate.tmux.paneId === target.tmux.paneId
+  ));
+
+  if (!session || session.attachCapability === target.attachCapability) {
+    return target;
+  }
+
+  return { ...target, attachCapability: session.attachCapability };
+}
 
 export default function AppContent() {
   return (
@@ -95,6 +117,9 @@ function AppContentInner() {
   const [externalTranscript, setExternalTranscript] = useState<ExternalTerminalTarget | null>(null);
   const selectExternalProject = sidebarSharedProps.onProjectSelect;
   const selectExternalSession = sidebarSharedProps.onSessionSelect;
+  const refreshExternalTerminalCapability = useCallback((sessions: ExternalCliSession[]) => {
+    setExternalTerminal((current) => refreshExternalTerminalAttachCapability(current, sessions));
+  }, []);
 
   const openExternalTerminal = useCallback((target: ExternalTerminalTarget) => {
     if (target.cliKind !== 'gjc' && target.cliKind !== 'ssh' && target.cliKind !== 'shell' && target.transcriptSessionId) {
@@ -253,7 +278,8 @@ function AppContentInner() {
       return sidebarSharedProps.onNewSession(...args);
     },
     onExternalTerminalOpen: openExternalTerminal,
-  }), [sidebarSharedProps, openExternalTerminal]);
+    onExternalSessionsChange: refreshExternalTerminalCapability,
+  }), [sidebarSharedProps, openExternalTerminal, refreshExternalTerminalCapability]);
 
   const activeExternalTranscript = externalTranscript
     && externalTranscript.cliKind !== 'ssh'

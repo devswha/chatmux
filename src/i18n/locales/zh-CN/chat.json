@@ -181,7 +181,9 @@
     "resumeSession": "恢复会话：{{displayName}}...",
     "runCommand": "在 {{projectName}} 中运行 {{command}}",
     "startCli": "在 {{projectName}} 中启动 Claude CLI",
-    "defaultCommand": "命令"
+    "defaultCommand": "命令",
+    "protocolOutdated": "此 ChatMux 版本已过期。请重新加载页面以继续终端连接。",
+    "attachCapabilityUnavailable": "无法获取连接此终端的权限。请刷新外部会话列表后重新打开终端。"
   },
   "claudeStatus": {
     "actions": {

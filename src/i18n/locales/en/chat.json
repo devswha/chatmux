@@ -201,7 +201,9 @@
     "resumeSession": "Resume session: {{displayName}}...",
     "runCommand": "Run {{command}} in {{projectName}}",
     "startCli": "Starting Claude CLI in {{projectName}}",
-    "defaultCommand": "command"
+    "defaultCommand": "command",
+    "protocolOutdated": "This ChatMux version is out of date. Reload the page to continue the terminal connection.",
+    "attachCapabilityUnavailable": "Permission to attach to this terminal is unavailable. Refresh the external session list and open the terminal again."
   },
   "claudeStatus": {
     "actions": {

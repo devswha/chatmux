@@ -23,7 +23,7 @@ case "$*" in
   *list-panes*)
     case "$*" in
       *@chatmux_cli_kind*)
-        printf '/tmp/chatmux-contract.sock\t$1\t@1\t%%1\t%s\t%s\tcodex\t\t/tmp\tcodex\t\n' "\${CHATMUX_CONTRACT_EXTERNAL_NAME:-external}" "$PPID"
+        printf '/tmp/chatmux-contract.sock\t$1\t@1\t%%1\t%s\t%s\t\${CHATMUX_CONTRACT_COMMAND:-codex}\t\t/tmp\tcodex\t\n' "\${CHATMUX_CONTRACT_EXTERNAL_NAME:-external}" "$PPID"
         ;;
       *)
         printf '/tmp/chatmux-contract.sock\\t$2\\t@2\\t%%2\\tlive\\t%s\\tgjc\\t/tmp\\n' "$PPID"
@@ -32,6 +32,7 @@ case "$*" in
     ;;
   *display-message*)
     case "$*" in
+      *pane_pid*) printf '%s\n' "$PPID" ;;
       *pane_current_path*'%2'*) printf '$2\t@2\t%%2\t/tmp\n' ;;
       *pane_current_path*) printf '$1\t@1\t%%1\t/tmp\n' ;;
       *'%2'*) printf '$2\t@2\t%%2\n' ;;
@@ -49,7 +50,7 @@ esac
 await writeFile(fixtureCodex, '#!/bin/sh\nexit 0\n');
 await writeFile(fixturePs, `#!/bin/sh
 case "$*" in
-  *comm,args*) printf '%s %s codex codex\n' "$PPID" 1 ;;
+  *comm*args*) printf '%s %s %s %s\n' "$PPID" 1 "\${CHATMUX_CONTRACT_COMMAND:-codex}" "\${CHATMUX_CONTRACT_COMMAND:-codex}" ;;
   *) printf '%s %s gjc gjc\n' "$PPID" 1 ;;
 esac
 `);
@@ -199,6 +200,20 @@ test('all nine tmux provider routes have deterministic successful HTTP paths', a
   assertSuccess(await request('/sessions/live/kill', { tmux: liveTmux, process: validProcess, mode: 'pane' }));
   assertSuccess(await request('/sessions/live/spawn', { name: 'live-contract', cwd: '~' }));
   assertSuccess(await request('/sessions/live/commands'));
+});
+test('external session route issues capabilities only for ssh and shell branches', async () => {
+  const response = await request('/sessions/external');
+  assertSuccess(response);
+  const rows = response.body.data?.externalSessions as Array<Record<string, unknown>>;
+  assert.equal(rows.length, 1);
+  assert.equal('attachCapability' in rows[0], false);
+
+  const routeSource = await (await import('node:fs/promises')).readFile(
+    path.resolve(process.cwd(), 'server/modules/providers/provider.routes.ts'),
+    'utf8',
+  );
+  assert.match(routeSource, /session\.kind === 'ssh' \|\| session\.kind === 'shell'/);
+  assert.match(routeSource, /return attachCapability \? \{ \.\.\.base, attachCapability \} : base;/);
 });
 
 test('external output, send, and kill preserve their format-error contracts', async () => {

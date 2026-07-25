@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { api } from '../../../utils/api';
 import type { TmuxPaneIdentity, TmuxProcessGeneration } from '../../../../shared/tmux';
@@ -18,6 +18,8 @@ export type ExternalCliSession = {
   activity?: ExternalSessionActivity;
   /** True when the transcript stream is closed while the pane may still run. */
   transcriptEnded?: boolean;
+  /** Opaque server-issued token required to attach SSH and shell panes. */
+  attachCapability?: string;
 };
 
 const POLL_INTERVAL_MS = 5000;
@@ -26,10 +28,14 @@ const POLL_INTERVAL_MS = 5000;
  * Polls /sessions/external (5s, best-effort) for every non-GJC tmux pane.
  * GJC remains on its dedicated live poll.
  */
-export function useExternalCliSessions(): { sessions: ExternalCliSession[]; loading: boolean; refresh: () => void } {
+export function useExternalCliSessions(
+  onSessionsChange?: (sessions: ExternalCliSession[]) => void,
+): { sessions: ExternalCliSession[]; loading: boolean; refresh: () => void } {
   const [sessions, setSessions] = useState<ExternalCliSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshToken, setRefreshToken] = useState(0);
+  const onSessionsChangeRef = useRef(onSessionsChange);
+  onSessionsChangeRef.current = onSessionsChange;
 
   useEffect(() => {
     let cancelled = false;
@@ -46,7 +52,9 @@ export function useExternalCliSessions(): { sessions: ExternalCliSession[]; load
         const list: ExternalCliSession[] = body?.data?.externalSessions ?? body?.externalSessions ?? [];
         if (!cancelled && myGeneration > applied) {
           applied = myGeneration;
-          setSessions(list.filter((session) => session?.tmuxName && ['claude', 'codex', 'cursor', 'opencode', 'omp', 'ssh', 'shell'].includes(session.kind)));
+          const sessions = list.filter((session) => session?.tmuxName && ['claude', 'codex', 'cursor', 'opencode', 'omp', 'ssh', 'shell'].includes(session.kind));
+          setSessions(sessions);
+          onSessionsChangeRef.current?.(sessions);
         }
       } catch {
         // best-effort — no tmux / endpoint error just empties the tab

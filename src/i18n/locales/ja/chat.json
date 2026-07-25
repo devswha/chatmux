@@ -174,7 +174,9 @@
     "resumeSession": "セッションを再開: {{displayName}}...",
     "runCommand": "{{projectName}}で{{command}}を実行",
     "startCli": "{{projectName}}でClaude CLIを起動しています",
-    "defaultCommand": "コマンド"
+    "defaultCommand": "コマンド",
+    "protocolOutdated": "このバージョンのChatMuxは古くなっています。ターミナル接続を続行するにはページを再読み込みしてください。",
+    "attachCapabilityUnavailable": "このターミナルに接続する権限がありません。外部セッション一覧を更新して、ターミナルを開き直してください。"
   },
   "claudeStatus": {
     "actions": {

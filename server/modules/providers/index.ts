@@ -14,3 +14,23 @@ export {
   resolveExternalSessionActivity,
   type ExternalSessionActivityResolutionResult,
 } from './services/external-session-activity.service.js';
+export { runTmux } from './services/builtin-relay.service.js';
+export {
+  attachCapabilityService,
+  createAttachCapabilityService,
+  type AttachCapabilityService,
+} from './services/attach-capability.service.js';
+export {
+  getCurrentTmuxPaneIdentity,
+  getCurrentTmuxPaneIdentityState,
+  type CurrentTmuxPaneIdentity,
+} from './services/external-cli-sessions.service.js';
+export {
+  assertFreshExternalTmuxTarget,
+  createVerifiedTmuxActionTarget,
+  type VerifiedTmuxActionTarget,
+} from './services/tmux-fresh-verifier.service.js';
+export {
+  assertTmuxPaneIdentity,
+  readTmuxPaneIdentity,
+} from './services/tmux-pane-actions.service.js';

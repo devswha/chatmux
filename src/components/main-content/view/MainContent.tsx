@@ -1,4 +1,5 @@
 import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Menu, MessageSquare, SquareTerminal, X } from 'lucide-react';
 
 import type { MainContentProps } from '../types/types';
@@ -10,7 +11,7 @@ import { useFileOpenResolver } from '../../../hooks/useFileOpenResolver';
 import { api, authenticatedFetch } from '../../../utils/api';
 import { useEditorSidebar } from '../../code-editor/hooks/useEditorSidebar';
 import LiveRelayComposer from '../../chat/view/subcomponents/LiveRelayComposer';
-import type { ExternalTerminalTarget, Project } from '../../../types/app';
+import type { Project } from '../../../types/app';
 import { tmuxPaneIdentityKey } from '../../../../shared/tmux';
 
 import MainContentHeader from './subcomponents/MainContentHeader';
@@ -37,20 +38,6 @@ type TaskMasterContextValue = {
   currentProject?: Project | null;
   setCurrentProject?: ((project: Project) => void) | null;
 };
-function shellQuote(value: string): string {
-  return `'${value.replace(/'/g, `'\\''`)}'`;
-}
-
-function buildExactTmuxAttachCommand(target: ExternalTerminalTarget): string {
-  const { socketPath, sessionId, windowId, paneId } = target.tmux;
-  return [
-    'tmux',
-    '-S', shellQuote(socketPath),
-    'select-window', '-t', shellQuote(windowId),
-    '\\;', 'select-pane', '-t', shellQuote(paneId),
-    '\\;', 'attach-session', '-t', shellQuote(sessionId),
-  ].join(' ');
-}
 
 type TasksSettingsContextValue = {
   tasksEnabled: boolean;
@@ -88,6 +75,7 @@ function MainContent({
   onExternalTerminalClose,
 }: MainContentProps) {
   const { preferences } = useUiPreferences();
+  const { t } = useTranslation('chat');
   const { showRawParameters, showThinking, sendByCtrlEnter } = preferences;
 
   const { currentProject, setCurrentProject } = useTaskMaster() as TaskMasterContextValue;
@@ -375,7 +363,25 @@ function MainContent({
   // Targets without a locally observable process remain terminal-only.
   if (externalTerminal) {
     const targetKey = tmuxPaneIdentityKey(externalTerminal.tmux);
-    const attachCommand = buildExactTmuxAttachCommand(externalTerminal);
+    const isAttachOnly = externalTerminal.cliKind === 'ssh'
+      || externalTerminal.cliKind === 'shell'
+      || !externalTerminal.process;
+    const attachCapability = 'attachCapability' in externalTerminal
+      ? externalTerminal.attachCapability
+      : undefined;
+    const attachTarget = isAttachOnly
+      ? typeof attachCapability === 'string' && attachCapability
+        ? {
+            targetClass: 'attach-only' as const,
+            tmux: externalTerminal.tmux,
+            capability: attachCapability,
+          }
+        : null
+      : {
+          targetClass: 'local-agent' as const,
+          tmux: externalTerminal.tmux,
+          process: externalTerminal.process!,
+        };
     return (
       <div className="flex h-full flex-col">
         <div className="flex flex-shrink-0 items-center justify-between border-b border-border/50 px-3 py-2">
@@ -406,17 +412,23 @@ function MainContent({
           </button>
         </div>
         <div className="min-h-0 flex-1 overflow-hidden">
-          <Suspense fallback={null}>
-            <StandaloneShell
-              // Switching exact pane targets must remount the Shell.
-              key={targetKey}
-              project={externalTerminal.project}
-              command={attachCommand}
-              isActive
-              minimal
-              onComplete={() => onExternalTerminalClose()}
-            />
-          </Suspense>
+          {attachTarget ? (
+            <Suspense fallback={null}>
+              <StandaloneShell
+                // Switching exact pane targets must remount the Shell.
+                key={targetKey}
+                project={externalTerminal.project}
+                attachTarget={attachTarget}
+                isActive
+                minimal
+                onComplete={() => onExternalTerminalClose()}
+              />
+            </Suspense>
+          ) : (
+            <div role="alert" className="m-3 rounded-md border border-amber-700/60 bg-amber-950/40 px-3 py-2 text-sm text-amber-100">
+              {t('shell.attachCapabilityUnavailable')}
+            </div>
+          )}
         </div>
       </div>
     );

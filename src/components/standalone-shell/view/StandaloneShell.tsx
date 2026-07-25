@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react';
 
 import type { Project, ProjectSession } from '../../../types/app';
 import Shell from '../../shell/view/Shell';
+import type { ShellAttachTarget } from '../../shell/types/types';
 
 import StandaloneShellEmptyState from './subcomponents/StandaloneShellEmptyState';
 import StandaloneShellHeader from './subcomponents/StandaloneShellHeader';
@@ -11,6 +12,7 @@ type StandaloneShellProps = {
   session?: ProjectSession | null;
   command?: string | null;
   isPlainShell?: boolean | null;
+  attachTarget?: ShellAttachTarget | null;
   isActive?: boolean;
   autoConnect?: boolean;
   onComplete?: ((exitCode: number) => void) | null;
@@ -27,6 +29,7 @@ export default function StandaloneShell({
   session = null,
   command = null,
   isPlainShell = null,
+  attachTarget = null,
   isActive = true,
   autoConnect = true,
   onComplete = null,
@@ -68,6 +71,7 @@ export default function StandaloneShell({
           selectedSession={session}
           initialCommand={command}
           isPlainShell={shouldUsePlainShell}
+          attachTarget={attachTarget}
           isActive={isActive}
           onProcessComplete={handleProcessComplete}
           minimal={minimal}

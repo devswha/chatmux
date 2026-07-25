@@ -181,7 +181,9 @@
     "resumeSession": "Oturuma devam et: {{displayName}}...",
     "runCommand": "{{projectName}} içinde {{command}} çalıştır",
     "startCli": "{{projectName}} içinde Claude CLI başlatılıyor",
-    "defaultCommand": "komut"
+    "defaultCommand": "komut",
+    "protocolOutdated": "Bu ChatMux sürümü güncel değil. Terminal bağlantısına devam etmek için sayfayı yeniden yükleyin.",
+    "attachCapabilityUnavailable": "Bu terminale bağlanma izni kullanılamıyor. Harici oturum listesini yenileyip terminali yeniden açın."
   },
   "claudeStatus": {
     "actions": {

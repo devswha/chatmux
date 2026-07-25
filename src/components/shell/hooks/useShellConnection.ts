@@ -4,6 +4,7 @@ import type { FitAddon } from '@xterm/addon-fit';
 import type { Terminal } from '@xterm/xterm';
 
 import type { Project, ProjectSession } from '../../../types/app';
+import type { ShellAttachTarget, ShellInitMessage } from '../types/types';
 import { TERMINAL_INIT_DELAY_MS } from '../constants/constants';
 import { getShellWebSocketUrl, parseShellMessage, sendSocketMessage } from '../utils/socket';
 
@@ -19,6 +20,7 @@ type UseShellConnectionOptions = {
   selectedSessionRef: MutableRefObject<ProjectSession | null | undefined>;
   initialCommandRef: MutableRefObject<string | null | undefined>;
   isPlainShellRef: MutableRefObject<boolean>;
+  attachTargetRef: MutableRefObject<ShellAttachTarget | null | undefined>;
   onProcessCompleteRef: MutableRefObject<((exitCode: number) => void) | null | undefined>;
   isInitialized: boolean;
   autoConnect: boolean;
@@ -27,9 +29,75 @@ type UseShellConnectionOptions = {
   onOutputRef?: MutableRefObject<(() => void) | null>;
 };
 
+export type ShellInitMessageParams = {
+  projectPath: string;
+  sessionId: string | null;
+  hasSession: boolean;
+  provider: string;
+  cols: number;
+  rows: number;
+  initialCommand: string | null | undefined;
+  isPlainShell: boolean;
+  forceRestart: boolean;
+  attachTarget: ShellAttachTarget | null | undefined;
+};
+
+export function buildShellInitMessage({
+  projectPath,
+  sessionId,
+  hasSession,
+  provider,
+  cols,
+  rows,
+  initialCommand,
+  isPlainShell,
+  forceRestart,
+  attachTarget,
+}: ShellInitMessageParams): ShellInitMessage {
+  const base = {
+    type: 'init' as const,
+    shellProtocolVersion: 2 as const,
+    projectPath,
+    sessionId,
+    hasSession,
+    provider,
+    cols,
+    rows,
+    forceRestart,
+  };
+
+  if (attachTarget?.targetClass === 'local-agent') {
+    return {
+      ...base,
+      mode: 'typed-attach',
+      targetClass: 'local-agent',
+      tmux: attachTarget.tmux,
+      process: attachTarget.process,
+    };
+  }
+
+  if (attachTarget) {
+    return {
+      ...base,
+      mode: 'typed-attach',
+      targetClass: 'attach-only',
+      tmux: attachTarget.tmux,
+      capability: attachTarget.capability,
+    };
+  }
+
+  return {
+    ...base,
+    mode: 'plain-shell',
+    initialCommand,
+    isPlainShell,
+  };
+}
+
 type UseShellConnectionResult = {
   isConnected: boolean;
   isConnecting: boolean;
+  isProtocolOutdated: boolean;
   closeSocket: () => void;
   connectToShell: (options?: { forceRestart?: boolean }) => void;
   disconnectFromShell: (options?: { suppressAutoConnect?: boolean }) => void;
@@ -43,6 +111,7 @@ export function useShellConnection({
   selectedSessionRef,
   initialCommandRef,
   isPlainShellRef,
+  attachTargetRef,
   onProcessCompleteRef,
   isInitialized,
   autoConnect,
@@ -52,9 +121,11 @@ export function useShellConnection({
 }: UseShellConnectionOptions): UseShellConnectionResult {
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [isProtocolOutdated, setIsProtocolOutdated] = useState(false);
   const connectingRef = useRef(false);
   const forceRestartOnInitRef = useRef(false);
   const suppressAutoConnectRef = useRef(false);
+  const protocolOutdatedRef = useRef(false);
 
   const handleProcessCompletion = useCallback(
     (output: string) => {
@@ -98,6 +169,15 @@ export function useShellConnection({
         return;
       }
 
+      if (
+        message.type === 'error' &&
+        message.code === 'SHELL_PROTOCOL_OUTDATED' &&
+        message.reloadRequired === true
+      ) {
+        protocolOutdatedRef.current = true;
+        suppressAutoConnectRef.current = true;
+        setIsProtocolOutdated(true);
+      }
     },
     [handleProcessCompletion, onOutputRef, terminalRef],
   );
@@ -133,8 +213,7 @@ export function useShellConnection({
             const forceRestart = forceRestartOnInitRef.current;
             forceRestartOnInitRef.current = false;
 
-            sendSocketMessage(socket, {
-              type: 'init',
+            sendSocketMessage(socket, buildShellInitMessage({
               projectPath: currentProject.fullPath || currentProject.path || '',
               sessionId: isPlainShellRef.current ? null : selectedSessionRef.current?.id || null,
               hasSession: isPlainShellRef.current ? false : Boolean(selectedSessionRef.current),
@@ -144,7 +223,8 @@ export function useShellConnection({
               initialCommand: initialCommandRef.current,
               isPlainShell: isPlainShellRef.current,
               forceRestart,
-            });
+              attachTarget: attachTargetRef.current,
+            }));
           }, TERMINAL_INIT_DELAY_MS);
         };
 
@@ -180,6 +260,7 @@ export function useShellConnection({
       isConnected,
       isConnecting,
       isPlainShellRef,
+      attachTargetRef,
       selectedProjectRef,
       selectedSessionRef,
       terminalRef,
@@ -187,11 +268,19 @@ export function useShellConnection({
     ],
   );
 
-  const connectToShell = useCallback((options?: { forceRestart?: boolean }) => {
-    if (!isInitialized || isConnected || isConnecting || connectingRef.current) {
+  const connectToShell = useCallback((options?: { forceRestart?: boolean; automatic?: boolean }) => {
+    if (
+      !isInitialized ||
+      isConnected ||
+      isConnecting ||
+      connectingRef.current ||
+      (options?.automatic && protocolOutdatedRef.current)
+    ) {
       return;
     }
 
+    protocolOutdatedRef.current = false;
+    setIsProtocolOutdated(false);
     forceRestartOnInitRef.current = Boolean(options?.forceRestart);
     suppressAutoConnectRef.current = false;
     connectingRef.current = true;
@@ -216,6 +305,7 @@ export function useShellConnection({
     if (
       !autoConnect ||
       suppressAutoConnectRef.current ||
+      protocolOutdatedRef.current ||
       !isInitialized ||
       isConnecting ||
       isConnected
@@ -223,12 +313,13 @@ export function useShellConnection({
       return;
     }
 
-    connectToShell();
+    connectToShell({ automatic: true });
   }, [autoConnect, connectToShell, isConnected, isConnecting, isInitialized]);
 
   return {
     isConnected,
     isConnecting,
+    isProtocolOutdated,
     closeSocket,
     connectToShell,
     disconnectFromShell,

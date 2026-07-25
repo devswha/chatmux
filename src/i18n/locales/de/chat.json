@@ -181,7 +181,9 @@
     "resumeSession": "Sitzung fortsetzen: {{displayName}}...",
     "runCommand": "{{command}} in {{projectName}} ausführen",
     "startCli": "Claude CLI wird in {{projectName}} gestartet",
-    "defaultCommand": "Befehl"
+    "defaultCommand": "Befehl",
+    "protocolOutdated": "Diese ChatMux-Version ist veraltet. Laden Sie die Seite neu, um die Terminalverbindung fortzusetzen.",
+    "attachCapabilityUnavailable": "Die Berechtigung zum Verbinden mit diesem Terminal fehlt. Aktualisieren Sie die externe Sitzungsliste und öffnen Sie das Terminal erneut."
   },
   "claudeStatus": {
     "actions": {

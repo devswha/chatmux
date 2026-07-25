@@ -49,6 +49,8 @@ export type ExternalTerminalTarget = {
   effort?: string | null;
   /** Transcript stream closed (recorder died) while the pane may still run. */
   transcriptEnded?: boolean;
+  /** Opaque server-issued token required for attach-only SSH and shell panes. */
+  attachCapability?: string;
 } | {
   /** A freshly opened GJC pane has no transcript id until its first message. */
   tmuxName: string;

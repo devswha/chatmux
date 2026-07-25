@@ -995,10 +995,16 @@ export async function spawnExternalCliSession(cli: ExternalSpawnCli, tmuxName: s
 }
 
 
-/** Returns the tmux session hosting this server, so its own session cannot be killed. */
-export async function getCurrentTmuxPaneIdentity(): Promise<TmuxPaneIdentity | null> {
+export type CurrentTmuxPaneIdentity =
+  | Readonly<{ state: 'hosted'; tmux: TmuxPaneIdentity }>
+  | Readonly<{ state: 'not-hosted' }>
+  | Readonly<{ state: 'unavailable' }>;
+
+/** Distinguishes a server outside tmux from a failed self-pane lookup. */
+export async function getCurrentTmuxPaneIdentityState(): Promise<CurrentTmuxPaneIdentity> {
   const paneId = process.env.TMUX_PANE;
-  if (!paneId || !/^%\d+$/.test(paneId)) return null;
+  if (!paneId) return { state: 'not-hosted' };
+  if (!/^%\d+$/.test(paneId)) return { state: 'unavailable' };
   try {
     const fields = (await runCommand('tmux', [
       'display-message',
@@ -1014,17 +1020,26 @@ export async function getCurrentTmuxPaneIdentity(): Promise<TmuxPaneIdentity | n
       || !/^@\d+$/.test(fields[2])
       || !/^%\d+$/.test(fields[3])
     ) {
-      return null;
+      return { state: 'unavailable' };
     }
     return {
-      socketPath: fields[0],
-      sessionId: fields[1],
-      windowId: fields[2],
-      paneId: fields[3],
+      state: 'hosted',
+      tmux: {
+        socketPath: fields[0],
+        sessionId: fields[1],
+        windowId: fields[2],
+        paneId: fields[3],
+      },
     };
   } catch {
-    return null;
+    return { state: 'unavailable' };
   }
+}
+
+/** Returns the tmux session hosting this server, retained for legacy callers. */
+export async function getCurrentTmuxPaneIdentity(): Promise<TmuxPaneIdentity | null> {
+  const current = await getCurrentTmuxPaneIdentityState();
+  return current.state === 'hosted' ? current.tmux : null;
 }
 
 /** Finds and validates Codex's JSONL rollout path for immediate transcript indexing. */

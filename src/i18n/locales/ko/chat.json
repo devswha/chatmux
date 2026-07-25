@@ -181,7 +181,9 @@
     "resumeSession": "세션 재개: {{displayName}}...",
     "runCommand": "{{projectName}}에서 {{command}} 실행",
     "startCli": "{{projectName}}에서 Claude CLI 시작",
-    "defaultCommand": "명령어"
+    "defaultCommand": "명령어",
+    "protocolOutdated": "이 ChatMux 버전은 오래되었습니다. 터미널 연결을 계속하려면 페이지를 새로고침하세요.",
+    "attachCapabilityUnavailable": "이 터미널에 연결할 권한을 사용할 수 없습니다. 외부 세션 목록을 새로고침한 뒤 터미널을 다시 여세요."
   },
   "claudeStatus": {
     "actions": {

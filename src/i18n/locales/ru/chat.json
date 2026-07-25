@@ -181,7 +181,9 @@
     "resumeSession": "Возобновить сеанс: {{displayName}}...",
     "runCommand": "Выполнить {{command}} в {{projectName}}",
     "startCli": "Запуск Claude CLI в {{projectName}}",
-    "defaultCommand": "команда"
+    "defaultCommand": "команда",
+    "protocolOutdated": "Эта версия ChatMux устарела. Перезагрузите страницу, чтобы продолжить подключение к терминалу.",
+    "attachCapabilityUnavailable": "Разрешение на подключение к этому терминалу недоступно. Обновите список внешних сеансов и снова откройте терминал."
   },
   "claudeStatus": {
     "actions": {

@@ -3,19 +3,42 @@ import type { FitAddon } from '@xterm/addon-fit';
 import type { Terminal } from '@xterm/xterm';
 
 import type { Project, ProjectSession } from '../../../types/app';
+import type { TmuxPaneIdentity, TmuxProcessGeneration } from '../../../../shared/tmux';
+
+export type ShellAttachTarget = {
+  tmux: TmuxPaneIdentity;
+} & ({
+  targetClass: 'local-agent';
+  process: TmuxProcessGeneration;
+} | {
+  targetClass: 'attach-only';
+  capability: string;
+});
 
 export type ShellInitMessage = {
   type: 'init';
+  shellProtocolVersion: 2;
   projectPath: string;
   sessionId: string | null;
   hasSession: boolean;
   provider: string;
   cols: number;
   rows: number;
+  forceRestart?: boolean;
+} & ({
+  mode: 'plain-shell';
   initialCommand: string | null | undefined;
   isPlainShell: boolean;
-  forceRestart?: boolean;
-};
+} | ({
+  mode: 'typed-attach';
+  tmux: TmuxPaneIdentity;
+} & ({
+  targetClass: 'local-agent';
+  process: TmuxProcessGeneration;
+} | {
+  targetClass: 'attach-only';
+  capability: string;
+})));
 
 export type ShellResizeMessage = {
   type: 'resize';
@@ -34,6 +57,7 @@ export type ShellIncomingMessage =
   | { type: 'output'; data: string }
   | { type: 'auth_url'; url?: string }
   | { type: 'url_open'; url?: string }
+  | { type: 'error'; code?: string; reloadRequired?: boolean; message?: string }
   | { type: string; [key: string]: unknown };
 
 export type UseShellRuntimeOptions = {
@@ -41,6 +65,7 @@ export type UseShellRuntimeOptions = {
   selectedSession: ProjectSession | null | undefined;
   initialCommand: string | null | undefined;
   isPlainShell: boolean;
+  attachTarget?: ShellAttachTarget | null;
   minimal: boolean;
   autoConnect: boolean;
   isRestarting: boolean;
@@ -56,6 +81,7 @@ export type ShellSharedRefs = {
   selectedSessionRef: MutableRefObject<ProjectSession | null | undefined>;
   initialCommandRef: MutableRefObject<string | null | undefined>;
   isPlainShellRef: MutableRefObject<boolean>;
+  attachTargetRef: MutableRefObject<ShellAttachTarget | null | undefined>;
   onProcessCompleteRef: MutableRefObject<((exitCode: number) => void) | null | undefined>;
 };
 
@@ -66,6 +92,7 @@ export type UseShellRuntimeResult = {
   isConnected: boolean;
   isInitialized: boolean;
   isConnecting: boolean;
-  connectToShell: (options?: { forceRestart?: boolean }) => void;
+  isProtocolOutdated: boolean;
+  connectToShell: (options?: { forceRestart?: boolean; automatic?: boolean }) => void;
   disconnectFromShell: (options?: { suppressAutoConnect?: boolean }) => void;
 };

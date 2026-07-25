@@ -1,6 +1,7 @@
 import type { ExternalTerminalTarget, LoadingProgress, Project, ProjectSession, LLMProvider } from '../../../types/app';
 import type { SessionActivityMap } from '../../../hooks/useSessionProtection';
 import type { TmuxPaneTarget } from '../../../../shared/tmux';
+import type { ExternalCliSession } from '../hooks/useExternalCliSessions';
 
 export type ProjectSortOrder = 'name' | 'date';
 export type SidebarSearchMode = 'projects' | 'conversations' | 'running' | 'archived';
@@ -77,6 +78,7 @@ export type SidebarProps = {
   isMobile: boolean;
   // Opens a local agent transcript-first, or a remote SSH target as a terminal.
   onExternalTerminalOpen: (target: ExternalTerminalTarget) => void;
+  onExternalSessionsChange: (sessions: ExternalCliSession[]) => void;
 };
 
 export type SessionViewModel = {

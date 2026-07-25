@@ -43,6 +43,8 @@ import type {
 } from '@/shared/types.js';
 import { AppError, asyncHandler, createApiSuccessResponse } from '@/shared/utils.js';
 
+import { attachCapabilityService } from './services/attach-capability.service.js';
+
 
 const router = express.Router();
 
@@ -643,7 +645,7 @@ router.get(
 
 router.get(
   '/sessions/external',
-  asyncHandler(async (_req: Request, res: Response) => {
+  asyncHandler(async (req: Request, res: Response) => {
     // Coding-agent panes open structured transcripts when a native session id
     // is available, with terminal attach as the fallback. GJC stays in the
     // dedicated live lane; SSH and unclassified shell panes are attach-only.
@@ -655,7 +657,13 @@ router.get(
         process: externalProcessGeneration(session),
         kind: session.kind,
       };
-      if (session.kind === 'ssh' || session.kind === 'shell') return base;
+      if (session.kind === 'ssh' || session.kind === 'shell') {
+        const attachCapability = await attachCapabilityService.issue(
+          String((req as typeof req & { user?: { id?: string | number } }).user?.id),
+          session.tmux,
+        ).catch(() => null);
+        return attachCapability ? { ...base, attachCapability } : base;
+      }
 
       const projectPath = session.cwd;
       const resolution = await resolveExternalSessionActivity(session);

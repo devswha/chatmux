@@ -8,7 +8,7 @@ import type { ReleaseInfo } from '../../../../types/sharedTypes';
 import type { ConversationSearchResults, SearchProgress } from '../../hooks/useSidebarController';
 import type { TmuxPaneTarget } from '../../../../../shared/tmux';
 import type { ArchivedProjectListItem, ArchivedSessionListItem, SidebarSearchMode } from '../../types/types';
-import { useExternalCliSessions } from '../../hooks/useExternalCliSessions';
+import { useExternalCliSessions, type ExternalCliSession } from '../../hooks/useExternalCliSessions';
 import SessionProviderLogo from '../../../llm-logo-provider/SessionProviderLogo';
 import { getAllSessions } from '../../utils/utils';
 
@@ -162,6 +162,7 @@ type SidebarContentProps = {
   liveSessionRunning: ReadonlySet<string>;
   liveSessionsLoaded: boolean;
   onExternalTerminalOpen: (target: ExternalTerminalTarget) => void;
+  onExternalSessionsChange: (sessions: ExternalCliSession[]) => void;
   t: TFunction;
 };
 
@@ -209,10 +210,11 @@ export default function SidebarContent({
   liveSessionRunning,
   liveSessionsLoaded,
   onExternalTerminalOpen,
+  onExternalSessionsChange,
   t,
 }: SidebarContentProps) {
   const [topTab, setTopTab] = useState<'sessions' | 'archive'>('sessions');
-  const { sessions: externalSessions, loading: externalLoading, refresh: refreshExternalSessions } = useExternalCliSessions();
+  const { sessions: externalSessions, loading: externalLoading, refresh: refreshExternalSessions } = useExternalCliSessions(onExternalSessionsChange);
   const showConversationSearch = searchMode === 'conversations' && searchFilter.trim().length >= 2;
   const hasPartialResults = conversationResults && conversationResults.results.length > 0;
   const groupedArchivedSessions = groupArchivedSessionsByProject(archivedSessions);

@@ -14,6 +14,7 @@ import {
 import { useShellRuntime } from '../hooks/useShellRuntime';
 import { sendSocketMessage } from '../utils/socket';
 import { getSessionDisplayName } from '../utils/auth';
+import type { ShellAttachTarget } from '../types/types';
 
 import ShellConnectionOverlay from './subcomponents/ShellConnectionOverlay';
 import ShellEmptyState from './subcomponents/ShellEmptyState';
@@ -28,6 +29,7 @@ type ShellProps = {
   selectedSession?: ProjectSession | null;
   initialCommand?: string | null;
   isPlainShell?: boolean;
+  attachTarget?: ShellAttachTarget | null;
   onProcessComplete?: ((exitCode: number) => void) | null;
   minimal?: boolean;
   autoConnect?: boolean;
@@ -39,6 +41,7 @@ export default function Shell({
   selectedSession = null,
   initialCommand = null,
   isPlainShell = false,
+  attachTarget = null,
   onProcessComplete = null,
   minimal = false,
   autoConnect = false,
@@ -59,6 +62,7 @@ export default function Shell({
     isConnected,
     isInitialized,
     isConnecting,
+    isProtocolOutdated,
     connectToShell,
     disconnectFromShell,
   } = useShellRuntime({
@@ -66,6 +70,7 @@ export default function Shell({
     selectedSession,
     initialCommand,
     isPlainShell,
+    attachTarget,
     minimal,
     autoConnect,
     isRestarting,
@@ -239,6 +244,11 @@ export default function Shell({
   if (minimal) {
     return (
       <>
+        {isProtocolOutdated && (
+          <div role="alert" className="bg-amber-900/80 px-3 py-2 text-sm text-amber-100">
+            {t('shell.protocolOutdated')}
+          </div>
+        )}
         <ShellMinimalView terminalContainerRef={terminalContainerRef} />
         <TerminalShortcutsPanel
           wsRef={wsRef}
@@ -271,6 +281,11 @@ export default function Shell({
 
   return (
     <div className="flex h-full w-full flex-col bg-gray-900">
+      {isProtocolOutdated && (
+        <div role="alert" className="bg-amber-900/80 px-3 py-2 text-sm text-amber-100">
+          {t('shell.protocolOutdated')}
+        </div>
+      )}
       <ShellHeader
         isConnected={isConnected}
         isInitialized={isInitialized}

@@ -183,7 +183,9 @@
     "resumeSession": "Reprendre la session : {{displayName}}...",
     "runCommand": "Exécuter {{command}} dans {{projectName}}",
     "startCli": "Démarrage du CLI Claude dans {{projectName}}",
-    "defaultCommand": "commande"
+    "defaultCommand": "commande",
+    "protocolOutdated": "Cette version de ChatMux est obsolète. Rechargez la page pour poursuivre la connexion au terminal.",
+    "attachCapabilityUnavailable": "L’autorisation de se connecter à ce terminal est indisponible. Actualisez la liste des sessions externes et rouvrez le terminal."
   },
   "claudeStatus": {
     "actions": {

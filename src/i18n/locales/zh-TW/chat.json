@@ -217,7 +217,9 @@
     "resumeSession": "恢復工作階段：{{displayName}}...",
     "runCommand": "在 {{projectName}} 中執行 {{command}}",
     "startCli": "在 {{projectName}} 中啟動 Claude CLI",
-    "defaultCommand": "指令"
+    "defaultCommand": "指令",
+    "protocolOutdated": "此 ChatMux 版本已過期。請重新載入頁面以繼續終端連線。",
+    "attachCapabilityUnavailable": "無法取得連線到此終端的權限。請重新整理外部工作階段清單後再開啟終端。"
   },
   "claudeStatus": {
     "actions": {

@@ -181,7 +181,9 @@
     "resumeSession": "Riprendi sessione: {{displayName}}...",
     "runCommand": "Esegui {{command}} in {{projectName}}",
     "startCli": "Avvio Claude CLI in {{projectName}}",
-    "defaultCommand": "comando"
+    "defaultCommand": "comando",
+    "protocolOutdated": "Questa versione di ChatMux non è aggiornata. Ricarica la pagina per continuare la connessione al terminale.",
+    "attachCapabilityUnavailable": "L’autorizzazione per collegarsi a questo terminale non è disponibile. Aggiorna l’elenco delle sessioni esterne e riapri il terminale."
   },
   "claudeStatus": {
     "actions": {

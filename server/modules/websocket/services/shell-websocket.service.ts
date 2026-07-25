@@ -7,6 +7,15 @@ import pty, { type IPty } from 'node-pty';
 import { WebSocket, type RawData } from 'ws';
 
 import { parseIncomingJsonObject } from '@/shared/utils.js';
+export const SHELL_PROTOCOL_VERSION = 2;
+
+type ShellInitMode = 'plain-shell' | 'typed-attach';
+type TmuxAttachTargetClass = 'local-agent' | 'attach-only';
+type TmuxPaneIdentity = { socketPath: string; sessionId: string; windowId: string; paneId: string };
+type CurrentTmuxPaneIdentity =
+  | { state: 'unavailable' | 'not-hosted' }
+  | { state: 'hosted'; tmux: TmuxPaneIdentity };
+type AttachCapabilityService = { verify: (token: unknown, principal: string, tmux: TmuxPaneIdentity) => Promise<boolean> };
 
 type ShellIncomingMessage = {
   type?: string;
@@ -20,6 +29,12 @@ type ShellIncomingMessage = {
   initialCommand?: string;
   isPlainShell?: boolean;
   forceRestart?: boolean;
+  shellProtocolVersion?: number;
+  mode?: ShellInitMode;
+  targetClass?: TmuxAttachTargetClass;
+  tmux?: unknown;
+  process?: unknown;
+  capability?: unknown;
 };
 
 type PtySessionEntry = {
@@ -29,13 +44,20 @@ type PtySessionEntry = {
   timeoutId: NodeJS.Timeout | null;
   projectPath: string;
   sessionId: string | null;
+  lease?: Readonly<{ principal: string; tmux: { socketPath: string; sessionId: string; windowId: string; paneId: string } }>;
 };
 
 const ptySessionsMap = new Map<string, PtySessionEntry>();
 const PTY_SESSION_TIMEOUT = 30 * 60 * 1000;
 const SHELL_URL_PARSE_BUFFER_LIMIT = 32768;
 
-type ShellWebSocketDependencies = {
+export type ShellAttachDiagnostic = Readonly<{
+  code: 'attach_refused_identity' | 'attach_refused_protected';
+  provider: string;
+  count: number;
+}>;
+
+export type ShellWebSocketDependencies = {
   resolveProviderSessionId: (
     sessionId: string,
     provider: string,
@@ -44,6 +66,21 @@ type ShellWebSocketDependencies = {
   normalizeDetectedUrl: (url: string) => string | null;
   extractUrlsFromText: (content: string) => string[];
   shouldAutoOpenUrlFromOutput: (content: string) => boolean;
+  spawn?: typeof pty.spawn;
+  assertFreshExternalTmuxTarget?: (
+    tmux: unknown,
+    process: unknown,
+  ) => Promise<{ tmux: TmuxPaneIdentity; kind: string; tmuxName?: string | null }>;
+  assertTmuxPaneIdentity?: (tmux: TmuxPaneIdentity) => Promise<void>;
+  getCurrentTmuxPaneIdentity?: () => Promise<TmuxPaneIdentity | null>;
+  getCurrentTmuxPaneIdentityState?: () => Promise<CurrentTmuxPaneIdentity>;
+  readTmuxPaneIdentity?: (tmux: unknown) => TmuxPaneIdentity;
+  runTmux?: (args: string[]) => Promise<{ code: number; output: string }>;
+  attachCapabilities?: AttachCapabilityService;
+  principal?: string;
+  diagnostic?: (event: ShellAttachDiagnostic) => void;
+  now?: () => number;
+  readTmuxSessionName?: (tmux: { socketPath: string; paneId: string }) => Promise<string | null>;
 };
 
 /**
@@ -65,6 +102,156 @@ function readBoolean(value: unknown, fallback = false): boolean {
  */
 function readNumber(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+function readTerminalDimension(value: unknown, fallback: number): number | null {
+  if (value === undefined) return fallback;
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : null;
+}
+const ATTACH_DIAGNOSTIC_INTERVAL_MS = 60_000;
+
+const attachDiagnosticCounts = new Map<string, number>();
+const attachDiagnosticLastReportedAt = new Map<string, number>();
+const attachDiagnosticSinkIds = new WeakMap<object, number>();
+let nextAttachDiagnosticSinkId = 1;
+const defaultAttachDiagnostic = (event: ShellAttachDiagnostic): void => {
+  console.warn('Shell attach diagnostic:', event);
+};
+
+function createAttachDiagnosticEmitter(
+  diagnostic: ((event: ShellAttachDiagnostic) => void) | undefined,
+  now: () => number,
+): (code: ShellAttachDiagnostic['code'], provider: string) => void {
+  const sink = diagnostic ?? defaultAttachDiagnostic;
+  const sinkId = attachDiagnosticSinkIds.get(sink) ?? nextAttachDiagnosticSinkId++;
+  attachDiagnosticSinkIds.set(sink, sinkId);
+  return (code, provider) => {
+    const key = `${sinkId}\u0000${code}\u0000${provider}`;
+    const count = (attachDiagnosticCounts.get(key) ?? 0) + 1;
+    attachDiagnosticCounts.set(key, count);
+    const reportedAt = now();
+    if ((attachDiagnosticLastReportedAt.get(key) ?? -ATTACH_DIAGNOSTIC_INTERVAL_MS) + ATTACH_DIAGNOSTIC_INTERVAL_MS > reportedAt) return;
+    attachDiagnosticLastReportedAt.set(key, reportedAt);
+    sink({ code, provider, count });
+  };
+}
+
+function hasOwn(value: object, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+function shellQuote(value: string): string {
+  if (os.platform() === 'win32') return `'${value.replaceAll("'", "''")}'`;
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+function buildTypedAttachCommand(tmux: {
+  socketPath: string;
+  sessionId: string;
+  windowId: string;
+  paneId: string;
+}): string {
+  return `tmux -S ${shellQuote(tmux.socketPath)} select-window -t ${shellQuote(tmux.windowId)} \\; select-pane -t ${shellQuote(tmux.paneId)} \\; attach-session -t ${shellQuote(tmux.sessionId)}`;
+}
+async function readTmuxSessionName(
+  tmux: { socketPath: string; paneId: string },
+  runTmux: NonNullable<ShellWebSocketDependencies['runTmux']>,
+): Promise<string | null> {
+  const result = await runTmux([
+    '-S', tmux.socketPath,
+    'display-message', '-p', '-t', tmux.paneId,
+    '#{session_name}',
+  ]);
+  return result.code === 0 && result.output.trim() ? result.output.trim() : null;
+}
+
+async function assertNotProtectedAttachTarget(
+  tmux: { socketPath: string; paneId: string },
+  provider: string,
+  dependencies: ShellWebSocketDependencies,
+  emitDiagnostic: (code: ShellAttachDiagnostic['code'], provider: string) => void,
+  tmuxName?: string | null,
+): Promise<void> {
+  const readSessionName = dependencies.readTmuxSessionName
+    ?? (dependencies.runTmux ? (target) => readTmuxSessionName(target, dependencies.runTmux!) : undefined);
+  const name = tmuxName === undefined ? await readSessionName?.(tmux) : tmuxName;
+  const normalizedName = name?.trim();
+  if (!normalizedName) {
+    emitDiagnostic('attach_refused_protected', provider);
+    throw new Error('The tmux target protection status could not be verified.');
+  }
+  if (normalizedName.toLowerCase().startsWith('company')) {
+    emitDiagnostic('attach_refused_protected', provider);
+    throw new Error('This tmux target is protected.');
+  }
+  let current: CurrentTmuxPaneIdentity;
+  if (dependencies.getCurrentTmuxPaneIdentityState) {
+    current = await dependencies.getCurrentTmuxPaneIdentityState();
+  } else if (dependencies.getCurrentTmuxPaneIdentity) {
+    const identity = await dependencies.getCurrentTmuxPaneIdentity();
+    current = identity ? { state: 'hosted', tmux: identity } : { state: 'unavailable' };
+  } else {
+    current = { state: 'unavailable' };
+  }
+  if (current.state === 'unavailable') {
+    emitDiagnostic('attach_refused_protected', provider);
+    throw new Error('The ChatMux tmux pane protection status could not be verified.');
+  }
+  if (
+    current.state === 'hosted'
+    && current.tmux.socketPath === tmux.socketPath
+    && current.tmux.paneId === tmux.paneId
+  ) {
+    emitDiagnostic('attach_refused_protected', provider);
+    throw new Error('The tmux target hosting ChatMux is protected.');
+  }
+}
+
+function protocolError(ws: WebSocket, message: string): void {
+  ws.send(JSON.stringify({
+    type: 'error',
+    code: 'SHELL_PROTOCOL_OUTDATED',
+    message,
+    reloadRequired: true,
+  }));
+  ws.close();
+}
+
+async function assertAttachTarget(
+  data: ShellIncomingMessage,
+  dependencies: ShellWebSocketDependencies,
+  emitDiagnostic: (code: ShellAttachDiagnostic['code'], provider: string) => void,
+): Promise<{ command: string; provider: string; attachOnlyTmux?: { socketPath: string; sessionId: string; windowId: string; paneId: string } }> {
+  if (data.targetClass !== 'local-agent' && data.targetClass !== 'attach-only') {
+    throw new Error('Invalid typed attach target class.');
+  }
+
+  try {
+    if (data.targetClass === 'local-agent') {
+      const assertFresh = dependencies.assertFreshExternalTmuxTarget;
+      if (!assertFresh) throw new Error('The tmux target identity verifier is unavailable.');
+      const target = await assertFresh(data.tmux, data.process);
+      await assertNotProtectedAttachTarget(
+        target.tmux,
+        target.kind,
+        dependencies,
+        emitDiagnostic,
+        target.tmuxName,
+      );
+      return { command: buildTypedAttachCommand(target.tmux), provider: target.kind };
+    }
+
+    const readIdentity = dependencies.readTmuxPaneIdentity;
+    const assertIdentity = dependencies.assertTmuxPaneIdentity;
+    if (!readIdentity || !assertIdentity) throw new Error('The tmux target identity verifier is unavailable.');
+    const tmux = readIdentity(data.tmux);
+    await assertIdentity(tmux);
+    await assertNotProtectedAttachTarget(tmux, 'attach-only', dependencies, emitDiagnostic);
+    return { command: buildTypedAttachCommand(tmux), provider: 'attach-only', attachOnlyTmux: tmux };
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('protected')) throw error;
+    emitDiagnostic('attach_refused_identity', data.targetClass);
+    throw error;
+  }
 }
 
 /**
@@ -225,14 +412,17 @@ function prioritizeUserNpmGlobalBin(env: NodeJS.ProcessEnv): { key: string; valu
  */
 export function handleShellConnection(
   ws: WebSocket,
-  dependencies: ShellWebSocketDependencies
+  dependencies: ShellWebSocketDependencies,
+  principal?: string,
 ): void {
   console.log('[INFO] Shell websocket connected');
+  const connectionDependencies = principal === undefined ? dependencies : { ...dependencies, principal };
 
   let shellProcess: IPty | null = null;
   let ptySessionKey: string | null = null;
   let urlDetectionBuffer = '';
   const announcedAuthUrls = new Set<string>();
+  const emitAttachDiagnostic = createAttachDiagnosticEmitter(connectionDependencies.diagnostic, connectionDependencies.now ?? Date.now);
 
   ws.on('message', async (rawMessage) => {
     try {
@@ -242,16 +432,40 @@ export function handleShellConnection(
       }
 
       if (data.type === 'init') {
+        if (data.shellProtocolVersion !== SHELL_PROTOCOL_VERSION) {
+          protocolError(ws, 'Shell protocol is outdated. Reload ChatMux and try again.');
+          return;
+        }
+        if (data.mode !== 'plain-shell' && data.mode !== 'typed-attach') {
+          ws.send(JSON.stringify({ type: 'error', message: 'Invalid shell init mode.' }));
+          ws.close();
+          return;
+        }
+        if (data.mode === 'typed-attach' && hasOwn(data, 'initialCommand')) {
+          ws.send(JSON.stringify({ type: 'error', message: 'typed-attach init must not include initialCommand.' }));
+          ws.close();
+          return;
+        }
+        if (
+          data.mode === 'plain-shell'
+          && (hasOwn(data, 'targetClass') || hasOwn(data, 'tmux') || hasOwn(data, 'process') || hasOwn(data, 'capability'))
+        ) {
+          ws.send(JSON.stringify({ type: 'error', message: 'plain-shell init must not include typed attach fields.' }));
+          ws.close();
+          return;
+        }
+        const typedAttach = data.mode === 'typed-attach'
+          ? await assertAttachTarget(data, connectionDependencies, emitAttachDiagnostic)
+          : null;
+
         const projectPath = readString(data.projectPath, process.cwd());
         const sessionId = readString(data.sessionId) || null;
         const hasSession = readBoolean(data.hasSession);
         const provider = readString(data.provider, 'claude');
         const initialCommand = readString(data.initialCommand);
         const forceRestart = readBoolean(data.forceRestart);
-        const isPlainShell =
-          readBoolean(data.isPlainShell) ||
-          (!!initialCommand && !hasSession) ||
-          provider === 'plain-shell';
+        // Plain-shell commands are for a terminal only; never use this mode to attach tmux.
+        const isPlainShell = data.mode === 'plain-shell';
 
         urlDetectionBuffer = '';
         announcedAuthUrls.clear();
@@ -262,29 +476,43 @@ export function handleShellConnection(
             initialCommand.includes('cursor-agent login') ||
             initialCommand.includes('auth login'));
 
-        // Key by a hash of the WHOLE command: a base64 prefix only covers the
-        // first 12 bytes, so distinct commands sharing a prefix (e.g. two
-        // `tmux attach-session -t =<name>` targets) would collide and
-        // reconnect to the wrong PTY.
+        // Key by a hash of the complete server-selected command so reconnects
+        // cannot cross a capability or plain-shell command boundary.
         const commandSuffix =
-          isPlainShell && initialCommand
-            ? `_cmd_${createHash('sha256').update(initialCommand).digest('hex').slice(0, 16)}`
+          typedAttach || (isPlainShell && initialCommand)
+            ? `_cmd_${createHash('sha256').update(typedAttach?.command ?? initialCommand).digest('hex').slice(0, 16)}`
             : '';
         ptySessionKey = `${projectPath}_${sessionId ?? 'default'}${commandSuffix}`;
 
-        if (isLoginCommand || forceRestart) {
-          const oldSession = ptySessionsMap.get(ptySessionKey);
-          if (oldSession) {
-            if (oldSession.timeoutId) {
-              clearTimeout(oldSession.timeoutId);
-            }
-            oldSession.pty.kill();
-            ptySessionsMap.delete(ptySessionKey);
+        const currentSession = ptySessionsMap.get(ptySessionKey);
+        if (typedAttach?.attachOnlyTmux && currentSession) {
+          const lease = currentSession.lease;
+          const principal = connectionDependencies.principal ?? '';
+          const target = typedAttach.attachOnlyTmux;
+          if (
+            !lease
+            || lease.principal !== principal
+            || lease.tmux.socketPath !== target.socketPath
+            || lease.tmux.sessionId !== target.sessionId
+            || lease.tmux.windowId !== target.windowId
+            || lease.tmux.paneId !== target.paneId
+          ) {
+            throw new Error('The existing typed attach session is not leased to this target.');
           }
         }
-
+        if (
+          typedAttach?.attachOnlyTmux
+          && (!currentSession || isLoginCommand || forceRestart)
+          && !await connectionDependencies.attachCapabilities?.verify(
+            data.capability,
+            connectionDependencies.principal ?? '',
+            typedAttach.attachOnlyTmux,
+          )
+        ) {
+          throw new Error('The typed attach capability is invalid or expired.');
+        }
         const existingSession =
-          isLoginCommand || forceRestart ? null : ptySessionsMap.get(ptySessionKey);
+          isLoginCommand || forceRestart ? null : currentSession;
         if (existingSession) {
           shellProcess = existingSession.pty;
           if (existingSession.timeoutId) {
@@ -330,16 +558,20 @@ export function handleShellConnection(
           return;
         }
 
-        const shellCommand = buildShellCommand(data, dependencies);
-        const resumeSessionId = resolveResumeSessionId(data, dependencies);
+        const shellCommand = typedAttach?.command ?? buildShellCommand(data, connectionDependencies);
+        const resumeSessionId = isPlainShell ? '' : resolveResumeSessionId(data, connectionDependencies);
         const shell = os.platform() === 'win32' ? 'powershell.exe' : 'bash';
         const shellArgs =
           os.platform() === 'win32' ? ['-Command', shellCommand] : ['-c', shellCommand];
-        const termCols = readNumber(data.cols, 80);
-        const termRows = readNumber(data.rows, 24);
+        const termCols = readTerminalDimension(data.cols, 80);
+        const termRows = readTerminalDimension(data.rows, 24);
+        if (termCols === null || termRows === null) {
+          ws.send(JSON.stringify({ type: 'error', message: 'Invalid terminal dimensions' }));
+          return;
+        }
         const prioritizedPath = prioritizeUserNpmGlobalBin(process.env);
 
-        shellProcess = pty.spawn(shell, shellArgs, {
+        shellProcess = (connectionDependencies.spawn ?? pty.spawn)(shell, shellArgs, {
           name: 'xterm-256color',
           cols: termCols,
           rows: termRows,
@@ -353,14 +585,28 @@ export function handleShellConnection(
           },
         });
 
-        ptySessionsMap.set(ptySessionKey, {
+        const replacement = ptySessionsMap.get(ptySessionKey);
+        const newSession: PtySessionEntry = {
           pty: shellProcess,
           ws,
           buffer: [],
           timeoutId: null,
           projectPath,
           sessionId,
-        });
+          lease: typedAttach?.attachOnlyTmux
+            ? Object.freeze({
+              principal: connectionDependencies.principal ?? '',
+              tmux: Object.freeze({ ...typedAttach.attachOnlyTmux }),
+            })
+            : undefined,
+        };
+        ptySessionsMap.set(ptySessionKey, newSession);
+        if (replacement && replacement !== newSession) {
+          if (replacement.timeoutId) {
+            clearTimeout(replacement.timeoutId);
+          }
+          replacement.pty.kill();
+        }
 
         shellProcess.onData((chunk) => {
           if (!ptySessionKey) {
@@ -523,7 +769,7 @@ export function handleShellConnection(
     }
 
     const session = ptySessionsMap.get(ptySessionKey);
-    if (!session) {
+    if (!session || session.ws !== ws) {
       return;
     }
 
