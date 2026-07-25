@@ -5,6 +5,7 @@ import { AppError } from '@/shared/utils.js';
 import type { TmuxPaneIdentity, TmuxProcessGeneration } from '../../../../shared/tmux.js';
 
 import { runTmux, type TmuxRunner } from './builtin-relay.service.js';
+import type { VerifiedTmuxActionTarget } from './tmux-fresh-verifier.service.js';
 
 const SESSION_ID_RE = /^\$\d+$/;
 const WINDOW_ID_RE = /^@\d+$/;
@@ -109,11 +110,15 @@ export async function assertTmuxPaneIdentity(
 }
 
 export async function sendToTmuxPane(
-  identity: TmuxPaneIdentity,
+  target: VerifiedTmuxActionTarget,
   message: string,
   run: TmuxRunner = runTmux,
 ): Promise<void> {
+  const identity = target.tmux;
   const bufferName = `chatmux-pane-${process.pid}-${++pasteBufferSequence}`;
+  // Recheck before the first write so a stale pane receives no bytes. tmux cannot
+  // make load/paste/Enter atomic, so replacement after this point is accepted TOCTOU.
+  await assertTmuxPaneIdentity(identity, run);
   const load = await run(['-S', identity.socketPath, 'load-buffer', '-b', bufferName, '-'], message);
   if (load.code !== 0) {
     throw new AppError('tmux could not stage the message.', {
@@ -129,9 +134,10 @@ export async function sendToTmuxPane(
 }
 
 export async function captureTmuxPane(
-  identity: TmuxPaneIdentity,
+  target: VerifiedTmuxActionTarget,
   run: TmuxRunner = runTmux,
 ): Promise<string> {
+  const identity = target.tmux;
   const result = await run([
     '-S', identity.socketPath,
     'capture-pane', '-p', '-e', '-N', '-S', '-80', '-t', identity.paneId,
@@ -146,24 +152,27 @@ export async function captureTmuxPane(
 }
 
 export async function killTmuxPane(
-  identity: TmuxPaneIdentity,
+  target: VerifiedTmuxActionTarget,
   run: TmuxRunner = runTmux,
 ): Promise<void> {
+  const identity = target.tmux;
   await requireTmuxSuccess(identity, ['kill-pane', '-t', identity.paneId], run);
 }
 
 export async function killTmuxSession(
-  identity: TmuxPaneIdentity,
+  target: VerifiedTmuxActionTarget,
   run: TmuxRunner = runTmux,
 ): Promise<void> {
+  const identity = target.tmux;
   await requireTmuxSuccess(identity, ['kill-session', '-t', identity.sessionId], run);
 }
 
 export async function stopAgentProcessInPane(
-  identity: TmuxPaneIdentity,
+  target: VerifiedTmuxActionTarget,
   run: TmuxRunner = runTmux,
   shell = process.env.SHELL && isAbsolute(process.env.SHELL) ? process.env.SHELL : '/bin/sh',
 ): Promise<void> {
+  const identity = target.tmux;
   const inspected = await run([
     '-S', identity.socketPath,
     'display-message', '-p', '-t', identity.paneId,

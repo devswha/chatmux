@@ -43,7 +43,9 @@ export type TmuxE2EHarness = {
   dispose: () => Promise<void>;
   getSessionId: (sessionName: string) => Promise<string>;
   hasSession: (sessionName: string) => Promise<boolean>;
+  capturePane: (paneId: string) => Promise<string>;
   killSession: (sessionName: string) => Promise<void>;
+  respawnFakeCodexPane: (sessionName: string, paneId: string, cwd?: string) => Promise<FakeTmuxAgent>;
   startFakeCodex: (sessionName: string, cwd?: string) => Promise<FakeTmuxAgent>;
   startFakeCodexPane: (sessionName: string, cwd?: string) => Promise<FakeTmuxAgent>;
   startFakeGjc: (sessionName: string, cwd?: string) => Promise<FakeTmuxAgent>;
@@ -359,9 +361,32 @@ export async function createTmuxE2EHarness(): Promise<TmuxE2EHarness> {
     workspace,
     discoverFromFreshProcess,
     dispose,
+    capturePane: (paneId) => runTmux(['capture-pane', '-p', '-t', paneId]),
     hasSession,
     getSessionId,
     killSession,
+    respawnFakeCodexPane: async (sessionName, paneId, cwd = workspace) => {
+      assertSafeSessionName(sessionName);
+      await mkdir(cwd, { recursive: true });
+      agentGeneration += 1;
+      const logPath = path.join(root, `${sessionName}-${agentGeneration}.ndjson`);
+      const command = [process.execPath, fakeCodexPath, logPath].map(shellQuote).join(' ');
+      await runTmux(['respawn-pane', '-k', '-t', paneId, '-c', cwd, command]);
+      const events = (): Promise<FakeAgentEvent[]> => readEvents(logPath);
+      return {
+        sessionName,
+        logPath,
+        events,
+        waitUntilReady: () => waitFor(
+          async () => (await events()).some((event) => event.type === 'ready'),
+          `${sessionName} fake agent readiness`,
+        ),
+        waitForInput: (value) => waitFor(
+          async () => (await events()).some((event) => event.type === 'input' && event.value === value),
+          `${sessionName} input ${JSON.stringify(value)}`,
+        ),
+      };
+    },
     startFakeCodex: (sessionName, cwd) => (
       startFakeAgentCommand(sessionName, [process.execPath, fakeCodexPath], cwd)
     ),

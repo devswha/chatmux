@@ -11,12 +11,10 @@ import { sessionsService } from '@/modules/providers/services/sessions.service.j
 import { getLiveGjcSessions } from '@/modules/providers/services/live-sessions.service.js';
 import {
   getCurrentTmuxPaneIdentity,
-  getExternalCliSessions,
   getExternalCliSessionsDetailed,
   normalizeExternalPaneOutput,
   resolveExternalCliCwd,
   spawnExternalCliSession,
-  type ExternalCliSession,
   type ExternalSpawnCli,
 } from '@/modules/providers/services/external-cli-sessions.service.js';
 import { resolveExternalSessionActivity } from '@/modules/providers/services/external-session-activity.service.js';
@@ -24,14 +22,13 @@ import { getHomeDir, getHomeDirSuggestions } from '@/modules/providers/services/
 import { isValidSpawnName, spawnLiveSession } from '@/modules/providers/services/live-send.service.js';
 import { listLiveGjcCommands } from '@/modules/providers/services/live-commands.service.js';
 import { assertLineageTmuxTarget } from '@/modules/providers/services/tmux-target-guard.service.js';
+import { assertFreshExternalTmuxTarget, type VerifiedTmuxActionTarget } from '@/modules/providers/services/tmux-fresh-verifier.service.js';
 import {
-  assertTmuxPaneIdentity,
   captureTmuxPane,
   killTmuxPane,
   killTmuxSession,
   readTmuxPaneIdentity,
   readTmuxProcessGeneration,
-  sameTmuxPaneIdentity,
   sendToTmuxPane,
   stopAgentProcessInPane,
 } from '@/modules/providers/services/tmux-pane-actions.service.js';
@@ -46,7 +43,6 @@ import type {
 } from '@/shared/types.js';
 import { AppError, asyncHandler, createApiSuccessResponse } from '@/shared/utils.js';
 
-import type { TmuxPaneIdentity } from '../../../shared/tmux.js';
 
 const router = express.Router();
 
@@ -60,38 +56,21 @@ function readTerminationMode(value: unknown): TmuxTerminationMode {
     statusCode: 400,
   });
 }
-
-function externalProcessGeneration(session: ExternalCliSession) {
+function externalProcessGeneration(session: {
+  agentPid?: number;
+  startedAtMs?: number;
+}) {
   return session.agentPid !== undefined && session.startedAtMs !== undefined
     ? { pid: session.agentPid, startedAtMs: session.startedAtMs }
     : null;
 }
 
-async function requireExternalPaneTarget(tmuxValue: unknown, processValue: unknown) {
-  const tmux = readTmuxPaneIdentity(tmuxValue);
-  const processGeneration = readTmuxProcessGeneration(processValue);
-  const target = (await getExternalCliSessions()).find((session) => {
-    const currentProcess = externalProcessGeneration(session);
-    return session.kind !== 'ssh' && session.kind !== 'shell'
-      && sameTmuxPaneIdentity(session.tmux, tmux)
-      && currentProcess?.pid === processGeneration.pid
-      && currentProcess.startedAtMs === processGeneration.startedAtMs;
-  });
-  if (!target) {
-    throw new AppError('The selected tmux pane now belongs to a different agent process.', {
-      code: 'TMUX_PROCESS_GENERATION_MISMATCH',
-      statusCode: 409,
-    });
-  }
-  await assertTmuxPaneIdentity(tmux);
-  return { target, tmux, process: processGeneration };
-}
 
 async function assertTerminationAllowed(
-  target: { tmuxName: string | null },
-  tmux: TmuxPaneIdentity,
+  target: VerifiedTmuxActionTarget,
   mode: TmuxTerminationMode,
 ): Promise<void> {
+  const tmux = target.tmux;
   if ((target.tmuxName ?? '').toLowerCase().startsWith('company')) {
     throw new AppError('This tmux target is protected.', {
       code: 'EXTERNAL_CLI_SESSION_PROTECTED',
@@ -712,8 +691,8 @@ router.post(
   '/sessions/external/output',
   asyncHandler(async (req: Request, res: Response) => {
     const body = (req.body ?? {}) as { tmux?: unknown; process?: unknown };
-    const { tmux } = await requireExternalPaneTarget(body.tmux, body.process);
-    const output = normalizeExternalPaneOutput(await captureTmuxPane(tmux));
+    const target = await assertFreshExternalTmuxTarget(body.tmux, body.process);
+    const output = normalizeExternalPaneOutput(await captureTmuxPane(target));
     res.json(createApiSuccessResponse({ output }));
   }),
 );
@@ -770,17 +749,14 @@ router.post(
       mode?: unknown;
     };
     const mode = readTerminationMode(body.mode);
-    const { target, tmux } = await requireExternalPaneTarget(
-      body.tmux,
-      body.process,
-    );
-    await assertTerminationAllowed(target, tmux, mode);
+    const target = await assertFreshExternalTmuxTarget(body.tmux, body.process);
+    await assertTerminationAllowed(target, mode);
     if (mode === 'process') {
-      await stopAgentProcessInPane(tmux);
+      await stopAgentProcessInPane(target);
     } else if (mode === 'pane') {
-      await killTmuxPane(tmux);
+      await killTmuxPane(target);
     } else {
-      await killTmuxSession(tmux);
+      await killTmuxSession(target);
     }
     res.json(createApiSuccessResponse({ ok: true, mode }));
   }),
@@ -798,8 +774,8 @@ router.post(
     if (!message.trim()) {
       throw new AppError('message is required.', { code: 'EMPTY_MESSAGE', statusCode: 400 });
     }
-    const { tmux } = await requireExternalPaneTarget(body.tmux, body.process);
-    await sendToTmuxPane(tmux, message);
+    const target = await assertFreshExternalTmuxTarget(body.tmux, body.process);
+    await sendToTmuxPane(target, message);
     res.json(createApiSuccessResponse({ ok: true }));
   }),
 );
@@ -821,9 +797,8 @@ router.post(
     const body = (req.body ?? {}) as { tmux?: unknown; process?: unknown };
     const tmux = readTmuxPaneIdentity(body.tmux);
     const processGeneration = readTmuxProcessGeneration(body.process);
-    await assertLineageTmuxTarget(tmux, processGeneration);
-    await assertTmuxPaneIdentity(tmux);
-    const output = normalizeExternalPaneOutput(await captureTmuxPane(tmux));
+    const target = await assertLineageTmuxTarget(tmux, processGeneration);
+    const output = normalizeExternalPaneOutput(await captureTmuxPane(target));
     res.json(createApiSuccessResponse({ output }));
   }),
 );
@@ -838,9 +813,8 @@ router.post(
     if (!message.trim()) {
       throw new AppError('message is required.', { code: 'EMPTY_MESSAGE', statusCode: 400 });
     }
-    await assertLineageTmuxTarget(tmux, processGeneration);
-    await assertTmuxPaneIdentity(tmux);
-    await sendToTmuxPane(tmux, message);
+    const target = await assertLineageTmuxTarget(tmux, processGeneration);
+    await sendToTmuxPane(target, message);
     res.json(createApiSuccessResponse({
       ok: true,
       reachable: true,
@@ -858,9 +832,16 @@ router.post(
     if (!isValidSpawnName(body.name)) {
       throw new AppError('A valid session name is required (alphanumeric, not "company").', { code: 'INVALID_SPAWN_NAME', statusCode: 400 });
     }
-    const cwd = typeof body.cwd === 'string' ? body.cwd.trim() : '';
-    if (!cwd) {
+    const cwdInput = typeof body.cwd === 'string' ? body.cwd.trim() : '';
+    if (!cwdInput) {
       throw new AppError('cwd is required.', { code: 'EMPTY_CWD', statusCode: 400 });
+    }
+    const cwd = await resolveExternalCliCwd(cwdInput);
+    if (!cwd) {
+      throw new AppError('cwd must be an existing directory under HOME.', {
+        code: 'INVALID_CWD',
+        statusCode: 400,
+      });
     }
     const result = await spawnLiveSession(body.name, cwd);
     res.json(createApiSuccessResponse(result));
@@ -879,14 +860,13 @@ router.post(
     const processGeneration = readTmuxProcessGeneration(body.process);
     const mode = readTerminationMode(body.mode);
     const target = await assertLineageTmuxTarget(tmux, processGeneration);
-    await assertTmuxPaneIdentity(tmux);
-    await assertTerminationAllowed(target, tmux, mode);
+    await assertTerminationAllowed(target, mode);
     if (mode === 'process') {
-      await stopAgentProcessInPane(tmux);
+      await stopAgentProcessInPane(target);
     } else if (mode === 'pane') {
-      await killTmuxPane(tmux);
+      await killTmuxPane(target);
     } else {
-      await killTmuxSession(tmux);
+      await killTmuxSession(target);
     }
     res.json(createApiSuccessResponse({ ok: true, mode }));
   }),

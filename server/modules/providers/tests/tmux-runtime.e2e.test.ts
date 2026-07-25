@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import test from 'node:test';
@@ -25,15 +26,30 @@ import {
   type LiveGjcSession,
 } from '@/modules/providers/services/live-sessions.service.js';
 import { assertLineageTmuxTarget } from '@/modules/providers/services/tmux-target-guard.service.js';
+import {
+  assertFreshExternalTmuxTarget,
+  createVerifiedTmuxActionTarget,
+} from '@/modules/providers/services/tmux-fresh-verifier.service.js';
 import { createTmuxE2EHarness } from '@/modules/providers/tests/support/tmux-e2e-harness.js';
 import { AppError } from '@/shared/utils.js';
 
 import {
   tmuxPaneIdentityKey,
+  type TmuxPaneIdentity,
   type TmuxPaneTarget,
 } from '../../../../shared/tmux.js';
-
 const isWindows = process.platform === 'win32';
+const tmuxE2ESkip = isWindows
+  ? 'Production tmux discovery is supported on Unix hosts.'
+  : spawnSync('tmux', ['-V'], { stdio: 'ignore' }).status !== 0
+    && 'The real-tmux E2E harness requires tmux on PATH.';
+function externalActionTarget(
+  tmux: TmuxPaneIdentity,
+  pid = 42,
+  startedAtMs = 1,
+) {
+  return createVerifiedTmuxActionTarget(tmux, { pid, startedAtMs }, 'codex', 'e2e');
+}
 
 async function waitForLiveGeneration(
   sessionName: string,
@@ -150,7 +166,7 @@ test('lineage guard rejects a stale agent process generation in the same pane', 
 });
 
 test('real tmux promotes one idle GJC row to indexed structured history after first input', {
-  skip: isWindows && 'Production tmux discovery is supported on Unix hosts.',
+  skip: tmuxE2ESkip,
   timeout: 30_000,
   concurrency: false,
 }, async (t) => {
@@ -172,8 +188,8 @@ test('real tmux promotes one idle GJC row to indexed structured history after fi
   assert.equal(idle.id, `${IDLE_GJC_ID_PREFIX}${sessionName}:${idle.tmux.paneId}`);
 
   const firstPrompt = 'promote this terminal into structured chat';
-  await assertLineageTmuxTarget(idle.tmux, idle.process);
-  await sendToTmuxPane(idle.tmux, firstPrompt);
+  const idleTarget = await assertLineageTmuxTarget(idle.tmux, idle.process);
+  await sendToTmuxPane(idleTarget, firstPrompt);
   await Promise.all([agent.waitForInput(firstPrompt), agent.waitForTranscript()]);
 
   const { promoted, snapshot } = await waitForStructuredPromotion(
@@ -212,15 +228,15 @@ test('real tmux promotes one idle GJC row to indexed structured history after fi
   );
 
   const followUp = 'continue on the promoted tmux generation';
-  await assertLineageTmuxTarget(promoted.tmux, promoted.process);
-  await sendToTmuxPane(promoted.tmux, followUp);
+  const promotedTarget = await assertLineageTmuxTarget(promoted.tmux, promoted.process);
+  await sendToTmuxPane(promotedTarget, followUp);
   await agent.waitForInput(followUp);
   const stillPromoted = await waitForStructuredPromotion(promoted, sessionId);
   assert.equal(stillPromoted.promoted.id, sessionId);
 });
 
 test('real tmux resolves Bun and npm-shim GJC wrappers to actionable lineage rows', {
-  skip: isWindows && 'Production tmux discovery is supported on Unix hosts.',
+  skip: tmuxE2ESkip,
   timeout: 30_000,
 }, async (t) => {
   const harness = await createTmuxE2EHarness();
@@ -267,13 +283,13 @@ test('real tmux resolves Bun and npm-shim GJC wrappers to actionable lineage row
     ],
   );
 
-  await Promise.all([
+  const [bunTarget, npmTarget] = await Promise.all([
     assertLineageTmuxTarget(bunLive.tmux, bunLive.process),
     assertLineageTmuxTarget(npmLive.tmux, npmLive.process),
   ]);
   await Promise.all([
-    sendToTmuxPane(bunLive.tmux, 'bun wrapper input'),
-    sendToTmuxPane(npmLive.tmux, 'npm shim input'),
+    sendToTmuxPane(bunTarget, 'bun wrapper input'),
+    sendToTmuxPane(npmTarget, 'npm shim input'),
   ]);
   await Promise.all([
     bunAgent.waitForInput('bun wrapper input'),
@@ -282,7 +298,7 @@ test('real tmux resolves Bun and npm-shim GJC wrappers to actionable lineage row
 });
 
 test('real tmux preserves pre-existing agents across fresh discovery processes and targets input exactly', {
-  skip: isWindows && 'Production tmux discovery is supported on Unix hosts.',
+  skip: tmuxE2ESkip,
   timeout: 30_000,
 }, async (t) => {
   const harness = await createTmuxE2EHarness();
@@ -312,8 +328,10 @@ test('real tmux preserves pre-existing agents across fresh discovery processes a
   const alphaTarget = firstDiscovery.find((session) => session.tmuxName === 'e2e-alpha');
   assert.ok(alphaTarget);
   const literalMessage = 'alpha only; $(not-a-shell) -Enter';
-  await assertTmuxPaneIdentity(alphaTarget.tmux);
-  await sendToTmuxPane(alphaTarget.tmux, literalMessage);
+  await sendToTmuxPane(
+    externalActionTarget(alphaTarget.tmux, alphaTarget.agentPid, alphaTarget.startedAtMs),
+    literalMessage,
+  );
   await alpha.waitForInput(literalMessage);
   await delay(100);
   assert.equal(
@@ -332,7 +350,7 @@ test('real tmux preserves pre-existing agents across fresh discovery processes a
 });
 
 test('real tmux external monitor notifies once per observed Codex turn and rebaselines restarts', {
-  skip: isWindows && 'Production tmux discovery is supported on Unix hosts.',
+  skip: tmuxE2ESkip,
   timeout: 30_000,
 }, async (t) => {
   const harness = await createTmuxE2EHarness();
@@ -390,7 +408,7 @@ test('real tmux external monitor notifies once per observed Codex turn and rebas
 });
 
 test('real tmux treats two agents in one session as independent pane targets', {
-  skip: isWindows && 'Production tmux discovery is supported on Unix hosts.',
+  skip: tmuxE2ESkip,
   timeout: 30_000,
 }, async (t) => {
   const harness = await createTmuxE2EHarness();
@@ -416,8 +434,10 @@ test('real tmux treats two agents in one session as independent pane targets', {
   assert.ok(secondTarget);
 
   const message = 'first pane only';
-  await assertTmuxPaneIdentity(firstTarget.tmux);
-  await sendToTmuxPane(firstTarget.tmux, message);
+  await sendToTmuxPane(
+    externalActionTarget(firstTarget.tmux, firstTarget.agentPid, firstTarget.startedAtMs),
+    message,
+  );
   await first.waitForInput(message);
   await delay(100);
   assert.equal(
@@ -426,7 +446,9 @@ test('real tmux treats two agents in one session as independent pane targets', {
     'an exact-pane send must not leak to a sibling pane',
   );
 
-  await killTmuxPane(firstTarget.tmux);
+  await killTmuxPane(
+    externalActionTarget(firstTarget.tmux, firstTarget.agentPid, firstTarget.startedAtMs),
+  );
   assert.equal(await harness.hasSession('e2e-multipane'), true, 'killing one pane must preserve the tmux session');
   const survivors = (await harness.discoverFromFreshProcess())
     .filter((session) => session.tmuxName === 'e2e-multipane');
@@ -434,7 +456,7 @@ test('real tmux treats two agents in one session as independent pane targets', {
 });
 
 test('real tmux rejects stale generation input and termination after same-name recreation', {
-  skip: isWindows && 'Production tmux discovery is supported on Unix hosts.',
+  skip: tmuxE2ESkip,
   timeout: 30_000,
 }, async (t) => {
   const harness = await createTmuxE2EHarness();
@@ -484,7 +506,88 @@ test('real tmux rejects stale generation input and termination after same-name r
   );
 
   const currentMessage = 'current generation input';
-  await assertLineageTmuxTarget(replacementLive.tmux, replacementLive.process);
-  await sendToTmuxPane(replacementLive.tmux, currentMessage);
+  const replacementTarget = await assertLineageTmuxTarget(
+    replacementLive.tmux,
+    replacementLive.process,
+  );
+  await sendToTmuxPane(replacementTarget, currentMessage);
   await replacementAgent.waitForInput(currentMessage);
+});
+test('real tmux rejects stale process generations after respawning the same pane', {
+  skip: tmuxE2ESkip,
+  timeout: 30_000,
+  concurrency: false,
+}, async (t) => {
+  const harness = await createTmuxE2EHarness();
+  t.after(() => harness.dispose());
+
+  const sessionName = 'e2e-same-pane-respawn';
+  const originalAgent = await harness.startFakeCodex(sessionName);
+  await originalAgent.waitUntilReady();
+  const originalTarget = (await harness.discoverFromFreshProcess())
+    .find((session) => session.tmuxName === sessionName);
+  assert.ok(originalTarget);
+
+  const replacementAgent = await harness.respawnFakeCodexPane(
+    sessionName,
+    originalTarget.tmux.paneId,
+  );
+  await replacementAgent.waitUntilReady();
+  const replacementTarget = (await harness.discoverFromFreshProcess())
+    .find((session) => session.tmuxName === sessionName);
+  assert.ok(replacementTarget);
+  const replacementPid = replacementTarget.agentPid;
+  assert.ok(typeof replacementPid === 'number');
+  assert.equal(replacementTarget.tmux.paneId, originalTarget.tmux.paneId);
+  assert.notEqual(replacementPid, originalTarget.agentPid);
+
+  const staleProcess = {
+    pid: originalTarget.agentPid,
+    startedAtMs: originalTarget.startedAtMs,
+  };
+  const staleMessage = 'stale same-pane generation input';
+  const beforeStaleSend = await harness.capturePane(replacementTarget.tmux.paneId);
+  await assert.rejects(
+    async () => {
+      const staleTarget = await assertFreshExternalTmuxTarget(originalTarget.tmux, staleProcess);
+      await sendToTmuxPane(staleTarget, staleMessage);
+    },
+    isGenerationMismatch,
+  );
+  assert.equal(
+    await harness.capturePane(replacementTarget.tmux.paneId),
+    beforeStaleSend,
+    'rejecting a stale send must leave pane bytes unchanged',
+  );
+
+  const beforeStaleKill = await harness.capturePane(replacementTarget.tmux.paneId);
+  await assert.rejects(
+    async () => {
+      const staleTarget = await assertFreshExternalTmuxTarget(originalTarget.tmux, staleProcess);
+      await killTmuxPane(staleTarget);
+    },
+    isGenerationMismatch,
+  );
+  assert.equal(
+    await harness.capturePane(replacementTarget.tmux.paneId),
+    beforeStaleKill,
+    'rejecting a stale termination must leave pane bytes unchanged',
+  );
+  assert.equal(
+    (await replacementAgent.events()).some((event) => event.type === 'input'),
+    false,
+    'stale send authorization must not write to the replacement pane',
+  );
+  assert.doesNotThrow(() => process.kill(replacementPid, 0));
+  assert.equal(await harness.hasSession(sessionName), true, 'the replacement session must survive stale actions');
+
+  const currentTarget = await assertFreshExternalTmuxTarget(
+    replacementTarget.tmux,
+    { pid: replacementTarget.agentPid, startedAtMs: replacementTarget.startedAtMs },
+  );
+  const message = 'same pane replacement accepts current generation input';
+  await sendToTmuxPane(currentTarget, message);
+  await replacementAgent.waitForInput(message);
+  await killTmuxPane(currentTarget);
+  assert.equal(await harness.hasSession(sessionName), false, 'current generation termination must succeed');
 });

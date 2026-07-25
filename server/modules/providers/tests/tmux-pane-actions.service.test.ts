@@ -13,6 +13,7 @@ import {
 } from '@/modules/providers/services/tmux-pane-actions.service.js';
 import type { TmuxRunner } from '@/modules/providers/services/builtin-relay.service.js';
 import { AppError } from '@/shared/utils.js';
+import { createVerifiedTmuxActionTarget } from '@/modules/providers/services/tmux-fresh-verifier.service.js';
 
 const identity = {
   socketPath: '/tmp/chatmux-test.sock',
@@ -20,6 +21,12 @@ const identity = {
   windowId: '@8',
   paneId: '%9',
 };
+const target = createVerifiedTmuxActionTarget(
+  identity,
+  { pid: 42, startedAtMs: 1234 },
+  'codex',
+  'test',
+);
 
 function recordingRunner(outputs: string[] = []) {
   const calls: Array<{ args: string[]; stdin?: string }> = [];
@@ -60,7 +67,7 @@ test('pane identity validation checks all four tmux coordinates', async () => {
 
 test('pane capture preserves ANSI styles and the pane grid width', async () => {
   const { calls, run } = recordingRunner(['\u001b[31merror\u001b[0m']);
-  const output = await captureTmuxPane(identity, run);
+  const output = await captureTmuxPane(target, run);
 
   assert.equal(output, '\u001b[31merror\u001b[0m');
   assert.deepEqual(calls[0]?.args, [
@@ -70,26 +77,39 @@ test('pane capture preserves ANSI styles and the pane grid width', async () => {
 });
 
 test('send targets one pane and preserves literal input', async () => {
-  const { calls, run } = recordingRunner();
+  const { calls, run } = recordingRunner(['$7\t@8\t%9\n']);
   const message = "alpha only; $(not-a-shell) 'literal'";
-  await sendToTmuxPane(identity, message, run);
+  await sendToTmuxPane(target, message, run);
 
-  assert.deepEqual(calls[0]?.args.slice(0, 4), ['-S', identity.socketPath, 'load-buffer', '-b']);
-  assert.equal(calls[0]?.stdin, message);
-  const bufferName = calls[0]?.args[4];
-  assert.deepEqual(calls[1]?.args, [
+  assert.deepEqual(calls[0]?.args, [
+    '-S', identity.socketPath,
+    'display-message', '-p', '-t', identity.paneId,
+    '#{session_id}\t#{window_id}\t#{pane_id}',
+  ]);
+  assert.deepEqual(calls[1]?.args.slice(0, 4), ['-S', identity.socketPath, 'load-buffer', '-b']);
+  assert.equal(calls[1]?.stdin, message);
+  const bufferName = calls[1]?.args[4];
+  assert.deepEqual(calls[2]?.args, [
     '-S', identity.socketPath,
     'paste-buffer', '-d', '-p', '-b', bufferName!, '-t', identity.paneId,
   ]);
-  assert.deepEqual(calls[2]?.args, [
+  assert.deepEqual(calls[3]?.args, [
     '-S', identity.socketPath,
     'send-keys', '-t', identity.paneId, 'Enter',
   ]);
 });
+test('send refuses a stale pane before staging bytes in a tmux buffer', async () => {
+  const { calls, run } = recordingRunner(['$7\t@8\t%999\n']);
+  await assert.rejects(
+    sendToTmuxPane(target, 'must not reach pane', run),
+    (error) => error instanceof AppError && error.code === 'TMUX_PANE_GENERATION_MISMATCH',
+  );
+  assert.equal(calls.some(({ args }) => args.includes('load-buffer')), false);
+});
 
 test('default process stop respawns a shell in the same pane', async () => {
   const { calls, run } = recordingRunner(['$7\t@8\t%9\t/workspace/project\n']);
-  await stopAgentProcessInPane(identity, run, '/bin/bash');
+  await stopAgentProcessInPane(target, run, '/bin/bash');
   assert.deepEqual(calls[0]?.args, [
     '-S', identity.socketPath,
     'display-message', '-p', '-t', identity.paneId,
@@ -109,13 +129,13 @@ test('default process stop respawns a shell in the same pane', async () => {
 
 test('pane and session termination use distinct immutable ids', async () => {
   const pane = recordingRunner();
-  await killTmuxPane(identity, pane.run);
+  await killTmuxPane(target, pane.run);
   assert.deepEqual(pane.calls[0]?.args, [
     '-S', identity.socketPath, 'kill-pane', '-t', identity.paneId,
   ]);
 
   const session = recordingRunner();
-  await killTmuxSession(identity, session.run);
+  await killTmuxSession(target, session.run);
   assert.deepEqual(session.calls[0]?.args, [
     '-S', identity.socketPath, 'kill-session', '-t', identity.sessionId,
   ]);

@@ -1100,6 +1100,7 @@ async function discoverExternalCliSessions(
 export type ExternalCliSessionDiscovery = {
   getExternalCliSessionsDetailed(): Promise<ExternalCliSessionsDetailedResult>;
   getExternalCliSessions(): Promise<ExternalCliSession[]>;
+  getExternalCliSessionsFresh(): Promise<ExternalCliSession[]>;
 };
 
 export type ExternalCliSessionDiscoveryOptions = {
@@ -1152,6 +1153,9 @@ export function createExternalCliSessionDiscovery(
     async getExternalCliSessions() {
       return (await getExternalCliSessionsDetailed()).sessions;
     },
+    async getExternalCliSessionsFresh() {
+      return (await discover(retryBackoff)).sessions;
+    },
   };
 }
 
@@ -1165,4 +1169,9 @@ export function getExternalCliSessionsDetailed(): Promise<ExternalCliSessionsDet
 /** Compatible session-only wrapper for existing callers. */
 export function getExternalCliSessions(): Promise<ExternalCliSession[]> {
   return defaultExternalCliSessionDiscovery.getExternalCliSessions();
+}
+
+/** Bypasses the display cache for request-time control authorization. */
+export function getExternalCliSessionsFresh(): Promise<ExternalCliSession[]> {
+  return defaultExternalCliSessionDiscovery.getExternalCliSessionsFresh();
 }

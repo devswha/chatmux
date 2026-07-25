@@ -9,9 +9,11 @@ import type {
   TmuxProcessGeneration,
 } from '../../../../shared/tmux.js';
 
-import { sameTmuxPaneIdentity } from './tmux-pane-actions.service.js';
+import { assertTmuxPaneIdentity, sameTmuxPaneIdentity } from './tmux-pane-actions.service.js';
+import { createVerifiedTmuxActionTarget, type VerifiedTmuxActionTarget } from './tmux-fresh-verifier.service.js';
 
 type LiveSessionLoader = () => Promise<LiveGjcSession[]>;
+type PaneIdentityAssert = (tmux: TmuxPaneIdentity) => Promise<void>;
 
 /**
  * Server-side lineage gate for injective and destructive pane actions.
@@ -22,7 +24,8 @@ export async function assertLineageTmuxTarget(
   identity: TmuxPaneIdentity,
   process: TmuxProcessGeneration,
   loadLiveSessions: LiveSessionLoader = getLiveGjcSessions,
-): Promise<LiveGjcSession> {
+  assertPaneIdentity: PaneIdentityAssert = assertTmuxPaneIdentity,
+): Promise<VerifiedTmuxActionTarget> {
   const live = await loadLiveSessions();
   const matches = live.filter(
     (session) => (
@@ -47,5 +50,13 @@ export async function assertLineageTmuxTarget(
       { code: 'TMUX_PROCESS_GENERATION_MISMATCH', statusCode: 409 },
     );
   }
-  return exact;
+  // The lineage snapshot alone cannot prove the pane still holds these exact
+  // coordinates, so re-read them from tmux before minting a verified target.
+  await assertPaneIdentity(identity);
+  return createVerifiedTmuxActionTarget(
+    identity,
+    process,
+    'gjc',
+    exact.tmuxName,
+  );
 }
