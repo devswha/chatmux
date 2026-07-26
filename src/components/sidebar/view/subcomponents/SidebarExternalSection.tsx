@@ -78,7 +78,7 @@ type SidebarExternalSectionProps = {
   sessions: ExternalCliSession[];
   projects: Project[];
   /** Opens a structured transcript when available, otherwise a full terminal. */
-  onOpen: (target: ExternalTerminalTarget) => void;
+  onOpen: (target: ExternalTerminalTarget, options?: { forceAttach?: boolean }) => void;
   onChanged: () => void;
 };
 
@@ -117,6 +117,33 @@ export default function SidebarExternalSection({ sessions, projects, onOpen, onC
       transcriptEnded: session.transcriptEnded,
       attachCapability: session.attachCapability,
     });
+  };
+  // B8: the asking_user badge is a dedicated entry point that always attaches
+  // the terminal for this exact pane 4-tuple, bypassing the structured
+  // transcript even when one is already indexed — the approval prompt only
+  // exists in the live TUI.
+  const attachToApproval = (session: ExternalCliSession) => {
+    if (session.process === null) return;
+    const sessionProject = resolveExternalSessionProject(session, projects);
+    if (!sessionProject) return;
+    // A prior row click may have armed the promotion effect for this pane. Once
+    // the pane indexes, that effect would reopen it as a transcript and pull the
+    // user off the attach they just asked for, so disarm it here.
+    pendingTranscriptRef.current = null;
+    onOpen({
+      tmuxName: session.tmuxName,
+      tmux: session.tmux,
+      process: session.process,
+      kind: KIND_LABEL[session.kind],
+      cliKind: session.kind,
+      project: sessionProject,
+      transcriptSessionId: session.transcriptSessionId,
+      sessionName: session.sessionName,
+      model: session.model,
+      effort: session.effort,
+      transcriptEnded: session.transcriptEnded,
+      attachCapability: session.attachCapability,
+    }, { forceAttach: true });
   };
 
   useEffect(() => {
@@ -180,6 +207,7 @@ export default function SidebarExternalSection({ sessions, projects, onOpen, onC
         const key = tmuxPaneIdentityKey(session.tmux);
         const canKill = !isAttachOnlyKind(session.kind) && session.process !== null;
         const activityBadgeForSession = canKill ? activityBadge(t, session.activity ?? 'unknown') : null;
+        const isApprovalPending = canKill && session.activity === 'asking_user';
         const sessionName = session.sessionName?.trim();
         const primary = session.tmuxName;
         const metadata = [
@@ -191,6 +219,23 @@ export default function SidebarExternalSection({ sessions, projects, onOpen, onC
         return (
           <Fragment key={key}>
             <div className="flex items-start rounded-md transition-colors hover:bg-muted/50">
+              {isApprovalPending && (
+                <button
+                  type="button"
+                  onClick={() => attachToApproval(session)}
+                  title={t('externalSessions.activity.approvalPendingAttach', { name: session.tmuxName })}
+                  aria-label={t('externalSessions.activity.approvalPendingAttach', { name: session.tmuxName })}
+                  className="ml-2 mt-1.5 flex shrink-0 items-center gap-1.5 self-start rounded px-1 py-0.5 hover:bg-amber-500/10"
+                >
+                  <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${activityBadgeForSession!.dotClassName}`} aria-hidden />
+                  <span
+                    className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${activityBadgeForSession!.className}`}
+                    title={activityBadgeForSession!.title}
+                  >
+                    {activityBadgeForSession!.label}
+                  </span>
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => openSession(session)}
@@ -210,7 +255,7 @@ export default function SidebarExternalSection({ sessions, projects, onOpen, onC
                 )}
                 <span className="flex min-w-0 flex-1 flex-col">
                   <span className="flex items-center gap-2">
-                    {activityBadgeForSession && (
+                    {activityBadgeForSession && !isApprovalPending && (
                       <>
                         <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${activityBadgeForSession.dotClassName}`} aria-hidden />
                         <span

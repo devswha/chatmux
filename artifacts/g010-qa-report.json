@@ -1,0 +1,73 @@
+{
+  "kind": "package-consumer-report",
+  "surface": "package",
+  "cases": [
+    {
+      "id": "1",
+      "scenario": "B8 라우팅 종단: 배지 클릭이 indexed/fresh 두 경우 모두 terminal attach로 가는지 순수 함수 경로로 추적",
+      "expected": "resolveExternalTerminalRoute/shouldShowPendingRelay/buildExternalAttachTarget 체인이 forceAttach=true일 때 indexed(transcriptSessionId 有)와 fresh(process 有, transcript 無) 모두 terminal로 라우팅",
+      "verdict": "pass",
+      "evidence": "AppContent.test.ts:53-68 'B8: forceAttach always routes an indexed local-agent pane to terminal, not transcript' (indexed+forceAttach→'terminal', forceAttach:undefined→'transcript'); MainContent.test.ts 87-99 'forceAttach skips the pending relay surface for a local-agent pane with an observable process' (fresh case, shouldShowPendingRelay(withoutForce)=true vs {...,forceAttach:true}=false); MainContent.test.ts 101-118 buildExternalAttachTarget resolves the exact 4-tuple local-agent target. node --test run: 35/35 pass."
+    },
+    {
+      "id": "2",
+      "scenario": "틀린 pane 방지: attach 대상이 배지가 가리키는 것과 정확히 같은 4-튜플이며 tmux 이름만 같은 다른 pane으로 새지 않음",
+      "expected": "동일 tmuxName, 다른 paneId를 가진 두 pane이 서로 다른 attach target(4-tuple)을 만들고 절대 혼동되지 않음",
+      "verdict": "pass",
+      "evidence": "AppContent.test.ts:70-92 'B8: attach routing is keyed on the exact pane 4-tuple, not the tmux name alone' — badgePane(paneId %9)와 otherPaneSameName(paneId %99, 동일 tmuxName) 모두 'terminal'로 라우팅되지만 assert.notDeepEqual(badgePane.tmux, otherPaneSameName.tmux)로 tmux 4-tuple이 다름을 확인; MainContent.test.ts:101-118 buildExternalAttachTarget(otherPane) !== attachTarget (notDeepEqual on .tmux). SidebarExternalSection.test.tsx:191-209 AC1/AC2 — attachToApproval 핸들러가 session.tmux/session.process를 그대로 전달하고 sessions[...] 인덱스 참조를 사용하지 않음(assert.doesNotMatch(/tmux:\\s*sessions\\[/))을 소스 정규식으로 검증."
+    },
+    {
+      "id": "3",
+      "scenario": "AC3: attachCapability 부재 행은 attach를 시도하지 않고 기존 안내를 표시",
+      "expected": "ssh/shell 행이 attachCapability 없으면 forceAttach 여부와 무관하게 buildExternalAttachTarget이 null을 반환(attach-only 안내 유지)",
+      "verdict": "pass",
+      "evidence": "MainContent.test.ts:120-136 'M5b B8 AC3: a ssh/shell row without an issued attachCapability never attaches, regardless of forceAttach' — buildExternalAttachTarget(sshTarget)===null, buildExternalAttachTarget({...sshTarget, forceAttach:true})===null; attachCapability:'token-123' 부여 시에만 targetClass:'attach-only' 반환. 3회 연속 실행 모두 통과."
+    },
+    {
+      "id": "4",
+      "scenario": "forceAttach 보존: 승격 폴과 사이드바 pendingTranscriptRef 중 어느 것도 강제 attach를 transcript로 되돌리지 못함",
+      "expected": "refreshExternalTerminalAttachCapability(캡ability 승격 폴)은 spread로 target 전체를 복사해 forceAttach를 그대로 유지; attachToApproval 핸들러는 pendingTranscriptRef.current를 즉시 null로 해제해 이후 promotion effect가 강제 attach를 transcript로 되돌리지 않음",
+      "verdict": "pass",
+      "evidence": "AppContent.tsx:44-63 refreshExternalTerminalAttachCapability는 `return { ...target, attachCapability: ... }`로 forceAttach 필드를 보존(공백/삭제 없음); SidebarExternalSection.test.tsx:191-212 AC1/AC2 — attachToApproval 핸들러 소스에서 `pendingTranscriptRef.current = null` 패턴을 강제(assert.match), 이는 이전 행 클릭이 무장한 promotion effect(line 149-161, useEffect가 pendingTranscriptRef.current를 읽어 transcript로 되돌리는 로직)를 배지 클릭이 즉시 해제함을 의미. AppContent.tsx openExternalTerminal(line 145-174)도 forceAttach 옵션을 routed 객체에 병합한 뒤 resolveExternalTerminalRoute(routed)로만 분기하므로 승격 폴 결과와 무관하게 terminal 유지."
+    },
+    {
+      "id": "5",
+      "scenario": "기존 동작 무회귀: forceAttach 없는 일반 행 열기(indexed→transcript, fresh→pending relay)가 그대로",
+      "expected": "forceAttach 미지정 시 indexed local-agent는 transcript로, fresh(process 有, transcript 無)는 pending relay 화면으로 유지",
+      "verdict": "pass",
+      "evidence": "AppContent.test.ts:67 forceAttach:undefined인 indexedLocalAgent가 'transcript'로 라우팅됨을 명시적으로 확인; MainContent.test.ts:87-98 forceAttach 없는 withoutForce에서 shouldShowPendingRelay=true; SidebarExternalSection.test.tsx:130-139 'opens a fresh local agent in the pending conversation surface' 3회 연속 통과."
+    },
+    {
+      "id": "6",
+      "scenario": "B10 경로 거부: traversal·상대경로·workspace 밖·형제 접두사(/ws-evil이 /ws를 통과시키는지) 모두 거부",
+      "expected": "isRelayImagePathAllowed가 asset-store 마커 또는 workspace 정확 포함관계(경계 슬래시 포함)만 허용하고 나머지는 모두 false",
+      "verdict": "pass",
+      "evidence": "LiveRelayComposer.test.tsx:153-168 B10 테스트 — asset store 경로 2건 true, workspace 내부 경로 2건 true; '/etc/passwd'(workspace 안/밖 모두) false; '/workspace/project-evil/photo.png'(형제 접두사, workspace='/workspace/project') false — liveRelayComposer.ts:66 `normalized === normalizedWorkspace || normalized.startsWith(`${normalizedWorkspace}/`)`로 경계 슬래시를 강제해 naive startsWith 우회를 차단; traversal('..') false(line 56 `.includes('..')` 체크); 상대경로('relative/photo.png') false(line 56 `!normalized.startsWith('/')`). 3회 연속 실행 모두 통과."
+    },
+    {
+      "id": "7",
+      "scenario": "B10 신규 경로 0건: 업로드 엔드포인트·전송 경로·폴링이 추가되지 않았음을 git diff와 소스로 확인",
+      "expected": "server/ 트리에 변경 없음; src/utils/api.js의 uploadImageAssets가 기존 /api/assets/images 재사용; 신규 폴링/전송 엔드포인트 없음",
+      "verdict": "pass",
+      "evidence": "`git diff --stat -- server/` 결과 빈 문자열(서버 변경 0건); `git diff -- src/utils/api.js`에서 uploadImageAssets가 기존 POST /api/assets/images(FormData)를 호출(주석: 'the only upload path the live relay composer uses (B10: no bespoke upload endpoint)'); LiveRelayComposer.test.tsx:232-235에서 handleImageUpload가 isRelayImagePathAllowed 가드를 통과한 경우에만 insertPlainPath(평문 경로 삽입)를 호출하고 별도 전송/폴링 API 호출 없음을 정규식으로 검증."
+    },
+    {
+      "id": "8",
+      "scenario": "i18n: 추가된 4키가 10 locale 전부에 존재하고 렌더 지점에서 소비됨(죽은 키 0)",
+      "expected": "relay.imageUploading, relay.imageUploadFailed, relay.imagePathRejected(chat.json), externalSessions.activity.approvalPendingAttach(sidebar.json)가 de/en/fr/it/ja/ko/ru/tr/zh-CN/zh-TW 10개 로케일 전부에 존재하고 컴포넌트에서 t()로 실제 소비됨",
+      "verdict": "pass",
+      "evidence": "10개 로케일 chat.json/sidebar.json을 JSON 파싱해 키 경로 전수 조회한 결과 4키 모두 10/10 로케일에 존재; 소비 지점: LiveRelayComposer.tsx:374,386,389,564에서 t('relay.imageUploadFailed'|'relay.imagePathRejected'|'relay.imageUploading') 호출, SidebarExternalSection.tsx:226-227에서 t('externalSessions.activity.approvalPendingAttach', {name}) 호출(title/aria-label 양쪽). LiveRelayComposer.test.tsx:141-147 relay 키 목록 스냅샷 검증, SidebarNewSession.test.tsx:60 activity.approvalPendingAttach 키 존재 검증으로 로케일 완전성도 테스트에 고정됨."
+    },
+    {
+      "id": "9",
+      "scenario": "안정성: 관련 테스트(SidebarExternalSection, SidebarNewSession, AppContent, MainContent, LiveRelayComposer)를 3회 연속 실행해 flaky 0",
+      "expected": "5개 테스트 파일을 3회 연속 실행했을 때 매회 동일하게 전부 통과, flaky 0건",
+      "verdict": "pass",
+      "evidence": "TSX_TSCONFIG_PATH=tsconfig.json node --import tsx --test SidebarExternalSection.test.tsx SidebarNewSession.test.tsx AppContent.test.ts MainContent.test.ts LiveRelayComposer.test.tsx 를 3회 연속 실행: RUN1 tests=35 pass=35 fail=0, RUN2 tests=35 pass=35 fail=0, RUN3 tests=35 pass=35 fail=0. 세 실행 결과 완전히 동일(테스트명·통과여부 일치), flaky 0건."
+    }
+  ],
+  "summary": {
+    "passed": 9,
+    "failed": 0
+  }
+}

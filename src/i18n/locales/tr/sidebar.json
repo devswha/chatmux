@@ -171,6 +171,7 @@
       "waitingUserTitle": "Geçerli tur tamamlandı ve sonraki girdinizi bekliyor",
       "approvalPending": "Onay bekliyor",
       "approvalPendingTitle": "Aracı seçiminizi veya onayınızı bekliyor",
+      "approvalPendingAttach": "Bekleyen onayı yanıtlamak için '{{name}}' oturumuna bağlan",
       "unknown": "Kullanılamıyor",
       "unknownTitle": "Geçerli durum sağlayıcı kayıtlarından güvenle belirlenemiyor"
     }

@@ -222,6 +222,9 @@
     "interrupt": "Unterbrechen",
     "interrupting": "Unterbrechung wird gesendet…",
     "interruptSent": "Unterbrechung gesendet",
-    "interruptFailed": "Unterbrechen fehlgeschlagen"
+    "interruptFailed": "Unterbrechen fehlgeschlagen",
+    "imageUploading": "Bild wird hochgeladen…",
+    "imageUploadFailed": "Bild-Upload fehlgeschlagen",
+    "imagePathRejected": "Bildpfad außerhalb des Projekt- oder Home-Verzeichnisses abgelehnt"
   }
 }

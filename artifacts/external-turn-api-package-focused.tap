@@ -1,0 +1,139 @@
+TAP version 13
+# Subtest: external monitor emits once per armed running-to-waiting transition without startup replay
+ok 1 - external monitor emits once per armed running-to-waiting transition without startup replay
+  ---
+  duration_ms: 1.730025
+  type: 'test'
+  ...
+# Subtest: late provider-session binding rebaselines once, persists through omissions, and fails closed on conflict
+ok 2 - late provider-session binding rebaselines once, persists through omissions, and fails closed on conflict
+  ---
+  duration_ms: 0.379358
+  type: 'test'
+  ...
+# Subtest: unavailable evidence preserves arms; asking, unknown, and ended transcripts disarm; successful absence prunes
+ok 3 - unavailable evidence preserves arms; asking, unknown, and ended transcripts disarm; successful absence prunes
+  ---
+  duration_ms: 0.594736
+  type: 'test'
+  ...
+# Subtest: external monitor diagnostics are safe, monotonic, and cover state transitions
+ok 4 - external monitor diagnostics are safe, monotonic, and cover state transitions
+  ---
+  duration_ms: 1.026864
+  type: 'test'
+  ...
+# Subtest: external monitor excludes unsupported and incomplete process generations
+ok 5 - external monitor excludes unsupported and incomplete process generations
+  ---
+  duration_ms: 0.182675
+  type: 'test'
+  ...
+# Subtest: incomplete process metadata preserves an existing pane generation
+ok 6 - incomplete process metadata preserves an existing pane generation
+  ---
+  duration_ms: 0.269099
+  type: 'test'
+  ...
+# Subtest: external monitor never overlaps slow discovery ticks
+ok 7 - external monitor never overlaps slow discovery ticks
+  ---
+  duration_ms: 0.226198
+  type: 'test'
+  ...
+# Subtest: Oh My Pi activity follows the final turn-relevant JSONL message
+ok 8 - Oh My Pi activity follows the final turn-relevant JSONL message
+  ---
+  duration_ms: 1.634454
+  type: 'test'
+  ...
+# Subtest: Oh My Pi recognizes a native user question inside a tool-use turn
+ok 9 - Oh My Pi recognizes a native user question inside a tool-use turn
+  ---
+  duration_ms: 0.23237
+  type: 'test'
+  ...
+# Subtest: Oh My Pi transcript-ended matches only a trailing session_exit record
+ok 10 - Oh My Pi transcript-ended matches only a trailing session_exit record
+  ---
+  duration_ms: 0.161696
+  type: 'test'
+  ...
+# Subtest: Claude activity distinguishes tool execution, questions, and completed turns
+ok 11 - Claude activity distinguishes tool execution, questions, and completed turns
+  ---
+  duration_ms: 0.261715
+  type: 'test'
+  ...
+# Subtest: Codex activity uses explicit task lifecycle events and request_user_input
+ok 12 - Codex activity uses explicit task lifecycle events and request_user_input
+  ---
+  duration_ms: 0.237049
+  type: 'test'
+  ...
+# Subtest: Cursor activity fails closed and treats unfinished tools as running
+ok 13 - Cursor activity fails closed and treats unfinished tools as running
+  ---
+  duration_ms: 0.261085
+  type: 'test'
+  ...
+# Subtest: OpenCode activity uses assistant completion and pending question parts
+ok 14 - OpenCode activity uses assistant completion and pending question parts
+  ---
+  duration_ms: 0.19579
+  type: 'test'
+  ...
+# Subtest: all external provider parsers classify running, waiting, asking, and unknown evidence
+ok 15 - all external provider parsers classify running, waiting, asking, and unknown evidence
+  ---
+  duration_ms: 0.313353
+  type: 'test'
+  ...
+# Subtest: resolver returns app metadata for readable evidence and fails closed for unavailable sources
+ok 16 - resolver returns app metadata for readable evidence and fails closed for unavailable sources
+  ---
+  duration_ms: 1.234617
+  type: 'test'
+  ...
+# Subtest: file caches invalidate same-size rewrites with preserved mtime
+ok 17 - file caches invalidate same-size rewrites with preserved mtime
+  ---
+  duration_ms: 8.728364
+  type: 'test'
+  ...
+# Database schema applied
+# Database migrations completed successfully
+# Database connection closed
+# Subtest: push payload uses the app session id when notified with a provider session id
+ok 18 - push payload uses the app session id when notified with a provider session id
+  ---
+  duration_ms: 292.196338
+  type: 'test'
+  ...
+# Database schema applied
+# Database migrations completed successfully
+# Database connection closed
+# Subtest: live turn notifications dedupe one completion but allow the next ordinal
+ok 19 - live turn notifications dedupe one completion but allow the next ordinal
+  ---
+  duration_ms: 253.007389
+  type: 'test'
+  ...
+# Database schema applied
+# Database migrations completed successfully
+# Database connection closed
+# Subtest: liveStop preference disables external completion push
+ok 20 - liveStop preference disables external completion push
+  ---
+  duration_ms: 256.862818
+  type: 'test'
+  ...
+1..20
+# tests 20
+# suites 0
+# pass 20
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 993.144125

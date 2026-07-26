@@ -57,6 +57,7 @@ const externalSessionRequiredKeys = [
   'activity.waitingUser',
   'activity.waitingUserTitle',
   'activity.approvalPending',
+  'activity.approvalPendingAttach',
   'activity.approvalPendingTitle',
   'activity.unknown',
   'activity.unknownTitle',

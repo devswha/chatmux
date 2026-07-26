@@ -1,0 +1,77 @@
+{
+  "goal": "G005(M3a) post-fix frozen-set QA",
+  "status": "passed",
+  "redTeamStatus": "passed",
+  "cases": [
+    {
+      "id": 1,
+      "name": "No polling and no file request at mount",
+      "verdict": "passed",
+      "evidence": "LiveRelayComposer.test.tsx asserts api.projects/api.getFiles call count is 0 without an active @ token; mention fetch effect guards on workspacePath and mentionQuery and has no interval."
+    },
+    {
+      "id": 2,
+      "name": "Mention debounce resets per typed character and settles to one file lookup",
+      "verdict": "passed",
+      "evidence": "Effect dependency is [workspacePath, mentionQuery], cleanup clears its 200ms timer, and in-flight/loaded refs prevent duplicate requests after the settled trigger. Focused composer suite passed 3/3."
+    },
+    {
+      "id": 3,
+      "name": "Failed mention lookup permits reopen retry without automatic retry loop",
+      "verdict": "passed",
+      "evidence": "fileWorkspaceRequestRef is cleared in finally while loadedFileWorkspaceRef is set only after a successful tree response; unchanged mention state creates no retrying effect."
+    },
+    {
+      "id": 4,
+      "name": "Mention insertion uses plain relative paths and preserves special filename text",
+      "verdict": "passed",
+      "evidence": "flattenProjectFileTree retains relative segments verbatim and insertFile writes file.path directly; no quoting, shell interpolation, or absolute-path conversion is used."
+    },
+    {
+      "id": 5,
+      "name": "/, $, and @ menus are mutually exclusive with non-conflicting keys",
+      "verdict": "passed",
+      "evidence": "syncFileMenu closes command menu when file results exist, syncCommandMenu closes file menu, and keydown handles only the currently open menu before send."
+    },
+    {
+      "id": 6,
+      "name": "Provider command catalog roots, containment, cap, Codex convention, and skills merge",
+      "verdict": "passed",
+      "evidence": "skills.test.ts fixture coverage passed: claude/codex/cursor/opencode/omp roots, escaping symlink rejection, missing workspace rejection, 500 cap, /prompts:<name>, existing-skill retention, and first-occurrence dedupe."
+    },
+    {
+      "id": 7,
+      "name": "No unsupported added path constants",
+      "verdict": "passed",
+      "evidence": "provider-commands.service.ts contains 8 command roots and 8 adjacent evidence comments; documented external URLs cover Claude, Codex, Cursor, and OpenCode, while OMP cites the existing route containment implementation."
+    },
+    {
+      "id": 8,
+      "name": "No dead added i18n keys and all 10 locales present",
+      "verdict": "passed",
+      "evidence": "SidebarNewSession locale tests passed for de/en/fr/it/ja/ko/ru/tr/zh-CN/zh-TW; SidebarExternalSection consumes every added externalSessions key."
+    },
+    {
+      "id": 9,
+      "name": "Capabilities flags unchanged from f6cd216",
+      "verdict": "passed",
+      "evidence": "git diff check found no added capability-flag assignment; provider-contract-documentation test passed expected GJC/OMP capability values."
+    },
+    {
+      "id": 10,
+      "name": "Focused related suites are stable across three consecutive runs",
+      "verdict": "passed",
+      "evidence": "Three consecutive runs passed: LiveRelayComposer plus sidebar suites (21 tests/run) and live-commands, skills, provider-contract-documentation suites (15 tests/run); 0 failures/flakes."
+    }
+  ],
+  "verification": {
+    "typecheck": [
+      "npx tsc --noEmit -p tsconfig.json",
+      "npx tsc --noEmit -p server/tsconfig.json"
+    ],
+    "focusedTestCommand": "TSX_TSCONFIG_PATH=tsconfig.json node --import tsx --test src/components/chat/view/subcomponents/LiveRelayComposer.test.tsx src/components/sidebar/view/subcomponents/SidebarExternalSection.test.tsx src/components/sidebar/view/subcomponents/SidebarNewSession.test.tsx src/components/sidebar/view/subcomponents/SidebarLiveSection.test.tsx && TSX_TSCONFIG_PATH=server/tsconfig.json node --import tsx --test server/modules/providers/tests/live-commands.service.test.ts server/modules/providers/tests/skills.test.ts server/modules/providers/tests/provider-contract-documentation.test.ts",
+    "runs": 3,
+    "result": "108 passing tests total; 0 failures"
+  },
+  "blockers": []
+}

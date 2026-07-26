@@ -98,9 +98,17 @@ test('shell consumers retain their command props and no client tmux command buil
 test('external terminal targets do not attach without a server-issued capability', () => {
   const mainContent = readFileSync(new URL('../main-content/view/MainContent.tsx', import.meta.url), 'utf8');
 
-  assert.match(mainContent, /const isAttachOnly = externalTerminal\.cliKind === 'ssh'/);
-  assert.match(mainContent, /targetClass: 'attach-only' as const/);
-  assert.match(mainContent, /capability: attachCapability/);
+  // The builder is the only path to an attach target, so lock its contract
+  // rather than its spelling: attach-only rows must carry a server-issued
+  // capability, and the absence of one must yield no target at all.
+  const builder = mainContent.slice(
+    mainContent.indexOf('function buildExternalAttachTarget'),
+    mainContent.indexOf('\n}', mainContent.indexOf('function buildExternalAttachTarget')),
+  );
+  assert.match(builder, /const isAttachOnly = externalTerminal\.cliKind === 'ssh'/);
+  assert.match(builder, /typeof attachCapability === 'string' && attachCapability/);
+  assert.match(builder, /targetClass: 'attach-only'[\s\S]*capability: attachCapability/);
+  assert.match(builder, /:\s*null;/);
   assert.match(mainContent, /\{attachTarget \? \(/);
   assert.match(mainContent, /t\('shell\.attachCapabilityUnavailable'\)/);
 });

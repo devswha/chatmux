@@ -171,6 +171,7 @@
       "waitingUserTitle": "当前轮次已完成，正在等待你的下一次输入",
       "approvalPending": "等待批准",
       "approvalPendingTitle": "代理正在等待你的选择或批准",
+      "approvalPendingAttach": "连接到「{{name}}」以回复待处理的批准",
       "unknown": "无法确认",
       "unknownTitle": "无法根据提供商记录安全地确定当前状态"
     }

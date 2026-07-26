@@ -161,7 +161,7 @@ type SidebarContentProps = {
   liveSessionKinds: ReadonlyMap<string, string>;
   liveSessionRunning: ReadonlySet<string>;
   liveSessionsLoaded: boolean;
-  onExternalTerminalOpen: (target: ExternalTerminalTarget) => void;
+  onExternalTerminalOpen: (target: ExternalTerminalTarget, options?: { forceAttach?: boolean }) => void;
   onExternalSessionsChange: (sessions: ExternalCliSession[]) => void;
   t: TFunction;
 };

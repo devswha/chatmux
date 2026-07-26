@@ -1,0 +1,14 @@
+[2J[HChatMux isolated tmux E2E session
+[36m$ TSX_TSCONFIG_PATH=server/tsconfig.json node --import tsx --test --test-name-pattern='real tmux external monitor' server/modules/providers/tests/tmux-runtime.e2e.test.ts[0m
+[33m[tmux][0m created isolated socket and fake Codex process
+[33m[discovery][0m classified real pane with finite fractional Linux startedAtMs
+[32mPASS[0m running baseline emitted 0 notifications
+[32mPASS[0m first waiting emitted 1 notification
+[32mPASS[0m repeated waiting remained at 1 notification
+[32mPASS[0m next running-to-waiting turn emitted ordinal 2
+[32mPASS[0m killed session pruned monitor generations to 0
+[32mPASS[0m same-name restarted process waiting baseline remained at 2
+[32mPASS[0m restarted next turn emitted ordinal 3 with a distinct completion key
+[32m✔ real tmux external monitor notifies once per observed Codex turn and rebaselines restarts[0m
+Tests: 1; Passed: 1; Failed: 0; Skipped: 0
+Exit code: 0

@@ -222,6 +222,9 @@
     "interrupt": "Durdur",
     "interrupting": "Durduruluyor…",
     "interruptSent": "Durdurma gönderildi",
-    "interruptFailed": "Durdurulamadı"
+    "interruptFailed": "Durdurulamadı",
+    "imageUploading": "Görsel yükleniyor…",
+    "imageUploadFailed": "Görsel yüklenemedi",
+    "imagePathRejected": "Proje veya ana dizin dışındaki görsel yolu reddedildi"
   }
 }

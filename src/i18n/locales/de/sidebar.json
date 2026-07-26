@@ -171,6 +171,7 @@
       "waitingUserTitle": "Der aktuelle Zug ist beendet und wartet auf deine nächste Eingabe",
       "approvalPending": "Genehmigung ausstehend",
       "approvalPendingTitle": "Der Agent wartet auf deine Auswahl oder Genehmigung",
+      "approvalPendingAttach": "Mit '{{name}}' verbinden, um die ausstehende Genehmigung zu beantworten",
       "unknown": "Nicht verfügbar",
       "unknownTitle": "Der aktuelle Zustand kann aus Provider-Daten nicht sicher bestimmt werden"
     }

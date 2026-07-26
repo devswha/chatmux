@@ -157,6 +157,7 @@
       "waitingUserTitle": "現在のターンは完了し、次の入力を待っています",
       "approvalPending": "承認待ち",
       "approvalPendingTitle": "エージェントが選択または承認を待っています",
+      "approvalPendingAttach": "'{{name}}' に接続して承認待ちに答える",
       "unknown": "確認不可",
       "unknownTitle": "プロバイダーの記録から現在の状態を安全に判定できません"
     }

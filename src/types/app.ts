@@ -51,6 +51,8 @@ export type ExternalTerminalTarget = {
   transcriptEnded?: boolean;
   /** Opaque server-issued token required for attach-only SSH and shell panes. */
   attachCapability?: string;
+  /** M5b B8: forces terminal attach for this exact pane, bypassing structured transcript routing. */
+  forceAttach?: boolean;
 } | {
   /** A freshly opened GJC pane has no transcript id until its first message. */
   tmuxName: string;
@@ -59,6 +61,8 @@ export type ExternalTerminalTarget = {
   kind: 'GJC';
   cliKind: 'gjc';
   project: Project;
+  /** M5b B8: forces terminal attach for this exact pane, bypassing structured transcript routing. */
+  forceAttach?: boolean;
 };
 
 export interface ProjectSession {

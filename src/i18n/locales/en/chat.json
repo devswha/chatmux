@@ -243,6 +243,9 @@
     "interrupt": "Interrupt",
     "interrupting": "Interrupting…",
     "interruptSent": "Interrupt sent",
-    "interruptFailed": "Unable to interrupt"
+    "interruptFailed": "Unable to interrupt",
+    "imageUploading": "Uploading image…",
+    "imageUploadFailed": "Image upload failed",
+    "imagePathRejected": "Rejected image path outside the project or home directory"
   }
 }

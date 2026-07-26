@@ -62,6 +62,25 @@ export function refreshExternalTerminalAttachCapability(
 
   return { ...target, attachCapability: session.attachCapability };
 }
+export function resolveExternalTerminalRoute(
+  target: ExternalTerminalTarget,
+): 'transcript' | 'terminal' {
+  // B8: a forced attach always wins — it exists specifically so the
+  // asking_user badge can bypass the structured transcript and land the
+  // user on the exact pane's terminal, even once that pane is indexed.
+  if (target.forceAttach) {
+    return 'terminal';
+  }
+  if (
+    target.cliKind !== 'gjc'
+    && target.cliKind !== 'ssh'
+    && target.cliKind !== 'shell'
+    && target.transcriptSessionId
+  ) {
+    return 'transcript';
+  }
+  return 'terminal';
+}
 
 export default function AppContent() {
   return (
@@ -123,23 +142,35 @@ function AppContentInner() {
     setExternalTerminal((current) => refreshExternalTerminalAttachCapability(current, sessions));
   }, []);
 
-  const openExternalTerminal = useCallback((target: ExternalTerminalTarget) => {
-    if (target.cliKind !== 'gjc' && target.cliKind !== 'ssh' && target.cliKind !== 'shell' && target.transcriptSessionId) {
+  const openExternalTerminal = useCallback((
+    target: ExternalTerminalTarget,
+    options?: { forceAttach?: boolean },
+  ) => {
+    // The approval-pending badge asks for the interactive pane rather than the
+    // indexed transcript, so fold its request into the target before routing.
+    const routed: ExternalTerminalTarget = options?.forceAttach ? { ...target, forceAttach: true } : target;
+    if (
+      routed.cliKind !== 'gjc'
+      && routed.cliKind !== 'ssh'
+      && routed.cliKind !== 'shell'
+      && routed.transcriptSessionId
+      && resolveExternalTerminalRoute(routed) === 'transcript'
+    ) {
       setExternalTerminal(null);
-      setExternalTranscript(target);
+      setExternalTranscript(routed);
       setActiveTab('chat');
-      selectExternalProject(target.project);
+      selectExternalProject(routed.project);
       selectExternalSession({
-        id: target.transcriptSessionId,
-        summary: target.sessionName ?? '',
-        __provider: target.cliKind,
-        __projectId: target.project.projectId,
+        id: routed.transcriptSessionId,
+        summary: routed.sessionName ?? '',
+        __provider: routed.cliKind,
+        __projectId: routed.project.projectId,
       });
       setSidebarOpen(false);
       return;
     }
     setExternalTranscript(null);
-    setExternalTerminal(target);
+    setExternalTerminal(routed);
     setSidebarOpen(false);
   }, [selectExternalProject, selectExternalSession, setActiveTab, setSidebarOpen]);
 
@@ -154,6 +185,7 @@ function AppContentInner() {
       || externalTerminal.cliKind === 'ssh'
       || externalTerminal.cliKind === 'shell'
       || externalTerminal.transcriptSessionId
+      || externalTerminal.forceAttach
     ) return undefined;
     let cancelled = false;
     const poll = async () => {

@@ -171,6 +171,7 @@
       "waitingUserTitle": "The current turn is complete and waiting for your next input",
       "approvalPending": "Approval pending",
       "approvalPendingTitle": "The agent is waiting for your selection or approval",
+      "approvalPendingAttach": "Attach to '{{name}}' to answer the pending approval",
       "unknown": "Unavailable",
       "unknownTitle": "The current state cannot be determined safely from provider records"
     }

@@ -1,0 +1,17 @@
+{
+  "kind": "e2e-test-report",
+  "surface": "tmux-runtime",
+  "harness": "server/modules/providers/tests/tmux-runtime.e2e.test.ts (isolated tmux socket, fake agent CLIs)",
+  "command": "TSX_TSCONFIG_PATH=server/tsconfig.json node --import tsx --test server/modules/providers/tests/tmux-runtime.e2e.test.ts",
+  "scenarios": [
+    { "id": "e2e-1", "name": "real tmux promotes one idle GJC row to indexed structured history after first input", "verdict": "passed" },
+    { "id": "e2e-2", "name": "real tmux resolves Bun and npm-shim GJC wrappers to actionable lineage rows", "verdict": "passed" },
+    { "id": "e2e-3", "name": "real tmux preserves pre-existing agents across fresh discovery processes and targets input exactly", "verdict": "passed" },
+    { "id": "e2e-4", "name": "real tmux external monitor notifies once per observed Codex turn and rebaselines restarts", "verdict": "passed" },
+    { "id": "e2e-5", "name": "real tmux treats two agents in one session as independent pane targets", "verdict": "passed" },
+    { "id": "e2e-6", "name": "real tmux rejects stale generation input and termination after same-name recreation", "verdict": "passed" },
+    { "id": "e2e-7", "name": "real tmux rejects stale process generations after respawning the same pane", "verdict": "passed", "detail": "stale generation drives the real sendToTmuxPane/killTmuxPane composition, is refused with TMUX_PROCESS_GENERATION_MISMATCH (409), capture-pane bytes are identical before and after each rejection, the replacement agent PID and tmux session survive, and the current generation then succeeds" }
+  ],
+  "summary": { "passed": 9, "failed": 0, "skipped": 0 },
+  "note": "Suite skips itself when tmux is unavailable; this run executed against tmux 3.2a on Linux x86_64."
+}

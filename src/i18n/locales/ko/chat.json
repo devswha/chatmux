@@ -222,6 +222,9 @@
     "interrupt": "중단",
     "interrupting": "중단 요청 중…",
     "interruptSent": "중단 요청을 보냈습니다",
-    "interruptFailed": "중단 요청 실패"
+    "interruptFailed": "중단 요청 실패",
+    "imageUploading": "이미지 업로드 중…",
+    "imageUploadFailed": "이미지 업로드 실패",
+    "imagePathRejected": "프로젝트/홈 디렉터리 밖의 이미지 경로를 거부했습니다"
   }
 }

@@ -222,6 +222,9 @@
     "interrupt": "Interrompi",
     "interrupting": "Interruzione in corso…",
     "interruptSent": "Interruzione inviata",
-    "interruptFailed": "Impossibile interrompere"
+    "interruptFailed": "Impossibile interrompere",
+    "imageUploading": "Caricamento immagine…",
+    "imageUploadFailed": "Caricamento immagine non riuscito",
+    "imagePathRejected": "Percorso immagine fuori dal progetto o dalla home rifiutato"
   }
 }

@@ -4,7 +4,7 @@ import test from 'node:test';
 
 import { paneSubscriptionKey } from '../../../../shared/tmux';
 
-import { paneStreamFallbackNeeded, paneStreamFrame } from './MainContent';
+import { buildExternalAttachTarget, paneStreamFallbackNeeded, paneStreamFrame, shouldShowPendingRelay } from './MainContent';
 
 test('applies attached and output frames for the shared pane subscription key', () => {
   const key = paneSubscriptionKey('external', {
@@ -79,4 +79,58 @@ test('keeps an attached pane on stream output without repeated REST fallback rea
   assert.ok(timer.callback);
   timer.callback();
   assert.equal(restCalls, 1, 'the fallback remains available when the websocket is disconnected');
+});
+
+const tmux = { socketPath: 'socket', sessionId: '$1', windowId: '@1', paneId: '%1' };
+const project = { projectId: 'project-1', displayName: 'Project', fullPath: '/workspace/project' };
+
+test('M5b B8: forceAttach skips the pending relay surface for a local-agent pane with an observable process', () => {
+  const withoutForce = {
+    tmuxName: 'claude-review',
+    tmux,
+    process: { pid: 1, startedAtMs: 1 },
+    kind: 'Claude Code',
+    cliKind: 'claude' as const,
+    project,
+  };
+  assert.equal(shouldShowPendingRelay(withoutForce), true);
+  assert.equal(shouldShowPendingRelay({ ...withoutForce, forceAttach: true }), false);
+  assert.equal(shouldShowPendingRelay(null), false);
+});
+
+test('M5b B8: forced attach resolves to the exact pane 4-tuple as a local-agent shell target, never another pane', () => {
+  const process = { pid: 7, startedAtMs: 123 };
+  const target = {
+    tmuxName: 'claude-review',
+    tmux,
+    process,
+    kind: 'Claude Code',
+    cliKind: 'claude' as const,
+    project,
+    forceAttach: true,
+  };
+  const attachTarget = buildExternalAttachTarget(target);
+  assert.deepEqual(attachTarget, { targetClass: 'local-agent', tmux, process });
+
+  const otherPane = { ...target, tmux: { ...tmux, paneId: '%9' } };
+  const otherAttachTarget = buildExternalAttachTarget(otherPane);
+  assert.notDeepEqual(otherAttachTarget?.tmux, attachTarget?.tmux);
+});
+
+test('M5b B8 AC3: a ssh/shell row without an issued attachCapability never attaches, regardless of forceAttach', () => {
+  const sshTarget = {
+    tmuxName: 'remote',
+    tmux,
+    process: null,
+    kind: 'ssh',
+    cliKind: 'ssh' as const,
+    project,
+  };
+  assert.equal(buildExternalAttachTarget(sshTarget), null);
+  assert.equal(buildExternalAttachTarget({ ...sshTarget, forceAttach: true }), null);
+
+  const withCapability = { ...sshTarget, attachCapability: 'token-123' };
+  assert.deepEqual(buildExternalAttachTarget(withCapability), {
+    targetClass: 'attach-only', tmux, capability: 'token-123',
+  });
 });

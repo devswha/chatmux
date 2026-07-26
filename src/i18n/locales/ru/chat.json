@@ -222,6 +222,9 @@
     "interrupt": "Прервать",
     "interrupting": "Прерывание…",
     "interruptSent": "Прерывание отправлено",
-    "interruptFailed": "Не удалось прервать"
+    "interruptFailed": "Не удалось прервать",
+    "imageUploading": "Загрузка изображения…",
+    "imageUploadFailed": "Не удалось загрузить изображение",
+    "imagePathRejected": "Путь к изображению вне проекта или домашнего каталога отклонён"
   }
 }

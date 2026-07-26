@@ -77,7 +77,7 @@ export type SidebarProps = {
   onCloseSettings: () => void;
   isMobile: boolean;
   // Opens a local agent transcript-first, or a remote SSH target as a terminal.
-  onExternalTerminalOpen: (target: ExternalTerminalTarget) => void;
+  onExternalTerminalOpen: (target: ExternalTerminalTarget, options?: { forceAttach?: boolean }) => void;
   onExternalSessionsChange: (sessions: ExternalCliSession[]) => void;
 };
 

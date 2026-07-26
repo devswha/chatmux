@@ -103,6 +103,20 @@ export const api = {
   },
   projects: () => authenticatedFetch('/api/projects?skipSynchronization=1'),
   archivedProjects: () => authenticatedFetch('/api/projects/archived'),
+  // Stores pasted/dropped relay images in the shared `~/.chatmux/assets`
+  // store and returns their absolute paths — the only upload path the live
+  // relay composer uses (B10: no bespoke upload endpoint).
+  /**
+   * @param {File[]} files
+   */
+  uploadImageAssets: (files) => {
+    const formData = new FormData();
+    files.forEach((file) => formData.append('images', file));
+    return authenticatedFetch('/api/assets/images', {
+      method: 'POST',
+      body: formData,
+    });
+  },
   // Session ids currently live in a tmux gjc pane (tmux+lsof; [] when no tmux).
   liveSessions: () => authenticatedFetch('/api/providers/sessions/live'),
   // Exact-pane actions carry both tmux identity and agent-process generation.

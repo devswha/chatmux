@@ -1,0 +1,80 @@
+{
+  "kind": "api-package-test-report",
+  "surface": "api/package",
+  "cases": [
+    {
+      "id": "1",
+      "scenario": "구버전/버전부재 init 거부",
+      "expected": "command 내용과 무관하게 protocol error/close 및 spawn 0회",
+      "verdict": "passed",
+      "evidence": "shell-websocket-protocol.test.ts 3회 연속 22/22 통과: missing or obsolete protocol rejects harmless command before spawn."
+    },
+    {
+      "id": "2",
+      "scenario": "init 배타성",
+      "expected": "mode 누락·invalid, plain-shell typed fields, typed initialCommand은 거부되고 spawn 0회",
+      "verdict": "passed",
+      "evidence": "shell-websocket-protocol.test.ts 3회 연속 22/22 통과: init mode and typed attach command fields are exclusive."
+    },
+    {
+      "id": "3",
+      "scenario": "attach-only 서버 argv 및 systemd 경로",
+      "expected": "유효 capability가 서버 조립 argv로 PTY를 열고 TMUX_PANE 부재에서도 동작",
+      "verdict": "passed",
+      "evidence": "3회 통과한 websocket suite가 exact argv spawn 및 getCurrentTmuxPaneIdentityState={state:not-hosted}에서 spawn 1회를 각각 검증."
+    },
+    {
+      "id": "4",
+      "scenario": "capability 거부 및 경계",
+      "expected": "미발급·다른 principal·다른 pane·만료·generation 불일치 거부, 만료/ supersede 경계 거부",
+      "verdict": "passed",
+      "evidence": "3회 통과한 websocket suite의 five capability rejection, expiry-during-read issue/verify, superseded-during-read verify 케이스가 모두 통과."
+    },
+    {
+      "id": "5",
+      "scenario": "보호대상 및 fail-closed",
+      "expected": "company*·자기 pane 거부 및 세션명 null/빈문자열 등 조회 실패 fail-closed",
+      "verdict": "passed",
+      "evidence": "3회 통과 websocket suite가 protected company target과 null/empty/whitespace/throw/current-pane-unavailable refusal을 spawn 0으로 검증; route suite도 company kill 403을 검증."
+    },
+    {
+      "id": "6",
+      "scenario": "forceRestart 트랜잭션",
+      "expected": "잘못된 lease/capability와 교체 spawn 실패는 기존 PTY 보존, 중첩 restart에는 orphan 없음",
+      "verdict": "passed",
+      "evidence": "3회 통과 websocket suite가 invalid restart kill=0/spawn 유지, spawn-failure 후 기존 output/reconnect, overlapping restart alive.size=1을 검증."
+    },
+    {
+      "id": "7",
+      "scenario": "close 소유권",
+      "expected": "실패 연결 close는 보존 엔트리를 분리하지 않고 정상 close는 누수 없이 정리",
+      "verdict": "passed",
+      "evidence": "3회 통과 websocket suite의 forceRestart spawn failure close preserves original PTY websocket binding 및 overlapping replacement close 케이스가 보존 연결 output/reconnect와 단일 live PTY를 검증."
+    },
+    {
+      "id": "8",
+      "scenario": "진단 payload 및 연결 간 rate limit",
+      "expected": "code/provider/count 외 필드 없음, 서로 다른 연결에서도 window rate limit 적용",
+      "verdict": "passed",
+      "evidence": "3회 통과 websocket suite가 exact diagnostic object, socket/session secret 비노출, 두 연결에서 1분 내 단일 event 및 경과 후 count=3을 검증."
+    },
+    {
+      "id": "9",
+      "scenario": "external sessions capability 라우트 계약",
+      "expected": "ssh/shell에만 capability, 발급 실패에도 200이며 해당 행만 필드 생략",
+      "verdict": "passed",
+      "evidence": "provider-routes-contract.test.ts 3회 연속 11/11 통과: external session route issues capabilities only for ssh and shell branches; route source contract confirms issue catch-to-null and conditional field addition."
+    },
+    {
+      "id": "10",
+      "scenario": "안정성 반복",
+      "expected": "shell-websocket-protocol, provider-routes-contract, client shell/AppContent가 각 3회 연속 flaky 0",
+      "verdict": "passed",
+      "evidence": "shell-websocket 22/22 x3; provider-routes 11/11 x3; shellProtocol+AppContent client set 9/9 x3, all zero failures."
+    }
+  ],
+  "summary": {
+    "passed": 10,
+    "failed": 0
+  }
+}

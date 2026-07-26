@@ -1,0 +1,207 @@
+{
+  "kind": "api-package-test-report",
+  "status": "passed",
+  "scope": "Frozen external-turn monitor API/package and isolated native tmux red-team QA. No source, test, or .gjc files were modified.",
+  "commands": [
+    {
+      "name": "focused external-turn API/package tests",
+      "command": "TSX_TSCONFIG_PATH=server/tsconfig.json node --import tsx --test --test-reporter=tap server/modules/notifications/tests/external-turn-monitor.test.ts server/modules/providers/tests/external-session-activity.service.test.ts server/services/tests/notification-orchestrator.test.js > artifacts/external-turn-api-package-focused.tap",
+      "exitCode": 0,
+      "result": {
+        "tests": 20,
+        "passed": 20,
+        "failed": 0,
+        "skipped": 0,
+        "tapArtifact": "artifacts/external-turn-api-package-focused.tap"
+      }
+    },
+    {
+      "name": "exact isolated real-tmux external monitor test",
+      "command": "TSX_TSCONFIG_PATH=server/tsconfig.json node --import tsx --test --test-reporter=tap --test-name-pattern='real tmux external monitor notifies once per observed Codex turn and rebaselines restarts' server/modules/providers/tests/tmux-runtime.e2e.test.ts > artifacts/external-turn-tmux-e2e.tap",
+      "exitCode": 0,
+      "result": {
+        "tests": 1,
+        "passed": 1,
+        "failed": 0,
+        "skipped": 0,
+        "tapArtifact": "artifacts/external-turn-tmux-e2e.tap"
+      }
+    },
+    {
+      "name": "runtime API/package red-team assertions",
+      "command": "TSX_TSCONFIG_PATH=server/tsconfig.json node --import tsx --input-type=module <inline assertions for metadata validation, GJC exclusion, provider-ID conflict/privacy, semantic disarm, provider labels, and web-push channel-off>",
+      "exitCode": 0,
+      "result": {
+        "cases": 5,
+        "passed": 5,
+        "failed": 0,
+        "artifact": "artifacts/external-turn-api-package-red-team-runtime.json"
+      }
+    }
+  ],
+  "results": {
+    "focusedApiPackage": "passed",
+    "nativeTmuxE2E": "passed",
+    "runtimeAdversarial": "passed",
+    "overall": "passed"
+  },
+  "contractCoverage": [
+    {
+      "contract": "Diagnostics and stats expose complete stable event counters for baseline, arm, notification, semantic disarm, prune, unavailable discovery/read, provider-ID conflict, and generation reset without native IDs, pane identity, transcript, PID, or start-time data.",
+      "status": "passed",
+      "evidence": [
+        "artifacts/external-turn-api-package-focused.tap:20-25",
+        "server/modules/notifications/tests/external-turn-monitor.test.ts:175-260"
+      ]
+    },
+    {
+      "contract": "A monitor silently baselines startup waiting, notifies exactly once for an observed running-to-waiting transition, suppresses duplicate waiting, and emits an opaque distinct ordinal completion key for a fast second turn.",
+      "status": "passed",
+      "evidence": [
+        "artifacts/external-turn-api-package-focused.tap:2-7",
+        "server/modules/notifications/tests/external-turn-monitor.test.ts:74-102"
+      ]
+    },
+    {
+      "contract": "Unavailable evidence preserves an arm; asking_user, unknown, and ended transcript evidence fail closed; only successful absence prunes and a rediscovered generation silently baselines.",
+      "status": "passed",
+      "evidence": [
+        "artifacts/external-turn-api-package-focused.tap:14-19",
+        "server/modules/notifications/tests/external-turn-monitor.test.ts:131-173",
+        "artifacts/external-turn-api-package-red-team-runtime.json"
+      ]
+    },
+    {
+      "contract": "Incomplete/invalid process metadata and unsupported/GJC sessions are excluded before resolve; positive finite fractional Linux start times remain valid process-generation evidence.",
+      "status": "passed",
+      "evidence": [
+        "artifacts/external-turn-api-package-focused.tap:26-37",
+        "artifacts/external-turn-api-package-red-team-runtime.json",
+        "server/modules/notifications/services/external-turn-monitor.service.ts:124-138"
+      ]
+    },
+    {
+      "contract": "Late native ID binding is silent, omissions retain the binding, and a conflicting provider ID is neither resolved nor notified.",
+      "status": "passed",
+      "evidence": [
+        "artifacts/external-turn-api-package-focused.tap:8-13",
+        "server/modules/notifications/tests/external-turn-monitor.test.ts:104-129",
+        "artifacts/external-turn-api-package-red-team-runtime.json"
+      ]
+    },
+    {
+      "contract": "All five external provider parsers classify running, waiting, asking, and unknown evidence; unavailable resolver evidence fails closed.",
+      "status": "passed",
+      "evidence": [
+        "artifacts/external-turn-api-package-focused.tap:44-103",
+        "server/modules/providers/tests/external-session-activity.service.test.ts:120-283"
+      ]
+    },
+    {
+      "contract": "API/package push behavior preserves provider labels, maps provider session IDs to app session IDs, deduplicates a completion key while allowing the next ordinal, and honors both liveStop preference-off and Web Push channel-off.",
+      "status": "passed",
+      "evidence": [
+        "artifacts/external-turn-api-package-focused.tap:107-129",
+        "artifacts/external-turn-api-package-red-team-runtime.json",
+        "server/services/tests/notification-orchestrator.test.js:41-154"
+      ]
+    },
+    {
+      "contract": "Actual isolated tmux discovery drives one-per-turn notification intent, prune, same-name process restart silent baseline, and distinct completion keys.",
+      "status": "passed",
+      "evidence": [
+        "artifacts/external-turn-tmux-e2e.tap:2-16",
+        "server/modules/providers/tests/tmux-runtime.e2e.test.ts:334-390"
+      ]
+    }
+  ],
+  "surfaceEvidence": {
+    "apiPackage": [
+      {
+        "surface": "External-turn monitor DI/public API",
+        "result": "20 focused API/package tests passed; diagnostics/stats, state-machine boundaries, generation metadata, and parser/resolver behavior are covered by the TAP artifact.",
+        "artifactRefs": [
+          "artifacts/external-turn-api-package-focused.tap",
+          "artifacts/external-turn-api-package-red-team-runtime.json"
+        ]
+      },
+      {
+        "surface": "Notification orchestrator package wrapper",
+        "result": "Provider session mapping, completion-key dedupe/next ordinal, liveStop preference, channel-off, and provider labels passed against an isolated database and mocked Web Push transport.",
+        "artifactRefs": [
+          "artifacts/external-turn-api-package-focused.tap",
+          "artifacts/external-turn-api-package-red-team-runtime.json"
+        ]
+      }
+    ],
+    "nativeTui": [
+      {
+        "surface": "Native tmux discovery and monitor",
+        "result": "The exact named real-tmux E2E passed against an isolated tmux harness; it discovered a fake external Codex process and exercised completion, prune, same-name restart baseline, and key distinction.",
+        "artifactRefs": [
+          "artifacts/external-turn-tmux-e2e.tap"
+        ]
+      }
+    ]
+  },
+  "adversarialCases": [
+    {
+      "case": "startup replay, duplicate waiting, and rapid second turn",
+      "status": "passed",
+      "evidence": "artifacts/external-turn-api-package-focused.tap:2-7"
+    },
+    {
+      "case": "unavailable resolver/discovery, asking_user, unknown, ended transcript, prune, and reappearance",
+      "status": "passed",
+      "evidence": "artifacts/external-turn-api-package-focused.tap:14-19"
+    },
+    {
+      "case": "late, missing, and conflicting provider IDs",
+      "status": "passed",
+      "evidence": "artifacts/external-turn-api-package-focused.tap:8-13"
+    },
+    {
+      "case": "invalid generation metadata, positive finite fractional Linux start time, and GJC exclusion",
+      "status": "passed",
+      "evidence": "artifacts/external-turn-api-package-red-team-runtime.json"
+    },
+    {
+      "case": "diagnostic counter completeness, monotonicity, and privacy",
+      "status": "passed",
+      "evidence": "artifacts/external-turn-api-package-focused.tap:20-25"
+    },
+    {
+      "case": "five parser lanes and unavailable evidence",
+      "status": "passed",
+      "evidence": "artifacts/external-turn-api-package-focused.tap:44-103"
+    },
+    {
+      "case": "provider labels, liveStop preference-off, Web Push channel-off, completion-key dedupe, and next ordinal",
+      "status": "passed",
+      "evidence": "artifacts/external-turn-api-package-focused.tap:107-129; artifacts/external-turn-api-package-red-team-runtime.json"
+    },
+    {
+      "case": "actual isolated tmux discovery, prune, same-name restart baseline, and completion-key distinction",
+      "status": "passed",
+      "evidence": "artifacts/external-turn-tmux-e2e.tap:2-16"
+    }
+  ],
+  "artifactRefs": {
+    "focusedTap": {
+      "path": "artifacts/external-turn-api-package-focused.tap",
+      "sha256": "ed06967d996002d50e911079e472dafb9fa6a34f7853a839a5417e91bccf4f82",
+      "result": "20 passed, 0 failed, 0 skipped"
+    },
+    "tmuxE2ETap": {
+      "path": "artifacts/external-turn-tmux-e2e.tap",
+      "sha256": "2f4736b32461c7f9be51567b663c4a7b09d7ea8c6660ab48bb50e86d4dadd37d",
+      "result": "1 passed, 0 failed, 0 skipped"
+    },
+    "runtimeRedTeam": {
+      "path": "artifacts/external-turn-api-package-red-team-runtime.json",
+      "sha256": "30fdc7d35803c646c5df60f279538058082d389379c852ee79bda32b7db4144d",
+      "result": "5 passed, 0 failed"
+    }
+  },
+  "blockers": []
+}

@@ -1,0 +1,31 @@
+{
+  "kind": "external-turn-api-package-runtime-red-team",
+  "overallStatus": "passed",
+  "cases": [
+    {
+      "case": "process-generation-metadata-and-gjc-exclusion",
+      "status": "passed",
+      "result": "Fractional/NaN PID and invalid start times are ignored; a positive finite fractional Linux start time is valid; GJC is excluded."
+    },
+    {
+      "case": "provider-id-conflict-and-diagnostic-privacy",
+      "status": "passed",
+      "result": "Conflicting provider ID is not resolved/notified; diagnostics omit native/pane/process identifiers."
+    },
+    {
+      "case": "asking-and-unknown-fail-closed",
+      "status": "passed",
+      "result": "asking_user and unknown disarm a running generation before later waiting evidence."
+    },
+    {
+      "case": "all-provider-payload-labels",
+      "status": "passed",
+      "result": "Claude, Codex, Cursor, OpenCode, and Oh My Pi use their provider labels."
+    },
+    {
+      "case": "web-push-channel-off",
+      "status": "passed",
+      "result": "Enabled liveStop with webPush=false creates no Web Push send."
+    }
+  ]
+}

@@ -11,7 +11,8 @@ import { useFileOpenResolver } from '../../../hooks/useFileOpenResolver';
 import { authenticatedFetch, api } from '../../../utils/api';
 import { useEditorSidebar } from '../../code-editor/hooks/useEditorSidebar';
 import LiveRelayComposer from '../../chat/view/subcomponents/LiveRelayComposer';
-import type { Project } from '../../../types/app';
+import type { ExternalTerminalTarget, Project } from '../../../types/app';
+import type { ShellAttachTarget } from '../../shell/types/types';
 import { paneSubscriptionKey, tmuxPaneIdentityKey } from '../../../../shared/tmux';
 import { useWebSocket } from '../../../contexts/WebSocketContext';
 
@@ -67,6 +68,32 @@ export function paneStreamFrame(
 }
 export function paneStreamFallbackNeeded(isConnected: boolean, streamSubscribed: boolean): boolean {
   return !isConnected || !streamSubscribed;
+}
+export function shouldShowPendingRelay(externalTerminal: ExternalTerminalTarget | null): boolean {
+  // B8: a forced attach (from the asking_user badge) always skips the
+  // pending relay surface and goes straight to terminal attach below, even
+  // for a session whose process is still observable.
+  return Boolean(
+    externalTerminal
+    && externalTerminal.cliKind !== 'ssh'
+    && externalTerminal.cliKind !== 'shell'
+    && externalTerminal.process
+    && !externalTerminal.forceAttach,
+  );
+}
+export function buildExternalAttachTarget(externalTerminal: ExternalTerminalTarget): ShellAttachTarget | null {
+  const isAttachOnly = externalTerminal.cliKind === 'ssh'
+    || externalTerminal.cliKind === 'shell'
+    || !externalTerminal.process;
+  const attachCapability = 'attachCapability' in externalTerminal
+    ? externalTerminal.attachCapability
+    : undefined;
+  if (isAttachOnly) {
+    return typeof attachCapability === 'string' && attachCapability
+      ? { targetClass: 'attach-only', tmux: externalTerminal.tmux, capability: attachCapability }
+      : null;
+  }
+  return { targetClass: 'local-agent', tmux: externalTerminal.tmux, process: externalTerminal.process! };
 }
  
 
@@ -349,7 +376,12 @@ function MainContent({
   // Fresh local panes open on an empty conversation surface. Raw tmux output
   // remains available behind the explicit CLI output tab instead of replacing
   // the chat before the provider creates its first transcript record.
-  if (externalTerminal && externalTerminal.cliKind !== 'ssh' && externalTerminal.cliKind !== 'shell' && externalTerminal.process) {
+  if (
+    externalTerminal
+    && externalTerminal.cliKind !== 'ssh'
+    && externalTerminal.cliKind !== 'shell'
+    && shouldShowPendingRelay(externalTerminal)
+  ) {
     const isGjc = externalTerminal.cliKind === 'gjc';
     const providerLabel = {
       gjc: 'GJC',
@@ -419,25 +451,7 @@ function MainContent({
   // Targets without a locally observable process remain terminal-only.
   if (externalTerminal) {
     const targetKey = tmuxPaneIdentityKey(externalTerminal.tmux);
-    const isAttachOnly = externalTerminal.cliKind === 'ssh'
-      || externalTerminal.cliKind === 'shell'
-      || !externalTerminal.process;
-    const attachCapability = 'attachCapability' in externalTerminal
-      ? externalTerminal.attachCapability
-      : undefined;
-    const attachTarget = isAttachOnly
-      ? typeof attachCapability === 'string' && attachCapability
-        ? {
-            targetClass: 'attach-only' as const,
-            tmux: externalTerminal.tmux,
-            capability: attachCapability,
-          }
-        : null
-      : {
-          targetClass: 'local-agent' as const,
-          tmux: externalTerminal.tmux,
-          process: externalTerminal.process!,
-        };
+    const attachTarget = buildExternalAttachTarget(externalTerminal);
     return (
       <div className="flex h-full flex-col">
         <div className="flex flex-shrink-0 items-center justify-between border-b border-border/50 px-3 py-2">

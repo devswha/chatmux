@@ -1,0 +1,66 @@
+{
+  "kind": "api-package-test-report",
+  "surface": "api/package",
+  "cases": [
+    {
+      "id": "G006-1",
+      "scenario": "Moved file route and helper fidelity",
+      "expected": "All 10 moved endpoints and their supporting helpers retain HEAD behavior modulo relocation and whitespace.",
+      "verdict": "passed",
+      "evidence": "Mechanical HEAD/current comparison found all 10 endpoint paths present; all nine inline async handler bodies matched after whitespace normalization. The upload route retained its handler reference and the HEAD/current uploadFilesHandler regions matched after whitespace normalization. Moved helper inventory: upload limits, permission/tree/concurrency helpers, workspace expansion, project containment validation, filename validation, and upload handler."
+    },
+    {
+      "id": "G006-2",
+      "scenario": "Response contract strings and status behavior",
+      "expected": "Moved endpoints retain their error/message strings and HTTP status behavior.",
+      "verdict": "passed",
+      "evidence": "files-routes-contract exercised create/rename/delete/list/read/write, binary content (including preserved missing-binary 500), upload, browse, and create-folder success/error contracts; all assertions passed in each of three runs."
+    },
+    {
+      "id": "G006-3",
+      "scenario": "workspace-paths extraction fidelity",
+      "expected": "normalizeProjectPath, validateWorkspacePath, sanitizeLeafDirectoryName, and FORBIDDEN_WORKSPACE_PATHS equal HEAD utils implementations.",
+      "verdict": "passed",
+      "evidence": "TypeScript AST declaration comparison against git show HEAD:server/shared/utils.ts found no mismatch for all extracted workspace declarations; workspace-paths tests passed 3/3, including literal %2e%2e and '.' leaf-name behavior."
+    },
+    {
+      "id": "G006-4",
+      "scenario": "utils re-export integrity",
+      "expected": "All existing utils imports of workspace symbols continue to resolve.",
+      "verdict": "passed",
+      "evidence": "Import search found existing consumers still import from '@/shared/utils.js'; utils.ts re-exports the five workspace symbols. npx tsc --noEmit -p tsconfig.json and -p server/tsconfig.json both exited 0."
+    },
+    {
+      "id": "G006-5",
+      "scenario": "Authentication protection preservation",
+      "expected": "Every moved route remains behind authenticateToken and rejects an unauthenticated password-mode request.",
+      "verdict": "passed",
+      "evidence": "All 10 router registrations include authenticateToken. Isolated HTTP harness with CHATMUX_AUTH=password issued unauthenticated requests to every route: each returned 401 with {error:'Access denied. No token provided.'}."
+    },
+    {
+      "id": "G006-6",
+      "scenario": "Frontend extraction neutrality",
+      "expected": "projectsStateMerge and liveRelayComposer preserve extracted behavior and component/hook public interfaces.",
+      "verdict": "passed",
+      "evidence": "HEAD/current declaration inspection found extraction-only relocation; useProjectsState and LiveRelayComposer retain their public imports/re-exports. projectsStateMerge and LiveRelayComposer tests passed 3/3."
+    },
+    {
+      "id": "G006-7",
+      "scenario": "Import boundary and cycle check",
+      "expected": "New extraction edges create no cycle.",
+      "verdict": "passed",
+      "evidence": "BFS inspection of new edges found filesRoutes -> shared/database/auth containment modules with no path back to server/index; utils -> workspace-paths; useProjectsState -> projectsStateMerge; and LiveRelayComposer -> liveRelayComposer, each terminating in types/leaf modules. No new cycle found (pre-existing chat-run-registry cycle excluded)."
+    },
+    {
+      "id": "G006-8",
+      "scenario": "Focused stability",
+      "expected": "files-routes-contract, workspace-paths, projectsStateMerge, and LiveRelayComposer tests are non-flaky across three consecutive runs.",
+      "verdict": "passed",
+      "evidence": "Three consecutive focused runs: backend pair 6/6 pass each run and frontend pair 6/6 pass each run; 36 total passing test executions, zero failures."
+    }
+  ],
+  "summary": {
+    "passed": 8,
+    "failed": 0
+  }
+}

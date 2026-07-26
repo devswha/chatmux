@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
@@ -155,6 +156,73 @@ test('SidebarExternalSection renders provider-native activity states without lab
   assert.ok(html.includes('>승인 대기<'));
   assert.ok(html.includes('>확인 불가<'));
   assert.ok(html.includes('다음 사용자 입력을 기다립니다'));
+});
+
+test('M5b B8: the asking_user badge is a separate clickable attach entry point, distinct from the row open action', async () => {
+  const html = await renderSection('ko', {
+    sessions: [
+      external('claude-ask', 'claude', '%20', 200, {
+        transcriptSessionId: 'session-indexed',
+        activity: 'asking_user',
+      }),
+    ],
+    projects: [project],
+    onOpen,
+    onChanged: noop,
+  });
+
+  // The badge itself is a real <button>, not a span nested inside the row's
+  // open button (which would make it non-independently-clickable / invalid
+  // HTML), and it carries a translated attach-specific label consumed here.
+  const approvalButtonMatch = html.match(/<button type="button"[^>]*aria-label="[^"]*claude-ask[^"]*"[^>]*>/);
+  assert.ok(approvalButtonMatch, html);
+  assert.ok(html.includes('claude-ask') && html.includes('에 연결해 대기 중인 승인에 답하기'));
+
+  // The badge button's own closing tag ends the only place its label ("승인
+  // 대기") may legitimately appear; the row's own open button (which excludes
+  // the badge for asking_user rows via `!isApprovalPending`) must not repeat
+  // it.
+  const approvalIndex = html.indexOf(approvalButtonMatch![0]);
+  const approvalButtonEnd = html.indexOf('</button>', approvalIndex) + '</button>'.length;
+  const duplicateInOpenButton = html.indexOf('승인 대기</span>', approvalButtonEnd);
+  assert.equal(duplicateInOpenButton, -1, 'the badge must not also render inside the row open button for an asking_user row');
+});
+
+test('M5b B8 AC1/AC2: the badge handler passes forceAttach with the exact pane it renders', () => {
+  // The badge click seam cannot be exercised through renderToStaticMarkup, so
+  // assert the handler contract at the source: attachToApproval must forward a
+  // second argument carrying forceAttach, keyed on the session's own pane, and
+  // the receiving handler must actually consume that argument. Both halves are
+  // required — a dropped options parameter is legal TypeScript (parameter
+  // bivariance) and would silently route approvals back to the transcript.
+  const section = readFileSync(
+    new URL('./SidebarExternalSection.tsx', import.meta.url),
+    'utf8',
+  );
+  const handler = section.slice(
+    section.indexOf('const attachToApproval'),
+    section.indexOf('useEffect', section.indexOf('const attachToApproval')),
+  );
+  assert.match(handler, /onOpen\(\{[\s\S]*\},\s*\{\s*forceAttach:\s*true\s*\}\)/);
+  assert.match(handler, /tmux:\s*session\.tmux/);
+  assert.match(handler, /process:\s*session\.process/);
+  assert.doesNotMatch(handler, /tmux:\s*sessions\[/);
+  // A prior row click arms the promotion effect; leaving it armed would reopen
+  // this pane as a transcript once it indexes and undo the forced attach.
+  assert.match(handler, /pendingTranscriptRef\.current = null/);
+
+  const appContent = readFileSync(
+    new URL('../../../app/AppContent.tsx', import.meta.url),
+    'utf8',
+  );
+  const opener = appContent.slice(
+    appContent.indexOf('const openExternalTerminal'),
+    appContent.indexOf('const closeExternalTerminal'),
+  );
+  assert.match(opener, /options\?:\s*\{\s*forceAttach\?:\s*boolean\s*\}/);
+  assert.match(opener, /options\?\.forceAttach\s*\?\s*\{\s*\.\.\.target,\s*forceAttach:\s*true\s*\}/);
+  assert.match(opener, /resolveExternalTerminalRoute\(routed\)/);
+  assert.match(opener, /setExternalTerminal\(routed\)/);
 });
 
 test('SidebarExternalSection renders an unclassified shell pane as attach-only', async () => {

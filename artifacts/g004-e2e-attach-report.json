@@ -1,0 +1,32 @@
+{
+  "kind": "e2e-test-report",
+  "surface": "websocket-shell-protocol",
+  "harness": "server/modules/websocket/tests/shell-websocket-protocol.test.ts (fake WebSocket + injected pty spawn seam + injected tmux/capability services)",
+  "command": "TSX_TSCONFIG_PATH=server/tsconfig.json node --import tsx --test server/modules/websocket/tests/shell-websocket-protocol.test.ts",
+  "scenarios": [
+    { "id": "p-1", "name": "missing or obsolete protocol rejects harmless command before spawn", "verdict": "passed" },
+    { "id": "p-2", "name": "init mode and typed attach command fields are exclusive", "verdict": "passed" },
+    { "id": "p-3", "name": "local-agent validation failure never spawns a PTY", "verdict": "passed" },
+    { "id": "p-4", "name": "typed attach uses the server-built exact argv", "verdict": "passed" },
+    { "id": "p-5", "name": "plain shell preserves its command after protocol negotiation", "verdict": "passed" },
+    { "id": "p-6", "name": "attach capabilities bind issuer state, principal, pane, expiry, and pane generation", "verdict": "passed" },
+    { "id": "p-7", "name": "attach capability storage reuses matching generations, supersedes changed generations, and is bounded", "verdict": "passed" },
+    { "id": "p-8", "name": "attach capability issue does not reuse a token that expires while reading its generation", "verdict": "passed" },
+    { "id": "p-9", "name": "attach capability verify rejects and removes a token that expires while reading its generation", "verdict": "passed" },
+    { "id": "p-10", "name": "attach capability verify rejects a token superseded while reading its generation", "verdict": "passed" },
+    { "id": "p-11", "name": "attach-only uses a valid capability with a matching generation to spawn the server-built command", "verdict": "passed" },
+    { "id": "p-12", "name": "attach-only permits a server hosted outside tmux", "verdict": "passed", "detail": "systemd-shaped deployment: TMUX_PANE absent resolves to not-hosted and attach proceeds" },
+    { "id": "p-13", "name": "attach-only rechecks generation after target protection checks and before spawn", "verdict": "passed" },
+    { "id": "p-14", "name": "attach-only lease reconnects after capability expiry only for its principal and pane", "verdict": "passed" },
+    { "id": "p-15", "name": "attach-only forceRestart preserves an existing PTY when its lease or capability is invalid", "verdict": "passed" },
+    { "id": "p-16", "name": "forceRestart spawn failure close preserves the original PTY websocket binding", "verdict": "passed" },
+    { "id": "p-17", "name": "overlapping forceRestart requests replace the current PTY without orphaning either replacement", "verdict": "passed" },
+    { "id": "p-18", "name": "attach-only rejects missing, wrong-principal, wrong-pane, expired, and changed-generation capabilities", "verdict": "passed" },
+    { "id": "p-19", "name": "attach-only rejects when tmux target or ChatMux pane protection cannot be read", "verdict": "passed" },
+    { "id": "p-20", "name": "attach diagnostics are rate-limited across connections and resume after one minute", "verdict": "passed" },
+    { "id": "p-21", "name": "attach refusal diagnostics contain only code, provider, and count", "verdict": "passed" },
+    { "id": "p-22", "name": "client source contains no tmux attach command string", "verdict": "passed" }
+  ],
+  "summary": { "passed": 22, "failed": 0, "skipped": 0 },
+  "stability": "3 consecutive runs, 22/22 each"
+}

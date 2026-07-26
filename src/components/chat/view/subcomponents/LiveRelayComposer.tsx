@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { KeyboardEvent } from 'react';
+import type { ClipboardEvent, DragEvent, KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { api } from '../../../../utils/api';
 import type { TmuxPaneTarget } from '../../../../../shared/tmux';
 import {
+  buildPlainTextInsertion,
   filterCommands,
   filterMentionableFiles,
   flattenProjectFileTree,
   getActiveMentionToken,
   getActiveSlashToken,
+  isRelayImagePathAllowed,
   normalizeWorkspacePath,
   type LiveGjcCommand,
   type MentionableFile,
@@ -73,6 +75,9 @@ export default function LiveRelayComposer({
   const [status, setStatus] = useState<RelayStatus>({ kind: 'idle' });
   const { t } = useTranslation('chat');
   const [isInterrupting, setIsInterrupting] = useState(false);
+  const [assetStatus, setAssetStatus] = useState<
+    { kind: 'idle' } | { kind: 'uploading' } | { kind: 'error'; text: string }
+  >({ kind: 'idle' });
   const canInterrupt = relayKind === 'gjc'
     || relayKind === 'codex'
     || relayKind === 'claude'
@@ -333,6 +338,86 @@ export default function LiveRelayComposer({
     },
     [input, closeFileMenu],
   );
+  const insertPlainPath = useCallback((filePath: string) => {
+    setInput((current) => {
+      const textarea = textareaRef.current;
+      const caret = textarea?.selectionStart ?? current.length;
+      const { text, caretOffset } = buildPlainTextInsertion(current.slice(0, caret), current.slice(caret), filePath);
+      requestAnimationFrame(() => {
+        const node = textareaRef.current;
+        if (node) {
+          node.focus();
+          node.setSelectionRange(caretOffset, caretOffset);
+        }
+      });
+      return text;
+    });
+  }, []);
+
+  // B10: pasted/dropped images upload once through the shared asset store
+  // and only the resulting plain-text path is inserted — no upload API is
+  // mocked and no new send path is introduced; the inserted text leaves
+  // through the existing `send` below like any other typed text.
+  const handleImageUpload = useCallback(async (files: File[]) => {
+    const imageFiles = files.filter((file) => file.type.startsWith('image/'));
+    if (imageFiles.length === 0) {
+      return;
+    }
+    setAssetStatus({ kind: 'uploading' });
+    try {
+      const response = await api.uploadImageAssets(imageFiles);
+      const body = await response.json().catch(() => null);
+      const images = Array.isArray(body?.images)
+        ? (body.images as Array<{ path?: unknown; name?: unknown }>)
+        : null;
+      if (!response.ok || !images || images.length === 0) {
+        setAssetStatus({ kind: 'error', text: t('relay.imageUploadFailed', { defaultValue: 'Image upload failed' }) });
+        return;
+      }
+      let rejected = false;
+      for (const image of images) {
+        if (typeof image.path !== 'string' || !isRelayImagePathAllowed(image.path, workspacePath)) {
+          rejected = true;
+          continue;
+        }
+        insertPlainPath(image.path);
+      }
+      setAssetStatus(rejected
+        ? { kind: 'error', text: t('relay.imagePathRejected', { defaultValue: 'Rejected image path outside the project or home directory' }) }
+        : { kind: 'idle' });
+    } catch {
+      setAssetStatus({ kind: 'error', text: t('relay.imageUploadFailed', { defaultValue: 'Image upload failed' }) });
+    }
+  }, [insertPlainPath, t, workspacePath]);
+
+  const handleComposerPaste = useCallback((event: ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = Array.from(event.clipboardData?.items ?? []);
+    const imageFiles = items
+      .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => Boolean(file));
+    if (imageFiles.length === 0) {
+      return;
+    }
+    event.preventDefault();
+    void handleImageUpload(imageFiles);
+  }, [handleImageUpload]);
+
+  const handleComposerDrop = useCallback((event: DragEvent<HTMLDivElement>) => {
+    const files = Array.from(event.dataTransfer?.files ?? []);
+    const imageFiles = files.filter((file) => file.type.startsWith('image/'));
+    if (imageFiles.length === 0) {
+      return;
+    }
+    event.preventDefault();
+    void handleImageUpload(imageFiles);
+  }, [handleImageUpload]);
+
+  const handleComposerDragOver = useCallback((event: DragEvent<HTMLDivElement>) => {
+    if (Array.from(event.dataTransfer?.items ?? []).some((item) => item.kind === 'file')) {
+      event.preventDefault();
+    }
+  }, []);
 
   const send = useCallback(async () => {
     const message = input.trim();
@@ -475,8 +560,18 @@ export default function LiveRelayComposer({
           {status.kind !== 'idle' && status.kind !== 'sending' && (
             <span aria-live="polite" className={status.kind === 'error' ? 'text-red-500' : 'text-muted-foreground'}>· {status.text}</span>
           )}
+          {assetStatus.kind === 'uploading' && (
+            <span aria-live="polite" className="text-muted-foreground">· {t('relay.imageUploading', { defaultValue: 'Uploading image…' })}</span>
+          )}
+          {assetStatus.kind === 'error' && (
+            <span aria-live="polite" className="text-red-500">· {assetStatus.text}</span>
+          )}
         </div>
-        <div className="flex items-end gap-2 rounded-xl border border-border bg-card p-2">
+        <div
+          className="flex items-end gap-2 rounded-xl border border-border bg-card p-2"
+          onDrop={handleComposerDrop}
+          onDragOver={handleComposerDragOver}
+        >
           <textarea
             ref={textareaRef}
             value={input}
@@ -487,6 +582,7 @@ export default function LiveRelayComposer({
               syncFileMenu(nextValue, event.target.selectionStart ?? nextValue.length);
             }}
             onKeyDown={handleKeyDown}
+            onPaste={handleComposerPaste}
             onClick={(event) => {
               const caret = event.currentTarget.selectionStart ?? input.length;
               syncCommandMenu(input, caret);

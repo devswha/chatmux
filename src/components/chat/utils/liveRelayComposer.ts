@@ -40,6 +40,48 @@ export const flattenProjectFileTree = (files: ProjectFileNode[], basePath = ''):
 
 export const normalizeWorkspacePath = (path: string): string => path.replace(/\/+$/, '');
 
+/**
+ * B10: relay image paths must come from the shared asset store
+ * (`~/.chatmux/assets`, marked by this fixed path segment since the browser
+ * has no direct HOME value) or from inside the active project workspace.
+ * Anything else is refused rather than inserted as plain text.
+ */
+const ASSET_STORE_PATH_MARKER = '/.chatmux/assets/';
+
+export const isRelayImagePathAllowed = (
+  assetPath: string,
+  workspacePath: string | null | undefined,
+): boolean => {
+  const normalized = assetPath.replace(/\\/g, '/');
+  if (!normalized.startsWith('/') || normalized.includes('..')) {
+    return false;
+  }
+  if (normalized.includes(ASSET_STORE_PATH_MARKER)) {
+    return true;
+  }
+  if (!workspacePath) {
+    return false;
+  }
+  const normalizedWorkspace = normalizeWorkspacePath(workspacePath.replace(/\\/g, '/'));
+  return normalized === normalizedWorkspace || normalized.startsWith(`${normalizedWorkspace}/`);
+};
+
+/**
+ * Splices a plain-text token (a relay image path) at the caret, adding
+ * surrounding spaces only where the neighboring text needs them. Shared by
+ * the composer's paste/drop handler so the exact insertion text is testable
+ * without simulating a DOM paste event.
+ */
+export const buildPlainTextInsertion = (
+  before: string,
+  after: string,
+  token: string,
+): { text: string; caretOffset: number } => {
+  const needsLeadingGap = before.length > 0 && !/\s$/.test(before);
+  const needsTrailingGap = after.length > 0 && !after.startsWith(' ');
+  const inserted = `${needsLeadingGap ? ' ' : ''}${token}${needsTrailingGap ? ' ' : ''}`;
+  return { text: `${before}${inserted}${after}`, caretOffset: before.length + inserted.length };
+};
 /** The active trigger token (`/…` for gjc, `$…` for codex) under the caret, or null. */
 export const getActiveSlashToken = (text: string, caret: number, trigger: string): { start: number; query: string } | null => {
   for (let index = caret - 1; index >= 0; index -= 1) {

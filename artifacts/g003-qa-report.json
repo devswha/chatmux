@@ -1,0 +1,70 @@
+{
+  "kind": "api-package-test-report",
+  "status": "passed",
+  "scope": "G003(M1) final frozen-set QA revalidation. Product source was not modified by this QA run; only this requested artifact was added.",
+  "head": "245f93af113c8df40729ec47d0c193d21d4c4073",
+  "cases": [
+    {
+      "id": 1,
+      "name": "No cached-session authorization path",
+      "verdict": "passed",
+      "evidence": "Static action-lane scan reported cachedActionCallCount=0 across tmux-fresh-verifier, tmux-target-guard, tmux-pane-actions, and external output/send/kill route slices. tmux-fresh-verifier.service.test.ts also passed its uncached-scan/cache-nonseeding assertion."
+    },
+    {
+      "id": 2,
+      "name": "Type boundary and immutable verified target",
+      "verdict": "passed",
+      "evidence": "npx tsc -p /tmp/g003-type-boundary.tsconfig.json passed with a @ts-expect-error on captureTmuxPane(unverified plain object), proving the branded action boundary rejects that call. npx tsc --noEmit -p server/tsconfig.json passed. tmux-fresh-verifier.service.test.ts passed frozen target/top-level/tmux/process assertions."
+    },
+    {
+      "id": 3,
+      "name": "Error-code set unchanged from HEAD",
+      "verdict": "passed",
+      "evidence": "node /tmp/g003-error-code-compare.mjs compared code: literals in non-test server/shared source at HEAD 245f93a and the working tree; added=[] (0 new codes)."
+    },
+    {
+      "id": 4,
+      "name": "Provider routes contract is non-flaky and preserves code strings",
+      "verdict": "passed",
+      "evidence": "TSX_TSCONFIG_PATH=server/tsconfig.json node --import tsx --test server/modules/providers/tests/provider-routes-contract.test.ts ran three consecutive times: each run 10 passed, 0 failed. This includes nine successful routes, format/freshness/lineage error code assertions, and injected EXTERNAL_CLI_SPAWN_FAILED 409."
+    },
+    {
+      "id": 5,
+      "name": "Spawn verifier and pane-identity boundary",
+      "verdict": "passed",
+      "evidence": "provider-routes-contract.test.ts passed 'spawn response and fresh-verifier boundaries stay explicit in the route source': external spawn has no assertFreshExternalTmuxTarget call and no socket/session/window/pane identity fields; its failure injection validates EXTERNAL_CLI_SPAWN_FAILED at 409."
+    },
+    {
+      "id": 6,
+      "name": "Complete providers focused suite",
+      "verdict": "passed",
+      "evidence": "One run of TSX_TSCONFIG_PATH=server/tsconfig.json node --import tsx --test --test-reporter=tap server/modules/providers/tests/*.test.ts produced /tmp/g003-providers.tap with tests=226, pass=226, fail=0, skipped=0. The post-run JSON helper had an unrelated undefined shell-status variable, but the test runner TAP summary is complete and passing."
+    },
+    {
+      "id": 7,
+      "name": "Live lineage pane recheck before target minting",
+      "verdict": "passed",
+      "evidence": "Temporary /tmp/g003-live-lineage.test.ts passed 2/2: injected loader then assertPaneIdentity observed ordered events ['load','assert:%1']; injected TMUX_PANE_GENERATION_MISMATCH 409 rejected before any target could be returned."
+    },
+    {
+      "id": 8,
+      "name": "Factory source-lock effectiveness",
+      "verdict": "passed",
+      "evidence": "A temporary production-path probe server/g003-factory-alias-probe.ts imported createVerifiedTmuxActionTarget as forge. The source-lock test failed exactly with that probe as its sole offender. The probe was removed immediately; test ! -e server/g003-factory-alias-probe.ts passed and final git status contains no probe path. Pre-existing user work remains intentionally untouched."
+    }
+  ],
+  "additionalEvidence": [
+    {
+      "name": "Fresh verifier and pane-action focused tests",
+      "result": "11 passed, 0 failed",
+      "command": "TSX_TSCONFIG_PATH=server/tsconfig.json node --import tsx --test server/modules/providers/tests/tmux-fresh-verifier.service.test.ts server/modules/providers/tests/tmux-pane-actions.service.test.ts"
+    },
+    {
+      "name": "Native tmux stale-generation byte snapshot",
+      "result": "1 passed, 0 failed",
+      "command": "TSX_TSCONFIG_PATH=server/tsconfig.json node --import tsx --test --test-name-pattern='real tmux rejects stale process generations after respawning the same pane' server/modules/providers/tests/tmux-runtime.e2e.test.ts",
+      "coverage": "Exercises real send and kill action paths, capture-pane before/after byte snapshots, rejected stale target, and successful current-generation send/kill."
+    }
+  ],
+  "blockers": []
+}

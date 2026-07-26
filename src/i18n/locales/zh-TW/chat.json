@@ -258,6 +258,9 @@
     "interrupt": "中斷",
     "interrupting": "正在中斷…",
     "interruptSent": "已傳送中斷",
-    "interruptFailed": "無法中斷"
+    "interruptFailed": "無法中斷",
+    "imageUploading": "正在上傳圖片…",
+    "imageUploadFailed": "圖片上傳失敗",
+    "imagePathRejected": "已拒絕專案或家目錄之外的圖片路徑"
   }
 }

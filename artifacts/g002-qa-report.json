@@ -1,0 +1,53 @@
+{
+  "kind": "g002-qa-red-team-report",
+  "surface": "api/package",
+  "status": "passed",
+  "redTeamStatus": "passed",
+  "cases": [
+    {
+      "id": "journal-free-existing-db-replay",
+      "verdict": "passed",
+      "evidence": "Temporary in-memory legacy database was fully migrated, had schema_migrations dropped, then replayed with projects, sessions, schema, and foreign keys unchanged; versions 1-12 were restored."
+    },
+    {
+      "id": "partial-migration-journal-replay",
+      "verdict": "passed",
+      "evidence": "After the replayed journal was reduced to versions 1-5, rerun preserved the complete data/schema snapshot and restored versions 1-12."
+    },
+    {
+      "id": "sequential-migration-rerun",
+      "verdict": "passed",
+      "evidence": "A second runMigrations call after the partial-journal recovery left the complete snapshot unchanged; migration integrity fixtures also passed."
+    },
+    {
+      "id": "malicious-plugin-manifest",
+      "verdict": "passed",
+      "evidence": "Focused plugin tests reject traversal entries, scope duplicate checks to the injected directory, and invoke npm install with --ignore-scripts."
+    },
+    {
+      "id": "voice-secret-and-redirect-leakage",
+      "verdict": "passed",
+      "evidence": "Focused voice tests verified API key/backend diagnostics are absent from response and logs, redirects are not followed, and invalid backend URLs are rejected."
+    },
+    {
+      "id": "new-test-stability",
+      "verdict": "passed",
+      "evidence": "TSX_TSCONFIG_PATH=server/tsconfig.json node --import tsx --test migrations-integrity.test.ts plugin-loader.smoke.test.js voice-proxy.test.js passed 29/29 on three consecutive runs."
+    },
+    {
+      "id": "hermetic-injected-plugin-directory",
+      "verdict": "passed",
+      "evidence": "With HOME overridden to a temporary home containing a same-name fake host plugin, installPluginFromGit using an injected pluginsDir installed the candidate there and left the fake host directory byte-for-byte and entry-count unchanged."
+    },
+    {
+      "id": "voice-log-contract-and-status-remap",
+      "verdict": "passed",
+      "evidence": "Temporary upstream exercise covered 401, 403, 500, 503, and connection failure: 401/403 remapped to 502, 500/503 preserved, connection returned 502, and every captured log was exactly {operation:'tts', upstreamStatus:<status|null>} with no URL, body, header, or key secret."
+    }
+  ],
+  "summary": {
+    "passed": 8,
+    "failed": 0
+  },
+  "blockers": []
+}

@@ -222,6 +222,9 @@
     "interrupt": "中断",
     "interrupting": "正在中断…",
     "interruptSent": "已发送中断",
-    "interruptFailed": "无法中断"
+    "interruptFailed": "无法中断",
+    "imageUploading": "正在上传图片…",
+    "imageUploadFailed": "图片上传失败",
+    "imagePathRejected": "已拒绝项目或主目录之外的图片路径"
   }
 }

@@ -171,6 +171,7 @@
       "waitingUserTitle": "Le tour actuel est terminé et attend votre prochaine saisie",
       "approvalPending": "Approbation en attente",
       "approvalPendingTitle": "L’agent attend votre sélection ou votre approbation",
+      "approvalPendingAttach": "Se connecter à « {{name}} » pour répondre à l’approbation en attente",
       "unknown": "Indisponible",
       "unknownTitle": "L’état actuel ne peut pas être déterminé de manière sûre à partir des données du fournisseur"
     }

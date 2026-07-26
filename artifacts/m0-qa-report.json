@@ -1,0 +1,52 @@
+{
+  "kind": "api-package-test-report",
+  "surface": "package",
+  "cases": [
+    {
+      "id": "M0-QA-1",
+      "scenario": "High-severity npm audit gate",
+      "expected": "npm run audit exits 0 with zero high or critical findings",
+      "verdict": "passed",
+      "evidence": "npm run audit exited 0; npm reported only 5 moderate vulnerabilities and no high/critical findings."
+    },
+    {
+      "id": "M0-QA-2",
+      "scenario": "Hidden audit suppression search",
+      "expected": "No audit-level relaxation, audit=false, or audit ignore configuration in .npmrc/package.json",
+      "verdict": "passed",
+      "evidence": ".npmrc contains only engine-strict=true; deterministic assertion found no forbidden npm config and package.json audit script is npm audit --audit-level=high."
+    },
+    {
+      "id": "M0-QA-3",
+      "scenario": "Lint and override runtime compatibility",
+      "expected": "npm run lint exits 0; minimatch matches *.js; brace-expansion resolves to 5.0.8",
+      "verdict": "passed",
+      "evidence": "npm run lint exited 0; Node assertions passed for minimatch.minimatch('a.js','*.js') === true and brace-expansion/package.json version === 5.0.8."
+    },
+    {
+      "id": "M0-QA-4",
+      "scenario": "Resolved dependency tree and vulnerable-version residue",
+      "expected": "npm ls brace-expansion minimatch and npm ls --all exit 0 with no vulnerable brace-expansion/minimatch versions",
+      "verdict": "passed",
+      "evidence": "Both npm ls commands exited 0; targeted tree resolved only minimatch@10.2.5 and brace-expansion@5.0.8, and package-lock traversal asserted the same for every installed target package."
+    },
+    {
+      "id": "M0-QA-5",
+      "scenario": "Baseline report FX inventory spot check",
+      "expected": "At least five FX claims, including migrations.ts line references, match implementation",
+      "verdict": "passed",
+      "evidence": "Deterministic report/source assertions passed for FX-1 through FX-6 and confirmed runMigrations ordering in server/modules/database/migrations.ts."
+    },
+    {
+      "id": "M0-QA-6",
+      "scenario": "Override/direct-dependency conflict check",
+      "expected": "brace-expansion and minimatch are overrides only, not direct production or development dependencies",
+      "verdict": "passed",
+      "evidence": "package.json assertions confirmed both packages are absent from dependencies and devDependencies while overrides specify brace-expansion ^5.0.8 and minimatch ^10.2.5."
+    }
+  ],
+  "summary": {
+    "passed": 6,
+    "failed": 0
+  }
+}

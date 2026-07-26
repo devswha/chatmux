@@ -9,9 +9,11 @@ import '../../../../i18n/config';
 import { api } from '../../../../utils/api';
 import type { TmuxPaneTarget } from '../../../../../shared/tmux';
 import {
+  buildPlainTextInsertion,
   filterMentionableFiles,
   flattenProjectFileTree,
   getActiveMentionToken,
+  isRelayImagePathAllowed,
 } from '../../utils/liveRelayComposer';
 
 import LiveRelayComposer from './LiveRelayComposer';
@@ -137,10 +139,98 @@ test('relay translations exist in every supported locale', () => {
       'utf8',
     )) as { relay?: Record<string, string> };
     assert.deepEqual(Object.keys(translation.relay ?? {}).sort(), [
+      'imagePathRejected',
+      'imageUploadFailed',
+      'imageUploading',
       'interrupt',
       'interruptFailed',
       'interruptSent',
       'interrupting',
     ]);
   }
+});
+
+test('B10: relay image paths from the shared asset store or the active workspace are allowed, everything else is rejected', () => {
+  assert.equal(isRelayImagePathAllowed('/home/user/.chatmux/assets/123-photo.png', null), true);
+  assert.equal(isRelayImagePathAllowed('/home/user/.chatmux/assets/123-photo.png', '/workspace/other'), true);
+  assert.equal(isRelayImagePathAllowed('/workspace/project/docs/photo.png', '/workspace/project'), true);
+  assert.equal(isRelayImagePathAllowed('/workspace/project', '/workspace/project'), true);
+
+  // Outside both the asset store and the workspace.
+  assert.equal(isRelayImagePathAllowed('/etc/passwd', '/workspace/project'), false);
+  assert.equal(isRelayImagePathAllowed('/etc/passwd', null), false);
+  // A workspace-looking prefix that is actually a sibling directory must not
+  // pass a naive startsWith check.
+  assert.equal(isRelayImagePathAllowed('/workspace/project-evil/photo.png', '/workspace/project'), false);
+  // Traversal and non-absolute values are always rejected.
+  assert.equal(isRelayImagePathAllowed('/workspace/project/../secrets/key.png', '/workspace/project'), false);
+  assert.equal(isRelayImagePathAllowed('relative/photo.png', '/workspace/project'), false);
+});
+
+test('B10: plain-text path insertion adds spacing only where the surrounding text needs it', () => {
+  assert.deepEqual(
+    buildPlainTextInsertion('', '', '/home/user/.chatmux/assets/1-a.png'),
+    { text: '/home/user/.chatmux/assets/1-a.png', caretOffset: 34 },
+  );
+  assert.deepEqual(
+    buildPlainTextInsertion('see', 'please', '/a.png'),
+    { text: 'see /a.png please', caretOffset: 11 },
+  );
+  assert.deepEqual(
+    buildPlainTextInsertion('already ', '', '/a.png'),
+    { text: 'already /a.png', caretOffset: 14 },
+  );
+});
+
+test('B10: the composer uploads pasted/dropped images through the existing global asset store endpoint exactly once', async () => {
+  const originalFetch = globalThis.fetch;
+  const calls: Array<{ url: string; hasFormBody: boolean }> = [];
+  globalThis.fetch = (async (url: string | URL | Request, options?: RequestInit) => {
+    calls.push({ url: String(url), hasFormBody: options?.body instanceof FormData });
+    return {
+      headers: { get: () => null },
+      ok: true,
+      json: async () => ({ images: [{ name: 'a.png', path: '/home/user/.chatmux/assets/1-a.png' }] }),
+    } as unknown as Response;
+  }) as typeof fetch;
+
+  try {
+    const file = new File(['fake'], 'a.png', { type: 'image/png' });
+    await api.uploadImageAssets([file]);
+    assert.deepEqual(calls, [{ url: '/api/assets/images', hasFormBody: true }]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('B10: no new upload endpoint is introduced — the composer only ever posts to the shared assets store', () => {
+  const source = readFileSync(new URL('./LiveRelayComposer.tsx', import.meta.url), 'utf8');
+  const apiSource = readFileSync(new URL('../../../../utils/api.js', import.meta.url), 'utf8');
+
+  // The composer never calls fetch/authenticatedFetch directly for uploads —
+  // it only goes through api.uploadImageAssets.
+  assert.doesNotMatch(source, /authenticatedFetch\(/);
+  assert.doesNotMatch(source, /['"]\/api\/(?!providers\/sessions)/);
+  assert.match(source, /api\.uploadImageAssets\(/);
+
+  // uploadImageAssets itself posts to the one pre-existing global assets
+  // route and nowhere else.
+  const uploadFnMatch = apiSource.match(/uploadImageAssets: \(files\) => \{[\s\S]*?\n {2}\},/);
+  assert.ok(uploadFnMatch, apiSource);
+  assert.match(uploadFnMatch[0], /\/api\/assets\/images/);
+  assert.equal((uploadFnMatch[0].match(/authenticatedFetch\(/g) ?? []).length, 1);
+});
+
+test('B10: paste and drop each route through the single image-upload handler, and rejected paths are not inserted', () => {
+  const source = readFileSync(new URL('./LiveRelayComposer.tsx', import.meta.url), 'utf8');
+
+  assert.match(source, /onPaste=\{handleComposerPaste\}/);
+  assert.match(source, /onDrop=\{handleComposerDrop\}/);
+  assert.match(source, /void handleImageUpload\(imageFiles\)/g);
+  assert.equal((source.match(/void handleImageUpload\(imageFiles\)/g) ?? []).length, 2);
+
+  // A rejected path must never reach insertPlainPath — it can only be
+  // reached from the allowed branch of the isRelayImagePathAllowed guard.
+  const handlerBody = source.slice(source.indexOf('const handleImageUpload'), source.indexOf('const handleComposerPaste'));
+  assert.match(handlerBody, /if \(typeof image\.path !== 'string' \|\| !isRelayImagePathAllowed\(image\.path, workspacePath\)\) \{\s*rejected = true;\s*continue;\s*\}\s*insertPlainPath\(image\.path\);/);
 });
