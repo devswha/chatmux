@@ -39,6 +39,18 @@ export default defineConfig(({ mode }) => {
       host,
       allowedHosts,
       port: parseInt(env.VITE_PORT) || 5173,
+      // Build outputs are not sources. Watching them burns inotify handles —
+      // native/*/target alone holds well over a thousand files — and an
+      // exhausted watch table makes the dev server fail to start with ENOSPC.
+      watch: {
+        ignored: [
+          '**/native/**/target/**',
+          '**/dist/**',
+          '**/dist-server/**',
+          '**/dist-native/**',
+          '**/artifacts/**',
+        ],
+      },
       proxy: {
         '/api': `http://${proxyHost}:${serverPort}`,
         '/ws': {
