@@ -40,7 +40,7 @@ function session(overrides: Partial<ExternalSession> = {}): ExternalSession {
   };
 }
 
-function makeHarness() {
+function makeHarness(options: { now?: () => number } = {}) {
   let discovery: { ok: boolean; sessions: ExternalSession[] } = { ok: true, sessions: [] };
   let resolution: Resolution = { status: 'unavailable' };
   const resolvedSessions: ExternalSession[] = [];
@@ -55,6 +55,7 @@ function makeHarness() {
     notify: (event) => notifications.push(event),
     getUserId: () => 1,
     diagnostic: (event) => diagnostics.push(event),
+    ...(options.now ? { now: options.now } : {}),
   });
 
   return {
@@ -331,4 +332,73 @@ test('external monitor never overlaps slow discovery ticks', async () => {
   assert.equal(discoveryCalls, 1);
   releaseDiscovery?.();
   await firstTick;
+});
+
+test('persistent read failures back off exponentially and recover on success', async () => {
+  let nowMs = 0;
+  const h = makeHarness({ now: () => nowMs });
+  h.setDiscovery({ ok: true, sessions: [session({ kind: 'codex', providerSessionId: undefined })] });
+  h.setResolution({ status: 'unavailable' });
+
+  await h.monitor.tick(); // failure 1 — below the backoff threshold
+  nowMs += 5_000;
+  await h.monitor.tick(); // failure 2 — schedules a 10s window
+  assert.equal(h.resolvedSessions.length, 2);
+
+  nowMs += 5_000; // 10s: window (due 15s) still pending
+  await h.monitor.tick();
+  assert.equal(h.resolvedSessions.length, 2, 'a backing-off pane must skip the read');
+
+  nowMs += 5_000; // 15s: due — failure 3 schedules a 20s window
+  await h.monitor.tick();
+  assert.equal(h.resolvedSessions.length, 3);
+
+  nowMs += 15_000; // 30s: still pending (due 35s)
+  await h.monitor.tick();
+  assert.equal(h.resolvedSessions.length, 3);
+  nowMs += 5_000; // 35s: due — failure 4 schedules a 40s window
+  await h.monitor.tick();
+  assert.equal(h.resolvedSessions.length, 4);
+
+  assert.equal(h.monitor.stats().read_unavailable, 4);
+  assert.equal(h.monitor.generationCount(), 1, 'backoff must never drop the generation');
+
+  nowMs += 40_000; // 75s: due — evidence recovered
+  h.setResolution({ status: 'resolved', activity: 'running' });
+  await h.monitor.tick();
+  nowMs += 5_000; // success reset: the very next tick reads again
+  h.setResolution({ status: 'resolved', activity: 'waiting_user' });
+  await h.monitor.tick();
+  assert.equal(h.resolvedSessions.length, 6);
+  assert.equal(h.notifications.length, 1, 'recovered evidence must complete the armed turn');
+});
+
+test('read backoff caps at ten minutes and a late native-id binding resets it', async () => {
+  let nowMs = 0;
+  const h = makeHarness({ now: () => nowMs });
+  h.setDiscovery({ ok: true, sessions: [session({ kind: 'omp', providerSessionId: undefined })] });
+  h.setResolution({ status: 'unavailable' });
+
+  for (let i = 0; i < 12; i += 1) {
+    await h.monitor.tick();
+    nowMs += 600_000; // always jump past any pending window
+  }
+  assert.equal(h.resolvedSessions.length, 12);
+
+  const attemptsBefore = h.resolvedSessions.length;
+  await h.monitor.tick(); // schedules the capped 600s window
+  assert.equal(h.resolvedSessions.length, attemptsBefore + 1);
+  nowMs += 599_999;
+  await h.monitor.tick();
+  assert.equal(h.resolvedSessions.length, attemptsBefore + 1, 'the capped window is ten minutes');
+  nowMs += 1;
+  await h.monitor.tick();
+  assert.equal(h.resolvedSessions.length, attemptsBefore + 2);
+
+  // A late native-id binding is fresh evidence: the pending window resets and
+  // the pane is read again without waiting out the previous schedule.
+  h.setDiscovery({ ok: true, sessions: [session({ kind: 'omp', providerSessionId: 'native-late' })] });
+  h.setResolution({ status: 'resolved', activity: 'waiting_user' });
+  await h.monitor.tick();
+  assert.equal(h.resolvedSessions.length, attemptsBefore + 3);
 });

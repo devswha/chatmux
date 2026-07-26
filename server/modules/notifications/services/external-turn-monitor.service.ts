@@ -15,6 +15,16 @@ import { tmuxPaneIdentityKey } from '../../../../shared/tmux.js';
 const DEFAULT_INTERVAL_MS = 5000;
 const TRACKED_KINDS = new Set(['claude', 'codex', 'cursor', 'opencode', 'omp']);
 
+// A pane whose transcript cannot be located fails identically on every poll
+// (e.g. a codex launched without a recoverable native session id). After two
+// straight failures the retry interval doubles per failure up to the cap, so
+// a dead-end pane costs one read per ten minutes instead of one per tick.
+// Any successful read, fresh process generation, or late native-id binding
+// resets the schedule immediately.
+const READ_BACKOFF_MIN_FAILURES = 2;
+const READ_BACKOFF_BASE_MS = 10_000;
+const READ_BACKOFF_MAX_MS = 600_000;
+
 type ResolvedActivity = Extract<ExternalSessionActivityResolutionResult, { status: 'resolved' }>;
 /** Stable, sensitive-data-free state-machine diagnostic codes. */
 export const EXTERNAL_TURN_MONITOR_DIAGNOSTIC_CODES = [
@@ -88,6 +98,7 @@ type MonitorDeps = {
   }) => void;
   getUserId: () => number | null;
   diagnostic?: (event: ExternalTurnMonitorDiagnostic) => void;
+  now?: () => number;
 };
 
 type GenerationState = {
@@ -97,6 +108,8 @@ type GenerationState = {
   providerSessionId: string | null;
   armed: boolean;
   ordinal: number;
+  readFailures: number;
+  nextReadAtMs: number;
 };
 
 function providerSessionId(value: unknown): string | null {
@@ -180,6 +193,21 @@ export function createExternalTurnMonitor(deps: MonitorDeps) {
 
   const diagnosticStats = (): ExternalTurnMonitorStats => Object.freeze({ ...stats });
 
+  const now = deps.now ?? Date.now;
+
+  const resetReadBackoff = (state: GenerationState): void => {
+    state.readFailures = 0;
+    state.nextReadAtMs = 0;
+  };
+
+  const noteReadFailure = (state: GenerationState, nowMs: number): void => {
+    state.readFailures += 1;
+    if (state.readFailures < READ_BACKOFF_MIN_FAILURES) return;
+    const exponent = state.readFailures - READ_BACKOFF_MIN_FAILURES;
+    const delayMs = Math.min(READ_BACKOFF_BASE_MS * 2 ** exponent, READ_BACKOFF_MAX_MS);
+    state.nextReadAtMs = nowMs + delayMs;
+  };
+
   const observeResolved = (
     key: string,
     state: GenerationState,
@@ -241,6 +269,7 @@ export function createExternalTurnMonitor(deps: MonitorDeps) {
         return;
       }
 
+      const nowMs = now();
       const seen = new Set<string>();
       const seenPanes = new Set<string>();
       for (const session of discovered.sessions) {
@@ -269,6 +298,8 @@ export function createExternalTurnMonitor(deps: MonitorDeps) {
             providerSessionId: observedProviderSessionId,
             armed: false,
             ordinal: 0,
+            readFailures: 0,
+            nextReadAtMs: 0,
           };
           generations.set(key, state);
           emitDiagnostic({ code: 'baselined', ...diagnosticContext(session) });
@@ -280,6 +311,7 @@ export function createExternalTurnMonitor(deps: MonitorDeps) {
             state.providerSessionId = observedProviderSessionId;
             state.armed = false;
             silent = true;
+            resetReadBackoff(state);
             emitDiagnostic({ code: 'late_id_rebaselined', ...diagnosticContext(session) });
           } else if (state.providerSessionId !== observedProviderSessionId) {
             // A changed native id for one process generation is ambiguous.
@@ -289,6 +321,10 @@ export function createExternalTurnMonitor(deps: MonitorDeps) {
           }
         }
 
+        // Backoff suppresses only the transcript read; discovery bookkeeping
+        // above (generation reset, pruning, id binding) always runs.
+        if (state.nextReadAtMs > nowMs) continue;
+
         const resolverSession = state.providerSessionId && !observedProviderSessionId
           ? { ...session, providerSessionId: state.providerSessionId }
           : session;
@@ -297,12 +333,15 @@ export function createExternalTurnMonitor(deps: MonitorDeps) {
           resolved = asResolvedActivity(await deps.resolve(resolverSession));
         } catch {
           emitDiagnostic({ code: 'read_unavailable', ...diagnosticContext(resolverSession) });
+          noteReadFailure(state, nowMs);
           continue;
         }
         if (!resolved) {
           emitDiagnostic({ code: 'read_unavailable', ...diagnosticContext(resolverSession) });
+          noteReadFailure(state, nowMs);
           continue; // unavailable/invalid resolution preserves state
         }
+        resetReadBackoff(state);
         observeResolved(key, state, resolverSession, resolved, userId, silent);
       }
 
