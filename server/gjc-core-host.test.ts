@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { appendFile, mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -147,6 +147,13 @@ test('native core watches transcript depths under multiple roots and skips deep 
     await mkdir(cacheDir);
     const unobserved = path.join(cacheDir, 'cache.jsonl');
     await writeFile(unobserved, '{"type":"cache"}\n', 'utf8');
+    // Deep tree torture: 20 more directories below the cap. Any regression
+    // back to recursive watching would claim one inotify entry per directory.
+    let tortureDir = cacheDir;
+    for (let level = 0; level < 20; level += 1) {
+      tortureDir = path.join(tortureDir, `level-${level}`);
+      await mkdir(tortureDir);
+    }
 
     const priorTranscriptEvents = frames.filter((frame) => frame.path === transcript).length;
     await appendFile(transcript, '{"type":"message"}\n', 'utf8');
@@ -158,6 +165,24 @@ test('native core watches transcript depths under multiple roots and skips deep 
       false,
       'a transcript below the depth cap must not be reported',
     );
+
+    // Resource tripwire (the original incident): the watch-table cost must be
+    // bounded by the depth cap, not by the size of cache trees. The fixture
+    // holds 2 roots + 3 shallow directories, so anything near the 25+ watches
+    // recursive mode would claim here is a leak. Counted from the kernel via
+    // fdinfo so this fails in CI instead of exhausting the machine's table.
+    if (process.platform === 'linux' && child.pid) {
+      const fdinfoRoot = `/proc/${child.pid}/fdinfo`;
+      let inotifyEntries = 0;
+      for (const fd of await readdir(fdinfoRoot)) {
+        const info = await readFile(path.join(fdinfoRoot, fd), 'utf8').catch(() => '');
+        inotifyEntries += info.split('\n').filter((line) => line.startsWith('inotify')).length;
+      }
+      assert.ok(
+        inotifyEntries > 0 && inotifyEntries <= 10,
+        `watch-table usage must stay depth-bounded, saw ${inotifyEntries} inotify watches`,
+      );
+    }
 
     child.stdin.end();
     assert.deepEqual(await completed, { code: 0, signal: null });
