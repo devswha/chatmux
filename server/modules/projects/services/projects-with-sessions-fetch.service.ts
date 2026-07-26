@@ -85,10 +85,39 @@ const MAX_PROJECT_SESSIONS_PAGE_SIZE = 200;
 // lazy-loads the rest per project via getProjectSessionsPage + sessionMeta.hasMore.
 const INITIAL_PROJECT_SESSIONS_PAGE_SIZE = 5;
 
+// generateDisplayName falls back to reading package.json from disk. The
+// project list calls it once per project row (5k+ rows on a mature index),
+// so results are cached briefly: a package.json rename still lands within a
+// minute, without re-reading thousands of files on every /api/projects call.
+const DISPLAY_NAME_CACHE_TTL_MS = 60_000;
+const DISPLAY_NAME_CACHE_MAX_ENTRIES = 20_000;
+const displayNameCache = new Map<string, { name: string; expiresAtMs: number }>();
+
+// The project list loop used to broadcast one websocket frame per project,
+// which meant thousands of frames per refresh for every connected client.
+// Progress is now sampled on a wall-clock interval (completion always sends).
+const PROGRESS_BROADCAST_INTERVAL_MS = 100;
+
 /**
  * Generate better display name from path.
  */
 export async function generateDisplayName(projectName: string, actualProjectDir: string | null = null): Promise<string> {
+  const cacheKey = `${projectName}\u0000${actualProjectDir ?? ''}`;
+  const nowMs = Date.now();
+  const cached = displayNameCache.get(cacheKey);
+  if (cached && cached.expiresAtMs > nowMs) {
+    return cached.name;
+  }
+
+  const name = await resolveDisplayNameUncached(projectName, actualProjectDir);
+  if (displayNameCache.size >= DISPLAY_NAME_CACHE_MAX_ENTRIES) {
+    displayNameCache.clear();
+  }
+  displayNameCache.set(cacheKey, { name, expiresAtMs: nowMs + DISPLAY_NAME_CACHE_TTL_MS });
+  return name;
+}
+
+async function resolveDisplayNameUncached(projectName: string, actualProjectDir: string | null): Promise<string> {
   // Use actual project directory if provided, otherwise decode from project name.
   const projectPath = actualProjectDir || projectName.replace(/-/g, '/');
 
@@ -232,6 +261,7 @@ export async function getProjectsWithSessions(
     initialSessionsByProject.set(sessionRow.project_path, page);
   }
   let processedProjects = 0;
+  let lastProgressBroadcastAtMs = 0;
 
   for (const row of projectRows) {
     processedProjects += 1;
@@ -239,12 +269,16 @@ export async function getProjectsWithSessions(
     const projectId = row.project_id;
     const projectPath = row.project_path;
 
-    broadcastProgress({
-      phase: 'loading',
-      current: processedProjects,
-      total: totalProjects,
-      currentProject: projectPath,
-    });
+    const progressNowMs = Date.now();
+    if (progressNowMs - lastProgressBroadcastAtMs >= PROGRESS_BROADCAST_INTERVAL_MS) {
+      lastProgressBroadcastAtMs = progressNowMs;
+      broadcastProgress({
+        phase: 'loading',
+        current: processedProjects,
+        total: totalProjects,
+        currentProject: projectPath,
+      });
+    }
 
     const displayName =
       row.custom_project_name && row.custom_project_name.trim().length > 0

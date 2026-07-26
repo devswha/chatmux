@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 
 import { projectsDb, sessionsDb } from '@/modules/database/index.js';
@@ -95,4 +98,21 @@ test('getArchivedProjectsWithSessions honors an explicit sessionsLimit', async (
     await getArchivedProjectsWithSessions({ skipSynchronization: true, sessionsLimit: 50 });
     assert.equal(captured.limit, 50);
   });
+});
+
+test('generateDisplayName caches package.json reads instead of re-reading per call', async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'chatmux-display-name-'));
+  try {
+    const { generateDisplayName } = await import('@/modules/projects/services/projects-with-sessions-fetch.service.js');
+    await writeFile(path.join(tempRoot, 'package.json'), JSON.stringify({ name: 'first-name' }), 'utf8');
+    assert.equal(await generateDisplayName(path.basename(tempRoot), tempRoot), 'first-name');
+
+    // A change inside the TTL window must serve the cached name: the project
+    // list endpoint calls this once per project row on every refresh, and the
+    // cache is what keeps that from re-reading thousands of files.
+    await writeFile(path.join(tempRoot, 'package.json'), JSON.stringify({ name: 'second-name' }), 'utf8');
+    assert.equal(await generateDisplayName(path.basename(tempRoot), tempRoot), 'first-name');
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
 });
