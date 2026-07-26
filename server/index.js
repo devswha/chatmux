@@ -9,6 +9,7 @@ import http from 'http';
 
 import express from 'express';
 import cors from 'cors';
+import compression from 'compression';
 import Database from 'better-sqlite3';
 
 import { AppError, getOpenCodeDatabasePath } from '@/shared/utils.js';
@@ -190,6 +191,19 @@ const wss = createWebSocketServer(server, {
 app.locals.wss = wss;
 
 app.use(cors());
+
+// Compress API responses (the project index alone is multi-megabyte JSON).
+// SSE endpoints are excluded: buffering an event stream breaks incremental
+// delivery of clone progress and agent streaming.
+app.use(compression({
+    filter: (req, res) => {
+        const contentType = String(res.getHeader('Content-Type') || '');
+        if (contentType.includes('text/event-stream')) {
+            return false;
+        }
+        return compression.filter(req, res);
+    },
+}));
 app.use(express.json({
     limit: '50mb',
     type: (req) => {
@@ -576,6 +590,20 @@ app.get('/api/projects/:projectId/sessions/:sessionId/token-usage', authenticate
     }
 });
 
+// Unknown API routes must fail loudly as JSON. Without this guard they fall
+// through to the SPA catch-all below and return index.html with HTTP 200,
+// which turns every client/server version skew into an opaque JSON parse
+// error instead of a diagnosable 404.
+app.all('/api/*', (req, res) => {
+    res.status(404).json({
+        success: false,
+        error: {
+            code: 'NOT_FOUND',
+            message: `Unknown API route: ${req.method} ${req.path}`,
+        },
+    });
+});
+
 // Serve React app for all other routes (excluding static files)
 app.get('*', (req, res) => {
     // Skip requests for static assets (files with extensions)
@@ -634,7 +662,32 @@ const DISPLAY_HOST = getConnectableHost(HOST);
 const VITE_PORT = process.env.VITE_PORT || 5173;
 const LOCAL_SERVER_MARKER_PATH = path.join(os.homedir(), '.chatmux', 'local-server.json');
 
+function isProcessAlive(pid) {
+    try {
+        process.kill(pid, 0);
+        return true;
+    } catch (error) {
+        // EPERM means the process exists but belongs to another user.
+        return error.code === 'EPERM';
+    }
+}
+
 async function writeLocalServerMarker() {
+    // Several instances can serve at once (e.g. a systemd release install plus
+    // a dev checkout). First live writer keeps the marker: never overwrite a
+    // marker whose recorded pid is a different, still-running process. A stale
+    // marker (dead pid) is reclaimed.
+    try {
+        const raw = await fsPromises.readFile(LOCAL_SERVER_MARKER_PATH, 'utf8');
+        const existing = JSON.parse(raw);
+        if (existing.pid && existing.pid !== process.pid && isProcessAlive(existing.pid)) {
+            console.log(`${c.info('[INFO]')} Local server marker already owned by running pid ${existing.pid} (${existing.url || 'unknown url'}); keeping it.`);
+            return;
+        }
+    } catch {
+        // Missing or unreadable marker: claim it below.
+    }
+
     const marker = {
         pid: process.pid,
         host: HOST,
