@@ -14,6 +14,16 @@ const WATCH_ERROR: &[u8] = b"chatmux-core: watcher failed\n";
 const MAX_FRAME_BYTES: usize = 64 * 1024;
 const EVENT_CHANNEL_CAPACITY: usize = 256;
 
+// inotify has no kernel-side recursion: every watched directory costs one
+// entry in the per-user watch table (fs.inotify.max_user_watches, 65536 by
+// default). gjc/omp transcripts live at most three levels below a root
+// (<root>/<project>/[<internal>/]<session>.jsonl), so watching directories
+// two levels deep observes every transcript event while skipping the tens of
+// thousands of cache directories agents dump under the same roots (e.g.
+// resident-cache trees), which previously exhausted the watch table for the
+// whole user and starved other watchers on the machine.
+const MAX_WATCH_DIR_DEPTH: usize = 2;
+
 #[derive(Clone, Copy)]
 enum OutputEvent {
     Add,
@@ -29,7 +39,7 @@ impl OutputEvent {
     }
 }
 
-/// Runs a parent-owned recursive watcher until stdin reaches EOF.
+/// Runs a parent-owned depth-bounded watcher until stdin reaches EOF.
 pub fn run(roots: Vec<PathBuf>) -> bool {
     let (events_tx, events_rx) = mpsc::sync_channel(EVENT_CHANNEL_CAPACITY);
     let failed = Arc::new(AtomicBool::new(false));
@@ -47,13 +57,18 @@ pub fn run(roots: Vec<PathBuf>) -> bool {
         Err(_) => return fail(),
     };
 
+    let mut stdout = io::stdout().lock();
     for root in &roots {
-        if watcher.watch(root, RecursiveMode::Recursive).is_err() {
+        if watcher.watch(root, RecursiveMode::NonRecursive).is_err() {
+            return fail();
+        }
+        // Pre-existing transcripts are indexed by the host's own scans; the
+        // initial walk only claims directory watches, without emitting frames.
+        if !watch_directory_tree(&mut watcher, &mut stdout, &roots, root, 0, false) {
             return fail();
         }
     }
 
-    let mut stdout = io::stdout().lock();
     if stdout.write_all(READY_FRAME).is_err() || stdout.flush().is_err() {
         return fail();
     }
@@ -82,6 +97,9 @@ pub fn run(roots: Vec<PathBuf>) -> bool {
 
         match events_rx.recv_timeout(Duration::from_millis(100)) {
             Ok(Ok(event)) => {
+                if !watch_created_directories(&mut stdout, &mut watcher, &roots, &event) {
+                    return fail();
+                }
                 if !write_event_frames(&mut stdout, &roots, event) {
                     return fail();
                 }
@@ -103,6 +121,100 @@ fn wait_for_stdin_eof() -> bool {
             Err(_) => return false,
         }
     }
+}
+
+/// Claims one non-recursive watch on `dir` and walks its subdirectories up to
+/// `MAX_WATCH_DIR_DEPTH`. With `emit_existing`, transcripts already present
+/// are reported as synthetic add frames: a directory created moments before
+/// its watch lands may already contain the session file the event was for.
+/// Vanished directories are not failures; only stdout write errors are fatal.
+fn watch_directory_tree(
+    watcher: &mut RecommendedWatcher,
+    stdout: &mut impl Write,
+    roots: &[PathBuf],
+    dir: &Path,
+    depth: usize,
+    emit_existing: bool,
+) -> bool {
+    let _ = watcher.watch(dir, RecursiveMode::NonRecursive);
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return true;
+    };
+    for entry in entries.flatten() {
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        if file_type.is_dir() {
+            if depth + 1 <= MAX_WATCH_DIR_DEPTH
+                && !watch_directory_tree(watcher, stdout, roots, &entry.path(), depth + 1, emit_existing)
+            {
+                return false;
+            }
+        } else if emit_existing {
+            if let Some(frame) = frame_for_path(OutputEvent::Add, &entry.path(), roots) {
+                if stdout.write_all(&frame).is_err() || stdout.flush().is_err() {
+                    return false;
+                }
+            }
+        }
+    }
+    true
+}
+
+/// Extends the watch set when a directory appears inside a root at an
+/// observable depth, whether freshly created or moved in.
+fn watch_created_directories(
+    stdout: &mut impl Write,
+    watcher: &mut RecommendedWatcher,
+    roots: &[PathBuf],
+    event: &Event,
+) -> bool {
+    let relevant = matches!(
+        event.kind,
+        EventKind::Create(_)
+            | EventKind::Modify(notify::event::ModifyKind::Name(
+                notify::event::RenameMode::Both | notify::event::RenameMode::To
+            ))
+    );
+    if !relevant {
+        return true;
+    }
+
+    for path in &event.paths {
+        let Ok(resolved) = std::fs::canonicalize(path) else {
+            continue;
+        };
+        if !resolved.is_dir() {
+            continue;
+        }
+        let Some(depth) = directory_depth(&resolved, roots) else {
+            continue;
+        };
+        if depth == 0 || depth > MAX_WATCH_DIR_DEPTH {
+            continue;
+        }
+        if !watch_directory_tree(watcher, stdout, roots, &resolved, depth, true) {
+            return false;
+        }
+    }
+    true
+}
+
+/// Depth of `path` below the closest containing root (the root itself is 0).
+fn directory_depth(path: &Path, roots: &[PathBuf]) -> Option<usize> {
+    roots
+        .iter()
+        .filter_map(|root| {
+            let relative = path.strip_prefix(root).ok()?;
+            if relative
+                .components()
+                .any(|component| matches!(component, Component::ParentDir))
+            {
+                return None;
+            }
+            Some(relative.components().count())
+        })
+        .min()
 }
 
 fn write_event_frames(stdout: &mut impl Write, roots: &[PathBuf], event: Event) -> bool {
@@ -195,9 +307,19 @@ fn fail() -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{OutputEvent, frame_for_path, frame_for_resolved_path};
+    use super::{OutputEvent, directory_depth, frame_for_path, frame_for_resolved_path};
     use std::fs;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
+
+    #[test]
+    fn directory_depth_is_relative_to_the_closest_containing_root() {
+        let roots = vec![PathBuf::from("/a"), PathBuf::from("/a/b")];
+        assert_eq!(directory_depth(Path::new("/a"), &roots), Some(0));
+        assert_eq!(directory_depth(Path::new("/a/x"), &roots), Some(1));
+        assert_eq!(directory_depth(Path::new("/a/b/c"), &roots), Some(1));
+        assert_eq!(directory_depth(Path::new("/a/b/c/d/e"), &roots), Some(3));
+        assert_eq!(directory_depth(Path::new("/z"), &roots), None);
+    }
 
     #[test]
     fn frames_only_canonical_jsonl_paths_inside_roots() {

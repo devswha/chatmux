@@ -64,7 +64,7 @@ test('native core reports its pinned binary identity', async () => {
   assert.equal(result.stderr.length, 0);
 });
 
-test('native core recursively watches multiple roots and filters non-transcript files', async () => {
+test('native core watches transcript depths under multiple roots and skips deep cache trees', async () => {
   const temporaryRoot = await realpath(await mkdtemp(path.join(os.tmpdir(), 'chatmux-core-watch-')));
   const firstRoot = path.join(temporaryRoot, 'first');
   const secondRoot = path.join(temporaryRoot, 'second');
@@ -134,11 +134,30 @@ test('native core recursively watches multiple roots and filters non-transcript 
     await writeFile(transcript, '{"type":"session"}\n', 'utf8');
     await waitForFrame((frame) => frame.kind === 'event' && frame.path === transcript);
 
+    // Depth-3 transcripts (root/project/internal/session.jsonl) stay observed.
+    const internal = path.join(nested, 'internal');
+    await mkdir(internal);
+    const deepTranscript = path.join(internal, 'deep-session.jsonl');
+    await writeFile(deepTranscript, '{"type":"session"}\n', 'utf8');
+    await waitForFrame((frame) => frame.kind === 'event' && frame.path === deepTranscript);
+
+    // Directories beyond the watch depth (cache trees) must cost no watches
+    // and emit no frames: a jsonl four levels deep stays unobserved.
+    const cacheDir = path.join(internal, 'resident-cache');
+    await mkdir(cacheDir);
+    const unobserved = path.join(cacheDir, 'cache.jsonl');
+    await writeFile(unobserved, '{"type":"cache"}\n', 'utf8');
+
     const priorTranscriptEvents = frames.filter((frame) => frame.path === transcript).length;
     await appendFile(transcript, '{"type":"message"}\n', 'utf8');
     await waitForFrame((_frame) => (
       frames.filter((frame) => frame.path === transcript).length > priorTranscriptEvents
     ));
+    assert.equal(
+      frames.some((frame) => frame.path === unobserved),
+      false,
+      'a transcript below the depth cap must not be reported',
+    );
 
     child.stdin.end();
     assert.deepEqual(await completed, { code: 0, signal: null });

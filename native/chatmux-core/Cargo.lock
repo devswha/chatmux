@@ -49,6 +49,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fd16c4719339c4530435d38e511904438d07cce7950afa3718a84ac36c10e89e"
 
 [[package]]
+name = "chatmux-core"
+version = "0.2.0"
+dependencies = [
+ "base64",
+ "notify",
+ "portable-pty",
+ "rusqlite",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "crossbeam-channel"
 version = "0.5.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -121,18 +133,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "76ee7a02da4d231650c7cea31349b889be2f45ddb3ef3032d2ec8185f6313fd2"
 dependencies = [
  "libc",
-]
-
-[[package]]
-name = "chatmux-core"
-version = "0.2.0"
-dependencies = [
- "base64",
- "notify",
- "portable-pty",
- "rusqlite",
- "serde",
- "serde_json",
 ]
 
 [[package]]
