@@ -164,6 +164,16 @@ export function useChatRealtimeHandlers({
         case 'loading_progress':
           return;
 
+        // Discovery stream frames (`discovery.snapshot` / `discovery.delta` /
+        // `discovery.heartbeat`) — owned by useDiscoveryStream. They carry no
+        // sessionId, so without this guard they would fall through to the
+        // catch-all store append below, be attributed to the currently viewed
+        // session, and poison its slot with an id-less pseudo message.
+        case 'discovery.snapshot':
+        case 'discovery.delta':
+        case 'discovery.heartbeat':
+          return;
+
         default:
           break;
       }
@@ -214,7 +224,11 @@ export function useChatRealtimeHandlers({
         && msg.kind !== 'permission_request'
         && msg.kind !== 'permission_cancelled';
 
-      if (sid && shouldPersist) {
+      // Only frames that actually look like messages may enter the store: a
+      // NormalizedMessage always carries a string id. Anything else is an
+      // envelope/broadcast frame (possibly from a future feature) and must
+      // never be attributed to the viewed conversation.
+      if (sid && shouldPersist && typeof (msg as { id?: unknown }).id === 'string') {
         sessionStore.appendRealtime(sid, msg as unknown as NormalizedMessage);
       }
 

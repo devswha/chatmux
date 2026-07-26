@@ -331,3 +331,62 @@ test('getMessages reflects a completed fetch and keeps empty reads identity-stab
     globalThis.fetch = originalFetch;
   }
 });
+
+test('an id-less broadcast frame can never poison a slot or freeze refreshes', async () => {
+  const originalFetch = globalThis.fetch;
+  const serverMessages = [
+    { id: 'm-1', sessionId: 'session', timestamp: '2026-01-01T00:00:00Z', kind: 'text', role: 'user', content: 'question', provider: 'gjc' },
+  ];
+  globalThis.fetch = (async () => response({
+    messages: [...serverMessages],
+    total: serverMessages.length,
+    hasMore: false,
+  })) as typeof fetch;
+
+  try {
+    const store = createStore();
+    await store.fetchFromServer('session');
+
+    // The regression: a discovery.* stream frame (no `id`) was attributed to
+    // the open session and appended as a pseudo message; every later merge
+    // then crashed on `id.startsWith` and the transcript froze forever.
+    store.appendRealtime('session', {
+      kind: 'discovery.snapshot',
+      epoch: 'epoch-1',
+      revision: 7,
+      rows: [],
+    } as never);
+    store.appendRealtimeBatch('session', [{
+      kind: 'discovery.heartbeat',
+      epoch: 'epoch-1',
+      revision: 7,
+    } as never]);
+
+    assert.equal(
+      store.getSessionSlot('session')!.realtimeMessages.length,
+      0,
+      'envelope frames must never enter the realtime slot',
+    );
+
+    // A poisoned slot from an older client build must recover, not crash:
+    // inject the bad row directly and prove refresh + merge still work.
+    store.getSessionSlot('session')!.realtimeMessages.push({
+      kind: 'discovery.snapshot',
+      epoch: 'epoch-1',
+      revision: 8,
+    } as never);
+
+    serverMessages.push({
+      id: 'm-2', sessionId: 'session', timestamp: '2026-01-01T00:01:00Z', kind: 'text', role: 'assistant', content: 'answer', provider: 'gjc',
+    });
+    await store.refreshFromServer('session');
+
+    assert.deepEqual(
+      store.getMessages('session').map((message) => message.id),
+      ['m-1', 'm-2'],
+      'the refresh must land and the id-less row must be pruned',
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

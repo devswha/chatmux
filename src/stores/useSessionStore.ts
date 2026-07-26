@@ -245,7 +245,7 @@ function getUserTurnOrdinalBefore(
   const realtimeWithoutUserEchoes = realtimeMessages.filter((candidate) =>
     candidate.kind !== 'text'
     || candidate.role !== 'user'
-    || !candidate.id.startsWith('local_')
+    || !(typeof candidate.id === 'string' && candidate.id.startsWith('local_'))
     || !hasServerEchoForLocalUser(candidate, serverMessages),
   );
 
@@ -378,6 +378,12 @@ function pruneRealtimeSupersededByServer(
   const serverIds = new Set(serverMessages.map((message) => message.id).filter(Boolean));
 
   return realtimeMessages.filter((message) => {
+    // Defensive recovery: an id-less row can only be a foreign envelope frame
+    // that slipped in before ingestion guards existed. Drop it so one bad row
+    // cannot freeze the conversation forever.
+    if (typeof message.id !== 'string') {
+      return false;
+    }
     if (message.id && serverIds.has(message.id)) {
       return false;
     }
@@ -429,6 +435,11 @@ function computeMerged(server: NormalizedMessage[], realtime: NormalizedMessage[
   const serverIds = new Set(server.map((message) => message.id).filter(Boolean));
   const seenRealtimeIds = new Set<string>();
   const extra = realtime.filter((message) => {
+    // Same defensive recovery as pruneRealtimeSupersededByServer: an id-less
+    // row is a foreign envelope frame, never a conversation message.
+    if (typeof message.id !== 'string') {
+      return false;
+    }
     if (message.id && seenRealtimeIds.has(message.id)) {
       return false;
     }
@@ -740,6 +751,17 @@ export function useSessionStore() {
    * This works regardless of which session is actively viewed.
    */
   const appendRealtime = useCallback((sessionId: string, msg: NormalizedMessage) => {
+    // A conversation slot only ever holds real messages. Frames without a
+    // string id are transport/broadcast envelopes (e.g. discovery.* frames)
+    // that would poison every later merge, which matches ids via
+    // `id.startsWith(...)`; reject them here instead of crashing downstream.
+    if (typeof msg.id !== 'string') {
+      console.warn('[SessionStore] dropped a realtime frame without a message id', {
+        sessionId,
+        kind: (msg as { kind?: unknown }).kind,
+      });
+      return;
+    }
     const slot = getSlot(sessionId);
     const normalizedMessage =
       msg.sessionId === sessionId
@@ -757,9 +779,11 @@ export function useSessionStore() {
    * Append multiple realtime messages at once (batch).
    */
   const appendRealtimeBatch = useCallback((sessionId: string, msgs: NormalizedMessage[]) => {
-    if (msgs.length === 0) return;
+    // Same id guard as appendRealtime: envelope frames must never enter a slot.
+    const messagesWithIds = msgs.filter((msg) => typeof msg.id === 'string');
+    if (messagesWithIds.length === 0) return;
     const slot = getSlot(sessionId);
-    const normalizedMessages = msgs.map((msg) =>
+    const normalizedMessages = messagesWithIds.map((msg) =>
       msg.sessionId === sessionId
         ? msg
         : { ...msg, sessionId },
