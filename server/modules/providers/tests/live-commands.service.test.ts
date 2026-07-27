@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 
 import {
+  GJC_BUILTIN_COMMANDS,
   scanGjcCommandDirectory,
   dedupeCommandsByName,
   type LiveGjcCommand,
@@ -114,4 +115,27 @@ test("dedupeCommandsByName keeps the first occurrence of each name", () => {
   assert.equal(out.length, 2);
   assert.equal(out[0].description, "native");
   assert.equal(out[1].name, "/other");
+});
+
+test("the gjc builtin catalog exposes native TUI commands and wins dedupe over file commands", () => {
+  // Regression: the live command list only scanned on-disk markdown, so the
+  // TUI's own commands (/clear, /compact, /model, ...) never reached the deck.
+  const names = new Set(GJC_BUILTIN_COMMANDS.map((command) => command.name));
+  for (const expected of ["/clear", "/compact", "/model", "/resume", "/effort", "/context"]) {
+    assert.ok(names.has(expected), `builtin catalog must include ${expected}`);
+  }
+  assert.ok(
+    GJC_BUILTIN_COMMANDS.every(
+      (command) => command.namespace === "builtin" && command.description.length > 0,
+    ),
+  );
+
+  // A user markdown file named like a builtin must not shadow the native one.
+  const merged = dedupeCommandsByName([
+    ...GJC_BUILTIN_COMMANDS,
+    { name: "/clear", description: "user file", namespace: "user", scope: "user" },
+  ]);
+  const clear = merged.filter((command) => command.name === "/clear");
+  assert.equal(clear.length, 1);
+  assert.equal(clear[0].namespace, "builtin");
 });
