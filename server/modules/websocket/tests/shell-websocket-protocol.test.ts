@@ -410,7 +410,7 @@ test('attach-only forceRestart preserves an existing PTY when its lease or capab
     const reconnect = new FakeWebSocket();
     handleShellConnection(reconnect as never, ownerDependencies);
     await sendInit(reconnect, init);
-    assert.match(String(error(reconnect).data), /Reconnected to existing session/);
+    assert.match(reconnect.sent.join(''), /Reconnected to existing session/);
     assert.equal(killed, 0);
     assert.equal(spawned, 1);
   }
@@ -461,7 +461,7 @@ test('forceRestart spawn failure close preserves the original PTY websocket bind
   const reconnect = new FakeWebSocket();
   handleShellConnection(reconnect as never, base);
   await sendInit(reconnect, init);
-  assert.match(String(error(reconnect).data), /Reconnected to existing session/);
+  assert.match(reconnect.sent.join(''), /Reconnected to existing session/);
   assert.equal(killed, 0);
   assert.equal(spawned, 2);
 });
@@ -524,8 +524,70 @@ test('overlapping forceRestart requests replace the current PTY without orphanin
   const reconnect = new FakeWebSocket();
   handleShellConnection(reconnect as never, ownerDependencies);
   await sendInit(reconnect, init);
-  assert.match(String(error(reconnect).data), /Reconnected to existing session/);
+  assert.match(reconnect.sent.join(''), /Reconnected to existing session/);
   assert.equal(alive.size, 1);
+});
+
+test('reconnect with an acknowledged seq resumes seamlessly; legacy and gapped clients redraw', async () => {
+  let output: ((chunk: string) => void) | undefined;
+  const spawn = (() => ({
+    ...fakePty(),
+    onData: (listener: (chunk: string) => void) => { output = listener; },
+  })) as never;
+  const base = dependencies({ spawn });
+  const init = {
+    shellProtocolVersion: SHELL_PROTOCOL_VERSION,
+    mode: 'plain-shell',
+    sessionId: 'seq-resume',
+    initialCommand: 'echo hi',
+    isPlainShell: true,
+  };
+
+  const first = new FakeWebSocket();
+  handleShellConnection(first as never, base);
+  await sendInit(first, init);
+  output?.('one');
+  output?.('two');
+  output?.('three');
+  // Live frames carry the sequence the client will acknowledge later.
+  const liveSeqs = first.sent
+    .map((frame) => JSON.parse(frame) as { type: string; seq?: number })
+    .filter((frame) => frame.type === 'output' && typeof frame.seq === 'number')
+    .map((frame) => frame.seq);
+  assert.deepEqual(liveSeqs, [1, 2, 3]);
+  first.emit('close');
+
+  // Seamless resume: the client saw seq 2, so only chunk 3 replays — no
+  // banner, no repeated history.
+  const resume = new FakeWebSocket();
+  handleShellConnection(resume as never, base);
+  await sendInit(resume, { ...init, lastSeq: 2 });
+  const resumeFrames = resume.sent.map((frame) => JSON.parse(frame) as Record<string, unknown>);
+  assert.deepEqual(resumeFrames[0], { type: 'replay_start', mode: 'resume' });
+  assert.deepEqual(
+    resumeFrames.filter((frame) => frame.type === 'output'),
+    [{ type: 'output', data: 'three', seq: 3 }],
+  );
+  resume.emit('close');
+
+  // Legacy client (no lastSeq): full redraw with the banner and every chunk.
+  const legacy = new FakeWebSocket();
+  handleShellConnection(legacy as never, base);
+  await sendInit(legacy, init);
+  const legacyFrames = legacy.sent.map((frame) => JSON.parse(frame) as Record<string, unknown>);
+  assert.deepEqual(legacyFrames[0], { type: 'replay_start', mode: 'redraw' });
+  assert.match(String(legacyFrames[1]?.data), /Reconnected to existing session/);
+  assert.deepEqual(
+    legacyFrames.filter((frame) => frame.type === 'output' && typeof frame.seq === 'number').map((frame) => frame.seq),
+    [1, 2, 3],
+  );
+  legacy.emit('close');
+
+  // A claimed seq the session never produced cannot resume: full redraw.
+  const ahead = new FakeWebSocket();
+  handleShellConnection(ahead as never, base);
+  await sendInit(ahead, { ...init, lastSeq: 99 });
+  assert.deepEqual(JSON.parse(ahead.sent[0] ?? '{}'), { type: 'replay_start', mode: 'redraw' });
 });
 
 test('attach-only rejects missing, wrong-principal, wrong-pane, expired, and changed-generation capabilities', async () => {

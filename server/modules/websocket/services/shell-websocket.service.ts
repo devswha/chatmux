@@ -29,6 +29,7 @@ type ShellIncomingMessage = {
   initialCommand?: string;
   isPlainShell?: boolean;
   forceRestart?: boolean;
+  lastSeq?: unknown;
   shellProtocolVersion?: number;
   mode?: ShellInitMode;
   targetClass?: TmuxAttachTargetClass;
@@ -40,7 +41,9 @@ type ShellIncomingMessage = {
 type PtySessionEntry = {
   pty: IPty;
   ws: WebSocket | null;
-  buffer: string[];
+  buffer: Array<{ seq: number; data: string }>;
+  /** Sequence number of the newest PTY chunk ever produced for this session. */
+  lastSeq: number;
   timeoutId: NodeJS.Timeout | null;
   projectPath: string;
   sessionId: string | null;
@@ -267,6 +270,13 @@ function parseShellMessage(rawMessage: RawData): ShellIncomingMessage | null {
   return payload as ShellIncomingMessage;
 }
 
+// Sequence-acknowledged resume (EternalTerminal-style backed writer): the
+// client reports the last output seq it rendered, and reconnects replay only
+// the gap. Anything unparseable disables seamless resume (full redraw).
+function readClientLastSeq(value: unknown): number | null {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : null;
+}
+
 const SAFE_SESSION_ID_PATTERN = /^[a-zA-Z0-9_.\-:]+$/;
 
 function resolveResumeSessionId(
@@ -464,6 +474,7 @@ export function handleShellConnection(
         const provider = readString(data.provider, 'claude');
         const initialCommand = readString(data.initialCommand);
         const forceRestart = readBoolean(data.forceRestart);
+        const clientLastSeq = readClientLastSeq(data.lastSeq);
         // Plain-shell commands are for a terminal only; never use this mode to attach tmux.
         const isPlainShell = data.mode === 'plain-shell';
 
@@ -519,22 +530,27 @@ export function handleShellConnection(
             clearTimeout(existingSession.timeoutId);
           }
 
-          ws.send(
-            JSON.stringify({
-              type: 'output',
-              data: '\x1b[36m[Reconnected to existing session]\x1b[0m\r\n',
-            })
-          );
-
-          if (existingSession.buffer.length > 0) {
-            existingSession.buffer.forEach((bufferedData) => {
-              ws.send(
-                JSON.stringify({
-                  type: 'output',
-                  data: bufferedData,
-                })
-              );
-            });
+          // Seamless resume replays only the chunks the client has not seen.
+          // Any doubt (legacy client, trimmed buffer, restarted PTY) falls
+          // back to a full redraw so the terminal is never corrupted.
+          const oldestBufferedSeq = existingSession.buffer[0]?.seq ?? existingSession.lastSeq + 1;
+          const resume = clientLastSeq !== null
+            && clientLastSeq <= existingSession.lastSeq
+            && clientLastSeq >= oldestBufferedSeq - 1;
+          ws.send(JSON.stringify({ type: 'replay_start', mode: resume ? 'resume' : 'redraw' }));
+          if (!resume) {
+            ws.send(
+              JSON.stringify({
+                type: 'output',
+                data: '\x1b[36m[Reconnected to existing session]\x1b[0m\r\n',
+              })
+            );
+          }
+          for (const entry of existingSession.buffer) {
+            if (resume && entry.seq <= (clientLastSeq as number)) {
+              continue;
+            }
+            ws.send(JSON.stringify({ type: 'output', data: entry.data, seq: entry.seq }));
           }
 
           existingSession.ws = ws;
@@ -590,6 +606,7 @@ export function handleShellConnection(
           pty: shellProcess,
           ws,
           buffer: [],
+          lastSeq: 0,
           timeoutId: null,
           projectPath,
           sessionId,
@@ -618,12 +635,12 @@ export function handleShellConnection(
             return;
           }
 
-          if (session.buffer.length < 5000) {
-            session.buffer.push(chunk);
-          } else {
+          session.lastSeq += 1;
+          const seq = session.lastSeq;
+          if (session.buffer.length >= 5000) {
             session.buffer.shift();
-            session.buffer.push(chunk);
           }
+          session.buffer.push({ seq, data: chunk });
 
           if (session.ws && session.ws.readyState === WebSocket.OPEN) {
             let outputData = chunk;
@@ -679,6 +696,7 @@ export function handleShellConnection(
               JSON.stringify({
                 type: 'output',
                 data: outputData,
+                seq,
               })
             );
           }
@@ -728,6 +746,7 @@ export function handleShellConnection(
             : `\x1b[36mStarting new ${providerName} session in: ${projectPath}\x1b[0m\r\n`;
         }
 
+        ws.send(JSON.stringify({ type: 'replay_start', mode: 'redraw' }));
         ws.send(
           JSON.stringify({
             type: 'output',

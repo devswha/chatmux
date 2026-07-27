@@ -1,5 +1,7 @@
 import { useCallback, useState } from 'react';
 import type { FormEvent } from 'react';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { Loader2, Lock, ShieldCheck, User } from 'lucide-react';
 
 import { useAuth } from '../context/AuthContext';
@@ -25,21 +27,21 @@ const initialState: SetupFormState = {
  * @returns An error message string if validation fails, or `null` when the
  *   form is valid.
  */
-function validateSetupForm(formState: SetupFormState): string | null {
+function validateSetupForm(formState: SetupFormState, t: TFunction<'auth'>): string | null {
   if (!formState.username.trim() || !formState.password || !formState.confirmPassword) {
-    return 'Please fill in all fields.';
+    return t('register.errors.requiredFields');
   }
 
   if (formState.username.trim().length < 3) {
-    return 'Username must be at least 3 characters long.';
+    return t('register.errors.usernameTooShort');
   }
 
   if (formState.password.length < 6) {
-    return 'Password must be at least 6 characters long.';
+    return t('register.errors.passwordTooShort');
   }
 
   if (formState.password !== formState.confirmPassword) {
-    return 'Passwords do not match.';
+    return t('register.errors.passwordMismatch');
   }
 
   return null;
@@ -52,6 +54,7 @@ function validateSetupForm(formState: SetupFormState): string | null {
  * credentials after submission.
  */
 export default function SetupForm() {
+  const { t } = useTranslation('auth');
   const { register } = useAuth();
 
   const [formState, setFormState] = useState<SetupFormState>(initialState);
@@ -67,7 +70,7 @@ export default function SetupForm() {
       event.preventDefault();
       setErrorMessage('');
 
-      const validationError = validateSetupForm(formState);
+      const validationError = validateSetupForm(formState, t);
       if (validationError) {
         setErrorMessage(validationError);
         return;
@@ -80,23 +83,23 @@ export default function SetupForm() {
       }
       setIsSubmitting(false);
     },
-    [formState, register],
+    [formState, register, t],
   );
 
   return (
     <AuthScreenLayout
-      title="ChatMux에 오신 걸 환영합니다"
-      description="Set up your account to get started"
-      footerText="This is a single-user system. Only one account can be created."
+      title={t('register.welcomeTitle')}
+      description={t('register.description')}
+      footerText={t('register.footer')}
     >
       <form onSubmit={handleSubmit} className="space-y-4">
         <AuthInputField
           id="username"
           name="username"
-          label="Username"
+          label={t('register.username')}
           value={formState.username}
           onChange={(value) => updateField('username', value)}
-          placeholder="Choose a username"
+          placeholder={t('register.placeholders.username')}
           isDisabled={isSubmitting}
           autoComplete="username"
           icon={User}
@@ -105,10 +108,10 @@ export default function SetupForm() {
         <AuthInputField
           id="password"
           name="password"
-          label="Password"
+          label={t('register.password')}
           value={formState.password}
           onChange={(value) => updateField('password', value)}
-          placeholder="Create a password"
+          placeholder={t('register.placeholders.password')}
           isDisabled={isSubmitting}
           type="password"
           autoComplete="new-password"
@@ -118,10 +121,10 @@ export default function SetupForm() {
         <AuthInputField
           id="confirmPassword"
           name="confirmPassword"
-          label="Confirm Password"
+          label={t('register.confirmPassword')}
           value={formState.confirmPassword}
           onChange={(value) => updateField('confirmPassword', value)}
-          placeholder="Re-enter your password"
+          placeholder={t('register.placeholders.confirmPassword')}
           isDisabled={isSubmitting}
           type="password"
           autoComplete="new-password"
@@ -130,7 +133,7 @@ export default function SetupForm() {
 
         <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <ShieldCheck className="h-3.5 w-3.5" />
-          At least 3 characters for username, 6 for password.
+          {t('register.passwordHint')}
         </p>
 
         <AuthErrorAlert errorMessage={errorMessage} />
@@ -143,10 +146,10 @@ export default function SetupForm() {
           {isSubmitting ? (
             <>
               <Loader2 className="h-4 w-4 animate-spin" />
-              Setting up...
+              {t('register.loading')}
             </>
           ) : (
-            'Create Account'
+            t('register.submit')
           )}
         </button>
       </form>

@@ -1,5 +1,6 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
+import { useTranslation } from 'react-i18next';
 
 // renderToStaticMarkup-based tests render this component server-side, where
 // useLayoutEffect warns; the fallback to useEffect there is behavior-neutral.
@@ -212,6 +213,7 @@ export default function PendingExternalCliOutput({
   output,
   emptyMessage,
 }: PendingExternalCliOutputProps) {
+  const { t } = useTranslation('chat');
   const viewportRef = useRef<HTMLDivElement>(null);
   const followTailRef = useRef(true);
   const [viewportWidth, setViewportWidth] = useState(0);
@@ -255,7 +257,7 @@ export default function PendingExternalCliOutput({
     return (
       <div className="min-h-0 flex-1 overflow-y-auto px-4">
         <div className="mx-auto flex h-full max-w-[54.25rem] items-center justify-center text-center text-sm text-muted-foreground">
-          {emptyMessage ?? `첫 지시를 보내면 ${providerLabel} transcript가 생성되어 이 화면에 자동으로 연결됩니다.`}
+          {emptyMessage ?? t('transcript.pendingEmpty', { provider: providerLabel })}
         </div>
       </div>
     );

@@ -54,6 +54,14 @@ export const userDb = {
       .run(username, passwordHash);
     return { id: result.lastInsertRowid, username };
   },
+  /** Replaces the stored password hash (CLI reset / rotation). */
+  updatePasswordHash(userId: number | bigint, passwordHash: string): void {
+    const db = getConnection();
+    db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(
+      passwordHash,
+      userId
+    );
+  },
 
   /**
    * Looks up an active user by username.

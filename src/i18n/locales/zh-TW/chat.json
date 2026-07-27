@@ -265,7 +265,11 @@
     "placeholder": "向 {{name}} 傳送指令… ({{trigger}} 命令、@ 檔案、Enter 傳送、Shift+Enter 換行)",
     "currentSession": "目前會話",
     "send": "傳送",
-    "sending": "傳送中…"
+    "sending": "傳送中…",
+    "delivered": "已送達",
+    "queued": "已加入佇列",
+    "towerUnavailable": "控制塔未執行 — 無法傳送",
+    "sendFailed": "傳送失敗"
   },
   "transcript": {
     "conversationTab": "對話",

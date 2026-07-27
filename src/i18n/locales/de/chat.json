@@ -229,7 +229,11 @@
     "placeholder": "Anweisung an {{name}}… ({{trigger}} Befehle, @ Dateien, Enter senden, Umschalt+Enter neue Zeile)",
     "currentSession": "aktuelle Sitzung",
     "send": "Senden",
-    "sending": "Wird gesendet…"
+    "sending": "Wird gesendet…",
+    "delivered": "Zugestellt",
+    "queued": "In Warteschlange",
+    "towerUnavailable": "Kontrollturm läuft nicht — Senden nicht möglich",
+    "sendFailed": "Senden fehlgeschlagen"
   },
   "transcript": {
     "conversationTab": "Chat",

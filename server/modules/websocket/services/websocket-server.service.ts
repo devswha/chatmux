@@ -53,13 +53,24 @@ export function createWebSocketServer(
     // are silently torn down even when the UI is active, causing repeated
     // reconnect cycles. ws library heartbeat is opt-in.
     const HEARTBEAT_INTERVAL_MS = 30_000;
+    let isAlive = true;
+    ws.on('pong', () => { isAlive = true; });
     const heartbeat = setInterval(() => {
-      if (ws.readyState === ws.OPEN) {
-        try {
-          ws.ping();
-        } catch {
-          // socket may have been closed concurrently — interval will be cleared below
-        }
+      if (ws.readyState !== ws.OPEN) {
+        return;
+      }
+      // A peer that missed an entire ping cycle is gone (phone lost signal,
+      // proxy dropped the link): terminate now so PTY/chat bindings detach
+      // promptly instead of waiting for the OS TCP timeout.
+      if (!isAlive) {
+        ws.terminate();
+        return;
+      }
+      isAlive = false;
+      try {
+        ws.ping();
+      } catch {
+        // socket may have been closed concurrently — interval will be cleared below
       }
     }, HEARTBEAT_INTERVAL_MS);
     const stopHeartbeat = () => clearInterval(heartbeat);

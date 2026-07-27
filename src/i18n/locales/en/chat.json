@@ -129,6 +129,7 @@
     "showAllCommands": "Show all commands",
     "clearInput": "Clear input",
     "scrollToBottom": "Scroll to bottom",
+    "newMessages": "New messages",
     "queue": {
       "sendNext": "Queue next message",
       "update": "Update queued message",
@@ -250,11 +251,28 @@
     "placeholder": "Message {{name}}… ({{trigger}} commands, @ files, Enter to send, Shift+Enter for newline)",
     "currentSession": "current session",
     "send": "Send",
-    "sending": "Sending…"
+    "sending": "Sending…",
+    "delivered": "Delivered",
+    "queued": "Queued",
+    "towerUnavailable": "Control tower is not running — cannot send",
+    "sendFailed": "Failed to send"
+  },
+  "readOnly": {
+    "banner": "Driven by gjc in tmux — read-only. It updates live; interact from the tmux side."
   },
   "transcript": {
     "conversationTab": "Chat",
     "cliTab": "CLI output",
-    "viewSwitcherLabel": "{{provider}} session view"
+    "viewSwitcherLabel": "{{provider}} session view",
+    "pendingTitle": "{{provider}} transcript pending",
+    "closeView": "Close {{provider}} view",
+    "closeTerminal": "Close terminal",
+    "detachHint": "{{kind}} · detach: Ctrl+B → D",
+    "noConversationYet": "No conversation yet. Send the first instruction and the {{provider}} conversation will appear here.",
+    "pendingEmpty": "Send the first instruction and the {{provider}} transcript will be created and connected to this view automatically.",
+    "ended": "This session's conversation feed stopped (the session may still be running). Check new messages in the CLI output tab.",
+    "cliLoadFailed": "Failed to load CLI output. The tmux session may have ended.",
+    "cliConnectionFailed": "Failed to load CLI output. Check the tmux session connection.",
+    "cliLoading": "Loading live CLI output…"
   }
 }

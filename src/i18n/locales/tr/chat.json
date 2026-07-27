@@ -229,7 +229,11 @@
     "placeholder": "{{name}} için talimat… ({{trigger}} komutları, @ dosyalar, Enter gönder, Shift+Enter yeni satır)",
     "currentSession": "geçerli oturum",
     "send": "Gönder",
-    "sending": "Gönderiliyor…"
+    "sending": "Gönderiliyor…",
+    "delivered": "İletildi",
+    "queued": "Kuyruğa alındı",
+    "towerUnavailable": "Kontrol kulesi çalışmıyor — gönderilemiyor",
+    "sendFailed": "Gönderilemedi"
   },
   "transcript": {
     "conversationTab": "Sohbet",

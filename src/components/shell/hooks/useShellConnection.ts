@@ -40,6 +40,8 @@ export type ShellInitMessageParams = {
   isPlainShell: boolean;
   forceRestart: boolean;
   attachTarget: ShellAttachTarget | null | undefined;
+  /** Last output seq already rendered; lets the server resume seamlessly. */
+  lastSeq?: number | null;
 };
 
 export function buildShellInitMessage({
@@ -53,8 +55,10 @@ export function buildShellInitMessage({
   isPlainShell,
   forceRestart,
   attachTarget,
+  lastSeq,
 }: ShellInitMessageParams): ShellInitMessage {
   const base = {
+    ...(typeof lastSeq === 'number' ? { lastSeq } : {}),
     type: 'init' as const,
     shellProtocolVersion: 2 as const,
     projectPath,
@@ -126,6 +130,11 @@ export function useShellConnection({
   const forceRestartOnInitRef = useRef(false);
   const suppressAutoConnectRef = useRef(false);
   const protocolOutdatedRef = useRef(false);
+  // Sequence-acknowledged resume: track the newest output seq we rendered so
+  // a reconnect can ask the server to replay only what we missed, and reset it
+  // whenever the connection targets a different shell identity.
+  const lastSeqRef = useRef<number | null>(null);
+  const replayIdentityRef = useRef<string | null>(null);
 
   const handleProcessCompletion = useCallback(
     (output: string) => {
@@ -163,9 +172,22 @@ export function useShellConnection({
 
       if (message.type === 'output') {
         const output = typeof message.data === 'string' ? message.data : '';
+        if (typeof message.seq === 'number') {
+          lastSeqRef.current = message.seq;
+        }
         handleProcessCompletion(output);
         terminalRef.current?.write(output);
         onOutputRef?.current?.();
+        return;
+      }
+
+      if (message.type === 'replay_start') {
+        // 'resume' continues the existing screen; 'redraw' means the server is
+        // about to repaint from scratch (fresh PTY, legacy path, or a replay
+        // gap), so stale content must not stack under the replay.
+        if (message.mode !== 'resume') {
+          clearTerminalScreen();
+        }
         return;
       }
 
@@ -179,7 +201,7 @@ export function useShellConnection({
         setIsProtocolOutdated(true);
       }
     },
-    [handleProcessCompletion, onOutputRef, terminalRef],
+    [clearTerminalScreen, handleProcessCompletion, onOutputRef, terminalRef],
   );
 
   const connectWebSocket = useCallback(
@@ -213,6 +235,18 @@ export function useShellConnection({
             const forceRestart = forceRestartOnInitRef.current;
             forceRestartOnInitRef.current = false;
 
+            const identity = JSON.stringify([
+              currentProject.fullPath || currentProject.path || '',
+              isPlainShellRef.current ? null : selectedSessionRef.current?.id || null,
+              isPlainShellRef.current,
+              initialCommandRef.current ?? null,
+              attachTargetRef.current?.tmux ?? null,
+            ]);
+            if (forceRestart || identity !== replayIdentityRef.current) {
+              replayIdentityRef.current = identity;
+              lastSeqRef.current = null;
+            }
+
             sendSocketMessage(socket, buildShellInitMessage({
               projectPath: currentProject.fullPath || currentProject.path || '',
               sessionId: isPlainShellRef.current ? null : selectedSessionRef.current?.id || null,
@@ -224,6 +258,7 @@ export function useShellConnection({
               isPlainShell: isPlainShellRef.current,
               forceRestart,
               attachTarget: attachTargetRef.current,
+              lastSeq: lastSeqRef.current,
             }));
           }, TERMINAL_INIT_DELAY_MS);
         };
@@ -237,7 +272,9 @@ export function useShellConnection({
           setIsConnected(false);
           setIsConnecting(false);
           connectingRef.current = false;
-          clearTerminalScreen();
+          // Keep the rendered screen: on reconnect the server either resumes
+          // seamlessly (replays only missed output) or sends replay_start
+          // 'redraw', which clears before repainting.
         };
 
         socket.onerror = () => {
@@ -253,7 +290,6 @@ export function useShellConnection({
       }
     },
     [
-      clearTerminalScreen,
       fitAddonRef,
       handleSocketMessage,
       initialCommandRef,

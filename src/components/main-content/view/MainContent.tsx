@@ -323,12 +323,12 @@ function MainContent({
           // the empty state in between.
           setExternalPaneError(
             payload?.error?.message
-              ?? 'CLI 출력을 불러오지 못했습니다. tmux 세션이 종료되었을 수 있습니다.',
+              ?? t('transcript.cliLoadFailed'),
           );
         }
       } catch (error) {
         if (!cancelled && !(error instanceof DOMException && error.name === 'AbortError')) {
-          setExternalPaneError('CLI 출력을 불러오지 못했습니다. tmux 세션 연결을 확인하세요.');
+          setExternalPaneError(t('transcript.cliConnectionFailed'));
         }
       }
     };
@@ -343,7 +343,7 @@ function MainContent({
       subscriptionId = frame.subscriptionId;
       streamSubscribed = true;
       if (frame.invalidated) {
-        setExternalPaneError('CLI 출력을 불러오지 못했습니다. tmux 세션이 종료되었을 수 있습니다.');
+        setExternalPaneError(t('transcript.cliLoadFailed'));
       } else if (typeof frame.output === 'string') {
         setExternalPaneOutput(frame.output);
         setExternalPaneError('');
@@ -369,7 +369,7 @@ function MainContent({
       if (subscriptionId) sendMessage({ type: 'pane.unsubscribe', subscriptionId });
       controller?.abort();
     };
-  }, [externalOutputTargetKey, isConnected, sendMessage, subscribe]);
+  }, [externalOutputTargetKey, isConnected, sendMessage, subscribe, t]);
 
   useEffect(() => {
     if (!shouldShowBrowserTab && activeTab === 'browser') {
@@ -431,13 +431,13 @@ function MainContent({
             <MessageSquare className="h-4 w-4 shrink-0 text-emerald-500" aria-hidden />
             <span className="truncate text-sm font-semibold text-foreground">{externalTerminal.tmuxName}</span>
             <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">
-              {providerLabel} transcript 준비 중
+              {t('transcript.pendingTitle', { provider: providerLabel })}
             </span>
           </div>
           <button
             type="button"
             onClick={onExternalTerminalClose}
-            title={`${providerLabel} 화면 닫기`}
+            title={t('transcript.closeView', { provider: providerLabel })}
             className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
           >
             <X className="h-4 w-4" />
@@ -470,7 +470,7 @@ function MainContent({
           <PendingExternalCliOutput
             providerLabel={providerLabel}
             output=""
-            emptyMessage={`아직 대화 기록이 없습니다. 첫 지시를 보내면 ${providerLabel} 대화가 이 화면에 표시됩니다.`}
+            emptyMessage={t('transcript.noConversationYet', { provider: providerLabel })}
           />
         )}
         <LiveRelayComposer
@@ -507,13 +507,13 @@ function MainContent({
             <SquareTerminal className="h-4 w-4 shrink-0 text-emerald-500" aria-hidden />
             <span className="truncate text-sm font-semibold text-foreground">tmux: {externalTerminal.tmuxName}</span>
             <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">
-              {externalTerminal.kind} · 분리(detach): Ctrl+B → D
+              {t('transcript.detachHint', { kind: externalTerminal.kind })}
             </span>
           </div>
           <button
             type="button"
             onClick={onExternalTerminalClose}
-            title="터미널 닫기"
+            title={t('transcript.closeTerminal')}
             className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
           >
             <X className="h-4 w-4" />
@@ -580,8 +580,7 @@ function MainContent({
               >
                 <SquareTerminal className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" aria-hidden />
                 <span>
-                  이 세션의 대화 기록이 중단되었습니다 (세션은 실행 중일 수 있음).
-                  새 메시지는 <strong>CLI 출력</strong> 탭에서 확인하세요.
+                  {t('transcript.ended')}
                 </span>
               </div>
             )}
@@ -650,7 +649,7 @@ function MainContent({
                   <PendingExternalCliOutput
                     providerLabel={transcriptCliProviderLabel}
                     output={externalPaneOutput}
-                    emptyMessage="실시간 CLI 출력을 불러오는 중입니다."
+                    emptyMessage={t('transcript.cliLoading')}
                   />
                 )}
               </div>

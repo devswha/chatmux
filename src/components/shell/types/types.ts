@@ -25,6 +25,8 @@ export type ShellInitMessage = {
   cols: number;
   rows: number;
   forceRestart?: boolean;
+  /** Last output seq this client rendered — enables seamless server-side resume. */
+  lastSeq?: number;
 } & ({
   mode: 'plain-shell';
   initialCommand: string | null | undefined;
@@ -54,7 +56,8 @@ export type ShellInputMessage = {
 export type ShellOutgoingMessage = ShellInitMessage | ShellResizeMessage | ShellInputMessage;
 
 export type ShellIncomingMessage =
-  | { type: 'output'; data: string }
+  | { type: 'output'; data: string; seq?: number }
+  | { type: 'replay_start'; mode?: 'resume' | 'redraw' }
   | { type: 'auth_url'; url?: string }
   | { type: 'url_open'; url?: string }
   | { type: 'error'; code?: string; reloadRequired?: boolean; message?: string }

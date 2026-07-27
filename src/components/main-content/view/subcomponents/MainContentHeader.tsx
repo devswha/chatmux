@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { FolderOpen } from 'lucide-react';
 
 import type { MainContentHeaderProps } from '../../types/types';
@@ -19,6 +20,7 @@ export default function MainContentHeader({
   filesPanelOpen,
   onToggleFilesPanel,
 }: MainContentHeaderProps) {
+  const { t } = useTranslation('common');
   const scrollRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
@@ -76,7 +78,7 @@ export default function MainContentHeader({
         <button
           type="button"
           onClick={onToggleFilesPanel}
-          title={filesPanelOpen ? '파일 패널 닫기' : '파일 패널 열기'}
+          title={filesPanelOpen ? t('filesPanel.close') : t('filesPanel.open')}
           className={`shrink-0 rounded-md p-1.5 transition-colors ${
             filesPanelOpen
               ? 'bg-muted text-foreground'

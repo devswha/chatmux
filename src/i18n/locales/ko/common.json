@@ -271,5 +271,16 @@
       "updateAvailable": "업데이트 가능",
       "closeSidebar": "사이드바 닫기"
     }
+  },
+  "filesPanel": {
+    "open": "파일 패널 열기",
+    "close": "파일 패널 닫기",
+    "changeRoot": "루트 폴더 변경",
+    "rootPlaceholder": "예: ~/workspace (절대경로 가능)",
+    "apply": "적용",
+    "opening": "폴더 여는 중…",
+    "homeUnknown": "홈 경로를 확인할 수 없습니다",
+    "homeOnly": "홈 아래 경로만 지원합니다 (예: ~/workspace)",
+    "openFailed": "폴더를 열 수 없습니다 — 경로를 확인하세요"
   }
 }

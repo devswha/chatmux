@@ -121,3 +121,26 @@ test('protocol outdated errors remain terminal after socket close and suppress a
   assert.match(connection, /protocolOutdatedRef\.current \|\|/);
   assert.match(connection, /connectToShell\(\{ automatic: true \}\)/);
 });
+test('init carries the acknowledged output seq only when one exists', () => {
+  const withSeq = buildShellInitMessage({ ...baseInit, attachTarget: null, lastSeq: 42 });
+  assert.equal((withSeq as { lastSeq?: number }).lastSeq, 42);
+
+  const withoutSeq = buildShellInitMessage({ ...baseInit, attachTarget: null, lastSeq: null });
+  assert.equal('lastSeq' in withoutSeq, false);
+});
+
+test('reconnects keep the screen and only a redraw replay clears it', () => {
+  const connection = readFileSync(new URL('./hooks/useShellConnection.ts', import.meta.url), 'utf8');
+
+  // onclose must not clear: the server decides between seamless resume
+  // (replay only what was missed) and a full redraw via replay_start.
+  const oncloseBody = connection.slice(
+    connection.indexOf('socket.onclose'),
+    connection.indexOf('socket.onerror'),
+  );
+  assert.equal(oncloseBody.includes('clearTerminalScreen()'), false);
+  assert.match(connection, /message\.type === 'replay_start'/);
+  assert.match(connection, /mode !== 'resume'/);
+  assert.match(connection, /lastSeqRef\.current = message\.seq/);
+  assert.match(connection, /lastSeq: lastSeqRef\.current/);
+});

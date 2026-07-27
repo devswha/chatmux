@@ -140,6 +140,7 @@ test('relay translations exist in every supported locale', () => {
     )) as { relay?: Record<string, string> };
     assert.deepEqual(Object.keys(translation.relay ?? {}).sort(), [
       'currentSession',
+      'delivered',
       'imagePathRejected',
       'imageUploadFailed',
       'imageUploading',
@@ -148,8 +149,11 @@ test('relay translations exist in every supported locale', () => {
       'interruptSent',
       'interrupting',
       'placeholder',
+      'queued',
       'send',
+      'sendFailed',
       'sending',
+      'towerUnavailable',
     ]);
   }
 });

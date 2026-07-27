@@ -6,12 +6,13 @@ import { getConnection } from '../modules/database/connection.js';
 import {
   AUTH_COOKIE_NAME,
   AUTH_MODE,
-  TOKEN_MAX_AGE_MS,
   authenticateToken,
   generateToken,
+  getAuthCookieOptions,
   incrementTokenVersion,
   isAuthDisabled,
-  isTailscaleAuth
+  isTailscaleAuth,
+  setAuthCookie
 } from '../middleware/auth.js';
 import {
   authenticateTailscaleRequest,
@@ -20,17 +21,6 @@ import {
 
 const router = express.Router();
 const db = getConnection();
-const getAuthCookieOptions = (req) => ({
-  httpOnly: true,
-  sameSite: 'strict',
-  secure: req.secure === true,
-  path: '/',
-  maxAge: TOKEN_MAX_AGE_MS
-});
-
-const setAuthCookie = (req, res, token) => {
-  res.cookie(AUTH_COOKIE_NAME, token, getAuthCookieOptions(req));
-};
 
 const clearAuthCookie = (req, res) => {
   const { maxAge, ...options } = getAuthCookieOptions(req);

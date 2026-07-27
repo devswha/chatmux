@@ -229,7 +229,11 @@
     "placeholder": "Messaggio a {{name}}… (comandi {{trigger}}, file @, Invio per inviare, Maiusc+Invio per andare a capo)",
     "currentSession": "sessione corrente",
     "send": "Invia",
-    "sending": "Invio…"
+    "sending": "Invio…",
+    "delivered": "Consegnato",
+    "queued": "In coda",
+    "towerUnavailable": "La torre di controllo non è attiva — invio impossibile",
+    "sendFailed": "Invio non riuscito"
   },
   "transcript": {
     "conversationTab": "Chat",

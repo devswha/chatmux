@@ -6,7 +6,19 @@ import { authenticateTailscaleRequest } from '../tailscale-auth.js';
 // Use env var if set, otherwise auto-generate a unique secret per installation
 const JWT_SECRET = process.env.JWT_SECRET || appConfigDb.getOrCreateJwtSecret();
 const AUTH_COOKIE_NAME = 'chatmux_auth';
-const TOKEN_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
+
+// Password-mode session length. Self-hosted operators exposing over HTTPS can
+// extend it (e.g. CHATMUX_SESSION_DAYS=90) so a phone browser stays logged in;
+// logout still revokes immediately via the persisted token version.
+const DEFAULT_SESSION_DAYS = 7;
+const MAX_SESSION_DAYS = 365;
+const resolveSessionDays = (value) => {
+  const days = Number(value);
+  if (!Number.isFinite(days)) return DEFAULT_SESSION_DAYS;
+  const floored = Math.floor(days);
+  return floored >= 1 && floored <= MAX_SESSION_DAYS ? floored : DEFAULT_SESSION_DAYS;
+};
+const TOKEN_MAX_AGE_SECONDS = resolveSessionDays(process.env.CHATMUX_SESSION_DAYS) * 24 * 60 * 60;
 const TOKEN_MAX_AGE_MS = TOKEN_MAX_AGE_SECONDS * 1000;
 
 /**
@@ -147,14 +159,44 @@ const isTokenVersionValid = (tokenVersion, currentVersion) => {
     normalizedTokenVersion === currentVersion;
 };
 
-const getAuthenticatedUser = (token) => {
+// Returns the authenticated user together with the verified token's expiry so
+// the sliding-session logic can decide whether to re-issue the cookie.
+const getAuthenticatedSession = (token) => {
   const decoded = jwt.verify(token, JWT_SECRET);
   const user = userDb.getUserById(decoded.userId);
   if (!user || !isTokenVersionValid(decoded.tokenVersion, getTokenVersion(user.id))) {
     return null;
   }
 
-  return user;
+  return { user, expiresAtSeconds: decoded.exp };
+};
+
+const getAuthenticatedUser = (token) => getAuthenticatedSession(token)?.user ?? null;
+
+// Same-origin auth cookie shape shared by login, registration, and the
+// sliding-session renewal below.
+const getAuthCookieOptions = (req) => ({
+  httpOnly: true,
+  sameSite: 'strict',
+  secure: req.secure === true,
+  path: '/',
+  maxAge: TOKEN_MAX_AGE_MS
+});
+
+const setAuthCookie = (req, res, token) => {
+  res.cookie(AUTH_COOKIE_NAME, token, getAuthCookieOptions(req));
+};
+
+// Sliding sessions: a cookie session that keeps being used never expires, and
+// an idle one dies after the configured window. Renew only once the token has
+// burned through half its lifetime so cookies are not rewritten on every
+// request.
+const shouldSlideSession = (expiresAtSeconds, nowMs = Date.now()) => {
+  if (!Number.isFinite(expiresAtSeconds)) {
+    return false;
+  }
+  const remainingMs = expiresAtSeconds * 1000 - nowMs;
+  return remainingMs > 0 && remainingMs < TOKEN_MAX_AGE_MS / 2;
 };
 
 // Optional API key middleware
@@ -192,12 +234,18 @@ const authenticateToken = async (req, res, next) => {
   }
 
   try {
-    const user = getAuthenticatedUser(token);
-    if (!user) {
+    const session = getAuthenticatedSession(token);
+    if (!session) {
       return res.status(401).json({ error: 'Invalid token.' });
     }
 
-    req.user = user;
+    req.user = session.user;
+    // Renew only browser cookie sessions; Bearer API clients manage their own
+    // token lifecycle.
+    const cookieToken = parseCookieHeader(req.headers.cookie)[AUTH_COOKIE_NAME] || null;
+    if (cookieToken === token && shouldSlideSession(session.expiresAtSeconds)) {
+      setAuthCookie(req, res, generateToken(session.user));
+    }
     next();
   } catch {
     console.error('Token verification failed');
@@ -254,6 +302,9 @@ export {
   generateToken,
   authenticateWebSocket,
   parseCookieHeader,
+  getAuthCookieOptions,
+  setAuthCookie,
+  shouldSlideSession,
   getBearerToken,
   getRequestToken,
   isTokenVersionValid,
@@ -262,6 +313,7 @@ export {
   AUTH_COOKIE_NAME,
   AUTH_MODE,
   resolveAuthMode,
+  resolveSessionDays,
   isAuthDisabled,
   isTailscaleAuth,
   TOKEN_MAX_AGE_MS,

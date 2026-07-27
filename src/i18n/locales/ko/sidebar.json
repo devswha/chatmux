@@ -163,6 +163,44 @@
       "unknownTitle": "provider 기록에서 현재 상태를 안전하게 판정할 수 없습니다"
     }
   },
+  "liveSessions": {
+    "loading": "세션 불러오는 중…",
+    "empty": "지금 tmux에서 작동 중인 CLI 세션이 없습니다. (GJC · Codex · Claude Code)",
+    "runTitle": "턴 진행 중 — 에이전트가 응답/도구 실행 중입니다",
+    "liveTitle": "세션 감지됨 — 다음 지시 대기 중",
+    "batchBadge": "배치",
+    "batchTitle": "이 tmux pane의 전면 명령이 gjc가 아닙니다 — gjc는 배치(백그라운드) 자손으로 실행 중",
+    "idleBadge": "대기",
+    "idleHint": "눌러서 첫 대화 시작",
+    "startFirstConversation": "tmux 세션 '{{name}}'에서 첫 대화 시작",
+    "openingPrevious": "이전 대화 불러오는 중…",
+    "openPreviousHint": "눌러서 이전 대화 열기",
+    "openPreviousFailed": "이전 대화를 불러오지 못했습니다",
+    "projectMissing": "연결된 프로젝트를 찾지 못했습니다. 목록을 새로고침해 주세요.",
+    "targetReplaced": "대상이 교체됨 — 목록을 새로고침해 주세요",
+    "targetReplacedRetry": "대상이 교체됨 — 목록 갱신 후 다시 시도하세요",
+    "protectedTarget": "보호된 tmux 대상입니다",
+    "stopOptions": "{{name}} 종료 옵션",
+    "stopScope": "{{name}} 종료 범위",
+    "stopFailed": "종료 실패",
+    "stopping": "종료 중…",
+    "agent": "에이전트",
+    "session": "세션",
+    "cancel": "취소",
+    "close": "닫기"
+  },
+  "idleComposer": {
+    "sendFirstMessage": "첫 메시지 보내기",
+    "waitingPromotion": "첫 턴 시작 대기 중 — 곧 LIVE로 전환됩니다",
+    "placeholder": "{{name}}에 첫 지시… (Enter 전송)",
+    "cancel": "취소",
+    "send": "전송",
+    "sending": "전송 중…",
+    "targetReplaced": "대상이 교체됨 — 목록을 새로고침해 주세요",
+    "promotionTimeout": "전송은 됐지만 세션이 LIVE로 전환되지 않습니다 — tmux에서 gjc 상태를 직접 확인하세요",
+    "towerUnavailable": "관제탑 미가동 — 전송 불가",
+    "sendFailed": "전송 실패"
+  },
   "tabs": {
     "sessions": "세션",
     "archive": "기록"

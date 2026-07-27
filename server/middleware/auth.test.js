@@ -9,7 +9,10 @@ import {
   isTokenVersionValid,
   parseCookieHeader,
   parseStoredTokenVersion,
-  resolveAuthMode
+  resolveAuthMode,
+  resolveSessionDays,
+  shouldSlideSession,
+  TOKEN_MAX_AGE_MS
 } from './auth.js';
 
 test('parses the same-origin auth cookie without corrupting encoded values', () => {
@@ -90,6 +93,36 @@ test('auth mode resolution enables only explicit supported modes', () => {
   assert.equal(resolveAuthMode('anything-else'), 'none');
   assert.equal(resolveAuthMode('password'), 'password');
   assert.equal(resolveAuthMode('tailscale'), 'tailscale');
+});
+
+test('session length is configurable in whole days and falls back to 7 on junk', () => {
+  assert.equal(resolveSessionDays(undefined), 7);
+  assert.equal(resolveSessionDays(''), 7);
+  assert.equal(resolveSessionDays('not-a-number'), 7);
+  assert.equal(resolveSessionDays('0'), 7);
+  assert.equal(resolveSessionDays('-3'), 7);
+  assert.equal(resolveSessionDays('366'), 7);
+  assert.equal(resolveSessionDays('90'), 90);
+  assert.equal(resolveSessionDays('90.9'), 90);
+  assert.equal(resolveSessionDays('365'), 365);
+  assert.equal(resolveSessionDays('1'), 1);
+});
+
+test('sliding sessions renew in the second half of the window and never resurrect expired tokens', () => {
+  const now = 1_000_000_000_000;
+  const toExpSeconds = (remainingMs) => (now + remainingMs) / 1000;
+  // Fresh token (full window remaining): no rewrite on every request.
+  assert.equal(shouldSlideSession(toExpSeconds(TOKEN_MAX_AGE_MS), now), false);
+  // More than half remaining: still no renewal.
+  assert.equal(shouldSlideSession(toExpSeconds(TOKEN_MAX_AGE_MS * 0.6), now), false);
+  // Under half remaining: renew.
+  assert.equal(shouldSlideSession(toExpSeconds(TOKEN_MAX_AGE_MS * 0.4), now), true);
+  assert.equal(shouldSlideSession(toExpSeconds(1_000), now), true);
+  // Already expired or malformed: never renew.
+  assert.equal(shouldSlideSession(toExpSeconds(0), now), false);
+  assert.equal(shouldSlideSession(toExpSeconds(-1_000), now), false);
+  assert.equal(shouldSlideSession(undefined, now), false);
+  assert.equal(shouldSlideSession(Number.NaN, now), false);
 });
 
 test('websocket upgrades authenticate as the implicit owner when auth is disabled', () => {

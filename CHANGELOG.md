@@ -4,6 +4,41 @@ All notable changes to ChatMux are documented in this file. Current and
 future server artifacts are published only through
 [GitHub Releases](https://github.com/devswha/chatmux/releases).
 
+## 1.4.0 (2026-07-27)
+
+### Added
+
+- Installation is phone-ready out of the box: `chatmux install` (and the
+  one-line bootstrap) now enables password login on every interface, creates
+  the owner account, and prints its one-time password plus a QR code for the
+  LAN address. Reinstalling keeps the existing account.
+- `chatmux access password [new-password]` rotates or recovers the owner
+  password and immediately signs out every existing session.
+- One-command access switching: `chatmux access enable password [address]
+  [--session-days <n>]`, `enable tailscale [owner]`, and
+  `enable vpn <address>` atomically rewrite the managed environment and bind
+  address. VPN mode binds a WireGuard-style private tunnel address with no
+  application login; switching back to Tailscale restores the loopback bind.
+- Password sessions renew on use: a sliding window (`CHATMUX_SESSION_DAYS`,
+  1–365 days, default 7) keeps active devices signed in indefinitely while
+  idle sessions expire; logout and password rotation still revoke
+  immediately.
+- Terminal reconnects resume seamlessly: `/shell` output carries sequence
+  numbers and reconnecting clients replay only what they missed, so a phone
+  that drops signal continues exactly where it left off. Legacy clients and
+  gapped replays fall back to a full redraw.
+- Dead WebSocket peers are detected with a pong deadline and terminated
+  promptly instead of lingering until the OS TCP timeout.
+
+### Changed
+
+- `chatmux install` no longer accepts access-mode flags
+  (`--tailscale`, `--local`, `--vpn`, `--owner`, `--https-port`) or asks
+  interactive questions; every install is identical, and the removed flags
+  fail with the exact replacement command. Remote-access alternatives moved
+  to `chatmux access enable …`.
+- Remaining hardcoded UI strings were moved into the translation catalogs.
+
 ## 1.3.6 (2026-07-27)
 
 ### Added

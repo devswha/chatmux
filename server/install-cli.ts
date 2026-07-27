@@ -1,11 +1,13 @@
 import { spawn } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import { createServer } from 'node:net';
 import path from 'node:path';
-import { createInterface } from 'node:readline/promises';
 
-import { closeConnection, initializeDatabase } from '@/modules/database/index.js';
+import bcrypt from 'bcrypt';
+
+import { closeConnection, initializeDatabase, userDb } from '@/modules/database/index.js';
 import { appConfigDb } from '@/modules/database/repositories/app-config.js';
 import {
   allowTailscaleUser,
@@ -23,6 +25,8 @@ import {
 } from '@/tailscale-access.js';
 
 const MANAGED_SERVE_PORT_KEY = 'tailscale_serve_https_port';
+const OWNER_USERNAME = 'owner';
+const PASSWORD_HASH_ROUNDS = 12;
 const DEFAULT_SERVER_PORT = 3001;
 
 type CommandResult = { stdout: string; stderr: string };
@@ -31,11 +35,8 @@ type CommandRunner = (command: string, args: string[]) => Promise<CommandResult>
 type InstallOptions = {
   yes: boolean;
   dryRun: boolean;
-  accessMode: 'auto' | 'local' | 'tailscale';
-  owner: string | null;
   serverPort: number;
   serverPortExplicit: boolean;
-  httpsPort: number | null;
 };
 
 type InstallContext = {
@@ -49,6 +50,7 @@ type InstallContext = {
   nodeBinary?: string;
   healthCheck?: (serverPort: number, version: string) => Promise<void>;
   portAvailable?: (port: number) => Promise<boolean>;
+  interfaces?: () => NodeJS.Dict<os.NetworkInterfaceInfo[]>;
 };
 
 function runCommand(command: string, args: string[]): Promise<CommandResult> {
@@ -82,24 +84,23 @@ function parsePort(value: string, option: string): number {
   return port;
 }
 
+// Installation is deliberately a single fixed shape: local-only on loopback.
+// Remote access is enabled afterwards with `chatmux access enable
+// tailscale|vpn <address>`, so every install behaves identically regardless
+// of what happens to be running on the machine.
+const REMOVED_ACCESS_OPTIONS = ['--tailscale', '--local', '--vpn', '--owner', '--https-port'];
+
 export function parseInstallOptions(args: string[]): InstallOptions {
   const options: InstallOptions = {
     yes: false,
     dryRun: false,
-    accessMode: 'auto',
-    owner: null,
     serverPort: DEFAULT_SERVER_PORT,
     serverPortExplicit: false,
-    httpsPort: null,
   };
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (arg === '--yes' || arg === '-y') options.yes = true;
     else if (arg === '--dry-run') options.dryRun = true;
-    else if (arg === '--tailscale') options.accessMode = 'tailscale';
-    else if (arg === '--local') options.accessMode = 'local';
-    else if (arg === '--owner') options.owner = args[++index] ?? null;
-    else if (arg.startsWith('--owner=')) options.owner = arg.slice('--owner='.length);
     else if (arg === '--port') {
       options.serverPort = parsePort(args[++index] ?? '', '--port');
       options.serverPortExplicit = true;
@@ -107,13 +108,51 @@ export function parseInstallOptions(args: string[]): InstallOptions {
       options.serverPort = parsePort(arg.slice('--port='.length), '--port');
       options.serverPortExplicit = true;
     }
-    else if (arg === '--https-port') options.httpsPort = parsePort(args[++index] ?? '', '--https-port');
-    else if (arg.startsWith('--https-port=')) options.httpsPort = parsePort(arg.slice('--https-port='.length), '--https-port');
+    else if (REMOVED_ACCESS_OPTIONS.includes(arg) || REMOVED_ACCESS_OPTIONS.some((option) => arg.startsWith(`${option}=`))) {
+      throw new Error(
+        `${arg} was removed: installation is always local-only. After installing, enable remote access with ` +
+        `"chatmux access enable tailscale" or "chatmux access enable vpn <address>".`,
+      );
+    }
     else throw new Error(`Unknown install option: ${arg}`);
   }
   return options;
 }
 
+
+// VPN access mode binds the backend to a WireGuard-style private tunnel
+// address with no application login (CHATMUX_AUTH=none +
+// CHATMUX_ALLOW_UNAUTH_REMOTE=1), so the address is required to be a private
+// IPv4 that is actually present on a local interface. A public bind would be
+// unauthenticated remote code execution.
+export function assertVpnBindHost(
+  host: string,
+  interfaces: () => NodeJS.Dict<os.NetworkInterfaceInfo[]> = os.networkInterfaces,
+): string {
+  const trimmed = (host ?? '').trim();
+  const octets = trimmed.split('.').map(Number);
+  if (octets.length !== 4 || octets.some((value) => !Number.isInteger(value) || value < 0 || value > 255)) {
+    throw new Error(`--vpn requires the VPN interface IPv4 address (e.g. --vpn 10.0.0.1); received "${host}"`);
+  }
+  const [first, second] = octets;
+  const isPrivate =
+    first === 10 ||
+    (first === 100 && second >= 64 && second <= 127) ||
+    (first === 172 && second >= 16 && second <= 31) ||
+    (first === 192 && second === 168);
+  if (!isPrivate) {
+    throw new Error(
+      `VPN mode disables login entirely, so it only binds private tunnel addresses ` +
+      `(10/8, 100.64/10, 172.16/12, 192.168/16); received ${trimmed}`,
+    );
+  }
+  const present = Object.values(interfaces()).some((entries) =>
+    (entries ?? []).some((entry) => entry.address === trimmed));
+  if (!present) {
+    throw new Error(`No local network interface has the address ${trimmed}; bring the VPN up first (e.g. wg-quick up wg0)`);
+  }
+  return trimmed;
+}
 
 function isPortAvailable(port: number): Promise<boolean> {
   const { promise, resolve } = Promise.withResolvers<boolean>();
@@ -178,7 +217,9 @@ export function renderSystemdUnit(template: string, values: {
 }
 
 export function buildManagedEnvironment(values: {
-  authMode: 'none' | 'tailscale';
+  authMode: 'none' | 'tailscale' | 'password';
+  allowUnauthRemote?: boolean;
+  sessionDays?: number | null;
   databasePath: string;
   serverPort: number;
 }): string {
@@ -186,6 +227,8 @@ export function buildManagedEnvironment(values: {
   const escapedPath = values.databasePath.replaceAll('\\', '\\\\').replaceAll('"', '\\"');
   return [
     `CHATMUX_AUTH=${values.authMode}`,
+    ...(values.allowUnauthRemote ? ['CHATMUX_ALLOW_UNAUTH_REMOTE=1'] : []),
+    ...(values.sessionDays ? [`CHATMUX_SESSION_DAYS=${values.sessionDays}`] : []),
     `SERVER_PORT=${values.serverPort}`,
     `DATABASE_PATH="${escapedPath}"`,
     '',
@@ -207,28 +250,6 @@ async function readManagedEnvironment(configPath: string): Promise<void> {
     }
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-  }
-}
-
-async function promptYesNo(question: string, defaultYes: boolean): Promise<boolean> {
-  const terminal = createInterface({ input: process.stdin, output: process.stdout });
-  try {
-    const suffix = defaultYes ? '[Y/n]' : '[y/N]';
-    const answer = (await terminal.question(`${question} ${suffix} `)).trim().toLowerCase();
-    if (!answer) return defaultYes;
-    return answer === 'y' || answer === 'yes';
-  } finally {
-    terminal.close();
-  }
-}
-
-async function promptValue(question: string, defaultValue: string): Promise<string> {
-  const terminal = createInterface({ input: process.stdin, output: process.stdout });
-  try {
-    const answer = (await terminal.question(`${question} [${defaultValue}] `)).trim();
-    return answer || defaultValue;
-  } finally {
-    terminal.close();
   }
 }
 
@@ -296,11 +317,11 @@ async function writeManagedCli(
   }
 }
 
-async function waitForHealth(serverPort: number, version: string): Promise<void> {
+async function waitForHealth(serverPort: number, version: string, host = '127.0.0.1'): Promise<void> {
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
     try {
-      const response = await fetch(`http://127.0.0.1:${serverPort}/health`);
+      const response = await fetch(`http://${host}:${serverPort}/health`);
       if (response.ok) {
         const payload = await response.json() as { product?: unknown; version?: unknown };
         if (payload.product === 'chatmux' && payload.version === version) return;
@@ -312,7 +333,7 @@ async function waitForHealth(serverPort: number, version: string): Promise<void>
     setTimeout(resolve, 500);
     await promise;
   }
-  throw new Error(`ChatMux ${version} did not become healthy on 127.0.0.1:${serverPort}`);
+  throw new Error(`ChatMux ${version} did not become healthy on ${host}:${serverPort}`);
 }
 
 async function inspectTailscale(run: CommandRunner): Promise<{
@@ -386,23 +407,18 @@ export async function runInstallCli(args: string[], context: InstallContext): Pr
   const unitPath = path.join(home, '.config', 'systemd', 'user', 'chatmux.service');
   const binPath = path.join(home, '.local', 'bin', 'chatmux');
   const nodeBinary = context.nodeBinary ?? process.execPath;
-  const tailscale = await inspectTailscale(run);
 
-  let useTailscale = options.accessMode === 'tailscale';
-  if (options.accessMode === 'auto') {
-    useTailscale = options.yes
-      ? tailscale.running
-      : await promptYesNo('Use passwordless Tailscale access from your other devices?', tailscale.running);
+  // Install is one fixed shape: loopback bind, no application login required
+  // locally. Detect a previously configured remote mode only to tell the
+  // operator how to restore it after this reset.
+  let previousRemoteMode: 'tailscale' | 'vpn' | null = null;
+  try {
+    const previousEnvironment = await fs.readFile(configPath, 'utf8');
+    if (/^CHATMUX_ALLOW_UNAUTH_REMOTE=1$/m.test(previousEnvironment)) previousRemoteMode = 'vpn';
+    else if (/^CHATMUX_AUTH=tailscale$/m.test(previousEnvironment)) previousRemoteMode = 'tailscale';
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
   }
-  if (useTailscale && (!tailscale.installed || !tailscale.running)) {
-    throw new Error('Tailscale must be installed, running, and logged in before enabling remote access');
-  }
-
-  let owner = normalizeTailscaleLogin(options.owner ?? tailscale.owner);
-  if (useTailscale && !owner && !options.yes) {
-    owner = normalizeTailscaleLogin(await promptValue('Tailscale owner login', 'user@example.com'));
-  }
-  if (useTailscale && !owner) throw new Error('Could not determine the Tailscale owner login; pass --owner <login>');
 
   if (!options.dryRun) {
     await run('systemctl', ['--user', 'stop', 'chatmux.service']).catch(() => undefined);
@@ -423,11 +439,11 @@ export async function runInstallCli(args: string[], context: InstallContext): Pr
     workingDirectory: currentPath,
     nodeBinary,
     configFile: configPath,
-    host: '127.0.0.1',
+    host: '0.0.0.0',
     port: options.serverPort,
   });
   const environment = buildManagedEnvironment({
-    authMode: useTailscale ? 'tailscale' : 'none',
+    authMode: 'password',
     databasePath,
     serverPort: options.serverPort,
   });
@@ -440,8 +456,6 @@ export async function runInstallCli(args: string[], context: InstallContext): Pr
       unitPath,
       configPath,
       binPath,
-      accessMode: useTailscale ? 'tailscale' : 'local',
-      owner: useTailscale ? owner : null,
       serverPort: options.serverPort,
     }, null, 2));
     return;
@@ -457,34 +471,46 @@ export async function runInstallCli(args: string[], context: InstallContext): Pr
 
   process.env.DATABASE_PATH = databasePath;
   await initializeDatabase();
-  if (owner) setTailscaleOwner(owner);
+
+  // Phone-ready out of the box: create the owner account before the service
+  // ever binds beyond loopback, so the exposure guard's fail-closed rule
+  // ("no users → no network bind") is satisfied without a setup round-trip.
+  // The generated password is printed exactly once below.
+  let initialPassword: string | null = null;
+  if (!userDb.hasUsers()) {
+    initialPassword = generateInitialPassword();
+    userDb.createUser(OWNER_USERNAME, await bcrypt.hash(initialPassword, PASSWORD_HASH_ROUNDS));
+  }
+  const ownerUsername = userDb.getFirstUser()?.username ?? OWNER_USERNAME;
 
   await run('systemctl', ['--user', 'daemon-reload']);
   await run('systemctl', ['--user', 'enable', 'chatmux.service']);
   await run('systemctl', ['--user', 'restart', 'chatmux.service']);
   await (context.healthCheck ?? waitForHealth)(options.serverPort, context.version);
 
-  let remoteUrl: string | null = null;
-  if (useTailscale) {
-    const serve = await configureTailscaleServe(run, options.serverPort, options.httpsPort);
-    remoteUrl = serve.url;
-    appConfigDb.set(MANAGED_SERVE_PORT_KEY, String(serve.httpsPort));
-  }
   closeConnection();
 
+  const lanAddresses = listLanAddresses(context.interfaces ?? os.networkInterfaces);
   console.log('\nChatMux installation complete');
   console.log(`  Local:  http://127.0.0.1:${options.serverPort}`);
-  if (remoteUrl) console.log(`  Remote: ${remoteUrl}`);
-  console.log(`  Access: ${useTailscale ? `Tailscale (${owner})` : 'this computer only'}`);
-  console.log(`  Next:   open ${remoteUrl ?? `http://127.0.0.1:${options.serverPort}`} in a browser — running tmux agents appear automatically`);
-  console.log(`  Manage: chatmux status | chatmux access users | journalctl --user -u chatmux.service`);
-  if (remoteUrl) {
-    try {
-      const qr = await run('qrencode', ['-t', 'ANSIUTF8', remoteUrl]);
-      if (qr.stdout.trim()) console.log(`\n${qr.stdout}`);
-    } catch {
-      console.log('  QR: install qrencode to print this address as a terminal QR code');
-    }
+  for (const address of lanAddresses) {
+    console.log(`  Phone:  http://${address}:${options.serverPort} — sign in from any browser, no app needed`);
+  }
+  if (initialPassword) {
+    console.log(`  Login:  ${ownerUsername} / ${initialPassword}`);
+    console.log('          (shown only this once — change it with: chatmux access password)');
+  } else {
+    console.log(`  Login:  existing account "${ownerUsername}" (forgot it? chatmux access password)`);
+  }
+  console.log('  Access: password — sessions renew on use; alternatives: chatmux access enable tailscale | enable vpn <address>');
+  console.log(`  Manage: chatmux status | chatmux access password | journalctl --user -u chatmux.service`);
+  if (previousRemoteMode) {
+    const restore = previousRemoteMode === 'vpn' ? 'chatmux access enable vpn <address>' : 'chatmux access enable tailscale';
+    console.log(`  Note:   previous ${previousRemoteMode} remote access was replaced by password access; restore it with: ${restore}`);
+  }
+  const primaryAddress = lanAddresses[0];
+  if (primaryAddress) {
+    await printAccessQr(run, `http://${primaryAddress}:${options.serverPort}`);
   }
 }
 
@@ -496,17 +522,114 @@ async function initializeManagedDatabase(home: string): Promise<string> {
   return configPath;
 }
 
-async function updateManagedAuthMode(configPath: string, mode: 'none' | 'tailscale'): Promise<void> {
+// Password mode binds are only constrained to valid IPv4 syntax: 0.0.0.0 (all
+// interfaces) and LAN addresses are both legitimate because the application
+// login protects the port. The exposure guard still fail-closes at startup
+// when no account exists.
+export function assertPasswordBindHost(host: string): string {
+  const trimmed = (host ?? '').trim();
+  const octets = trimmed.split('.').map(Number);
+  if (octets.length !== 4 || octets.some((value) => !Number.isInteger(value) || value < 0 || value > 255)) {
+    throw new Error(`enable password requires an IPv4 bind address (e.g. 0.0.0.0); received "${host}"`);
+  }
+  return trimmed;
+}
+
+// 16-character base64url password from CSPRNG bytes: strong enough to guard a
+// shell-capable port, short enough to retype on a phone once.
+function generateInitialPassword(): string {
+  return randomBytes(12).toString('base64url');
+}
+
+function listLanAddresses(interfaces: () => NodeJS.Dict<os.NetworkInterfaceInfo[]>): string[] {
+  return Object.values(interfaces()).flatMap((entries) =>
+    (entries ?? [])
+      .filter((entry) => entry.family === 'IPv4' && !entry.internal)
+      .map((entry) => entry.address));
+}
+
+// Mirrors incrementTokenVersion() in server/middleware/auth.js without
+// importing it (that module derives a JWT secret at import time, which must
+// not run inside the installer process before DATABASE_PATH is final).
+function bumpTokenVersion(userId: number | bigint): void {
+  const stored = appConfigDb.get(`auth_token_version:${userId}`);
+  const parsed = Number.parseInt(String(stored ?? '0'), 10);
+  const next = (Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : 0) + 1;
+  appConfigDb.set(`auth_token_version:${userId}`, String(next));
+  appConfigDb.set('auth_token_version_schema', '1');
+}
+
+// Mirrors resolveSessionDays() bounds in server/middleware/auth.js.
+function parseSessionDaysOption(value: string | undefined): number {
+  const days = Number(value);
+  if (!Number.isInteger(days) || days < 1 || days > 365) {
+    throw new Error('--session-days must be an integer between 1 and 365');
+  }
+  return days;
+}
+
+async function readPersistedSessionDays(configPath: string): Promise<number | null> {
+  try {
+    const content = await fs.readFile(configPath, 'utf8');
+    const match = /^CHATMUX_SESSION_DAYS=(\d+)$/m.exec(content);
+    return match ? Number(match[1]) : null;
+  } catch {
+    return null;
+  }
+}
+
+type ManagedAuthUpdate = {
+  mode: 'none' | 'tailscale' | 'password';
+  allowUnauthRemote?: boolean;
+  /** undefined preserves the persisted session length; a number overwrites it. */
+  sessionDays?: number;
+};
+
+async function updateManagedAuthMode(configPath: string, update: ManagedAuthUpdate): Promise<void> {
   const databasePath = process.env.DATABASE_PATH as string;
   const serverPort = parsePort(process.env.SERVER_PORT || String(DEFAULT_SERVER_PORT), 'SERVER_PORT');
+  const sessionDays = update.sessionDays ?? await readPersistedSessionDays(configPath);
   await fs.writeFile(
     configPath,
-    buildManagedEnvironment({ authMode: mode, databasePath, serverPort }),
+    buildManagedEnvironment({
+      authMode: update.mode,
+      allowUnauthRemote: update.allowUnauthRemote ?? false,
+      sessionDays,
+      databasePath,
+      serverPort,
+    }),
     { mode: 0o600 },
   );
 }
 
-export async function runAccessCli(args: string[], context: Pick<InstallContext, 'home' | 'run'> = {}): Promise<void> {
+// Rewrites the HOST bind address inside the installed user unit. Returns false
+// when there is no managed unit (or no HOST line) to update.
+async function updateManagedUnitHost(home: string, host: string): Promise<boolean> {
+  const unitPath = path.join(home, '.config', 'systemd', 'user', 'chatmux.service');
+  let unit: string;
+  try {
+    unit = await fs.readFile(unitPath, 'utf8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw error;
+  }
+  if (!/^Environment=HOST=.*$/m.test(unit)) return false;
+  const updated = unit.replace(/^Environment=HOST=.*$/m, `Environment=HOST=${host}`);
+  if (updated !== unit) await fs.writeFile(unitPath, updated, 'utf8');
+  return true;
+}
+
+// The QR code makes phone setup one camera scan instead of typing an address.
+async function printAccessQr(run: CommandRunner, url: string): Promise<void> {
+  try {
+    const qr = await run('qrencode', ['-t', 'ANSIUTF8', url]);
+    if (qr.stdout.trim()) console.log(`\n${qr.stdout}`);
+  } catch {
+    console.log('QR: install qrencode to print this address as a terminal QR code');
+  }
+}
+
+export async function runAccessCli(args: string[], context: Pick<InstallContext, 'home' | 'run' | 'interfaces'> = {}): Promise<void> {
   const home = context.home ?? os.homedir();
   const run = context.run ?? runCommand;
   const [command, ...rest] = args;
@@ -544,15 +667,93 @@ export async function runAccessCli(args: string[], context: Pick<InstallContext,
       const owner = normalizeTailscaleLogin(rest[1] ?? status.owner);
       if (!owner) throw new Error('Could not determine the Tailscale owner login');
       setTailscaleOwner(owner);
-      await updateManagedAuthMode(configPath, 'tailscale');
+      await updateManagedAuthMode(configPath, { mode: 'tailscale' });
+      await updateManagedUnitHost(home, '127.0.0.1');
+      await run('systemctl', ['--user', 'daemon-reload']);
       const serverPort = Number(process.env.SERVER_PORT || DEFAULT_SERVER_PORT);
       const serve = await configureTailscaleServe(run, serverPort, null);
       appConfigDb.set(MANAGED_SERVE_PORT_KEY, String(serve.httpsPort));
       await run('systemctl', ['--user', 'restart', 'chatmux.service']);
       console.log(`Tailscale access enabled: ${serve.url}`);
+      await printAccessQr(run, serve.url);
       return;
     }
-    throw new Error('Usage: chatmux access users | owner [login] | allow <login> | revoke <login> | enable tailscale [owner]');
+    if (command === 'enable' && rest[0] === 'vpn') {
+      const host = assertVpnBindHost(rest[1] ?? '', context.interfaces);
+      if (!(await updateManagedUnitHost(home, host))) {
+        throw new Error('No managed chatmux.service unit was found; run "chatmux install" first, then re-run this command');
+      }
+      await updateManagedAuthMode(configPath, { mode: 'none', allowUnauthRemote: true });
+      await run('systemctl', ['--user', 'daemon-reload']);
+      await run('systemctl', ['--user', 'restart', 'chatmux.service']);
+      const serverPort = Number(process.env.SERVER_PORT || DEFAULT_SERVER_PORT);
+      const url = `http://${host}:${serverPort}`;
+      console.log(`VPN access enabled: ${url} (no login — only devices inside the VPN can reach it)`);
+      await printAccessQr(run, url);
+      return;
+    }
+    if (command === 'enable' && rest[0] === 'password') {
+      let address = '0.0.0.0';
+      let sessionDays: number | undefined;
+      for (let index = 1; index < rest.length; index += 1) {
+        const argument = rest[index];
+        if (argument === '--session-days') sessionDays = parseSessionDaysOption(rest[++index]);
+        else if (argument.startsWith('--session-days=')) sessionDays = parseSessionDaysOption(argument.slice('--session-days='.length));
+        else address = argument;
+      }
+      const host = assertPasswordBindHost(address);
+      const serverPort = Number(process.env.SERVER_PORT || DEFAULT_SERVER_PORT);
+      // The exposure guard refuses a non-loopback bind while no account
+      // exists, so the first run stays on loopback and walks the operator
+      // through creating the owner account.
+      const hasOwner = userDb.hasUsers();
+      const bindHost = hasOwner ? host : '127.0.0.1';
+      if (!(await updateManagedUnitHost(home, bindHost))) {
+        throw new Error('No managed chatmux.service unit was found; run "chatmux install" first, then re-run this command');
+      }
+      await updateManagedAuthMode(configPath, { mode: 'password', sessionDays });
+      await run('systemctl', ['--user', 'daemon-reload']);
+      await run('systemctl', ['--user', 'restart', 'chatmux.service']);
+      if (!hasOwner) {
+        console.log('Password mode is on, but no account exists yet, so the bind stays on 127.0.0.1 (fail-closed).');
+        console.log(`  1) Open http://127.0.0.1:${serverPort} in a browser on this machine and create the owner account`);
+        console.log(`  2) Re-run: chatmux access enable password${host === '0.0.0.0' ? '' : ` ${host}`}`);
+        return;
+      }
+      const displayHosts = host === '0.0.0.0'
+        ? listLanAddresses(context.interfaces ?? os.networkInterfaces)
+        : [host];
+      const effectiveDays = await readPersistedSessionDays(configPath) ?? 7;
+      console.log('Password access enabled — any browser can sign in, no app required.');
+      for (const displayHost of displayHosts) console.log(`  Address: http://${displayHost}:${serverPort}`);
+      console.log(`  Session: stays signed in forever while used at least once every ${effectiveDays} days (idle sessions expire; change with --session-days <n>)`);
+      console.log('  Reach:   same Wi-Fi works immediately; for access from anywhere, forward this TCP port on the router');
+      console.log('  HTTPS:   put a TLS proxy in front before exposing to the internet — see docs/INSTALL.md');
+      const primary = displayHosts[0];
+      if (primary) await printAccessQr(run, `http://${primary}:${serverPort}`);
+      return;
+    }
+    if (command === 'password') {
+      const owner = userDb.getFirstUser();
+      if (!owner) {
+        throw new Error('No account exists yet; run "chatmux install" first');
+      }
+      const provided = rest[0];
+      if (provided !== undefined && provided.length < 6) {
+        throw new Error('Password must be at least 6 characters');
+      }
+      const nextPassword = provided ?? generateInitialPassword();
+      userDb.updatePasswordHash(owner.id, await bcrypt.hash(nextPassword, PASSWORD_HASH_ROUNDS));
+      // Rotating the password must also kick out every session issued under
+      // the old one — the token version bump revokes them immediately.
+      bumpTokenVersion(owner.id);
+      console.log(provided
+        ? `Password updated for "${owner.username}".`
+        : `Password updated for "${owner.username}": ${nextPassword}`);
+      console.log('Every existing session has been signed out.');
+      return;
+    }
+    throw new Error('Usage: chatmux access users | owner [login] | allow <login> | revoke <login> | password [new-password] | enable tailscale [owner] | enable vpn <address> | enable password [address] [--session-days <n>]');
   } finally {
     closeConnection();
   }

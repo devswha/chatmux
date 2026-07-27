@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { X } from 'lucide-react';
 
 import type { ExternalTerminalTarget, Project, ProjectSession } from '../../../../types/app';
@@ -85,6 +86,7 @@ export default function SidebarLiveSection({
   onSessionSelect,
   onExternalTerminalOpen,
 }: SidebarLiveSectionProps) {
+  const { t } = useTranslation('sidebar');
   // Session ids killed in this component instance — hidden immediately; the 5s
   // live poll is the source of truth and will drop them for real.
   const [killedIds, setKilledIds] = useState<ReadonlySet<string>>(new Set());
@@ -162,12 +164,12 @@ export default function SidebarLiveSection({
         updatedAt?: unknown;
       } | undefined;
       if (!response.ok || session?.sessionId !== sessionId || session.provider !== 'gjc') {
-        throw new Error(body?.error?.message ?? '이전 대화를 불러오지 못했습니다');
+        throw new Error(body?.error?.message ?? t('liveSessions.openPreviousFailed'));
       }
       const projectId = typeof session.projectId === 'string' ? session.projectId : '';
       const project = projects.find((candidate) => candidate.projectId === projectId);
       if (!project) {
-        throw new Error('연결된 프로젝트를 찾지 못했습니다. 목록을 새로고침해 주세요.');
+        throw new Error(t('liveSessions.projectMissing'));
       }
       onProjectSelect(project);
       onSessionSelect({
@@ -180,7 +182,7 @@ export default function SidebarLiveSection({
     } catch (error) {
       setOpenError((previous) => new Map(previous).set(
         sessionId,
-        error instanceof Error ? error.message : '이전 대화를 불러오지 못했습니다',
+        error instanceof Error ? error.message : t('liveSessions.openPreviousFailed'),
       ));
     } finally {
       setOpeningId(null);
@@ -193,7 +195,7 @@ export default function SidebarLiveSection({
   ) => {
     const target = liveSessionTargets.get(sessionId);
     if (!target) {
-      setStatusOf(sessionId, { kind: 'error', text: '대상이 교체됨 — 목록을 새로고침해 주세요' });
+      setStatusOf(sessionId, { kind: 'error', text: t('liveSessions.targetReplaced') });
       return;
     }
     setStatusOf(sessionId, { kind: 'stopping' });
@@ -207,13 +209,13 @@ export default function SidebarLiveSection({
         return;
       }
       const text = response.status === 409
-        ? '대상이 교체됨 — 목록 갱신 후 다시 시도하세요'
+        ? t('liveSessions.targetReplacedRetry')
         : response.status === 403
-          ? '보호된 tmux 대상입니다'
-          : (typeof body?.error === 'string' && body.error) || data.detail || '종료 실패';
+          ? t('liveSessions.protectedTarget')
+          : (typeof body?.error === 'string' && body.error) || data.detail || t('liveSessions.stopFailed');
       setStatusOf(sessionId, { kind: 'error', text });
     } catch {
-      setStatusOf(sessionId, { kind: 'error', text: '종료 실패' });
+      setStatusOf(sessionId, { kind: 'error', text: t('liveSessions.stopFailed') });
     }
   };
 
@@ -222,7 +224,7 @@ export default function SidebarLiveSection({
     statusOf(id).kind === 'idle' ? (
       <button
         type="button"
-        title={`${tmuxName} 종료 옵션`}
+        title={t('liveSessions.stopOptions', { name: tmuxName })}
         onClick={() => setStatusOf(id, { kind: 'confirming' })}
         className="mr-1 mt-1.5 rounded p-1 text-muted-foreground/60 transition-colors hover:bg-red-500/10 hover:text-red-500"
       >
@@ -243,13 +245,13 @@ export default function SidebarLiveSection({
               onClick={() => setStatusOf(id, { kind: 'idle' })}
               className="shrink-0 text-muted-foreground hover:text-foreground"
             >
-              닫기
+              {t('liveSessions.close')}
             </button>
           </p>
         ) : (
           <div className="flex items-center justify-between gap-2">
             <span className="truncate text-[11px] text-muted-foreground">
-              {status.kind === 'stopping' ? '종료 중…' : `${tmuxName} 종료 범위`}
+              {status.kind === 'stopping' ? t('liveSessions.stopping') : t('liveSessions.stopScope', { name: tmuxName })}
             </span>
             {status.kind === 'confirming' && (
               <span className="flex shrink-0 items-center gap-1">
@@ -258,16 +260,16 @@ export default function SidebarLiveSection({
                   onClick={() => void stop(id, 'process')}
                   className="rounded bg-red-600 px-2 py-0.5 text-[11px] font-medium text-white hover:bg-red-700"
                 >
-                  에이전트
+                  {t('liveSessions.agent')}
                 </button>
                 <button type="button" onClick={() => void stop(id, 'pane')} className="px-1 text-[11px] text-red-500">
                   pane
                 </button>
                 <button type="button" onClick={() => void stop(id, 'session')} className="px-1 text-[11px] text-red-500">
-                  세션
+                  {t('liveSessions.session')}
                 </button>
                 <button type="button" onClick={() => setStatusOf(id, { kind: 'idle' })} className="px-1 text-[11px] text-muted-foreground">
-                  취소
+                  {t('liveSessions.cancel')}
                 </button>
               </span>
             )}
@@ -317,7 +319,7 @@ export default function SidebarLiveSection({
                           <span className="inline-flex h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-emerald-500" aria-hidden />
                           <span
                             className="shrink-0 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400"
-                            title="턴 진행 중 — 에이전트가 응답/도구 실행 중입니다"
+                            title={t('liveSessions.runTitle')}
                           >
                             RUN
                           </span>
@@ -327,7 +329,7 @@ export default function SidebarLiveSection({
                           <span className="inline-flex h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-blue-500" aria-hidden />
                           <span
                             className="shrink-0 rounded bg-blue-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-blue-600 dark:text-blue-400"
-                            title="세션 감지됨 — 다음 지시 대기 중"
+                            title={t('liveSessions.liveTitle')}
                           >
                             LIVE
                           </span>
@@ -336,9 +338,9 @@ export default function SidebarLiveSection({
                       {liveSessionKinds.get(session.id) === 'batch' && (
                         <span
                           className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400"
-                          title="이 tmux pane의 전면 명령이 gjc가 아닙니다 — gjc는 배치(백그라운드) 자손으로 실행 중"
+                          title={t('liveSessions.batchTitle')}
                         >
-                          배치
+                          {t('liveSessions.batchBadge')}
                         </span>
                       )}
                       <span className="truncate text-sm font-medium text-foreground">{primary}</span>
@@ -377,14 +379,14 @@ export default function SidebarLiveSection({
                   <span
                     className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${isIdle ? 'bg-muted text-muted-foreground' : liveSessionRunning.has(id) ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' : 'bg-blue-500/15 text-blue-600 dark:text-blue-400'}`}
                   >
-                    {isIdle ? '대기' : liveSessionRunning.has(id) ? 'RUN' : 'LIVE'}
+                    {isIdle ? t('liveSessions.idleBadge') : liveSessionRunning.has(id) ? 'RUN' : 'LIVE'}
                   </span>
                   {liveSessionKinds.get(id) === 'batch' && (
                     <span
                       className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400"
-                      title="이 tmux pane의 전면 명령이 gjc가 아닙니다 — gjc는 배치(백그라운드) 자손으로 실행 중"
+                      title={t('liveSessions.batchTitle')}
                     >
-                      배치
+                      {t('liveSessions.batchBadge')}
                     </span>
                   )}
                   <span className="truncate text-sm font-medium text-foreground">
@@ -393,10 +395,10 @@ export default function SidebarLiveSection({
                 </span>
                 <span className="truncate text-[11px] text-muted-foreground">
                   {metadata || (isIdle
-                    ? '눌러서 첫 대화 시작'
+                    ? t('liveSessions.idleHint')
                     : openingId === id
-                      ? '이전 대화 불러오는 중…'
-                      : '눌러서 이전 대화 열기')}
+                      ? t('liveSessions.openingPrevious')
+                      : t('liveSessions.openPreviousHint'))}
                 </span>
               </span>
             </>
@@ -420,7 +422,7 @@ export default function SidebarLiveSection({
                       }
                     }}
                     className="flex min-w-0 flex-1 items-start gap-2 px-2 py-1.5 text-left"
-                    title={tmuxName ? `tmux 세션 '${tmuxName}'에서 첫 대화 시작` : undefined}
+                    title={tmuxName ? t('liveSessions.startFirstConversation', { name: tmuxName }) : undefined}
                   >
                     {content}
                   </button>

@@ -305,11 +305,11 @@ export default function SidebarContent({
           ) : (!liveSessionsLoaded || externalLoading) ? (
             <div className="flex items-center justify-center gap-2 px-4 py-8 text-sm text-muted-foreground" role="status" aria-live="polite">
               <span className="h-4 w-4 animate-spin rounded-full border-2 border-muted-foreground/40 border-t-muted-foreground" aria-hidden />
-              세션 불러오는 중…
+              {t('liveSessions.loading')}
             </div>
           ) : (
             <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-              지금 tmux에서 작동 중인 CLI 세션이 없습니다. (GJC · Codex · Claude Code)
+              {t('liveSessions.empty')}
             </div>
           )}
         </ScrollArea>

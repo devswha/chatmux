@@ -231,7 +231,11 @@
     "placeholder": "Message à {{name}}… (commandes {{trigger}}, fichiers @, Entrée pour envoyer, Maj+Entrée pour un saut de ligne)",
     "currentSession": "session actuelle",
     "send": "Envoyer",
-    "sending": "Envoi…"
+    "sending": "Envoi…",
+    "delivered": "Transmis",
+    "queued": "Mis en file d'attente",
+    "towerUnavailable": "La tour de contrôle est arrêtée — envoi impossible",
+    "sendFailed": "Échec de l'envoi"
   },
   "transcript": {
     "conversationTab": "Chat",

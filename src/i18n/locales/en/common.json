@@ -271,5 +271,16 @@
       "updateAvailable": "Update available",
       "closeSidebar": "Close sidebar"
     }
+  },
+  "filesPanel": {
+    "open": "Open files panel",
+    "close": "Close files panel",
+    "changeRoot": "Change root folder",
+    "rootPlaceholder": "e.g. ~/workspace (absolute paths allowed)",
+    "apply": "Apply",
+    "opening": "Opening folder…",
+    "homeUnknown": "Unable to determine the home directory",
+    "homeOnly": "Only paths under your home directory are supported (e.g. ~/workspace)",
+    "openFailed": "Cannot open the folder — check the path"
   }
 }

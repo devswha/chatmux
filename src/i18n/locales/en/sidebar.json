@@ -176,6 +176,44 @@
       "unknownTitle": "The current state cannot be determined safely from provider records"
     }
   },
+  "liveSessions": {
+    "loading": "Loading sessions…",
+    "empty": "No CLI sessions are running in tmux right now. (GJC · Codex · Claude Code)",
+    "runTitle": "Turn in progress — the agent is responding or running tools",
+    "liveTitle": "Session detected — waiting for the next instruction",
+    "batchBadge": "Batch",
+    "batchTitle": "This tmux pane's foreground command is not gjc — gjc runs as a batch (background) descendant",
+    "idleBadge": "Idle",
+    "idleHint": "Click to start the first conversation",
+    "startFirstConversation": "Start the first conversation in tmux session '{{name}}'",
+    "openingPrevious": "Loading previous conversation…",
+    "openPreviousHint": "Click to open the previous conversation",
+    "openPreviousFailed": "Failed to load the previous conversation",
+    "projectMissing": "Could not find the linked project. Refresh the list.",
+    "targetReplaced": "Target replaced — refresh the list",
+    "targetReplacedRetry": "Target replaced — refresh the list and try again",
+    "protectedTarget": "Protected tmux target",
+    "stopOptions": "{{name}} stop options",
+    "stopScope": "{{name}} stop scope",
+    "stopFailed": "Failed to stop",
+    "stopping": "Stopping…",
+    "agent": "Agent",
+    "session": "Session",
+    "cancel": "Cancel",
+    "close": "Close"
+  },
+  "idleComposer": {
+    "sendFirstMessage": "Send first message",
+    "waitingPromotion": "Waiting for the first turn to start — switching to LIVE soon",
+    "placeholder": "First instruction to {{name}}… (Enter to send)",
+    "cancel": "Cancel",
+    "send": "Send",
+    "sending": "Sending…",
+    "targetReplaced": "Target replaced — refresh the list",
+    "promotionTimeout": "The message was sent but the session is not switching to LIVE — check gjc directly in tmux",
+    "towerUnavailable": "Control tower is not running — cannot send",
+    "sendFailed": "Failed to send"
+  },
   "tabs": {
     "sessions": "Sessions",
     "archive": "History"

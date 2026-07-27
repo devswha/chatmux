@@ -56,10 +56,26 @@ port. `chatmux status` reports the configured address.
 Use `loginctl enable-linger "$USER"` only when the host policy permits the
 service to continue after logout.
 
-Keep the service on loopback. For remote access, use the Tailscale option in
-`chatmux install`; it keeps the backend on `127.0.0.1`, configures a private
-HTTPS Serve front on an unused port, and applies the same account allowlist to
-HTTP and WebSocket requests.
+Installation enables password access on every interface with an
+auto-created owner account, so remote use needs no further setup. The mode
+can be changed with one command at any time:
+
+- **Password** (the default; `chatmux access enable password [address]
+  [--session-days <n>]`, rotate with `chatmux access password`) serves a
+  browser login so phones need no VPN app. Sessions renew on use (sliding
+  window, 1–365 days): active devices never re-login, idle ones expire, and
+  logout or rotation revokes immediately. Restrict the bind with
+  `chatmux access enable password 127.0.0.1`, and put a TLS proxy in front
+  before any public exposure.
+
+- **Tailscale** keeps the backend on `127.0.0.1`, configures a private HTTPS
+  Serve front on an unused port, and applies the same account allowlist to
+  HTTP and WebSocket requests.
+- **VPN** (`chatmux access enable vpn <address>`) binds
+  the backend to an existing WireGuard-style tunnel address with no
+  application login. Access control is the tunnel itself — every VPN peer has
+  full access, so only use it for tunnels whose peers you all trust. The
+  address must be a private IPv4 already present on a local interface.
 
 ```sh
 chatmux access users

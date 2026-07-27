@@ -47,17 +47,17 @@ curl -fsSL https://github.com/devswha/chatmux/releases/latest/download/install.s
 
 It downloads the latest release, verifies its checksum, installs a private
 Node.js 22 runtime only if the machine needs one, and starts a user-level
-service bound to `127.0.0.1`. When Tailscale is already logged in it also
-configures a private HTTPS address for your other devices; otherwise ChatMux
-stays local-only. A successful install ends with:
+service that is phone-ready immediately: password login on every interface,
+owner account auto-created, one-time password and a QR code printed once. A
+successful install ends with:
 
 ```text
 ChatMux installation complete
   Local:  http://127.0.0.1:3001
-  Remote: https://<your-machine>.ts.net:8443        (Tailscale only)
-  Access: Tailscale (you@example.com)
-  Next:   open the address above in a browser — running tmux agents appear automatically
-  Manage: chatmux status | chatmux access users | journalctl --user -u chatmux.service
+  Phone:  http://192.168.0.7:3001 — sign in from any browser, no app needed
+  Login:  owner / <one-time password>
+  Access: password — sessions renew on use; alternatives: chatmux access enable tailscale | enable vpn <address>
+  Manage: chatmux status | chatmux access password | journalctl --user -u chatmux.service
 ```
 
 Then:
@@ -107,9 +107,23 @@ only when the agent's CLI actually exposes them.
 <a id="remote-access"></a>
 ## Remote access
 
-The production installer can configure Tailscale Serve without exposing the
-backend beyond `127.0.0.1`. Approved tailnet accounts use the private HTTPS
-address without a separate ChatMux password; unapproved accounts are denied.
+Password access is on out of the box: sign in once from any browser and the
+session renews on use — devices that keep using ChatMux never re-login.
+Rotate or recover the password, or tune the mode, at any time:
+
+```bash
+chatmux access password                            # rotate/recover (signs out all sessions)
+chatmux access enable password --session-days 90   # longer idle window
+```
+
+Same-Wi-Fi devices connect immediately; for the public internet, forward the
+TCP port and put a TLS proxy in front (see
+[docs/INSTALL.md](docs/INSTALL.md)).
+
+`chatmux access enable tailscale` configures Tailscale Serve without exposing
+the backend beyond `127.0.0.1`. Approved tailnet accounts use the private
+HTTPS address without a separate ChatMux password; unapproved accounts are
+denied.
 
 ```bash
 chatmux access users
@@ -118,9 +132,18 @@ chatmux access revoke family@example.com
 chatmux access owner new-owner@example.com
 ```
 
-The installer reuses an existing ChatMux Serve front or selects an unused port
-from `8443` through `8499`. It does not enable Funnel or reset unrelated Serve
-configuration. Without Tailscale, use an SSH tunnel:
+It reuses an existing ChatMux Serve front or selects an unused port from
+`8443` through `8499`. It does not enable Funnel or reset unrelated Serve
+configuration.
+
+Without Tailscale, a WireGuard-style VPN gives login-free access with no
+session expiry (see [docs/INSTALL.md](docs/INSTALL.md)):
+
+```bash
+chatmux access enable vpn 10.0.0.1
+```
+
+An SSH tunnel remains the simplest fallback:
 
 ```bash
 ssh -N -L 3001:127.0.0.1:3001 user@server

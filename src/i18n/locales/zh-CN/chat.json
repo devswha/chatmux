@@ -229,7 +229,11 @@
     "placeholder": "向 {{name}} 发送指令… ({{trigger}} 命令、@ 文件、Enter 发送、Shift+Enter 换行)",
     "currentSession": "当前会话",
     "send": "发送",
-    "sending": "发送中…"
+    "sending": "发送中…",
+    "delivered": "已送达",
+    "queued": "已加入队列",
+    "towerUnavailable": "控制塔未运行 — 无法发送",
+    "sendFailed": "发送失败"
   },
   "transcript": {
     "conversationTab": "对话",

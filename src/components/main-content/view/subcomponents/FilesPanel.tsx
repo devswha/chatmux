@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { FolderOpen, Pencil, X } from 'lucide-react';
 
 import type { Project } from '../../../../types/app';
@@ -37,6 +38,7 @@ function readStoredRoot(): string {
  * content read/save stays correctly scoped.
  */
 export default function FilesPanel({ onFileOpen, onClose }: FilesPanelProps) {
+  const { t } = useTranslation('common');
   const initialRootRef = useRef(readStoredRoot());
   const [state, setState] = useState<PanelState>({ kind: 'loading', root: initialRootRef.current });
   const [draftRoot, setDraftRoot] = useState('');
@@ -59,14 +61,14 @@ export default function FilesPanel({ onFileOpen, onClose }: FilesPanelProps) {
       const homeBody = await homeResponse.json();
       const home: string = homeBody?.data?.home ?? '';
       if (!home) {
-        publishIfCurrent({ kind: 'error', root: requestedRoot, text: '홈 경로를 확인할 수 없습니다' });
+        publishIfCurrent({ kind: 'error', root: requestedRoot, text: t('filesPanel.homeUnknown') });
         return;
       }
       // Accept bare-relative, '~/', and absolute-under-home styles alike;
       // everything below (and localStorage) uses the home-relative form.
       const relativeRoot = toHomeRelative(requestedRoot.replace(/\/+$/, ''), home);
       if (relativeRoot === null || relativeRoot === '') {
-        publishIfCurrent({ kind: 'error', root: requestedRoot, text: '홈 아래 경로만 지원합니다 (예: ~/workspace)' });
+        publishIfCurrent({ kind: 'error', root: requestedRoot, text: t('filesPanel.homeOnly') });
         return;
       }
       try {
@@ -99,11 +101,11 @@ export default function FilesPanel({ onFileOpen, onClose }: FilesPanelProps) {
           return;
         }
       }
-      publishIfCurrent({ kind: 'error', root: relativeRoot, text: '폴더를 열 수 없습니다 — 경로를 확인하세요' });
+      publishIfCurrent({ kind: 'error', root: relativeRoot, text: t('filesPanel.openFailed') });
     } catch {
-      publishIfCurrent({ kind: 'error', root: requestedRoot, text: '폴더를 열 수 없습니다 — 경로를 확인하세요' });
+      publishIfCurrent({ kind: 'error', root: requestedRoot, text: t('filesPanel.openFailed') });
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void resolveRoot(initialRootRef.current);
@@ -130,7 +132,7 @@ export default function FilesPanel({ onFileOpen, onClose }: FilesPanelProps) {
               setDraftRoot(root);
               setEditingRoot((previous) => !previous);
             }}
-            title="루트 폴더 변경"
+            title={t('filesPanel.changeRoot')}
             className="rounded p-1 text-muted-foreground/70 transition-colors hover:bg-muted/50 hover:text-foreground"
           >
             <Pencil className="h-3 w-3" />
@@ -139,7 +141,7 @@ export default function FilesPanel({ onFileOpen, onClose }: FilesPanelProps) {
         <button
           type="button"
           onClick={onClose}
-          title="파일 패널 닫기"
+          title={t('filesPanel.close')}
           className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
         >
           <X className="h-3.5 w-3.5" />
@@ -153,7 +155,7 @@ export default function FilesPanel({ onFileOpen, onClose }: FilesPanelProps) {
               value={draftRoot}
               onChange={setDraftRoot}
               onSubmit={applyDraftRoot}
-              placeholder="예: ~/workspace (절대경로 가능)"
+              placeholder={t('filesPanel.rootPlaceholder')}
             />
           </div>
           <button
@@ -162,14 +164,14 @@ export default function FilesPanel({ onFileOpen, onClose }: FilesPanelProps) {
             disabled={!draftRoot.trim()}
             className="shrink-0 rounded-md bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            적용
+            {t('filesPanel.apply')}
           </button>
         </div>
       )}
 
       <div className="min-h-0 flex-1 overflow-hidden">
         {state.kind === 'loading' && (
-          <div className="px-4 py-8 text-center text-sm text-muted-foreground">폴더 여는 중…</div>
+          <div className="px-4 py-8 text-center text-sm text-muted-foreground">{t('filesPanel.opening')}</div>
         )}
         {state.kind === 'error' && (
           <div className="px-4 py-8 text-center text-sm text-red-500">{state.text}</div>

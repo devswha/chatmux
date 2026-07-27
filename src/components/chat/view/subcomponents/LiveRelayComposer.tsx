@@ -443,17 +443,17 @@ export default function LiveRelayComposer({
         setStatus({
           kind: 'error',
           text: data.reachable === false
-            ? '관제탑 미가동 — 전송 불가'
-            : data.detail || apiError || '전송 실패',
+            ? t('relay.towerUnavailable')
+            : data.detail || apiError || t('relay.sendFailed'),
         });
         return;
       }
       setInput('');
-      setStatus(data.queued ? { kind: 'queued', text: '대기열 적재됨' } : { kind: 'ok', text: '전달됨' });
+      setStatus(data.queued ? { kind: 'queued', text: t('relay.queued') } : { kind: 'ok', text: t('relay.delivered') });
     } catch {
-      setStatus({ kind: 'error', text: '전송 실패' });
+      setStatus({ kind: 'error', text: t('relay.sendFailed') });
     }
-  }, [input, status.kind, target, relayKind]);
+  }, [input, status.kind, target, relayKind, t]);
   const interrupt = useCallback(async () => {
     if (!canInterrupt || isInterrupting) {
       return;

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Loader2, MessageSquarePlus } from 'lucide-react';
 
 import { api } from '../../../../utils/api';
@@ -39,6 +40,7 @@ type SidebarIdleComposerProps = {
  * fail closed back to an editable composer with an explanation.
  */
 export default function SidebarIdleComposer({ tmuxName, target, initialStatus }: SidebarIdleComposerProps) {
+  const { t } = useTranslation('sidebar');
   const [status, setStatus] = useState<IdleComposerStatus>(initialStatus ?? { kind: 'collapsed' });
   const [message, setMessage] = useState('');
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -55,7 +57,7 @@ export default function SidebarIdleComposer({ tmuxName, target, initialStatus }:
       return;
     }
     if (!target) {
-      setStatus({ kind: 'error', text: '대상이 교체됨 — 목록을 새로고침해 주세요' });
+      setStatus({ kind: 'error', text: t('idleComposer.targetReplaced') });
       return;
     }
     setStatus({ kind: 'sending' });
@@ -68,19 +70,19 @@ export default function SidebarIdleComposer({ tmuxName, target, initialStatus }:
         timerRef.current = setTimeout(() => {
           setStatus({
             kind: 'error',
-            text: '전송은 됐지만 세션이 LIVE로 전환되지 않습니다 — tmux에서 gjc 상태를 직접 확인하세요',
+            text: t('idleComposer.promotionTimeout'),
           });
         }, PROMOTION_TIMEOUT_MS);
         return;
       }
       const errorText = data.reachable === false
-        ? '관제탑 미가동 — 전송 불가'
+        ? t('idleComposer.towerUnavailable')
         : (typeof (body as { error?: unknown } | null)?.error === 'string' && (body as { error: string }).error)
           || data.detail
-          || '전송 실패';
+          || t('idleComposer.sendFailed');
       setStatus({ kind: 'error', text: errorText });
     } catch {
-      setStatus({ kind: 'error', text: '전송 실패' });
+      setStatus({ kind: 'error', text: t('idleComposer.sendFailed') });
     }
   };
 
@@ -93,7 +95,7 @@ export default function SidebarIdleComposer({ tmuxName, target, initialStatus }:
           className="flex items-center gap-1 text-[11px] text-blue-600 transition-colors hover:text-blue-500 dark:text-blue-400"
         >
           <MessageSquarePlus className="h-3 w-3" aria-hidden />
-          첫 메시지 보내기
+          {t('idleComposer.sendFirstMessage')}
         </button>
       </div>
     );
@@ -103,7 +105,7 @@ export default function SidebarIdleComposer({ tmuxName, target, initialStatus }:
     return (
       <div className="flex items-center gap-1.5 px-2 pb-1.5 pl-[1.375rem] text-[11px] text-muted-foreground">
         <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
-        첫 턴 시작 대기 중 — 곧 LIVE로 전환됩니다
+        {t('idleComposer.waitingPromotion')}
       </div>
     );
   }
@@ -123,7 +125,7 @@ export default function SidebarIdleComposer({ tmuxName, target, initialStatus }:
             void send();
           }
         }}
-        placeholder={`${tmuxName}에 첫 지시… (Enter 전송)`}
+        placeholder={t('idleComposer.placeholder', { name: tmuxName })}
         rows={2}
         disabled={isSending}
         className="w-full resize-none rounded-md border border-border bg-transparent px-2 py-1.5 text-xs outline-none focus:border-blue-500/60 disabled:opacity-60"
@@ -135,7 +137,7 @@ export default function SidebarIdleComposer({ tmuxName, target, initialStatus }:
           disabled={isSending}
           className="rounded-md px-2 py-0.5 text-[11px] text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
         >
-          취소
+          {t('idleComposer.cancel')}
         </button>
         <button
           type="button"
@@ -143,7 +145,7 @@ export default function SidebarIdleComposer({ tmuxName, target, initialStatus }:
           disabled={isSending || !message.trim()}
           className="rounded-md bg-primary px-2.5 py-0.5 text-[11px] font-medium text-primary-foreground transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {isSending ? '전송 중…' : '전송'}
+          {isSending ? t('idleComposer.sending') : t('idleComposer.send')}
         </button>
       </div>
     </div>

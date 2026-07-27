@@ -216,7 +216,11 @@
     "placeholder": "{{name}}に指示… ({{trigger}} コマンド、@ ファイル、Enter 送信、Shift+Enter 改行)",
     "currentSession": "現在のセッション",
     "send": "送信",
-    "sending": "送信中…"
+    "sending": "送信中…",
+    "delivered": "送信済み",
+    "queued": "キューに追加されました",
+    "towerUnavailable": "コントロールタワーが起動していません — 送信できません",
+    "sendFailed": "送信に失敗しました"
   },
   "transcript": {
     "conversationTab": "チャット",

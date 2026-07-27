@@ -229,7 +229,11 @@
     "placeholder": "Сообщение для {{name}}… (команды {{trigger}}, файлы @, Enter — отправить, Shift+Enter — новая строка)",
     "currentSession": "текущая сессия",
     "send": "Отправить",
-    "sending": "Отправка…"
+    "sending": "Отправка…",
+    "delivered": "Доставлено",
+    "queued": "Добавлено в очередь",
+    "towerUnavailable": "Диспетчерская не запущена — отправка невозможна",
+    "sendFailed": "Не удалось отправить"
   },
   "transcript": {
     "conversationTab": "Чат",

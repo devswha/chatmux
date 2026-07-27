@@ -117,7 +117,8 @@
     "clickToChangeMode": "클릭하여 권한 모드 변경 (또는 입력창에서 Tab)",
     "showAllCommands": "모든 명령어 보기",
     "clearInput": "입력 지우기",
-    "scrollToBottom": "맨 아래로 스크롤"
+    "scrollToBottom": "맨 아래로 스크롤",
+    "newMessages": "새 메시지"
   },
   "providerSelection": {
     "title": "AI 어시스턴트 선택",
@@ -229,11 +230,28 @@
     "placeholder": "{{name}}에 지시… ({{trigger}} 명령, @ 파일, Enter 전송, Shift+Enter 줄바꿈)",
     "currentSession": "현재 세션",
     "send": "전송",
-    "sending": "전송 중…"
+    "sending": "전송 중…",
+    "delivered": "전달됨",
+    "queued": "대기열 적재됨",
+    "towerUnavailable": "관제탑 미가동 — 전송 불가",
+    "sendFailed": "전송 실패"
+  },
+  "readOnly": {
+    "banner": "tmux의 gjc에서 작동 중 — 열람 전용입니다. 실시간으로 갱신되며, 조작은 tmux 쪽에서 하세요."
   },
   "transcript": {
     "conversationTab": "대화",
     "cliTab": "CLI 출력",
-    "viewSwitcherLabel": "{{provider}} 세션 보기"
+    "viewSwitcherLabel": "{{provider}} 세션 보기",
+    "pendingTitle": "{{provider}} transcript 준비 중",
+    "closeView": "{{provider}} 화면 닫기",
+    "closeTerminal": "터미널 닫기",
+    "detachHint": "{{kind}} · 분리(detach): Ctrl+B → D",
+    "noConversationYet": "아직 대화 기록이 없습니다. 첫 지시를 보내면 {{provider}} 대화가 이 화면에 표시됩니다.",
+    "pendingEmpty": "첫 지시를 보내면 {{provider}} transcript가 생성되어 이 화면에 자동으로 연결됩니다.",
+    "ended": "이 세션의 대화 기록이 중단되었습니다 (세션은 실행 중일 수 있음). 새 메시지는 CLI 출력 탭에서 확인하세요.",
+    "cliLoadFailed": "CLI 출력을 불러오지 못했습니다. tmux 세션이 종료되었을 수 있습니다.",
+    "cliConnectionFailed": "CLI 출력을 불러오지 못했습니다. tmux 세션 연결을 확인하세요.",
+    "cliLoading": "실시간 CLI 출력을 불러오는 중입니다."
   }
 }
