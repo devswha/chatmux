@@ -40,7 +40,7 @@ test('LiveRelayComposer identifies the target by tmux name without exposing raw 
   assert.ok(html.includes('gpt-5.6-sol'));
   assert.ok(html.includes('xhigh effort'));
   assert.ok(html.includes('chatmux2'));
-  assert.ok(html.includes('chatmux2에 지시…'));
+  assert.ok(html.includes('Message chatmux2…'));
   assert.ok(!html.includes('$117'));
   assert.ok(!html.includes('%123'));
 });
@@ -48,7 +48,7 @@ test('LiveRelayComposer identifies the target by tmux name without exposing raw 
 test('LiveRelayComposer uses a neutral label when no tmux name is available', () => {
   const html = renderToStaticMarkup(createElement(LiveRelayComposer, { target }));
 
-  assert.ok(html.includes('현재 세션'));
+  assert.ok(html.includes('current session'));
   assert.ok(!html.includes('$117'));
   assert.ok(!html.includes('%123'));
 });
@@ -139,6 +139,7 @@ test('relay translations exist in every supported locale', () => {
       'utf8',
     )) as { relay?: Record<string, string> };
     assert.deepEqual(Object.keys(translation.relay ?? {}).sort(), [
+      'currentSession',
       'imagePathRejected',
       'imageUploadFailed',
       'imageUploading',
@@ -146,6 +147,9 @@ test('relay translations exist in every supported locale', () => {
       'interruptFailed',
       'interruptSent',
       'interrupting',
+      'placeholder',
+      'send',
+      'sending',
     ]);
   }
 });

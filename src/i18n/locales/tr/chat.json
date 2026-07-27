@@ -225,6 +225,15 @@
     "interruptFailed": "Durdurulamadı",
     "imageUploading": "Görsel yükleniyor…",
     "imageUploadFailed": "Görsel yüklenemedi",
-    "imagePathRejected": "Proje veya ana dizin dışındaki görsel yolu reddedildi"
+    "imagePathRejected": "Proje veya ana dizin dışındaki görsel yolu reddedildi",
+    "placeholder": "{{name}} için talimat… ({{trigger}} komutları, @ dosyalar, Enter gönder, Shift+Enter yeni satır)",
+    "currentSession": "geçerli oturum",
+    "send": "Gönder",
+    "sending": "Gönderiliyor…"
+  },
+  "transcript": {
+    "conversationTab": "Sohbet",
+    "cliTab": "CLI çıktısı",
+    "viewSwitcherLabel": "{{provider}} oturum görünümü"
   }
 }

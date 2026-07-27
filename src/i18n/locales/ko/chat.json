@@ -225,6 +225,15 @@
     "interruptFailed": "중단 요청 실패",
     "imageUploading": "이미지 업로드 중…",
     "imageUploadFailed": "이미지 업로드 실패",
-    "imagePathRejected": "프로젝트/홈 디렉터리 밖의 이미지 경로를 거부했습니다"
+    "imagePathRejected": "프로젝트/홈 디렉터리 밖의 이미지 경로를 거부했습니다",
+    "placeholder": "{{name}}에 지시… ({{trigger}} 명령, @ 파일, Enter 전송, Shift+Enter 줄바꿈)",
+    "currentSession": "현재 세션",
+    "send": "전송",
+    "sending": "전송 중…"
+  },
+  "transcript": {
+    "conversationTab": "대화",
+    "cliTab": "CLI 출력",
+    "viewSwitcherLabel": "{{provider}} 세션 보기"
   }
 }

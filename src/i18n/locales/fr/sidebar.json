@@ -175,5 +175,9 @@
       "unknown": "Indisponible",
       "unknownTitle": "L’état actuel ne peut pas être déterminé de manière sûre à partir des données du fournisseur"
     }
+  },
+  "tabs": {
+    "sessions": "Sessions",
+    "archive": "Historique"
   }
 }

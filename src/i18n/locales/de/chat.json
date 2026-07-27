@@ -225,6 +225,15 @@
     "interruptFailed": "Unterbrechen fehlgeschlagen",
     "imageUploading": "Bild wird hochgeladen…",
     "imageUploadFailed": "Bild-Upload fehlgeschlagen",
-    "imagePathRejected": "Bildpfad außerhalb des Projekt- oder Home-Verzeichnisses abgelehnt"
+    "imagePathRejected": "Bildpfad außerhalb des Projekt- oder Home-Verzeichnisses abgelehnt",
+    "placeholder": "Anweisung an {{name}}… ({{trigger}} Befehle, @ Dateien, Enter senden, Umschalt+Enter neue Zeile)",
+    "currentSession": "aktuelle Sitzung",
+    "send": "Senden",
+    "sending": "Wird gesendet…"
+  },
+  "transcript": {
+    "conversationTab": "Chat",
+    "cliTab": "CLI-Ausgabe",
+    "viewSwitcherLabel": "{{provider}}-Sitzungsansicht"
   }
 }

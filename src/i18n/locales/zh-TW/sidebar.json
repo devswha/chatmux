@@ -174,5 +174,9 @@
       "unknown": "無法確認",
       "unknownTitle": "無法根據提供者記錄安全地判定目前狀態"
     }
+  },
+  "tabs": {
+    "sessions": "會話",
+    "archive": "歷史"
   }
 }

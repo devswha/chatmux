@@ -1,4 +1,5 @@
 import { MessageSquare, SquareTerminal } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 export type ExternalTranscriptView = 'conversation' | 'cli';
 
@@ -15,11 +16,12 @@ export default function ExternalTranscriptViewSwitcher({
   tmuxName,
   onChange,
 }: ExternalTranscriptViewSwitcherProps) {
+  const { t } = useTranslation('chat');
   return (
     <div className="flex flex-shrink-0 items-center justify-between gap-3 border-b border-border/50 bg-muted/15 px-3 py-1.5">
       <div
         role="tablist"
-        aria-label={`${providerLabel} 세션 보기`}
+        aria-label={t('transcript.viewSwitcherLabel', { provider: providerLabel })}
         className="inline-flex items-center rounded-lg border border-border/60 bg-background/80 p-0.5 shadow-sm"
       >
         <button
@@ -34,7 +36,7 @@ export default function ExternalTranscriptViewSwitcher({
           }`}
         >
           <MessageSquare className="h-3.5 w-3.5" aria-hidden />
-          대화
+          {t('transcript.conversationTab')}
         </button>
         <button
           type="button"
@@ -48,7 +50,7 @@ export default function ExternalTranscriptViewSwitcher({
           }`}
         >
           <SquareTerminal className="h-3.5 w-3.5" aria-hidden />
-          CLI 출력
+          {t('transcript.cliTab')}
         </button>
       </div>
 

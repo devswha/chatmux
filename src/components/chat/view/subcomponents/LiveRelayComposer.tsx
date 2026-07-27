@@ -70,10 +70,10 @@ export default function LiveRelayComposer({
   relayKind?: 'gjc' | 'codex' | 'claude' | 'cursor' | 'opencode' | 'omp';
 }) {
   const commandTrigger = relayKind === 'codex' ? '$' : '/';
-  const displayName = sessionName?.trim() || '현재 세션';
+  const { t } = useTranslation('chat');
+  const displayName = sessionName?.trim() || t('relay.currentSession');
   const [input, setInput] = useState('');
   const [status, setStatus] = useState<RelayStatus>({ kind: 'idle' });
-  const { t } = useTranslation('chat');
   const [isInterrupting, setIsInterrupting] = useState(false);
   const [assetStatus, setAssetStatus] = useState<
     { kind: 'idle' } | { kind: 'uploading' } | { kind: 'error'; text: string }
@@ -589,7 +589,7 @@ export default function LiveRelayComposer({
               syncFileMenu(input, caret);
             }}
             rows={1}
-            placeholder={`${displayName}에 지시… (${commandTrigger} 명령, @ 파일, Enter 전송, Shift+Enter 줄바꿈)`}
+            placeholder={t('relay.placeholder', { name: displayName, trigger: commandTrigger })}
             className="max-h-40 min-h-9 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm outline-none"
           />
           {canInterrupt && (
@@ -608,7 +608,7 @@ export default function LiveRelayComposer({
             disabled={!input.trim() || status.kind === 'sending'}
             className="shrink-0 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {status.kind === 'sending' ? '전송 중…' : '전송'}
+            {status.kind === 'sending' ? t('relay.sending') : t('relay.send')}
           </button>
         </div>
       </div>

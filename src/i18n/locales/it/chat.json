@@ -225,6 +225,15 @@
     "interruptFailed": "Impossibile interrompere",
     "imageUploading": "Caricamento immagine…",
     "imageUploadFailed": "Caricamento immagine non riuscito",
-    "imagePathRejected": "Percorso immagine fuori dal progetto o dalla home rifiutato"
+    "imagePathRejected": "Percorso immagine fuori dal progetto o dalla home rifiutato",
+    "placeholder": "Messaggio a {{name}}… (comandi {{trigger}}, file @, Invio per inviare, Maiusc+Invio per andare a capo)",
+    "currentSession": "sessione corrente",
+    "send": "Invia",
+    "sending": "Invio…"
+  },
+  "transcript": {
+    "conversationTab": "Chat",
+    "cliTab": "Output CLI",
+    "viewSwitcherLabel": "Vista sessione {{provider}}"
   }
 }

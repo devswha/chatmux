@@ -175,5 +175,9 @@
       "unknown": "Nicht verfügbar",
       "unknownTitle": "Der aktuelle Zustand kann aus Provider-Daten nicht sicher bestimmt werden"
     }
+  },
+  "tabs": {
+    "sessions": "Sitzungen",
+    "archive": "Verlauf"
   }
 }

@@ -225,6 +225,15 @@
     "interruptFailed": "Не удалось прервать",
     "imageUploading": "Загрузка изображения…",
     "imageUploadFailed": "Не удалось загрузить изображение",
-    "imagePathRejected": "Путь к изображению вне проекта или домашнего каталога отклонён"
+    "imagePathRejected": "Путь к изображению вне проекта или домашнего каталога отклонён",
+    "placeholder": "Сообщение для {{name}}… (команды {{trigger}}, файлы @, Enter — отправить, Shift+Enter — новая строка)",
+    "currentSession": "текущая сессия",
+    "send": "Отправить",
+    "sending": "Отправка…"
+  },
+  "transcript": {
+    "conversationTab": "Чат",
+    "cliTab": "Вывод CLI",
+    "viewSwitcherLabel": "Вид сессии {{provider}}"
   }
 }

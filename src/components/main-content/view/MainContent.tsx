@@ -622,7 +622,7 @@ function MainContent({
               && externalTranscriptView === 'cli' && (
               <div
                 role="tabpanel"
-                aria-label={`${transcriptCliProviderLabel} CLI 출력`}
+                aria-label={`${transcriptCliProviderLabel} ${t('transcript.cliTab')}`}
                 className="flex min-h-0 flex-1 flex-col"
               >
                 {transcriptCliAttachTarget ? (

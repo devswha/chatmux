@@ -227,6 +227,15 @@
     "interruptFailed": "Impossible d’interrompre",
     "imageUploading": "Téléversement de l’image…",
     "imageUploadFailed": "Échec du téléversement de l’image",
-    "imagePathRejected": "Chemin d’image hors du projet ou du répertoire personnel refusé"
+    "imagePathRejected": "Chemin d’image hors du projet ou du répertoire personnel refusé",
+    "placeholder": "Message à {{name}}… (commandes {{trigger}}, fichiers @, Entrée pour envoyer, Maj+Entrée pour un saut de ligne)",
+    "currentSession": "session actuelle",
+    "send": "Envoyer",
+    "sending": "Envoi…"
+  },
+  "transcript": {
+    "conversationTab": "Chat",
+    "cliTab": "Sortie CLI",
+    "viewSwitcherLabel": "Vue de session {{provider}}"
   }
 }

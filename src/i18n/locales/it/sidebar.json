@@ -175,5 +175,9 @@
       "unknown": "Non disponibile",
       "unknownTitle": "Lo stato corrente non può essere determinato in modo sicuro dai dati del provider"
     }
+  },
+  "tabs": {
+    "sessions": "Sessioni",
+    "archive": "Cronologia"
   }
 }

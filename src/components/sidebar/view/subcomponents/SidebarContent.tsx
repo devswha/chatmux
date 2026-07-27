@@ -250,7 +250,7 @@ export default function SidebarContent({
         {topTab === 'sessions' ? (
           <span className="flex items-center gap-1.5 px-1 text-xs font-semibold text-foreground">
             <span className="inline-flex h-1.5 w-1.5 rounded-full bg-blue-500" aria-hidden />
-            세션{sessionCount > 0 ? ` (${sessionCount})` : ''}
+            {t('tabs.sessions')}{sessionCount > 0 ? ` (${sessionCount})` : ''}
           </span>
         ) : (
           <button
@@ -258,19 +258,19 @@ export default function SidebarContent({
             onClick={() => setTopTab('sessions')}
             className="rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
           >
-            세션{sessionCount > 0 ? ` (${sessionCount})` : ''}
+            {t('tabs.sessions')}{sessionCount > 0 ? ` (${sessionCount})` : ''}
           </button>
         )}
         <span className="flex-1" />
         {topTab === 'archive' ? (
-          <span className="px-1 text-xs font-semibold text-foreground">기록</span>
+          <span className="px-1 text-xs font-semibold text-foreground">{t('tabs.archive')}</span>
         ) : (
           <button
             type="button"
             onClick={() => setTopTab('archive')}
             className="rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
           >
-            기록
+            {t('tabs.archive')}
           </button>
         )}
       </div>

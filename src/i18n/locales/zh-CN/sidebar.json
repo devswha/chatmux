@@ -175,5 +175,9 @@
       "unknown": "无法确认",
       "unknownTitle": "无法根据提供商记录安全地确定当前状态"
     }
+  },
+  "tabs": {
+    "sessions": "会话",
+    "archive": "历史"
   }
 }

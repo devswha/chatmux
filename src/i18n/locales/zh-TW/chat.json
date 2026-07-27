@@ -261,6 +261,15 @@
     "interruptFailed": "無法中斷",
     "imageUploading": "正在上傳圖片…",
     "imageUploadFailed": "圖片上傳失敗",
-    "imagePathRejected": "已拒絕專案或家目錄之外的圖片路徑"
+    "imagePathRejected": "已拒絕專案或家目錄之外的圖片路徑",
+    "placeholder": "向 {{name}} 傳送指令… ({{trigger}} 命令、@ 檔案、Enter 傳送、Shift+Enter 換行)",
+    "currentSession": "目前會話",
+    "send": "傳送",
+    "sending": "傳送中…"
+  },
+  "transcript": {
+    "conversationTab": "對話",
+    "cliTab": "CLI 輸出",
+    "viewSwitcherLabel": "{{provider}} 會話檢視"
   }
 }

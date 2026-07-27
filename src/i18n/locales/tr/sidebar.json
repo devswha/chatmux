@@ -175,5 +175,9 @@
       "unknown": "Kullanılamıyor",
       "unknownTitle": "Geçerli durum sağlayıcı kayıtlarından güvenle belirlenemiyor"
     }
+  },
+  "tabs": {
+    "sessions": "Oturumlar",
+    "archive": "Geçmiş"
   }
 }

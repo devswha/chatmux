@@ -225,6 +225,15 @@
     "interruptFailed": "无法中断",
     "imageUploading": "正在上传图片…",
     "imageUploadFailed": "图片上传失败",
-    "imagePathRejected": "已拒绝项目或主目录之外的图片路径"
+    "imagePathRejected": "已拒绝项目或主目录之外的图片路径",
+    "placeholder": "向 {{name}} 发送指令… ({{trigger}} 命令、@ 文件、Enter 发送、Shift+Enter 换行)",
+    "currentSession": "当前会话",
+    "send": "发送",
+    "sending": "发送中…"
+  },
+  "transcript": {
+    "conversationTab": "对话",
+    "cliTab": "CLI 输出",
+    "viewSwitcherLabel": "{{provider}} 会话视图"
   }
 }

@@ -175,5 +175,9 @@
       "unknown": "Unavailable",
       "unknownTitle": "The current state cannot be determined safely from provider records"
     }
+  },
+  "tabs": {
+    "sessions": "Sessions",
+    "archive": "History"
   }
 }

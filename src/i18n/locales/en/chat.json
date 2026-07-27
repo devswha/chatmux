@@ -246,6 +246,15 @@
     "interruptFailed": "Unable to interrupt",
     "imageUploading": "Uploading image…",
     "imageUploadFailed": "Image upload failed",
-    "imagePathRejected": "Rejected image path outside the project or home directory"
+    "imagePathRejected": "Rejected image path outside the project or home directory",
+    "placeholder": "Message {{name}}… ({{trigger}} commands, @ files, Enter to send, Shift+Enter for newline)",
+    "currentSession": "current session",
+    "send": "Send",
+    "sending": "Sending…"
+  },
+  "transcript": {
+    "conversationTab": "Chat",
+    "cliTab": "CLI output",
+    "viewSwitcherLabel": "{{provider}} session view"
   }
 }

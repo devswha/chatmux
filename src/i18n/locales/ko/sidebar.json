@@ -162,5 +162,9 @@
       "unknown": "확인 불가",
       "unknownTitle": "provider 기록에서 현재 상태를 안전하게 판정할 수 없습니다"
     }
+  },
+  "tabs": {
+    "sessions": "세션",
+    "archive": "기록"
   }
 }
