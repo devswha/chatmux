@@ -146,7 +146,9 @@ test('install dry-run computes a local plan without writing or invoking systemd'
       throw new Error('not installed');
     },
   });
-  assert.deepEqual(commands, []);
+  // The tailscale probe is advisory (it only changes the Reach hint wording),
+  // so it is the single command a dry run may issue.
+  assert.deepEqual(commands, ['tailscale status --json']);
 });
 
 test('managed install writes a complete isolated service layout before enabling it', async (t) => {
@@ -207,6 +209,7 @@ test('managed install writes a complete isolated service layout before enabling 
   ].join('\n'));
   assert.equal((await fs.stat(binPath)).mode & 0o777, 0o755);
   assert.deepEqual(commands, [
+    'tailscale status --json',
     'systemctl --user stop chatmux.service',
     'systemctl --user daemon-reload',
     'systemctl --user enable chatmux.service',

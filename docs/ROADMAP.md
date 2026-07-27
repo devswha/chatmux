@@ -43,7 +43,9 @@ ChatMux가 제공하는 핵심 가치는 다음과 같다.
 - transcript가 없거나 검증되지 않은 세션과 SSH 세션은 terminal로 연다.
 - 내장 relay 또는 선택적 control tower를 통해 tmux 입력과 생명주기 작업을
   수행한다.
-- Tailscale Serve 또는 SSH tunnel을 통해 loopback 서버에 원격으로 접근한다.
+- 설치 기본값은 password 인증과 전체 인터페이스 바인딩이며, 같은 네트워크의
+  브라우저가 앱 설치 없이 접속한다. 원격은 `chatmux access enable`로
+  tailscale·vpn·password 중 하나를 명시적으로 선택한다.
 
 ## 범위 밖
 
@@ -54,10 +56,18 @@ ChatMux가 제공하는 핵심 가치는 다음과 같다.
 - 프로젝트 clone, 코드 리뷰, diff, 파일 편집을 중심으로 한 범용 IDE
 - Electron 또는 Tauri 기반 데스크톱 앱 확장
 - 네이티브 모바일 앱
+- ChatMux가 운영하는 릴레이·터널·시그널링 서버 (원격 도달성은 사용자가
+  선택한 VPN·터널·포트포워딩에 위임한다)
+- Live Activity, Apple Watch 같은 네이티브 알림 표면
 - provider가 제공하는 CLI, 인증, sandbox, 모델 실행 기능의 재구현
 
 Electron 셸, 데스크톱 패키징, 전용 알림 채널과 원격 target 확장 코드는
 2026-07-23 제거를 확정했다. 웹/PWA 외의 전달 표면은 유지하지 않는다.
+
+원격 도달성을 우리가 호스팅하지 않는 결정과 그 근거는
+[REMOTE-ACCESS.md](REMOTE-ACCESS.md)에 기록했다. 요약하면 앱 설치 없이
+준비물 없이 어디서나 접속하는 방법은 존재하지 않으며, 경쟁 제품(Orca, Moshi,
+mosh, et.rs)도 모두 Tailscale 또는 포트 개방으로 수렴한다.
 
 ## 로드맵
 
@@ -116,6 +126,8 @@ Electron 셸, 데스크톱 패키징, 전용 알림 채널과 원격 target 확�
 - interrupt와 안전한 종료
 - 네트워크 재연결 후 같은 pane 복구
 - 작은 화면의 terminal 입력과 읽기 개선
+- 원격 접근 안내: 설치 시 Tailscale 감지 힌트, 모드 전환 시 이전 주소 무효 고지,
+  `chatmux status`의 현재 모드·유효 주소 표시 ([REMOTE-ACCESS.md](REMOTE-ACCESS.md) 5절)
 
 네이티브 앱을 만들지 않고 반응형 웹과 PWA 범위에서 구현한다.
 
@@ -147,3 +159,5 @@ Electron 셸, 데스크톱 패키징, 전용 알림 채널과 원격 target 확�
 | 2026-07-22 | 제품명을 ChatMux로 통일하고 멀티에이전트 채팅 웹터미널로 포지셔닝 |
 | 2026-07-23 | 앱 소유 실행기와 데스크톱 앱 로드맵을 폐기하고 tmux 전용 제품 범위로 재확정 |
 | 2026-07-23 | Electron 셸과 데스크톱 전용 확장 코드 제거 확정 |
+| 2026-07-27 | 설치를 단일 형태(password + 전체 인터페이스)로 고정하고 원격 모드는 명시적 명령으로 분리 |
+| 2026-07-27 | 릴레이 서버 운영과 자체 모바일 앱을 범위 밖으로 확정. 원격 도달성은 사용자 선택에 위임 ([REMOTE-ACCESS.md](REMOTE-ACCESS.md)) |

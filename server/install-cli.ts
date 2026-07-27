@@ -408,6 +408,10 @@ export async function runInstallCli(args: string[], context: InstallContext): Pr
   const binPath = path.join(home, '.local', 'bin', 'chatmux');
   const nodeBinary = context.nodeBinary ?? process.execPath;
 
+  // Detection is advisory only: a running tailnet changes the wording of the
+  // "Reach" hint, never the installed mode.
+  const tailscaleAlreadyRunning = (await inspectTailscale(run)).running;
+
   // Install is one fixed shape: loopback bind, no application login required
   // locally. Detect a previously configured remote mode only to tell the
   // operator how to restore it after this reset.
@@ -502,8 +506,12 @@ export async function runInstallCli(args: string[], context: InstallContext): Pr
   }
   if (primaryLan) {
     // The one decision a first-time user faces after install. Keep it to the
-    // two paths that actually work, with their real cost stated.
-    console.log(`  Reach:  from outside this Wi-Fi — "chatmux access enable tailscale" (free account + phone app; adds HTTPS, so notifications and home-screen install work), or forward TCP ${options.serverPort} on the router`);
+    // two paths that actually work, with their real cost stated. When
+    // Tailscale is already up, name it as the ready next step instead — the
+    // install never switches modes on its own (see docs/REMOTE-ACCESS.md).
+    console.log(tailscaleAlreadyRunning
+      ? `  Reach:  Tailscale is already running here — "chatmux access enable tailscale" gives an HTTPS address that works from anywhere, including mobile data`
+      : `  Reach:  from outside this Wi-Fi — "chatmux access enable tailscale" (free account + phone app; adds HTTPS, so notifications and home-screen install work), or forward TCP ${options.serverPort} on the router`);
   }
   if (await isUfwEnabled()) {
     console.log(`  Note:   the ufw firewall is enabled — phones stay blocked until you run: sudo ufw allow ${options.serverPort}/tcp`);
@@ -658,6 +666,17 @@ async function updateManagedUnitHost(home: string, host: string): Promise<boolea
   return true;
 }
 
+// Reads the bind address the managed unit actually starts the service with.
+// Returns null when no managed unit exists or it has no HOST line.
+export async function readManagedUnitHost(home: string = os.homedir()): Promise<string | null> {
+  try {
+    const unit = await fs.readFile(path.join(home, '.config', 'systemd', 'user', 'chatmux.service'), 'utf8');
+    return /^Environment=HOST=(.*)$/m.exec(unit)?.[1]?.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
 // The QR code makes phone setup one camera scan instead of typing an address.
 async function printAccessQr(run: CommandRunner, url: string): Promise<void> {
   try {
@@ -714,6 +733,10 @@ export async function runAccessCli(args: string[], context: Pick<InstallContext,
       appConfigDb.set(MANAGED_SERVE_PORT_KEY, String(serve.httpsPort));
       await run('systemctl', ['--user', 'restart', 'chatmux.service']);
       console.log(`Tailscale access enabled: ${serve.url}`);
+      // The install-time LAN address and its QR stop working here: this mode
+      // only authenticates loopback-sourced (Serve-proxied) requests.
+      console.log('The LAN address printed at install no longer works — scan the code below instead.');
+      console.log('Every device needs Tailscale connected and an allowed account.');
       await printAccessQr(run, serve.url);
       return;
     }
@@ -728,6 +751,7 @@ export async function runAccessCli(args: string[], context: Pick<InstallContext,
       const serverPort = Number(process.env.SERVER_PORT || DEFAULT_SERVER_PORT);
       const url = `http://${host}:${serverPort}`;
       console.log(`VPN access enabled: ${url} (no login — only devices inside the VPN can reach it)`);
+      console.log('The LAN address printed at install no longer works — scan the code below instead.');
       await printAccessQr(run, url);
       return;
     }

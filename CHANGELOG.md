@@ -6,6 +6,19 @@ future server artifacts are published only through
 
 ## 1.4.2 (2026-07-27)
 
+### Added
+
+- `chatmux status` now reports the active access mode and the address that
+  actually works: the Tailscale Serve URL in tailscale mode, the tunnel bind
+  address in VPN mode, and loopback plus LAN addresses in password mode.
+  It previously named `localhost` regardless of mode, which was wrong for
+  every remote configuration.
+- When Tailscale is already running, the install summary names
+  `chatmux access enable tailscale` as the ready next step. Detection only
+  changes the wording; the installed mode is still identical on every machine.
+- `chatmux access enable tailscale|vpn` states that the LAN address printed at
+  install stops working, because those modes rebind the backend to loopback.
+
 ### Fixed
 
 - On a machine with no VPN interface — the normal first install — the summary

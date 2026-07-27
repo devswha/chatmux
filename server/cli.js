@@ -93,7 +93,61 @@ function getInstallDir() {
 }
 
 // Show status command
-function showStatus() {
+// Resolves the address a browser should actually open, which depends on the
+// active access mode. Tailscale mode serves through a Serve front and refuses
+// non-loopback sources, so the LAN address is wrong there; VPN mode answers on
+// the tunnel address recorded in the managed unit.
+async function describeAccess(port) {
+    const authMode = process.env.CHATMUX_AUTH;
+    const unauthRemote = process.env.CHATMUX_ALLOW_UNAUTH_REMOTE === '1';
+
+    if (authMode === 'tailscale') {
+        try {
+            const { promisify } = await import('util');
+            const { execFile } = await import('child_process');
+            const { parseServeStatus } = await import('./tailscale-access.js');
+            const { stdout } = await promisify(execFile)('tailscale', ['serve', 'status']);
+            const [url] = parseServeStatus(stdout, port);
+            return {
+                mode: 'tailscale — tailnet identity, no password',
+                addresses: url
+                    ? [`${url} (needs Tailscale connected)`]
+                    : ['(no Serve front found — re-run: chatmux access enable tailscale)'],
+            };
+        } catch {
+            return {
+                mode: 'tailscale — tailnet identity, no password',
+                addresses: ['(tailscale unavailable — check: tailscale status)'],
+            };
+        }
+    }
+
+    if (authMode === 'password') {
+        const { listLanAddresses } = await import('./install-cli.js');
+        const lan = listLanAddresses(os.networkInterfaces)
+            .map((entry) => `http://${entry.address}:${port} (${entry.interfaceName})`);
+        return {
+            mode: 'password — sign in from any browser, no app needed',
+            addresses: [`http://127.0.0.1:${port} (this machine)`, ...lan],
+        };
+    }
+
+    if (unauthRemote) {
+        const { readManagedUnitHost } = await import('./install-cli.js');
+        const host = await readManagedUnitHost();
+        return {
+            mode: 'vpn — no login; only devices inside the tunnel',
+            addresses: [`http://${host ?? '127.0.0.1'}:${port}`],
+        };
+    }
+
+    return {
+        mode: 'local only — no remote access configured',
+        addresses: [`http://127.0.0.1:${port}`],
+    };
+}
+
+async function showStatus() {
     console.log(`\n${c.bright('ChatMux - Status')}\n`);
     console.log(c.dim('═'.repeat(60)));
 
@@ -144,7 +198,15 @@ function showStatus() {
     console.log(`      ${c.dim('>')} Use ${c.bright('chatmux --port 8080')} to run on a custom port`);
     console.log(`      ${c.dim('>')} Use ${c.bright('chatmux --database-path /path/to/db')} for custom database`);
     console.log(`      ${c.dim('>')} Run ${c.bright('chatmux help')} for all options`);
-    console.log(`      ${c.dim('>')} Access the UI at http://localhost:${process.env.SERVER_PORT || '3001'}\n`);
+    const port = process.env.SERVER_PORT || '3001';
+    const access = await describeAccess(port);
+    console.log(`\n${c.info('[INFO]')} Access:`);
+    console.log(`       Mode: ${c.bright(access.mode)}`);
+    for (const address of access.addresses) {
+        console.log(`       Open: ${c.bright(address)}`);
+    }
+    console.log(`       Change: ${c.dim('chatmux access enable password | enable tailscale | enable vpn <address>')}`);
+    console.log('');
 }
 
 // Show help
@@ -644,7 +706,7 @@ async function main() {
             break;
         case 'status':
         case 'info':
-            showStatus();
+            await showStatus();
             break;
         case 'help':
         case '-h':
