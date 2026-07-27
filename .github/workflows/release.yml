@@ -219,6 +219,11 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+
       - name: Download canonical server release assets
         uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
         with:
@@ -238,6 +243,10 @@ jobs:
             echo "Refusing to publish non-canonical release assets." >&2
             exit 1
           fi
+          if [ ! -f install.sh ]; then
+            echo "Refusing to publish without the one-line bootstrap install.sh." >&2
+            exit 1
+          fi
           (
             cd release-assets
             sha256sum --check "$ASSET_NAME.sha256"
@@ -253,6 +262,8 @@ jobs:
           gh release create "$RELEASE_TAG" \
             "release-assets/$ASSET_NAME" \
             "release-assets/$ASSET_NAME.sha256" \
+            install.sh \
+            --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "ChatMux $RELEASE_TAG" \
             --generate-notes
