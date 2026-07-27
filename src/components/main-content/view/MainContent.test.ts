@@ -4,7 +4,7 @@ import test from 'node:test';
 
 import { paneSubscriptionKey } from '../../../../shared/tmux';
 
-import { buildExternalAttachTarget, paneStreamFallbackNeeded, paneStreamFrame, shouldShowPendingRelay } from './MainContent';
+import { buildExternalAttachTarget, buildTranscriptCliAttachTarget, paneStreamFallbackNeeded, paneStreamFrame, shouldShowPendingRelay } from './MainContent';
 
 test('applies attached and output frames for the shared pane subscription key', () => {
   const key = paneSubscriptionKey('external', {
@@ -133,4 +133,21 @@ test('M5b B8 AC3: a ssh/shell row without an issued attachCapability never attac
   assert.deepEqual(buildExternalAttachTarget(withCapability), {
     targetClass: 'attach-only', tmux, capability: 'token-123',
   });
+});
+
+test('CLI output tab upgrades to an exact-4-tuple interactive attach only with a process identity', () => {
+  const tmuxTarget = { socketPath: 'socket', sessionId: '$3', windowId: '@3', paneId: '%3' };
+  const process = { pid: 11, startedAtMs: 456 };
+
+  // With an observable process generation the tab attaches to exactly that pane.
+  assert.deepEqual(
+    buildTranscriptCliAttachTarget({ tmux: tmuxTarget, process }),
+    { targetClass: 'local-agent', tmux: tmuxTarget, process },
+  );
+
+  // Without a process identity the tab must stay read-only: attaching by
+  // tmux name alone could type into an unrelated pane.
+  assert.equal(buildTranscriptCliAttachTarget({ tmux: tmuxTarget, process: null }), null);
+  assert.equal(buildTranscriptCliAttachTarget({ tmux: tmuxTarget }), null);
+  assert.equal(buildTranscriptCliAttachTarget(null), null);
 });

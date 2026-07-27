@@ -13,7 +13,7 @@ import { useEditorSidebar } from '../../code-editor/hooks/useEditorSidebar';
 import LiveRelayComposer from '../../chat/view/subcomponents/LiveRelayComposer';
 import type { ExternalTerminalTarget, Project } from '../../../types/app';
 import type { ShellAttachTarget } from '../../shell/types/types';
-import { paneSubscriptionKey, tmuxPaneIdentityKey } from '../../../../shared/tmux';
+import { paneSubscriptionKey, tmuxPaneIdentityKey, type TmuxPaneIdentity, type TmuxProcessGeneration } from '../../../../shared/tmux';
 import { useWebSocket } from '../../../contexts/WebSocketContext';
 
 import MainContentHeader from './subcomponents/MainContentHeader';
@@ -95,6 +95,22 @@ export function buildExternalAttachTarget(externalTerminal: ExternalTerminalTarg
   }
   return { targetClass: 'local-agent', tmux: externalTerminal.tmux, process: externalTerminal.process! };
 }
+
+/**
+ * The CLI output tab upgrades from a read-only pane mirror to a fully
+ * interactive terminal whenever the pane's process generation is observable:
+ * the same exact-4-tuple typed-attach protocol as the terminal route, so all
+ * server-side identity checks apply unchanged. Without a process identity the
+ * tab stays read-only (never attach by tmux name alone).
+ */
+export function buildTranscriptCliAttachTarget(
+  target: { tmux: TmuxPaneIdentity; process?: TmuxProcessGeneration | null } | null | undefined,
+): Extract<ShellAttachTarget, { targetClass: 'local-agent' }> | null {
+  if (!target?.process) {
+    return null;
+  }
+  return { targetClass: 'local-agent', tmux: target.tmux, process: target.process };
+}
  
 
 
@@ -153,23 +169,26 @@ function MainContent({
     }
     return null;
   }, [externalTranscript, liveSessionKind, liveSessionTarget]);
+  const transcriptCliAttachTarget = useMemo(
+    () => buildTranscriptCliAttachTarget(transcriptCliTarget),
+    [transcriptCliTarget],
+  );
   const transcriptCliProviderLabel = externalTranscript?.kind
     ?? (liveSessionKind === 'gjc' ? 'GJC' : null);
   const transcriptCliTmuxName = externalTranscript?.tmuxName
     ?? (liveSessionKind === 'gjc' ? liveSessionName : null);
-  const externalOutputTarget = useMemo(() => (
-    externalTranscriptView === 'cli'
-      ? externalTerminal && externalTerminal.cliKind !== 'ssh' && externalTerminal.cliKind !== 'shell'
-        ? externalTerminal.process
-          ? {
-              tmux: externalTerminal.tmux,
-              process: externalTerminal.process,
-              lane: externalTerminal.cliKind === 'gjc' ? 'live' as const : 'external' as const,
-            }
-          : null
-        : transcriptCliTarget
-      : null
-  ), [externalTerminal, externalTranscriptView, transcriptCliTarget]);
+  const externalOutputTarget = useMemo(() => {
+    if (externalTranscriptView !== 'cli') {
+      return null;
+    }
+    if (externalTerminal && externalTerminal.cliKind !== 'ssh' && externalTerminal.cliKind !== 'shell') {
+      // Attachable panes mount the interactive terminal instead; the
+      // read-only mirror stream would just duplicate the same bytes.
+      return null;
+    }
+    // Attach-capable transcript targets also use the interactive terminal.
+    return transcriptCliAttachTarget ? null : transcriptCliTarget;
+  }, [externalTerminal, externalTranscriptView, transcriptCliAttachTarget, transcriptCliTarget]);
   const [filesPanelOpen, setFilesPanelOpen] = useState(() => {
     try {
       return localStorage.getItem('files-panel-open') === 'true';
@@ -391,6 +410,10 @@ function MainContent({
       opencode: 'OpenCode',
       omp: 'Oh My Pi',
     }[externalTerminal.cliKind];
+    const pendingCliAttachTarget = buildTranscriptCliAttachTarget({
+      tmux: externalTerminal.tmux,
+      process: externalTerminal.process,
+    });
     return (
       <div className="flex h-full min-h-0 flex-col">
         <div className="flex flex-shrink-0 items-center justify-between border-b border-border/50 px-3 py-2">
@@ -427,7 +450,22 @@ function MainContent({
           onChange={setExternalTranscriptView}
         />
         {externalTranscriptView === 'cli' ? (
-          <PendingExternalCliOutput providerLabel={providerLabel} output={externalPaneOutput} />
+          pendingCliAttachTarget ? (
+            <div className="min-h-0 flex-1 overflow-hidden">
+              <Suspense fallback={null}>
+                <StandaloneShell
+                  // Switching exact pane targets or process generations must remount.
+                  key={`pending-cli-${tmuxPaneIdentityKey(pendingCliAttachTarget.tmux)}:${pendingCliAttachTarget.process.startedAtMs}`}
+                  project={externalTerminal.project}
+                  attachTarget={pendingCliAttachTarget}
+                  isActive
+                  minimal
+                />
+              </Suspense>
+            </div>
+          ) : (
+            <PendingExternalCliOutput providerLabel={providerLabel} output={externalPaneOutput} />
+          )
         ) : (
           <PendingExternalCliOutput
             providerLabel={providerLabel}
@@ -587,7 +625,21 @@ function MainContent({
                 aria-label={`${transcriptCliProviderLabel} CLI 출력`}
                 className="flex min-h-0 flex-1 flex-col"
               >
-                {externalPaneError ? (
+                {transcriptCliAttachTarget ? (
+                  <div className="min-h-0 flex-1 overflow-hidden">
+                    <Suspense fallback={null}>
+                      <StandaloneShell
+                        // Switching exact pane targets or process generations must remount.
+                        key={`transcript-cli-${tmuxPaneIdentityKey(transcriptCliAttachTarget.tmux)}:${transcriptCliAttachTarget.process.startedAtMs}`}
+                        project={selectedProject}
+                        attachTarget={transcriptCliAttachTarget}
+                        isActive
+                        minimal
+                        onComplete={() => setExternalTranscriptView('conversation')}
+                      />
+                    </Suspense>
+                  </div>
+                ) : externalPaneError ? (
                   <div className="flex min-h-0 flex-1 items-center justify-center bg-zinc-950 px-6 text-center">
                     <div role="alert" className="max-w-md text-sm text-zinc-300">
                       <SquareTerminal className="mx-auto mb-3 h-5 w-5 text-amber-400" aria-hidden />
