@@ -8,6 +8,8 @@ import bcrypt from 'bcrypt';
 
 import {
   assertVpnBindHost,
+  listLanAddresses,
+  isUfwEnabled,
   buildManagedEnvironment,
   parseInstallOptions,
   runAccessCli,
@@ -48,6 +50,31 @@ test('VPN bind addresses must be private IPv4 addresses present on a local inter
   assert.throws(() => assertVpnBindHost('10.99.0.1', interfaces), /No local network interface/);
 });
 
+test('LAN address listing hides container plumbing and ranks physical interfaces before tunnels', () => {
+  const interfaces = () => ({
+    lo: [{ address: '127.0.0.1', family: 'IPv4', internal: true }],
+    tailscale0: [{ address: '100.123.228.51', family: 'IPv4', internal: false }],
+    'br-9f2d1c': [{ address: '172.22.0.1', family: 'IPv4', internal: false }],
+    docker0: [{ address: '172.17.0.1', family: 'IPv4', internal: false }],
+    wg0: [{ address: '10.100.100.1', family: 'IPv4', internal: false }],
+    enp4s0: [
+      { address: '192.168.0.7', family: 'IPv4', internal: false },
+      { address: 'fe80::1', family: 'IPv6', internal: false },
+    ],
+  }) as never;
+
+  assert.deepEqual(listLanAddresses(interfaces), [
+    { address: '192.168.0.7', interfaceName: 'enp4s0' },
+    { address: '100.123.228.51', interfaceName: 'tailscale0' },
+    { address: '10.100.100.1', interfaceName: 'wg0' },
+  ]);
+});
+
+test('ufw detection trusts only the world-readable on-disk flag', async () => {
+  assert.equal(await isUfwEnabled(async () => 'ENABLED=yes\nLOGLEVEL=low\n'), true);
+  assert.equal(await isUfwEnabled(async () => '# comment\nENABLED=no\n'), false);
+  assert.equal(await isUfwEnabled(async () => { throw new Error('ENOENT'); }), false);
+});
 test('default server port selection skips unrelated listeners but explicit ports fail closed', async () => {
   const occupied = new Set([3001, 3002]);
   const available = async (port: number) => !occupied.has(port);

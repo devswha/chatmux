@@ -4,6 +4,24 @@ All notable changes to ChatMux are documented in this file. Current and
 future server artifacts are published only through
 [GitHub Releases](https://github.com/devswha/chatmux/releases).
 
+## 1.4.1 (2026-07-27)
+
+### Fixed
+
+- The install summary now names one primary `Phone` address (physical LAN)
+  instead of dumping every interface: container bridges (docker/veth/…) are
+  hidden, and tunnel addresses (WireGuard, Tailscale) are listed as labelled
+  alternatives that only work while that VPN is connected. The QR code always
+  encodes the primary LAN address.
+- The `Phone` line now says it is a same-Wi-Fi address, with a `Reach` line
+  explaining router port forwarding for access from anywhere — scanning the
+  QR from mobile data no longer looks like a broken install.
+- When the ufw firewall is enabled, the installer and
+  `chatmux access enable password` print the exact `sudo ufw allow` command
+  instead of leaving phone connections silently blocked.
+- The one-line bootstrap shows a download progress bar for the Node.js
+  runtime and the ChatMux release archive.
+
 ## 1.4.0 (2026-07-27)
 
 ### Added

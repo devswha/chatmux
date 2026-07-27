@@ -491,10 +491,20 @@ export async function runInstallCli(args: string[], context: InstallContext): Pr
   closeConnection();
 
   const lanAddresses = listLanAddresses(context.interfaces ?? os.networkInterfaces);
+  const [primaryLan, ...alternateLans] = lanAddresses;
   console.log('\nChatMux installation complete');
   console.log(`  Local:  http://127.0.0.1:${options.serverPort}`);
-  for (const address of lanAddresses) {
-    console.log(`  Phone:  http://${address}:${options.serverPort} — sign in from any browser, no app needed`);
+  if (primaryLan) {
+    console.log(`  Phone:  http://${primaryLan.address}:${options.serverPort} — same Wi-Fi: sign in from any browser, no app needed`);
+  }
+  if (alternateLans.length > 0) {
+    console.log(`  Also:   ${alternateLans.map((entry) => `http://${entry.address}:${options.serverPort} (${entry.interfaceName})`).join(' · ')}`);
+  }
+  if (primaryLan) {
+    console.log(`  Reach:  from outside this Wi-Fi, forward TCP ${options.serverPort} on the router — or use a tunnel address above while its VPN is connected`);
+  }
+  if (await isUfwEnabled()) {
+    console.log(`  Note:   the ufw firewall is enabled — phones stay blocked until you run: sudo ufw allow ${options.serverPort}/tcp`);
   }
   if (initialPassword) {
     console.log(`  Login:  ${ownerUsername} / ${initialPassword}`);
@@ -508,9 +518,8 @@ export async function runInstallCli(args: string[], context: InstallContext): Pr
     const restore = previousRemoteMode === 'vpn' ? 'chatmux access enable vpn <address>' : 'chatmux access enable tailscale';
     console.log(`  Note:   previous ${previousRemoteMode} remote access was replaced by password access; restore it with: ${restore}`);
   }
-  const primaryAddress = lanAddresses[0];
-  if (primaryAddress) {
-    await printAccessQr(run, `http://${primaryAddress}:${options.serverPort}`);
+  if (primaryLan) {
+    await printAccessQr(run, `http://${primaryLan.address}:${options.serverPort}`);
   }
 }
 
@@ -541,11 +550,39 @@ function generateInitialPassword(): string {
   return randomBytes(12).toString('base64url');
 }
 
-function listLanAddresses(interfaces: () => NodeJS.Dict<os.NetworkInterfaceInfo[]>): string[] {
-  return Object.values(interfaces()).flatMap((entries) =>
-    (entries ?? [])
-      .filter((entry) => entry.family === 'IPv4' && !entry.internal)
-      .map((entry) => entry.address));
+type LanAddress = { address: string; interfaceName: string };
+
+// Container plumbing (docker bridges, veth pairs, …) is never reachable from
+// a phone, so it is excluded outright. Tunnel interfaces (WireGuard,
+// Tailscale, tun) only work for peers already inside that tunnel, so the
+// physical LAN address is listed first as the primary and tunnels follow as
+// labelled alternatives.
+const CONTAINER_INTERFACE_PATTERN = /^(docker|br-|veth|virbr|lxc|lxd|cni|podman)/;
+const TUNNEL_INTERFACE_PATTERN = /^(wg|tailscale|tun|tap|zt|utun|nebula)/;
+
+export function listLanAddresses(interfaces: () => NodeJS.Dict<os.NetworkInterfaceInfo[]>): LanAddress[] {
+  const entries = Object.entries(interfaces()).flatMap(([interfaceName, rows]) =>
+    CONTAINER_INTERFACE_PATTERN.test(interfaceName)
+      ? []
+      : (rows ?? [])
+        .filter((row) => row.family === 'IPv4' && !row.internal)
+        .map((row) => ({ address: row.address, interfaceName })));
+  return [
+    ...entries.filter((entry) => !TUNNEL_INTERFACE_PATTERN.test(entry.interfaceName)),
+    ...entries.filter((entry) => TUNNEL_INTERFACE_PATTERN.test(entry.interfaceName)),
+  ];
+}
+
+// `ufw status` needs root, but ufw's on-disk enable flag is world-readable.
+// Best-effort: an unreadable or missing file simply means "no note".
+export async function isUfwEnabled(
+  readFileImpl: (path: string, encoding: 'utf8') => Promise<string> = fs.readFile,
+): Promise<boolean> {
+  try {
+    return /^ENABLED=yes$/m.test(await readFileImpl('/etc/ufw/ufw.conf', 'utf8'));
+  } catch {
+    return false;
+  }
 }
 
 // Mirrors incrementTokenVersion() in server/middleware/auth.js without
@@ -720,17 +757,23 @@ export async function runAccessCli(args: string[], context: Pick<InstallContext,
         console.log(`  2) Re-run: chatmux access enable password${host === '0.0.0.0' ? '' : ` ${host}`}`);
         return;
       }
-      const displayHosts = host === '0.0.0.0'
+      const displayAddresses = host === '0.0.0.0'
         ? listLanAddresses(context.interfaces ?? os.networkInterfaces)
-        : [host];
+        : [{ address: host, interfaceName: 'requested' }];
+      const [primary, ...alternates] = displayAddresses;
       const effectiveDays = await readPersistedSessionDays(configPath) ?? 7;
       console.log('Password access enabled — any browser can sign in, no app required.');
-      for (const displayHost of displayHosts) console.log(`  Address: http://${displayHost}:${serverPort}`);
+      if (primary) console.log(`  Address: http://${primary.address}:${serverPort}`);
+      if (alternates.length > 0) {
+        console.log(`  Also:    ${alternates.map((entry) => `http://${entry.address}:${serverPort} (${entry.interfaceName})`).join(' · ')}`);
+      }
       console.log(`  Session: stays signed in forever while used at least once every ${effectiveDays} days (idle sessions expire; change with --session-days <n>)`);
       console.log('  Reach:   same Wi-Fi works immediately; for access from anywhere, forward this TCP port on the router');
       console.log('  HTTPS:   put a TLS proxy in front before exposing to the internet — see docs/INSTALL.md');
-      const primary = displayHosts[0];
-      if (primary) await printAccessQr(run, `http://${primary}:${serverPort}`);
+      if (await isUfwEnabled()) {
+        console.log(`  Note:    the ufw firewall is enabled — phones stay blocked until you run: sudo ufw allow ${serverPort}/tcp`);
+      }
+      if (primary) await printAccessQr(run, `http://${primary.address}:${serverPort}`);
       return;
     }
     if (command === 'password') {

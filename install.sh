@@ -73,7 +73,7 @@ install_node() {
   node_stage="$TEMP_DIR/node"
   mkdir -p "$node_stage" "$INSTALL_ROOT/runtime"
   log "Node.js 22 was not found; installing a private runtime"
-  curl -fsSL "$node_base/$node_archive" -o "$TEMP_DIR/$node_archive"
+  curl -fSL --progress-bar "$node_base/$node_archive" -o "$TEMP_DIR/$node_archive"
   curl -fsSL "$node_base/SHASUMS256.txt" -o "$TEMP_DIR/SHASUMS256.txt"
   verify_checksum "$TEMP_DIR/SHASUMS256.txt" "$TEMP_DIR/$node_archive"
   tar -xJf "$TEMP_DIR/$node_archive" -C "$node_stage"
@@ -124,7 +124,7 @@ else
   stage="$INSTALL_ROOT/releases/.install-$VERSION-$$"
 
   log "Downloading ChatMux $VERSION"
-  curl -fsSL "$release_base/$artifact" -o "$archive"
+  curl -fSL --progress-bar "$release_base/$artifact" -o "$archive"
   curl -fsSL "$release_base/$artifact.sha256" -o "$checksum"
   verify_checksum "$checksum" "$archive"
 
