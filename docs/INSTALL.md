@@ -21,6 +21,22 @@ The bootstrap:
 
 No root-owned ChatMux service or package-registry install is used.
 
+A successful run ends with a block like this:
+
+```text
+ChatMux installation complete
+  Local:  http://127.0.0.1:3001
+  Remote: https://<machine>.ts.net:8443      (only when Tailscale was enabled)
+  Access: Tailscale (you@example.com)
+  Next:   open the address above in a browser — running tmux agents appear automatically
+  Manage: chatmux status | chatmux access users | journalctl --user -u chatmux.service
+```
+
+Open the `Local` address in a browser on the machine — or the `Remote`
+address from any approved device — and your running tmux agents appear in the
+sidebar without any registration. When `qrencode` is installed, the remote
+address is also printed as a terminal QR code for quick phone setup.
+
 ## Requirements
 
 - Linux x86_64 with glibc 2.35 or newer

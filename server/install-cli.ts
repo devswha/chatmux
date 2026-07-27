@@ -476,6 +476,7 @@ export async function runInstallCli(args: string[], context: InstallContext): Pr
   console.log(`  Local:  http://127.0.0.1:${options.serverPort}`);
   if (remoteUrl) console.log(`  Remote: ${remoteUrl}`);
   console.log(`  Access: ${useTailscale ? `Tailscale (${owner})` : 'this computer only'}`);
+  console.log(`  Next:   open ${remoteUrl ?? `http://127.0.0.1:${options.serverPort}`} in a browser — running tmux agents appear automatically`);
   console.log(`  Manage: chatmux status | chatmux access users | journalctl --user -u chatmux.service`);
   if (remoteUrl) {
     try {

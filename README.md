@@ -20,33 +20,57 @@
   <a href="docs/SELF-HOST.md">Operations guide</a>
 </p>
 
-ChatMux turns native Gajae Code, Claude Code, Codex, Cursor, OpenCode, and Oh My Pi sessions into one working surface:
+You run coding agents — Gajae Code, Claude Code, Codex, Cursor, OpenCode,
+Oh My Pi — inside tmux, like always. ChatMux finds them by itself and shows
+every session in one browser page, on your desktop or your phone:
 
-- discovers supported tmux sessions instead of requiring registration;
-- opens indexed sessions as structured conversations and SSH sessions as terminals;
-- relays prompts, resumes sessions, starts new agents, and stops only sessions whose ownership can be verified;
-- leaves tmux sessions running when ChatMux restarts or exits;
-- keeps agent connections, appearance, credentials, and remote access in one Settings screen.
+- **No registration.** Agents already running in tmux just appear in the sidebar.
+- **Read as chat.** Sessions with a recognized transcript open as a
+  conversation view; everything else opens as a real terminal.
+- **Type back.** Send prompts, answer menu prompts in the built-in terminal,
+  interrupt a running turn, resume old sessions, or start new agents — input
+  only ever reaches a pane whose identity ChatMux has verified.
+- **tmux stays the boss.** Restart or remove ChatMux any time; your tmux
+  sessions keep running untouched.
 
-Agent subscriptions are not included. Install and authenticate each CLI as the same OS user that runs ChatMux.
+ChatMux does not bundle any AI subscription. Install and log in to each agent
+CLI as the same OS user that runs ChatMux.
 
 <a id="install"></a>
 ## Install
 
-Install the latest production release on Linux x86_64:
+One command on a Linux x86_64 server:
 
 ```bash
 curl -fsSL https://github.com/devswha/chatmux/releases/latest/download/install.sh | bash
 ```
 
-The bootstrap verifies the release checksum, installs a private Node.js 22
-runtime when needed, configures the user service, and selects Tailscale when it
-is already running. Otherwise ChatMux stays local-only. The backend uses the
-first free loopback port starting at `127.0.0.1:3001`.
+It downloads the latest release, verifies its checksum, installs a private
+Node.js 22 runtime only if the machine needs one, and starts a user-level
+service bound to `127.0.0.1`. When Tailscale is already logged in it also
+configures a private HTTPS address for your other devices; otherwise ChatMux
+stays local-only. A successful install ends with:
 
-Requirements: glibc 2.35 or newer, tmux, user-level systemd, `curl`, `tar`, and
-`sha256sum`. See the [installation guide](docs/INSTALL.md) for pinned installs,
-explicit access choices, paths, rollback, and recovery.
+```text
+ChatMux installation complete
+  Local:  http://127.0.0.1:3001
+  Remote: https://<your-machine>.ts.net:8443        (Tailscale only)
+  Access: Tailscale (you@example.com)
+  Next:   open the address above in a browser — running tmux agents appear automatically
+  Manage: chatmux status | chatmux access users | journalctl --user -u chatmux.service
+```
+
+Then:
+
+1. Open the `Local` address in a browser (or the `Remote` address from your
+   phone). Running tmux agents appear in the sidebar automatically.
+2. On a phone, use the in-app **Install app** button to keep ChatMux as a PWA.
+3. Check `chatmux status` any time to see the configured addresses.
+
+Before you start, the machine needs: Linux x86_64 with glibc 2.35+, tmux,
+user-level systemd, and `curl`, `tar`, `sha256sum`. See the
+[installation guide](docs/INSTALL.md) for pinned installs, explicit access
+choices, managed paths, rollback, and recovery.
 
 For source development:
 
@@ -63,18 +87,22 @@ Open <http://127.0.0.1:5173>. Development requires Node.js `22.22.2+` on the
 <a id="agent-support"></a>
 ## Agent support
 
-| Agent | Live discovery | Structured transcript | Input | New tmux session |
-|---|---|---|---|---|
-| **Gajae Code (GJC)** | Automatic | Yes | Prompt relay and `/` commands | Yes |
-| **Codex CLI** | Automatic | After rollout indexing | Prompt relay and `$` skills | Yes |
-| **Claude Code** | Automatic | After history indexing | Prompt relay and `/` skills | Yes |
-| **Cursor** | Automatic | After history indexing | Prompt relay and `/` skills | Yes |
-| **OpenCode** | Automatic | After SQLite indexing | Prompt relay and `/` skills | Yes |
-| **Oh My Pi** | Automatic | After JSONL indexing | Prompt relay and `/skill:` skills | Yes |
-| **SSH tmux** | Automatic | No | Attached terminal | No |
+"Chat view" below means the session renders as a readable conversation with a
+composer; otherwise ChatMux gives you an attached terminal. Both views can
+type into the real pane.
 
-Models, reasoning levels, permissions, skills, and MCP controls appear only when
-the provider CLI and its local session format expose them.
+| Agent | Found automatically | Chat view | Send input | Start new session |
+|---|---|---|---|---|
+| **Gajae Code (GJC)** | Yes | Yes | Prompts and `/` commands | Yes |
+| **Codex CLI** | Yes | After its history is indexed | Prompts and `$` skills | Yes |
+| **Claude Code** | Yes | After its history is indexed | Prompts and `/` skills | Yes |
+| **Cursor** | Yes | After its history is indexed | Prompts and `/` skills | Yes |
+| **OpenCode** | Yes | After its history is indexed | Prompts and `/` skills | Yes |
+| **Oh My Pi** | Yes | After its history is indexed | Prompts and `/skill:` skills | Yes |
+| **SSH tmux** | Yes | No — terminal only | Terminal keystrokes | No |
+
+Model pickers, reasoning levels, permissions, skills, and MCP controls appear
+only when the agent's CLI actually exposes them.
 
 <a id="remote-access"></a>
 ## Remote access
