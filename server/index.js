@@ -14,7 +14,7 @@ import Database from 'better-sqlite3';
 
 import { AppError, getOpenCodeDatabasePath } from '@/shared/utils.js';
 import {
-    assertFreshExternalTmuxTarget,
+    assertFreshLocalAgentTmuxTarget,
     assertTmuxPaneIdentity,
     attachCapabilityService,
     closeSessionsWatcher,
@@ -175,7 +175,10 @@ const wss = createWebSocketServer(server, {
         normalizeDetectedUrl,
         extractUrlsFromText,
         shouldAutoOpenUrlFromOutput,
-        assertFreshExternalTmuxTarget,
+        // Terminal attach must authorize BOTH discovery lanes: external CLIs
+        // (claude/codex/...) and live gjc panes. The lane-combined verifier
+        // keeps the exact 4-tuple + process-generation match in each lane.
+        assertFreshExternalTmuxTarget: assertFreshLocalAgentTmuxTarget,
         assertTmuxPaneIdentity,
         attachCapabilities: attachCapabilityService,
         getCurrentTmuxPaneIdentity,

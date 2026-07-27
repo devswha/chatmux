@@ -29,6 +29,7 @@ export {
   assertFreshExternalTmuxTarget,
   type VerifiedTmuxActionTarget,
 } from './services/tmux-fresh-verifier.service.js';
+export { assertFreshLocalAgentTmuxTarget } from './services/tmux-target-guard.service.js';
 export {
   assertTmuxPaneIdentity,
   readTmuxPaneIdentity,

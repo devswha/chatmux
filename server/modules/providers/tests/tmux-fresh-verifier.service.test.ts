@@ -6,6 +6,8 @@ import {
   type ExternalCliSession,
 } from '@/modules/providers/services/external-cli-sessions.service.js';
 import { assertFreshExternalTmuxTarget } from '@/modules/providers/services/tmux-fresh-verifier.service.js';
+import { assertFreshLocalAgentTmuxTarget } from '@/modules/providers/services/tmux-target-guard.service.js';
+import type { LiveGjcSession } from '@/modules/providers/services/live-sessions.service.js';
 import { AppError } from '@/shared/utils.js';
 
 const tmux = {
@@ -111,4 +113,64 @@ test('verified-target factory is neither imported nor called outside the two ver
   }
   await walk(root);
   assert.deepEqual(offenders, []);
+});
+
+test('local-agent verifier falls back to the live gjc lineage lane for panes missing from the external roster', async () => {
+  const liveSession = {
+    id: 'live-1',
+    tmuxName: 'gjc-pane',
+    tmux,
+    claim: 'lineage',
+    process: { ...processGeneration },
+  } as unknown as LiveGjcSession;
+
+  // External roster does not know gjc panes; the live lineage lane authorizes.
+  const target = await assertFreshLocalAgentTmuxTarget(tmux, processGeneration, {
+    assertExternal: async () => {
+      throw new AppError('not external', { code: 'TMUX_PROCESS_GENERATION_MISMATCH', statusCode: 409 });
+    },
+    loadLiveSessions: async () => [liveSession],
+    assertPaneIdentity: async () => {},
+  });
+  assert.equal(target.kind, 'gjc');
+  assert.equal(target.tmux.paneId, tmux.paneId);
+
+  // Both rosters unaware of the pane: fail closed.
+  await assert.rejects(
+    assertFreshLocalAgentTmuxTarget(tmux, processGeneration, {
+      assertExternal: async () => {
+        throw new AppError('not external', { code: 'TMUX_PROCESS_GENERATION_MISMATCH', statusCode: 409 });
+      },
+      loadLiveSessions: async () => [],
+      assertPaneIdentity: async () => {},
+    }),
+    (error: unknown) => error instanceof AppError && error.statusCode >= 400,
+  );
+
+  // A live row without the lineage claim must never authorize an attach.
+  await assert.rejects(
+    assertFreshLocalAgentTmuxTarget(tmux, processGeneration, {
+      assertExternal: async () => {
+        throw new AppError('not external', { code: 'TMUX_PROCESS_GENERATION_MISMATCH', statusCode: 409 });
+      },
+      loadLiveSessions: async () => [{ ...liveSession, claim: 'workdir' } as unknown as LiveGjcSession],
+      assertPaneIdentity: async () => {},
+    }),
+    (error: unknown) => error instanceof AppError && error.code === 'TMUX_ACTION_NOT_LINEAGE',
+  );
+
+  // Non-mismatch failures (e.g. protection) must surface unchanged, without
+  // consulting the live lane at all.
+  await assert.rejects(
+    assertFreshLocalAgentTmuxTarget(tmux, processGeneration, {
+      assertExternal: async () => {
+        throw new AppError('protected', { code: 'TMUX_TARGET_PROTECTED', statusCode: 403 });
+      },
+      loadLiveSessions: async () => {
+        throw new Error('live lane must not be consulted');
+      },
+      assertPaneIdentity: async () => {},
+    }),
+    (error: unknown) => error instanceof AppError && error.code === 'TMUX_TARGET_PROTECTED',
+  );
 });

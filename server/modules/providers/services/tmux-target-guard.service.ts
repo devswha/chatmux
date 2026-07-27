@@ -9,8 +9,17 @@ import type {
   TmuxProcessGeneration,
 } from '../../../../shared/tmux.js';
 
-import { assertTmuxPaneIdentity, sameTmuxPaneIdentity } from './tmux-pane-actions.service.js';
-import { createVerifiedTmuxActionTarget, type VerifiedTmuxActionTarget } from './tmux-fresh-verifier.service.js';
+import {
+  assertTmuxPaneIdentity,
+  readTmuxPaneIdentity,
+  readTmuxProcessGeneration,
+  sameTmuxPaneIdentity,
+} from './tmux-pane-actions.service.js';
+import {
+  assertFreshExternalTmuxTarget,
+  createVerifiedTmuxActionTarget,
+  type VerifiedTmuxActionTarget,
+} from './tmux-fresh-verifier.service.js';
 
 type LiveSessionLoader = () => Promise<LiveGjcSession[]>;
 type PaneIdentityAssert = (tmux: TmuxPaneIdentity) => Promise<void>;
@@ -59,4 +68,42 @@ export async function assertLineageTmuxTarget(
     'gjc',
     exact.tmuxName,
   );
+}
+
+/**
+ * Authorizes a local-agent pane for terminal attach across both discovery
+ * lanes. External CLIs (claude/codex/cursor/opencode/omp) are verified by the
+ * fresh external scan; gjc panes live in the live lane and are verified by
+ * the same lineage gate that authorizes live sends. Both lanes require the
+ * exact tmux 4-tuple plus a matching process generation, so this widens which
+ * roster is consulted, never how strictly a target must match.
+ */
+export async function assertFreshLocalAgentTmuxTarget(
+  tmuxValue: unknown,
+  processValue: unknown,
+  deps: {
+    assertExternal?: typeof assertFreshExternalTmuxTarget;
+    loadLiveSessions?: LiveSessionLoader;
+    assertPaneIdentity?: PaneIdentityAssert;
+  } = {},
+): Promise<VerifiedTmuxActionTarget> {
+  try {
+    return await (deps.assertExternal ?? assertFreshExternalTmuxTarget)(tmuxValue, processValue);
+  } catch (error) {
+    const isGenerationMismatch =
+      error instanceof AppError && error.code === 'TMUX_PROCESS_GENERATION_MISMATCH';
+    if (!isGenerationMismatch) {
+      throw error;
+    }
+    // Not in the external roster: the pane may be a live gjc target. A pane
+    // absent from both rosters still fails closed inside the lineage gate.
+    const identity = readTmuxPaneIdentity(tmuxValue);
+    const generation = readTmuxProcessGeneration(processValue);
+    return assertLineageTmuxTarget(
+      identity,
+      generation,
+      deps.loadLiveSessions,
+      deps.assertPaneIdentity,
+    );
+  }
 }
