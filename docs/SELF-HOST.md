@@ -50,6 +50,9 @@ journalctl --user -u chatmux.service -f
 curl --fail http://127.0.0.1:3001/health
 ```
 
+The examples use port `3001`; each install may select a different loopback
+port. `chatmux status` reports the configured address.
+
 Use `loginctl enable-linger "$USER"` only when the host policy permits the
 service to continue after logout.
 

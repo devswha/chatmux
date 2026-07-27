@@ -98,7 +98,8 @@ configuration. Without Tailscale, use an SSH tunnel:
 ssh -N -L 3001:127.0.0.1:3001 user@server
 ```
 
-Then open <http://127.0.0.1:3001> locally.
+Then open <http://127.0.0.1:3001> locally. Replace `3001` with the backend
+port reported by `chatmux status` when the installer selected a different one.
 
 ## How it works
 

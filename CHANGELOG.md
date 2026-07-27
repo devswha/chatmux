@@ -4,7 +4,57 @@ All notable changes to ChatMux are documented in this file. Current and
 future server artifacts are published only through
 [GitHub Releases](https://github.com/devswha/chatmux/releases).
 
-## Unreleased
+## 1.3.6 (2026-07-27)
+
+### Added
+
+- The CLI output tab is now a fully interactive terminal bound to the exact
+  verified pane: arrow keys, TUI menu prompts, and control keys work from the
+  deck for both pending and indexed local-agent sessions. Panes without an
+  observable process generation keep the read-only mirror. Live gjc panes are
+  authorized through the same lineage gate that authorizes live sends.
+- gjc's built-in slash commands (`/clear`, `/compact`, `/model`, `/resume`,
+  and the rest of the native TUI catalog) now appear in the live composer's
+  command menu ahead of file-based commands and skills.
+- One authoritative tmux discovery stream now serves every client, replacing
+  per-client discovery polling.
+- The deck can interrupt a running agent turn, and approval-pending sessions
+  route directly to their live terminal.
+- The live composer supports file mentions and native provider command
+  catalogs; new-session forms suggest recent workspace paths.
+- Web push notifications fire when external CLI turns finish, and the PWA
+  offers an in-app install button.
+
+### Fixed
+
+- Open transcripts no longer freeze permanently: an id-less broadcast frame
+  (e.g. a discovery snapshot) could be misattributed to the viewed session and
+  poison its message store, after which every merge crashed and no reply ever
+  rendered. Envelope frames are now rejected at ingestion, and slots poisoned
+  by older builds recover on their next refresh.
+- Terminal attach to live gjc panes no longer fails with a process-generation
+  mismatch: the attach verifier now consults both discovery lanes while
+  keeping the exact 4-tuple and generation match in each.
+- Unknown `/api/*` routes now fail loudly as JSON 404 instead of returning the
+  SPA shell with HTTP 200.
+- The external turn monitor backs off exponentially (up to ten minutes) on
+  panes whose transcripts cannot be located, instead of re-reading dead ends
+  every five seconds and flooding the journal.
+- Concurrently started instances no longer steal `~/.chatmux/local-server.json`
+  from a live owner; only stale (dead-pid) markers are reclaimed.
+
+### Performance
+
+- API responses are gzip-compressed; a five-thousand-project index shrinks
+  from 2.79 MB to 0.47 MB per fetch. SSE endpoints are excluded so streaming
+  stays incremental.
+- The native session watcher claims depth-bounded inotify watches instead of
+  recursively watching agent cache trees (measured 13,119 → ~900 entries per
+  instance), so multiple instances no longer exhaust the kernel watch table
+  and starve every other file watcher on the machine. A regression test reads
+  the kernel watch count and fails on any return to unbounded watching.
+- Project display names are cached briefly and sidebar progress broadcasts are
+  sampled on a wall-clock interval instead of one websocket frame per project.
 
 ### Testing
 
