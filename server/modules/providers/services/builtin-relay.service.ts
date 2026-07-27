@@ -59,6 +59,11 @@ export function runTmux(args: string[], stdin?: string): Promise<TmuxRunResult> 
       resolve({ code: code ?? 1, output: output.trim() });
     });
     if (stdin !== undefined && child.stdin) {
+      // A child that exits before draining stdin (tmux gone, or a rejected
+      // command) surfaces EPIPE on this stream. Without a handler that is an
+      // uncaughtException that can crash the whole server; the exit code from
+      // 'close' already reports the failure, so swallow the stream error.
+      child.stdin.on('error', () => undefined);
       child.stdin.end(stdin);
     }
   });
