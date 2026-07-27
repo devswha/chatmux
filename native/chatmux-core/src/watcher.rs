@@ -145,8 +145,15 @@ fn watch_directory_tree(
             continue;
         };
         if file_type.is_dir() {
-            if depth + 1 <= MAX_WATCH_DIR_DEPTH
-                && !watch_directory_tree(watcher, stdout, roots, &entry.path(), depth + 1, emit_existing)
+            if depth < MAX_WATCH_DIR_DEPTH
+                && !watch_directory_tree(
+                    watcher,
+                    stdout,
+                    roots,
+                    &entry.path(),
+                    depth + 1,
+                    emit_existing,
+                )
             {
                 return false;
             }
