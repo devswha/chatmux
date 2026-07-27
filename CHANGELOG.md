@@ -4,6 +4,19 @@ All notable changes to ChatMux are documented in this file. Current and
 future server artifacts are published only through
 [GitHub Releases](https://github.com/devswha/chatmux/releases).
 
+## 1.4.2 (2026-07-27)
+
+### Fixed
+
+- On a machine with no VPN interface — the normal first install — the summary
+  no longer points at a "tunnel address above" that was never printed. The
+  `Reach` line now states the two paths that actually work from outside the
+  local network and what each one costs, and tunnel addresses say plainly
+  that they only work while that VPN is connected.
+- The `Access` line explains the password session in one sentence instead of
+  listing mode-switch commands a first-time user has no basis to choose
+  between.
+
 ## 1.4.1 (2026-07-27)
 
 ### Fixed

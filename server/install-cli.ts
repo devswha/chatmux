@@ -498,10 +498,12 @@ export async function runInstallCli(args: string[], context: InstallContext): Pr
     console.log(`  Phone:  http://${primaryLan.address}:${options.serverPort} — same Wi-Fi: sign in from any browser, no app needed`);
   }
   if (alternateLans.length > 0) {
-    console.log(`  Also:   ${alternateLans.map((entry) => `http://${entry.address}:${options.serverPort} (${entry.interfaceName})`).join(' · ')}`);
+    console.log(`  Also:   ${alternateLans.map((entry) => `http://${entry.address}:${options.serverPort} (${entry.interfaceName})`).join(' · ')} — reachable while that VPN is connected`);
   }
   if (primaryLan) {
-    console.log(`  Reach:  from outside this Wi-Fi, forward TCP ${options.serverPort} on the router — or use a tunnel address above while its VPN is connected`);
+    // The one decision a first-time user faces after install. Keep it to the
+    // two paths that actually work, with their real cost stated.
+    console.log(`  Reach:  from outside this Wi-Fi — "chatmux access enable tailscale" (free account + phone app; adds HTTPS, so notifications and home-screen install work), or forward TCP ${options.serverPort} on the router`);
   }
   if (await isUfwEnabled()) {
     console.log(`  Note:   the ufw firewall is enabled — phones stay blocked until you run: sudo ufw allow ${options.serverPort}/tcp`);
@@ -512,7 +514,7 @@ export async function runInstallCli(args: string[], context: InstallContext): Pr
   } else {
     console.log(`  Login:  existing account "${ownerUsername}" (forgot it? chatmux access password)`);
   }
-  console.log('  Access: password — sessions renew on use; alternatives: chatmux access enable tailscale | enable vpn <address>');
+  console.log('  Access: password — one sign-in stays valid while you keep using it');
   console.log(`  Manage: chatmux status | chatmux access password | journalctl --user -u chatmux.service`);
   if (previousRemoteMode) {
     const restore = previousRemoteMode === 'vpn' ? 'chatmux access enable vpn <address>' : 'chatmux access enable tailscale';
