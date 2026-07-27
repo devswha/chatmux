@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="public/brand/readme-hero.svg" alt="ChatMux — every coding agent, one command deck" width="900">
+  <img src="public/brand/readme-screenshot.png" alt="ChatMux in a browser: the sidebar lists live tmux agent sessions across providers, and the selected Gajae Code session renders as a structured conversation with live tool activity and a composer" width="900">
 </p>
 
 <p align="center">
