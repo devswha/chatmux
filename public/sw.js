@@ -1,7 +1,10 @@
 // Service Worker for ChatMux PWA
 // Cache only manifest (needed for PWA install). HTML and JS are never pre-cached
 // so a rebuild + refresh always picks up the latest assets.
-const CACHE_NAME = 'chatmux-v1';
+// v2: purges v1 caches that could hold poisoned asset entries (404/HTML bodies
+// cached under hashed asset URLs during a release swap → permanent white
+// screen on installed PWAs, because /assets/ is served cache-first forever).
+const CACHE_NAME = 'chatmux-v2';
 const urlsToCache = [
   '/manifest.json'
 ];
@@ -42,8 +45,17 @@ self.addEventListener('fetch', event => {
       caches.match(event.request).then(cached => {
         if (cached) return cached;
         return fetch(event.request).then(response => {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+          // Only cache real module/style responses. A 404 or an HTML error
+          // page cached under a hashed asset URL would be served cache-first
+          // forever and permanently blank the app (no reload can recover).
+          const contentType = response.headers.get('content-type') || '';
+          const isCacheable = response.ok
+            && response.status === 200
+            && !contentType.includes('text/html');
+          if (isCacheable) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+          }
           return response;
         });
       })
