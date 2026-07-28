@@ -151,7 +151,6 @@ export function createCompletionOutboxDispatcher({
             draining,
             new Promise<void>((resolve) => {
               stopTimer = setTimeout(resolve, stopWaitMs);
-              stopTimer.unref?.();
             }),
           ]);
         } finally {
