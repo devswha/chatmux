@@ -457,7 +457,7 @@ function extractCodexText(content: unknown): string {
 
 function normalizeSearchableSessions(rows: SessionRepositoryRow[]): SearchableSessionRow[] {
   const normalizedRows: SearchableSessionRow[] = [];
-  const projectArchiveStateByPath = new Map<string, boolean>();
+
 
   for (const row of rows) {
     const provider = row.provider as SearchableProvider;
@@ -475,26 +475,6 @@ function normalizeSearchableSessions(rows: SessionRepositoryRow[]): SearchableSe
       continue;
     }
 
-    /**
-     * Active session rows can still belong to an archived project because
-     * project archiving intentionally preserves the underlying session data.
-     * Global conversation search should follow the visible workspace model,
-     * which means excluding any session whose owning project is archived.
-     *
-     * Cache the archive lookup per normalized project path so one search pass
-     * does not re-query the same project row for every session in that folder.
-     */
-    const normalizedProjectPath = typeof row.project_path === 'string' ? row.project_path.trim() : '';
-    if (normalizedProjectPath) {
-      if (!projectArchiveStateByPath.has(normalizedProjectPath)) {
-        const projectRow = projectsDb.getProjectPath(normalizedProjectPath);
-        projectArchiveStateByPath.set(normalizedProjectPath, Boolean(projectRow?.isArchived));
-      }
-
-      if (projectArchiveStateByPath.get(normalizedProjectPath) === true) {
-        continue;
-      }
-    }
 
     normalizedRows.push({
       ...row,

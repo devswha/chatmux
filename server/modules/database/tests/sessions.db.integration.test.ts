@@ -30,54 +30,40 @@ async function withIsolatedDatabase(runTest: () => void | Promise<void>): Promis
   }
 }
 
-test('session archive queries hide archived rows from active project views', async () => {
+test('session repository reads all sessions, project sessions, pages, and counts', async () => {
   await withIsolatedDatabase(() => {
-    sessionsDb.createSession('session-active', 'claude', '/workspace/demo-project', 'Active Session');
-    sessionsDb.createSession('session-archived', 'claude', '/workspace/demo-project', 'Archived Session');
-    sessionsDb.updateSessionIsArchived('session-archived', true);
+    const projectPath = '/workspace/demo-project';
+    sessionsDb.createSession('session-early', 'claude', projectPath, 'Early Session', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
+    sessionsDb.createSession('session-middle', 'claude', projectPath, 'Middle Session', '2026-01-02T00:00:00.000Z', '2026-01-02T00:00:00.000Z');
+    sessionsDb.createSession('session-late', 'claude', projectPath, 'Late Session', '2026-01-03T00:00:00.000Z', '2026-01-03T00:00:00.000Z');
+    sessionsDb.createSession('session-other', 'claude', '/workspace/other-project', 'Other Session');
 
-    const activeSessions = sessionsDb.getAllSessions();
-    const archivedSessions = sessionsDb.getArchivedSessions();
-    const activeProjectSessions = sessionsDb.getSessionsByProjectPath('/workspace/demo-project');
-    const allProjectSessions = sessionsDb.getSessionsByProjectPathIncludingArchived('/workspace/demo-project');
+    const allSessions = sessionsDb.getAllSessions();
+    const projectSessions = sessionsDb.getSessionsByProjectPath(projectPath);
+    const page = sessionsDb.getSessionsByProjectPathPage(projectPath, 1, 1);
 
-    assert.deepEqual(activeSessions.map((session) => session.session_id), ['session-active']);
-    assert.deepEqual(archivedSessions.map((session) => session.session_id), ['session-archived']);
-    assert.deepEqual(activeProjectSessions.map((session) => session.session_id), ['session-active']);
     assert.deepEqual(
-      allProjectSessions.map((session) => session.session_id).sort(),
-      ['session-active', 'session-archived'],
+      allSessions.map((session) => session.session_id).sort(),
+      ['session-early', 'session-late', 'session-middle', 'session-other'],
     );
-    assert.equal(sessionsDb.countSessionsByProjectPath('/workspace/demo-project'), 1);
+    assert.deepEqual(
+      projectSessions.map((session) => session.session_id).sort(),
+      ['session-early', 'session-late', 'session-middle'],
+    );
+    assert.deepEqual(page.map((session) => session.session_id), ['session-middle']);
+    assert.equal(sessionsDb.countSessionsByProjectPath(projectPath), 3);
   });
 });
 
-test('createSession preserves archive state when refreshing existing sessions', async () => {
+test('createSession refreshes an existing session', async () => {
   await withIsolatedDatabase(() => {
     sessionsDb.createSession('session-reused', 'claude', '/workspace/demo-project', 'First Name');
-    sessionsDb.updateSessionIsArchived('session-reused', true);
-
     sessionsDb.createSession('session-reused', 'claude', '/workspace/demo-project', 'Updated Name');
 
-    const activeSessions = sessionsDb.getAllSessions();
-    const archivedSessions = sessionsDb.getArchivedSessions();
     const refreshedSession = sessionsDb.getSessionById('session-reused');
 
-    assert.equal(activeSessions.length, 0);
-    assert.equal(archivedSessions.length, 1);
-    assert.equal(archivedSessions[0]?.session_id, 'session-reused');
+    assert.equal(sessionsDb.getAllSessions().length, 1);
     assert.equal(refreshedSession?.custom_name, 'Updated Name');
-    assert.equal(refreshedSession?.isArchived, 1);
-
-    sessionsDb.createSession('session-conflict', 'claude', '/workspace/demo-project', 'First Conflict Name');
-    sessionsDb.updateSessionIsArchived('session-conflict', true);
-
-    sessionsDb.createSession('session-conflict', 'codex', '/workspace/demo-project', 'Updated Conflict Name');
-
-    const conflictedSession = sessionsDb.getSessionById('session-conflict');
-    assert.equal(conflictedSession?.provider, 'codex');
-    assert.equal(conflictedSession?.custom_name, 'Updated Conflict Name');
-    assert.equal(conflictedSession?.isArchived, 1);
   });
 });
 

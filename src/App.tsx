@@ -1,14 +1,14 @@
+import type { ReactNode } from 'react';
 import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
 import { I18nextProvider } from 'react-i18next';
 
 import { ThemeProvider } from './contexts/ThemeContext';
-import { AuthProvider, ProtectedRoute } from './components/auth';
-import { TaskMasterProvider } from './contexts/TaskMasterContext';
-import { TasksSettingsProvider } from './contexts/TasksSettingsContext';
+import { AuthProvider, ProtectedRoute, useAuth } from './components/auth';
+import type { AuthUser } from './components/auth/types';
 import { WebSocketProvider } from './contexts/WebSocketContext';
-import { PluginsProvider } from './contexts/PluginsContext';
 import AppContent from './components/app/AppContent';
 import i18n from './i18n/config.js';
+import { CompletionNotificationsProvider } from './components/sidebar/context/CompletionNotificationsContext';
 
 const DEPLOYMENT_ASSET_DIRECTORIES = new Set(['assets', 'static', 'icons', 'images']);
 
@@ -100,6 +100,20 @@ function detectRouterBasename() {
   return detectedBasename;
 }
 
+export function ownerProviderKey(user: AuthUser) {
+  if (user.id !== undefined) {
+    const id = String(user.id);
+    return `id:${typeof user.id}:${id.length}:${id}`;
+  }
+  return `username:${user.username.length}:${user.username}`;
+}
+
+function OwnerCompletionNotifications({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
+  if (!user) return <>{children}</>;
+  return <CompletionNotificationsProvider key={ownerProviderKey(user)}>{children}</CompletionNotificationsProvider>;
+}
+
 export default function App() {
   const routerBasename = detectRouterBasename();
 
@@ -108,20 +122,16 @@ export default function App() {
       <ThemeProvider>
         <AuthProvider>
           <WebSocketProvider>
-            <PluginsProvider>
-              <TasksSettingsProvider>
-                <TaskMasterProvider>
-                <ProtectedRoute>
-                  <Router basename={routerBasename}>
-                    <Routes>
-                      <Route path="/" element={<AppContent />} />
-                      <Route path="/session/:sessionId" element={<AppContent />} />
-                    </Routes>
-                  </Router>
-                </ProtectedRoute>
-                </TaskMasterProvider>
-              </TasksSettingsProvider>
-            </PluginsProvider>
+            <ProtectedRoute>
+              <OwnerCompletionNotifications>
+                <Router basename={routerBasename}>
+                  <Routes>
+                    <Route path="/" element={<AppContent />} />
+                    <Route path="/session/:sessionId" element={<AppContent />} />
+                  </Routes>
+                </Router>
+              </OwnerCompletionNotifications>
+            </ProtectedRoute>
           </WebSocketProvider>
         </AuthProvider>
       </ThemeProvider>

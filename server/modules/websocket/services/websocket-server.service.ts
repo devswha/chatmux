@@ -4,7 +4,6 @@ import { WebSocketServer, type VerifyClientCallbackSync, type WebSocket } from '
 
 import { handleChatConnection } from '@/modules/websocket/services/chat-websocket.service.js';
 import { verifyWebSocketClient } from '@/modules/websocket/services/websocket-auth.service.js';
-import { handlePluginWsProxy } from '@/modules/websocket/services/plugin-websocket-proxy.service.js';
 import { handleShellConnection } from '@/modules/websocket/services/shell-websocket.service.js';
 import { createDiscoveryStream } from '@/modules/websocket/services/discovery-stream.service.js';
 import type { DiscoveryCollector } from '@/modules/providers/index.js';
@@ -15,7 +14,6 @@ type WebSocketServerDependencies = {
   verifyClient: Parameters<typeof verifyWebSocketClient>[1];
   chat: Parameters<typeof handleChatConnection>[2];
   shell: Parameters<typeof handleShellConnection>[1];
-  getPluginPort: Parameters<typeof handlePluginWsProxy>[2];
   discovery?: DiscoveryCollector;
   panes?: ReturnType<typeof createPaneOutputStream>;
 };
@@ -114,11 +112,6 @@ export function createWebSocketServer(
         discovery?.close(ws);
         panes.close(ws);
       });
-      return;
-    }
-
-    if (pathname.startsWith('/plugin-ws/')) {
-      handlePluginWsProxy(ws, pathname, dependencies.getPluginPort);
       return;
     }
 

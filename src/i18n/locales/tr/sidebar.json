@@ -1,118 +1,29 @@
 {
-  "projects": {
-    "title": "Projeler",
-    "newProject": "Yeni Proje",
-    "deleteProject": "Projeyi Kaldır",
-    "renameProject": "Projeyi Yeniden Adlandır",
-    "noProjects": "Proje bulunamadı",
-    "loadingProjects": "Projeler yükleniyor...",
-    "searchPlaceholder": "Projelerde ara...",
-    "projectNamePlaceholder": "Proje adı",
-    "starred": "Yıldızlı",
-    "all": "Tümü",
-    "untitledSession": "Adsız Oturum",
-    "newSession": "Yeni Oturum",
-    "codexSession": "Codex Oturumu",
-    "fetchingProjects": "Claude projelerin ve oturumların getiriliyor",
-    "projects": "proje",
-    "noMatchingProjects": "Eşleşen proje yok",
-    "tryDifferentSearch": "Arama terimini değiştirmeyi dene",
-    "runClaudeCli": "Başlamak için bir proje dizininde Claude CLI çalıştır"
-  },
-  "app": {
-    "title": "ChatMux",
-    "subtitle": "AI kodlama asistanı arayüzü"
-  },
-  "sessions": {
-    "title": "Oturumlar",
-    "newSession": "Yeni Oturum",
-    "deleteSession": "Oturumu Sil",
-    "renameSession": "Oturumu Yeniden Adlandır",
-    "noSessions": "Henüz oturum yok",
-    "loadingSessions": "Oturumlar yükleniyor...",
-    "unnamed": "Adsız",
-    "loading": "Yükleniyor...",
-    "showMore": "Daha fazla oturum göster"
-  },
   "tooltips": {
-    "viewEnvironments": "Ortamları Görüntüle",
     "hideSidebar": "Kenar çubuğunu gizle",
-    "createProject": "Yeni proje oluştur",
-    "refresh": "Projeleri ve oturumları yenile (Ctrl+R)",
-    "renameProject": "Projeyi yeniden adlandır (F2)",
-    "deleteProject": "Projeyi kenar çubuğundan kaldır (Delete)",
-    "addToFavorites": "Favorilere ekle",
-    "removeFromFavorites": "Favorilerden çıkar",
-    "editSessionName": "Oturum adını elle düzenle",
-    "deleteSession": "Bu oturumu kalıcı olarak sil",
-    "activeSessionIndicator": "Yakın zamanda etkin oturum (son 10 dakika)",
-    "save": "Kaydet",
-    "cancel": "İptal",
-    "clearSearch": "Aramayı temizle",
-    "openCommandPalette": "Komut paletini aç",
-    "attentionRequiredIndicator": "Oturum ilgi bekliyor"
+    "refresh": "Projeleri ve oturumları yenile (Ctrl+R)"
   },
-  "navigation": {
-    "chat": "Sohbet",
-    "files": "Dosyalar",
-    "git": "Git",
-    "terminal": "Terminal",
-    "tasks": "Görevler"
+  "completionNotifications": {
+    "pending": "Asistan yanıtı hazır bildirimleri denetleniyor",
+    "unsupported": "Asistan yanıtı hazır bildirimleri bu cihazda desteklenmiyor",
+    "denied": "Asistan yanıtı hazır bildirimleri için bildirim izni reddedildi",
+    "insecure": "Asistan yanıtı hazır bildirimleri güvenli bağlantı gerektirir",
+    "iosInstall": "iOS'te asistan yanıtı hazır bildirimlerini etkinleştirmek için bu uygulamayı yükleyin",
+    "error": "Asistan yanıtı hazır bildirimleri denetlenemedi",
+    "repairError": "Bu cihazdaki asistan yanıtı hazır bildirimleri onarılamadı",
+    "repair": "Bu cihazdaki asistan yanıtı hazır bildirimlerini onarın",
+    "paused": "Asistan yanıtı hazır bildirimleri genel olarak duraklatıldı",
+    "disable": "Bu oturum için asistan yanıtı hazır bildirimlerini devre dışı bırak",
+    "enable": "Bu oturum için asistan yanıtı hazır bildirimlerini etkinleştir",
+    "timeout": "Asistan yanıtı hazır bildirimlerinin süresi doldu. Yeniden deneyin.",
+    "conflict": "Asistan yanıtı hazır bildirim ayarları değişti. Yeniden deneyin."
   },
   "actions": {
-    "refresh": "Yenile",
     "settings": "Ayarlar",
-    "installApp": "Uygulamayı yükle",
-    "collapseAll": "Tümünü Daralt",
-    "expandAll": "Tümünü Genişlet",
-    "cancel": "İptal",
-    "save": "Kaydet",
-    "delete": "Sil",
-    "rename": "Yeniden Adlandır",
-    "starOnGithub": "GitHub'da Yıldızla"
+    "installApp": "Uygulamayı yükle"
   },
   "branding": {
     "openSource": "Açık Kaynak"
-  },
-  "status": {
-    "active": "Aktif",
-    "inactive": "Pasif",
-    "thinking": "Düşünüyor...",
-    "error": "Hata",
-    "aborted": "Durduruldu",
-    "unknown": "Bilinmiyor"
-  },
-  "time": {
-    "justNow": "Az önce",
-    "oneMinuteAgo": "1 dakika önce",
-    "minutesAgo": "{{count}} dakika önce",
-    "oneHourAgo": "1 saat önce",
-    "hoursAgo": "{{count}} saat önce",
-    "oneDayAgo": "1 gün önce",
-    "daysAgo": "{{count}} gün önce"
-  },
-  "messages": {
-    "deleteConfirm": "Bunu silmek istediğinden emin misin?",
-    "renameSuccess": "Yeniden adlandırma başarılı",
-    "deleteSuccess": "Silme başarılı",
-    "errorOccurred": "Bir hata oluştu",
-    "deleteSessionConfirm": "Bu oturumu silmek istediğinden emin misin? Bu işlem geri alınamaz.",
-    "deleteProjectConfirm": "Bu proje kenar çubuğundan kaldırılsın mı? Proje dosyaların, bellek verilerin ve oturum verilerin silinmeyecek.",
-    "enterProjectPath": "Lütfen bir proje yolu gir",
-    "deleteSessionFailed": "Oturum silinemedi. Lütfen tekrar dene.",
-    "deleteSessionError": "Oturum silinirken hata oluştu. Lütfen tekrar dene.",
-    "renameSessionFailed": "Oturum yeniden adlandırılamadı. Lütfen tekrar dene.",
-    "renameSessionError": "Oturum yeniden adlandırılırken hata oluştu. Lütfen tekrar dene.",
-    "deleteProjectFailed": "Proje kaldırılamadı. Lütfen tekrar dene.",
-    "deleteProjectError": "Proje kaldırılırken hata oluştu. Lütfen tekrar dene.",
-    "createProjectFailed": "Proje oluşturulamadı. Lütfen tekrar dene.",
-    "createProjectError": "Proje oluşturulurken hata oluştu. Lütfen tekrar dene.",
-    "updateProjectError": "Proje güncellenirken hata oluştu. Lütfen tekrar dene.",
-    "refreshError": "Yenileme başarısız. Lütfen tekrar dene.",
-    "restoreProjectFailed": "Proje geri yüklenemedi. Lütfen tekrar dene.",
-    "restoreProjectError": "Proje geri yüklenirken hata oluştu. Lütfen tekrar dene.",
-    "restoreSessionFailed": "Oturum geri yüklenemedi. Lütfen tekrar dene.",
-    "restoreSessionError": "Oturum geri yüklenirken hata oluştu. Lütfen tekrar dene."
   },
   "version": {
     "updateAvailable": "Güncelleme mevcut",
@@ -131,29 +42,6 @@
       "nameConflict": "Bu ada sahip bir oturum zaten var",
       "createFailed": "Oturum oluşturulamadı"
     }
-  },
-  "search": {
-    "modeProjects": "Projeler",
-    "modeConversations": "Konuşmalar",
-    "conversationsPlaceholder": "Konuşmalarda ara...",
-    "searching": "Aranıyor...",
-    "noResults": "Sonuç bulunamadı",
-    "tryDifferentQuery": "Farklı bir arama sorgusu dene",
-    "matches_one": "{{count}} eşleşme",
-    "matches_other": "{{count}} eşleşme",
-    "projectsScanned_one": "{{count}} proje tarandı",
-    "projectsScanned_other": "{{count}} proje tarandı"
-  },
-  "deleteConfirmation": {
-    "deleteProject": "Projeyi Kaldır",
-    "deleteSession": "Oturumu Sil",
-    "confirmDelete": "Ne yapmak istersin:",
-    "sessionCount_one": "Bu proje {{count}} konuşma içeriyor.",
-    "sessionCount_other": "Bu proje {{count}} konuşma içeriyor.",
-    "removeFromSidebar": "Yalnızca kenar çubuğundan kaldır",
-    "deleteAllData": "Tüm veriyi kalıcı olarak sil",
-    "allConversationsDeleted": "Proje kenar çubuğundan kaldırılacak. Dosyaların, bellek verilerin ve oturum verilerin korunacak.",
-    "cannotUndo": "Projeyi sonra tekrar ekleyebilirsin."
   },
   "externalSessions": {
     "viewInTerminal": "'{{name}}' tmux oturumunu terminalde görüntüle",
@@ -175,9 +63,5 @@
       "unknown": "Kullanılamıyor",
       "unknownTitle": "Geçerli durum sağlayıcı kayıtlarından güvenle belirlenemiyor"
     }
-  },
-  "tabs": {
-    "sessions": "Oturumlar",
-    "archive": "Geçmiş"
   }
 }

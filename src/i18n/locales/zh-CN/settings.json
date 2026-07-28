@@ -3,7 +3,6 @@
   "tabs": {
     "account": "账户",
     "permissions": "权限",
-    "mcpServers": "MCP 服务器",
     "appearance": "外观"
   },
   "account": {
@@ -15,24 +14,6 @@
     "email": "邮箱",
     "profile": "个人资料",
     "changePassword": "修改密码"
-  },
-  "mcp": {
-    "title": "MCP 服务器",
-    "addServer": "添加服务器",
-    "editServer": "编辑服务器",
-    "deleteServer": "删除服务器",
-    "serverName": "服务器名称",
-    "serverType": "服务器类型",
-    "config": "配置",
-    "testConnection": "测试连接",
-    "status": "状态",
-    "connected": "已连接",
-    "disconnected": "未连接",
-    "scope": {
-      "label": "范围",
-      "user": "用户",
-      "project": "项目"
-    }
   },
   "appearance": {
     "title": "外观",
@@ -134,55 +115,6 @@
       "iosHint": "在 iOS 上，点击 Safari 中的分享按钮，然后选择“添加到主屏幕”。",
       "browserMenuHint": "安装提示尚不可用。请改用浏览器菜单：“安装应用”（Chrome/Edge）或“添加到主屏幕”。",
       "insecureHint": "安装应用需要安全连接。请通过 HTTPS 或 localhost 打开 ChatMux — 浏览器会在普通 http:// 地址上禁用安装功能。"
-    }
-  },
-  "mcpForm": {
-    "title": {
-      "add": "添加 MCP 服务器",
-      "edit": "编辑 MCP 服务器"
-    },
-    "importMode": {
-      "form": "表单输入",
-      "json": "JSON 导入"
-    },
-    "scope": {
-      "label": "范围",
-      "userGlobal": "用户（全局）",
-      "projectLocal": "项目（本地）",
-      "userDescription": "用户范围：在您机器上的所有项目中可用",
-      "projectDescription": "本地范围：仅在选定项目中可用",
-      "cannotChange": "编辑现有服务器时无法更改范围"
-    },
-    "fields": {
-      "serverName": "服务器名称",
-      "transportType": "传输类型",
-      "command": "命令",
-      "arguments": "参数（每行一个）",
-      "jsonConfig": "JSON 配置",
-      "url": "URL",
-      "envVars": "环境变量（KEY=值，每行一个）",
-      "headers": "请求头（KEY=值，每行一个）",
-      "selectProject": "选择项目..."
-    },
-    "placeholders": {
-      "serverName": "我的服务"
-    },
-    "validation": {
-      "missingType": "缺少必填字段：type",
-      "stdioRequiresCommand": "stdio 类型需要 command 字段",
-      "httpRequiresUrl": "{{type}} 类型需要 url 字段",
-      "invalidJson": "无效的 JSON 格式",
-      "jsonHelp": "粘贴您的 MCP 服务器配置（JSON 格式）。示例格式：",
-      "jsonExampleStdio": "• stdio: {\"type\":\"stdio\",\"command\":\"npx\",\"args\":[\"@upstash/context7-mcp\"]}",
-      "jsonExampleHttp": "• http/sse: {\"type\":\"http\",\"url\":\"https://api.example.com/mcp\"}"
-    },
-    "configDetails": "配置详细信息（来自 {{configFile}}）",
-    "projectPath": "路径：{{path}}",
-    "actions": {
-      "cancel": "取消",
-      "saving": "保存中...",
-      "addServer": "添加服务器",
-      "updateServer": "更新服务器"
     }
   },
   "saveStatus": {
@@ -352,40 +284,6 @@
     },
     "actions": {
       "add": "添加"
-    }
-  },
-  "mcpServers": {
-    "title": "MCP 服务器",
-    "description": {
-      "claude": "Model Context Protocol 服务器为 Claude 提供额外的工具和数据源",
-      "cursor": "Model Context Protocol 服务器为 Cursor 提供额外的工具和数据源",
-      "codex": "Model Context Protocol 服务器为 Codex 提供额外的工具和数据源"
-    },
-    "addButton": "添加 MCP 服务器",
-    "empty": "未配置 MCP 服务器",
-    "serverType": "类型",
-    "scope": {
-      "local": "本地",
-      "user": "用户"
-    },
-    "config": {
-      "command": "命令",
-      "url": "URL",
-      "args": "参数",
-      "environment": "环境变量"
-    },
-    "tools": {
-      "title": "工具",
-      "count": "（{{count}}）：",
-      "more": "还有 {{count}} 个"
-    },
-    "actions": {
-      "edit": "编辑服务器",
-      "delete": "删除服务器"
-    },
-    "help": {
-      "title": "关于 Codex MCP",
-      "description": "Codex 支持基于 stdio 的 MCP 服务器。您可以添加服务器，通过额外的工具和资源来扩展 Codex 的功能。"
     }
   }
 }

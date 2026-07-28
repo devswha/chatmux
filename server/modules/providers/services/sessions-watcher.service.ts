@@ -160,7 +160,7 @@ async function buildSessionUpsertedEvent(
 ): Promise<string | null> {
   const row = sessionsDb.getSessionByProviderSessionId(provider, updatedProviderSessionId)
     ?? sessionsDb.getSessionById(updatedProviderSessionId);
-  if (!row || row.isArchived) {
+  if (!row) {
     return null;
   }
 

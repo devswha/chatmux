@@ -5,7 +5,6 @@ import type { Project } from '../types/app';
 
 import {
   mergeExpandedSessionPages,
-  mergeProjectSessionPage,
   mergeSessionProviderLists,
   upsertSessionIntoProject,
   type SessionUpsertedEvent,
@@ -27,12 +26,6 @@ test('project session page merges preserve loaded rows and deduplicate by sessio
   assert.deepEqual(expanded[0].sessions, [{ id: 'one', summary: 'updated' }, { id: 'two' }]);
   assert.deepEqual(expanded[0].sessionMeta, { total: 3, hasMore: true });
 
-  const page = mergeProjectSessionPage(previous, {
-    sessions: [{ id: 'two', summary: 'new' }, { id: 'three' }],
-    sessionMeta: { total: 4 },
-  });
-  assert.deepEqual(page.sessions, [{ id: 'one' }, { id: 'two' }, { id: 'three' }]);
-  assert.deepEqual(page.sessionMeta, { total: 4, hasMore: true });
   assert.deepEqual(
     mergeSessionProviderLists([{ id: '1' }], [{ id: 1 as unknown as string }, { id: '2' }]),
     [{ id: '1' }, { id: '2' }],

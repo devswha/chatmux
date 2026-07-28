@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-07-27",
+  "snapshot": { "manifestPath": "artifacts/scope-removal-frozen-change-set.json", "manifestHash": "6328b30e1ad06496a940b3f4308282b07e8c6fa51b773d5d60a0058415644e08" },
+  "base": "http://127.0.0.1:5181",
+  "action": "Browser fetch from the live UI origin; POST/PUT bodies were {} and all removed routes returned before handler execution.",
+  "results": [
+    { "id": "health", "method": "GET", "path": "/health", "expected": 200, "status": 200, "passed": true },
+    { "id": "browser-api", "method": "GET", "path": "/api/browser-use/status", "expected": 404, "status": 404, "passed": true },
+    { "id": "browser-mcp-api", "method": "POST", "path": "/api/browser-use-mcp", "expected": 404, "status": 404, "passed": true },
+    { "id": "taskmaster", "method": "GET", "path": "/api/taskmaster", "expected": 404, "status": 404, "passed": true },
+    { "id": "mcp-utils", "method": "GET", "path": "/api/mcp-utils", "expected": 404, "status": 404, "passed": true },
+    { "id": "plugins", "method": "GET", "path": "/api/plugins", "expected": 404, "status": 404, "passed": true },
+    { "id": "create-project", "method": "POST", "path": "/api/projects/create-project", "expected": 404, "status": 404, "passed": true },
+    { "id": "browse-filesystem", "method": "POST", "path": "/api/browse-filesystem", "expected": 404, "status": 404, "passed": true },
+    { "id": "create-folder", "method": "POST", "path": "/api/create-folder", "expected": 404, "status": 404, "passed": true },
+    { "id": "provider-mcp-preserved", "method": "GET", "path": "/api/providers/claude/mcp/servers", "expected": 200, "status": 200, "passed": true },
+    { "id": "projects-preserved", "method": "GET", "path": "/api/projects?skipSynchronization=1", "expected": 200, "status": 200, "passed": true },
+    { "id": "file-create-removed", "method": "POST", "path": "/api/projects/nonexistent/files", "expected": 404, "status": 404, "passed": true },
+    { "id": "file-path-rename-removed", "method": "PUT", "path": "/api/projects/nonexistent/files/rename", "expected": 404, "status": 404, "passed": true },
+    { "id": "file-delete-removed", "method": "DELETE", "path": "/api/projects/nonexistent/files?path=x", "expected": 404, "status": 404, "passed": true },
+    { "id": "file-upload-removed", "method": "POST", "path": "/api/projects/nonexistent/files/upload", "expected": 404, "status": 404, "passed": true }
+  ],
+  "passed": true
+}

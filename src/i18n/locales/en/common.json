@@ -20,10 +20,6 @@
   "tabs": {
     "chat": "Chat",
     "shell": "Shell",
-    "files": "Files",
-    "git": "Source Control",
-    "tasks": "Tasks",
-    "browser": "Browser",
     "computer": "Computer"
   },
   "status": {
@@ -90,122 +86,9 @@
     "settingUpWorkspace": "Setting up your workspace...",
     "chooseProject": "Choose Your Project",
     "selectProjectDescription": "Select a project from the sidebar to start coding with ChatMux. Each project contains your chat sessions and file history.",
-    "tip": "Tip",
-    "createProjectMobile": "Tap the menu button above to access projects",
-    "createProjectDesktop": "Create a new project by clicking the folder icon in the sidebar",
     "newSession": "New Session",
     "untitledSession": "Untitled Session",
     "projectFiles": "Project Files"
-  },
-  "fileTree": {
-    "loading": "Loading files...",
-    "files": "Files",
-    "simpleView": "Simple view",
-    "compactView": "Compact view",
-    "detailedView": "Detailed view",
-    "searchPlaceholder": "Search files and folders...",
-    "clearSearch": "Clear search",
-    "name": "Name",
-    "size": "Size",
-    "modified": "Modified",
-    "permissions": "Permissions",
-    "noFilesFound": "No files found",
-    "checkProjectPath": "Check if the project path is accessible",
-    "noMatchesFound": "No matches found",
-    "tryDifferentSearch": "Try a different search term or clear the search",
-    "justNow": "just now",
-    "minAgo": "{{count}} min ago",
-    "hoursAgo": "{{count}} hours ago",
-    "daysAgo": "{{count}} days ago",
-    "newFile": "New File (Cmd+N)",
-    "newFolder": "New Folder (Cmd+Shift+N)",
-    "refresh": "Refresh",
-    "collapseAll": "Collapse All",
-    "context": {
-      "rename": "Rename",
-      "delete": "Delete",
-      "copyPath": "Copy Path",
-      "download": "Download",
-      "newFile": "New File",
-      "newFolder": "New Folder",
-      "refresh": "Refresh",
-      "menuLabel": "File context menu",
-      "loading": "Loading..."
-    }
-  },
-  "projectWizard": {
-    "title": "Create New Project",
-    "steps": {
-      "type": "Type",
-      "configure": "Configure",
-      "confirm": "Confirm"
-    },
-    "step1": {
-      "question": "Do you already have a workspace, or would you like to create a new one?",
-      "existing": {
-        "title": "Existing Workspace",
-        "description": "I already have a workspace on my server and just need to add it to the project list"
-      },
-      "new": {
-        "title": "New Workspace",
-        "description": "Create a new workspace, optionally clone from a GitHub repository"
-      }
-    },
-    "step2": {
-      "existingPath": "Workspace Path",
-      "newPath": "Workspace Path",
-      "existingPlaceholder": "/path/to/existing/workspace",
-      "newPlaceholder": "/path/to/new/workspace",
-      "existingHelp": "Full path to your existing workspace directory",
-      "newHelp": "Full path to your workspace directory",
-      "githubUrl": "GitHub URL (Optional)",
-      "githubPlaceholder": "https://github.com/username/repository",
-      "githubHelp": "Optional: provide a GitHub URL to clone a repository",
-      "githubAuth": "GitHub Authentication (Optional)",
-      "githubAuthHelp": "Only required for private repositories. Public repos can be cloned without authentication.",
-      "loadingTokens": "Loading stored tokens...",
-      "storedToken": "Stored Token",
-      "newToken": "New Token",
-      "nonePublic": "None (Public)",
-      "selectToken": "Select Token",
-      "selectTokenPlaceholder": "-- Select a token --",
-      "tokenPlaceholder": "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-      "tokenHelp": "This token will be used only for this operation",
-      "publicRepoInfo": "Public repositories don't require authentication. You can skip providing a token if cloning a public repo.",
-      "noTokensHelp": "No stored tokens available. You can add tokens in Settings → API Keys for easier reuse.",
-      "optionalTokenPublic": "GitHub Token (Optional for Public Repos)",
-      "tokenPublicPlaceholder": "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx (leave empty for public repos)"
-    },
-    "step3": {
-      "reviewConfig": "Review Your Configuration",
-      "existingWorkspace": "Existing Workspace",
-      "newWorkspace": "New Workspace",
-      "path": "Path:",
-      "cloneFrom": "Clone From:",
-      "authentication": "Authentication:",
-      "usingStoredToken": "Using stored token:",
-      "usingProvidedToken": "Using provided token",
-      "noAuthentication": "No authentication",
-      "sshKey": "SSH Key",
-      "existingInfo": "The workspace will be added to your project list and will be available for Claude/Cursor sessions.",
-      "newWithClone": "The repository will be cloned from this folder.",
-      "newEmpty": "The workspace will be added to your project list and will be available for Claude/Cursor sessions.",
-      "cloningRepository": "Cloning repository..."
-    },
-    "buttons": {
-      "cancel": "Cancel",
-      "back": "Back",
-      "next": "Next",
-      "createProject": "Create Project",
-      "creating": "Creating...",
-      "cloning": "Cloning..."
-    },
-    "errors": {
-      "selectType": "Please select whether you have an existing workspace or want to create a new one",
-      "providePath": "Please provide a workspace path",
-      "failedToCreate": "Failed to create workspace",
-      "failedToCreateFolder": "Failed to create folder"
-    }
   },
   "notifications": {
     "genericTool": "a tool",
@@ -271,16 +154,5 @@
       "updateAvailable": "Update available",
       "closeSidebar": "Close sidebar"
     }
-  },
-  "filesPanel": {
-    "open": "Open files panel",
-    "close": "Close files panel",
-    "changeRoot": "Change root folder",
-    "rootPlaceholder": "e.g. ~/workspace (absolute paths allowed)",
-    "apply": "Apply",
-    "opening": "Opening folder…",
-    "homeUnknown": "Unable to determine the home directory",
-    "homeOnly": "Only paths under your home directory are supported (e.g. ~/workspace)",
-    "openFailed": "Cannot open the folder — check the path"
   }
 }

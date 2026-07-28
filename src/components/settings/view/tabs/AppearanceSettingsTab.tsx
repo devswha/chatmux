@@ -84,13 +84,6 @@ export default function AppearanceSettingsTab({
               ariaLabel={t('quickSettings.sendByCtrlEnter')}
             />
           </SettingsRow>
-          <SettingsRow label={t('quickSettings.voiceEnabled')}>
-            <SettingsToggle
-              checked={preferences.voiceEnabled}
-              onChange={(value) => setPreference('voiceEnabled', value)}
-              ariaLabel={t('quickSettings.voiceEnabled')}
-            />
-          </SettingsRow>
         </SettingsCard>
       </SettingsSection>
 

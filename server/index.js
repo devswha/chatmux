@@ -70,23 +70,15 @@ import {
 import gitRoutes from './routes/git.js';
 import authRoutes from './routes/auth.js';
 import cursorRoutes from './routes/cursor.js';
-import taskmasterRoutes from './routes/taskmaster.js';
-import mcpUtilsRoutes from './routes/mcp-utils.js';
 import commandsRoutes from './routes/commands.js';
 import settingsRoutes from './routes/settings.js';
 import agentRoutes from './routes/agent.js';
 import projectModuleRoutes from './modules/projects/projects.routes.js';
 import userRoutes from './routes/user.js';
-import pluginsRoutes from './routes/plugins.js';
 import providerRoutes from './modules/providers/provider.routes.js';
-import voiceRoutes from './voice-proxy.js';
-import browserUseRoutes from './modules/browser-use/browser-use.routes.js';
 import { assetsRoutes } from './modules/assets/index.js';
-import browserUseMcpRoutes from './modules/browser-use/browser-use-mcp.routes.js';
-import { browserUseService } from './modules/browser-use/browser-use.service.js';
-import { startEnabledPluginServers, stopAllPlugins, getPluginPort } from './utils/plugin-process-manager.js';
 import { initializeDatabase, projectsDb, sessionsDb, userDb } from './modules/database/index.js';
-import { startExternalTurnMonitor, startLiveTurnMonitor } from './modules/notifications/index.js';
+import { startCompletionOutboxDispatcher, startExternalTurnMonitor, startLiveTurnMonitor } from './modules/notifications/index.js';
 import { filesRoutes } from './modules/files/index.js';
 import { configureWebPush } from './services/vapid-keys.js';
 import { validateApiKey, authenticateToken, authenticateWebSocket, AUTH_MODE } from './middleware/auth.js';
@@ -137,7 +129,7 @@ const server = http.createServer(app);
 const discoveryCollector = createDiscoveryCollector();
 app.locals.discoveryCollector = discoveryCollector;
 
-// Single WebSocket server that handles chat, shell, and plugin proxy paths.
+// Single WebSocket server for chat and shell paths.
 const wss = createWebSocketServer(server, {
     verifyClient: {
         authenticateWebSocket,
@@ -186,7 +178,6 @@ const wss = createWebSocketServer(server, {
         readTmuxPaneIdentity,
         runTmux,
     },
-    getPluginPort,
     discovery: discoveryCollector,
 });
 
@@ -196,8 +187,8 @@ app.locals.wss = wss;
 app.use(cors());
 
 // Compress API responses (the project index alone is multi-megabyte JSON).
-// SSE endpoints are excluded: buffering an event stream breaks incremental
-// delivery of clone progress and agent streaming.
+// Event streams are excluded because compression buffering breaks incremental
+// delivery.
 app.use(compression({
     filter: (req, res) => {
         const contentType = String(res.getHeader('Content-Type') || '');
@@ -251,12 +242,6 @@ app.use('/api/git', authenticateToken, gitRoutes);
 // Cursor API Routes (protected)
 app.use('/api/cursor', authenticateToken, cursorRoutes);
 
-// TaskMaster API Routes (protected)
-app.use('/api/taskmaster', authenticateToken, taskmasterRoutes);
-
-// MCP utilities
-app.use('/api/mcp-utils', authenticateToken, mcpUtilsRoutes);
-
 // Commands API Routes (protected)
 app.use('/api/commands', authenticateToken, commandsRoutes);
 
@@ -266,22 +251,11 @@ app.use('/api/settings', authenticateToken, settingsRoutes);
 // User API Routes (protected)
 app.use('/api/user', authenticateToken, userRoutes);
 
-// Plugins API Routes (protected)
-app.use('/api/plugins', authenticateToken, pluginsRoutes);
-
-// Browser MCP bridge API (local token protected)
-app.use('/api/browser-use-mcp', browserUseMcpRoutes);
-
-// Browser API Routes (protected)
-app.use('/api/browser-use', authenticateToken, browserUseRoutes);
-
 // Unified provider MCP routes (protected)
 app.use('/api/providers', authenticateToken, providerRoutes);
 
 // Agent API Routes (uses API key authentication)
 app.use('/api/agent', agentRoutes);
-
-app.use('/api/voice', authenticateToken, voiceRoutes);
 
 // System routes (self-update trigger + status, protected)
 app.use('/api/system', authenticateToken, createSystemRouter({
@@ -748,6 +722,9 @@ async function startServer() {
 
         // Configure Web Push (VAPID keys)
         configureWebPush();
+        // This drain is independent of discovery and monitors: committed
+        // completion deliveries recover even when those services never start.
+        const completionOutboxDispatcher = startCompletionOutboxDispatcher();
 
         // Check if running in production mode (dist folder exists)
         const distIndexPath = path.join(APP_ROOT, 'dist', 'index.html');
@@ -788,10 +765,6 @@ async function startServer() {
             startLiveTurnMonitor();
             startExternalTurnMonitor();
 
-            // Start server-side plugin processes for enabled plugins
-            startEnabledPluginServers().catch(err => {
-                console.error('[Plugins] Error during startup:', err.message);
-            });
         });
 
         await closeSessionsWatcher();
@@ -811,19 +784,14 @@ async function startServer() {
             server.closeAllConnections?.();
 
             try {
+                await completionOutboxDispatcher.stop();
+            } catch (err) {
+                console.error('[Completion Outbox] Error stopping dispatcher during shutdown:', err?.message || err);
+            }
+            try {
                 await shutdownGjcWorker();
             } catch (err) {
                 console.error('[GJC Worker] Error stopping worker during shutdown:', err?.message || err);
-            }
-            try {
-                await browserUseService.stopAllSessions();
-            } catch (err) {
-                console.error('[Browser] Error stopping sessions during shutdown:', err?.message || err);
-            }
-            try {
-                await stopAllPlugins();
-            } catch (err) {
-                console.error('[Plugins] Error stopping plugins during shutdown:', err?.message || err);
             }
             try {
                 await removeLocalServerMarker();

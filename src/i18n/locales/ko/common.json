@@ -20,10 +20,6 @@
   "tabs": {
     "chat": "채팅",
     "shell": "Shell",
-    "files": "파일",
-    "git": "소스 관리",
-    "tasks": "작업",
-    "browser": "Browser",
     "computer": "Computer"
   },
   "status": {
@@ -90,122 +86,9 @@
     "settingUpWorkspace": "워크스페이스 설정 중...",
     "chooseProject": "프로젝트 선택",
     "selectProjectDescription": "사이드바에서 프로젝트를 선택하여 ChatMux로 코딩을 시작하세요. 각 프로젝트에는 채팅 세션과 파일 히스토리가 포함됩니다.",
-    "tip": "팁",
-    "createProjectMobile": "위의 메뉴 버튼을 눌러 프로젝트에 접근하세요",
-    "createProjectDesktop": "사이드바의 폴더 아이콘을 클릭하여 새 프로젝트를 생성하세요",
     "newSession": "새 세션",
     "untitledSession": "제목 없는 세션",
     "projectFiles": "프로젝트 파일"
-  },
-  "fileTree": {
-    "loading": "파일 로딩 중...",
-    "files": "파일",
-    "simpleView": "간단히 보기",
-    "compactView": "컴팩트 보기",
-    "detailedView": "상세히 보기",
-    "searchPlaceholder": "파일 및 폴더 검색...",
-    "clearSearch": "검색 지우기",
-    "name": "이름",
-    "size": "크기",
-    "modified": "수정일",
-    "permissions": "권한",
-    "noFilesFound": "파일을 찾을 수 없음",
-    "checkProjectPath": "프로젝트 경로가 접근 가능한지 확인하세요",
-    "noMatchesFound": "일치하는 항목 없음",
-    "tryDifferentSearch": "다른 검색어를 시도하거나 검색을 지우세요",
-    "justNow": "방금 전",
-    "minAgo": "{{count}}분 전",
-    "hoursAgo": "{{count}}시간 전",
-    "daysAgo": "{{count}}일 전",
-    "newFile": "새 파일 (Cmd+N)",
-    "newFolder": "새 폴더 (Cmd+Shift+N)",
-    "refresh": "새로고침",
-    "collapseAll": "모두 접기",
-    "context": {
-      "rename": "이름 변경",
-      "delete": "삭제",
-      "copyPath": "경로 복사",
-      "download": "다운로드",
-      "newFile": "새 파일",
-      "newFolder": "새 폴더",
-      "refresh": "새로 고침",
-      "menuLabel": "파일 컨텍스트 메뉴",
-      "loading": "로딩 중..."
-    }
-  },
-  "projectWizard": {
-    "title": "새 프로젝트 생성",
-    "steps": {
-      "type": "유형",
-      "configure": "설정",
-      "confirm": "확인"
-    },
-    "step1": {
-      "question": "이미 워크스페이스가 있으신가요, 아니면 새로 생성하시겠습니까?",
-      "existing": {
-        "title": "기존 워크스페이스",
-        "description": "서버에 이미 워크스페이스가 있고 프로젝트 목록에 추가만 하면 됩니다"
-      },
-      "new": {
-        "title": "새 워크스페이스",
-        "description": "새 워크스페이스를 생성하고, 선택적으로 GitHub 저장소에서 clone합니다"
-      }
-    },
-    "step2": {
-      "existingPath": "워크스페이스 경로",
-      "newPath": "워크스페이스 경로",
-      "existingPlaceholder": "/path/to/existing/workspace",
-      "newPlaceholder": "/path/to/new/workspace",
-      "existingHelp": "기존 워크스페이스 디렉토리의 전체 경로",
-      "newHelp": "워크스페이스 디렉토리의 전체 경로",
-      "githubUrl": "GitHub URL (선택사항)",
-      "githubPlaceholder": "https://github.com/username/repository",
-      "githubHelp": "선택사항: 저장소를 clone하려면 GitHub URL을 입력하세요",
-      "githubAuth": "GitHub 인증 (선택사항)",
-      "githubAuthHelp": "비공개 저장소에만 필요합니다. 공개 저장소는 인증 없이 clone할 수 있습니다.",
-      "loadingTokens": "저장된 토큰 로딩 중...",
-      "storedToken": "저장된 토큰",
-      "newToken": "새 토큰",
-      "nonePublic": "없음 (공개)",
-      "selectToken": "토큰 선택",
-      "selectTokenPlaceholder": "-- 토큰 선택 --",
-      "tokenPlaceholder": "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-      "tokenHelp": "이 토큰은 이 작업에만 사용됩니다",
-      "publicRepoInfo": "공개 저장소는 인증이 필요하지 않습니다. 공개 저장소를 clone하는 경우 토큰을 생략할 수 있습니다.",
-      "noTokensHelp": "저장된 토큰이 없습니다. 설정 → API Keys에서 토큰을 추가하면 재사용이 편리합니다.",
-      "optionalTokenPublic": "GitHub 토큰 (공개 저장소는 선택사항)",
-      "tokenPublicPlaceholder": "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx (공개 저장소는 비워두세요)"
-    },
-    "step3": {
-      "reviewConfig": "설정 검토",
-      "existingWorkspace": "기존 워크스페이스",
-      "newWorkspace": "새 워크스페이스",
-      "path": "경로:",
-      "cloneFrom": "Clone 소스:",
-      "authentication": "인증:",
-      "usingStoredToken": "저장된 토큰 사용:",
-      "usingProvidedToken": "제공된 토큰 사용",
-      "noAuthentication": "인증 없음",
-      "sshKey": "SSH 키",
-      "existingInfo": "워크스페이스가 프로젝트 목록에 추가되며 Claude/Cursor 세션에서 사용할 수 있습니다.",
-      "newWithClone": "이 폴더에 저장소가 clone됩니다.",
-      "newEmpty": "워크스페이스가 프로젝트 목록에 추가되며 Claude/Cursor 세션에서 사용할 수 있습니다.",
-      "cloningRepository": "저장소 clone 중..."
-    },
-    "buttons": {
-      "cancel": "취소",
-      "back": "뒤로",
-      "next": "다음",
-      "createProject": "프로젝트 생성",
-      "creating": "생성 중...",
-      "cloning": "Clone 중..."
-    },
-    "errors": {
-      "selectType": "기존 워크스페이스를 사용할지 새로 생성할지 선택해주세요",
-      "providePath": "워크스페이스 경로를 입력해주세요",
-      "failedToCreate": "워크스페이스 생성 실패",
-      "failedToCreateFolder": "폴더 생성 실패"
-    }
   },
   "notifications": {
     "genericTool": "도구",
@@ -271,16 +154,5 @@
       "updateAvailable": "업데이트 가능",
       "closeSidebar": "사이드바 닫기"
     }
-  },
-  "filesPanel": {
-    "open": "파일 패널 열기",
-    "close": "파일 패널 닫기",
-    "changeRoot": "루트 폴더 변경",
-    "rootPlaceholder": "예: ~/workspace (절대경로 가능)",
-    "apply": "적용",
-    "opening": "폴더 여는 중…",
-    "homeUnknown": "홈 경로를 확인할 수 없습니다",
-    "homeOnly": "홈 아래 경로만 지원합니다 (예: ~/workspace)",
-    "openFailed": "폴더를 열 수 없습니다 — 경로를 확인하세요"
   }
 }

@@ -3,7 +3,6 @@
   "tabs": {
     "account": "계정",
     "permissions": "권한",
-    "mcpServers": "MCP 서버",
     "appearance": "외관"
   },
   "account": {
@@ -15,24 +14,6 @@
     "email": "이메일",
     "profile": "프로필",
     "changePassword": "비밀번호 변경"
-  },
-  "mcp": {
-    "title": "MCP 서버",
-    "addServer": "서버 추가",
-    "editServer": "서버 편집",
-    "deleteServer": "서버 삭제",
-    "serverName": "서버 이름",
-    "serverType": "서버 유형",
-    "config": "설정",
-    "testConnection": "연결 테스트",
-    "status": "상태",
-    "connected": "연결됨",
-    "disconnected": "연결 끊김",
-    "scope": {
-      "label": "범위",
-      "user": "사용자",
-      "project": "프로젝트"
-    }
   },
   "appearance": {
     "title": "외관",
@@ -133,55 +114,6 @@
       "iosHint": "iOS에서는 Safari 공유 버튼을 누른 뒤 \"홈 화면에 추가\"를 선택하세요.",
       "browserMenuHint": "아직 설치 프롬프트가 준비되지 않았습니다. 브라우저 메뉴의 \"앱 설치\"(Chrome/Edge) 또는 \"홈 화면에 추가\"를 이용하세요.",
       "insecureHint": "앱 설치는 보안 연결에서만 가능합니다. HTTPS 또는 localhost로 접속하세요 — http:// IP 주소에서는 브라우저가 설치를 차단합니다."
-    }
-  },
-  "mcpForm": {
-    "title": {
-      "add": "MCP 서버 추가",
-      "edit": "MCP 서버 편집"
-    },
-    "importMode": {
-      "form": "폼 입력",
-      "json": "JSON 가져오기"
-    },
-    "scope": {
-      "label": "범위",
-      "userGlobal": "사용자 (전역)",
-      "projectLocal": "프로젝트 (로컬)",
-      "userDescription": "사용자 범위: 모든 프로젝트에서 사용 가능",
-      "projectDescription": "로컬 범위: 선택한 프로젝트에서만 사용 가능",
-      "cannotChange": "기존 서버를 편집할 때는 범위를 변경할 수 없습니다"
-    },
-    "fields": {
-      "serverName": "서버 이름",
-      "transportType": "전송 유형",
-      "command": "명령어",
-      "arguments": "인수 (한 줄에 하나씩)",
-      "jsonConfig": "JSON 설정",
-      "url": "URL",
-      "envVars": "환경 변수 (KEY=value, 한 줄에 하나씩)",
-      "headers": "헤더 (KEY=value, 한 줄에 하나씩)",
-      "selectProject": "프로젝트 선택..."
-    },
-    "placeholders": {
-      "serverName": "my-server"
-    },
-    "validation": {
-      "missingType": "필수 항목 누락: type",
-      "stdioRequiresCommand": "stdio 유형은 command 필드가 필요합니다",
-      "httpRequiresUrl": "{{type}} 유형은 url 필드가 필요합니다",
-      "invalidJson": "잘못된 JSON 형식",
-      "jsonHelp": "MCP 서버 설정을 JSON 형식으로 붙여넣으세요. 예시:",
-      "jsonExampleStdio": "• stdio: {\"type\":\"stdio\",\"command\":\"npx\",\"args\":[\"@upstash/context7-mcp\"]}",
-      "jsonExampleHttp": "• http/sse: {\"type\":\"http\",\"url\":\"https://api.example.com/mcp\"}"
-    },
-    "configDetails": "설정 상세 ({{configFile}}에서)",
-    "projectPath": "경로: {{path}}",
-    "actions": {
-      "cancel": "취소",
-      "saving": "저장 중...",
-      "addServer": "서버 추가",
-      "updateServer": "서버 업데이트"
     }
   },
   "saveStatus": {
@@ -351,40 +283,6 @@
     },
     "actions": {
       "add": "추가"
-    }
-  },
-  "mcpServers": {
-    "title": "MCP 서버",
-    "description": {
-      "claude": "Model Context Protocol 서버는 Claude에 추가 도구와 데이터 소스를 제공합니다",
-      "cursor": "Model Context Protocol 서버는 Cursor에 추가 도구와 데이터 소스를 제공합니다",
-      "codex": "Model Context Protocol 서버는 Codex에 추가 도구와 데이터 소스를 제공합니다"
-    },
-    "addButton": "MCP 서버 추가",
-    "empty": "설정된 MCP 서버 없음",
-    "serverType": "유형",
-    "scope": {
-      "local": "로컬",
-      "user": "사용자"
-    },
-    "config": {
-      "command": "명령어",
-      "url": "URL",
-      "args": "인수",
-      "environment": "환경"
-    },
-    "tools": {
-      "title": "도구",
-      "count": "({{count}}):",
-      "more": "+{{count}}개 더"
-    },
-    "actions": {
-      "edit": "서버 편집",
-      "delete": "서버 삭제"
-    },
-    "help": {
-      "title": "Codex MCP 정보",
-      "description": "Codex는 stdio 기반 MCP 서버를 지원합니다. 추가 도구와 리소스로 Codex의 기능을 확장하는 서버를 추가할 수 있습니다."
     }
   }
 }

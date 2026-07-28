@@ -9,7 +9,6 @@ import express from 'express';
 
 const workspaceRoot = await mkdtemp(path.join(os.homedir(), 'chatmux-files-workspace-'));
 const databaseDir = await mkdtemp(path.join(os.homedir(), 'chatmux-files-db-'));
-process.env.WORKSPACES_ROOT = workspaceRoot;
 process.env.DATABASE_PATH = path.join(databaseDir, 'files.db');
 process.env.CHATMUX_AUTH = 'none';
 
@@ -39,7 +38,6 @@ before(async () => {
   await mkdir(projectRoot);
   await mkdir(path.join(projectRoot, 'directory'));
   await writeFile(path.join(projectRoot, 'existing.txt'), 'before');
-  await mkdir(path.join(workspaceRoot, 'BrowseMe'));
   await initializeDatabase();
   const project = projectsDb.createProjectPath(projectRoot);
   assert.ok(project.project);
@@ -62,32 +60,8 @@ after(async () => {
   await rm(databaseDir, { recursive: true, force: true });
 });
 
-test('create, rename, delete, list, read, and write retain their HTTP contracts', async () => {
-  let response = await request(`/api/projects/${projectId}/files/create`, 'POST', { type: 'file', name: 'created.txt' });
-  assert.equal(response.status, 200);
-  assert.deepEqual(response.body, { success: true, path: path.join(projectRoot, 'created.txt'), name: 'created.txt', type: 'file', message: 'File created successfully' });
-
-  response = await request(`/api/projects/${projectId}/files/create`, 'POST', { type: 'file', name: '../escape' });
-  assert.equal(response.status, 400);
-  assert.deepEqual(response.body, { error: 'Filename contains invalid characters' });
-
-  response = await request(`/api/projects/${projectId}/files/rename`, 'PUT', { oldPath: 'created.txt', newName: 'renamed.txt' });
-  assert.equal(response.status, 200);
-  assert.deepEqual(response.body, { success: true, oldPath: path.join(projectRoot, 'created.txt'), newPath: path.join(projectRoot, 'renamed.txt'), newName: 'renamed.txt', message: 'Renamed successfully' });
-  response = await request(`/api/projects/${projectId}/files/rename`, 'PUT', { oldPath: 'created.txt', newName: '../escape' });
-  assert.equal(response.status, 400);
-  assert.deepEqual(response.body, { error: 'Filename contains invalid characters' });
-
-
-  response = await request(`/api/projects/${projectId}/files`, 'DELETE', { path: 'renamed.txt' });
-  assert.equal(response.status, 200);
-  assert.deepEqual(response.body, { success: true, path: path.join(projectRoot, 'renamed.txt'), type: 'file', message: 'Deleted successfully' });
-  response = await request(`/api/projects/${projectId}/files`, 'DELETE', { path: 'missing.txt' });
-  assert.equal(response.status, 404);
-  assert.deepEqual(response.body, { error: 'File or directory not found' });
-
-
-  response = await request(`/api/projects/${projectId}/files`, 'GET');
+test('list, read, and write retain their HTTP contracts', async () => {
+  let response = await request(`/api/projects/${projectId}/files`, 'GET');
   assert.equal(response.status, 200);
   assert.ok(Array.isArray(response.body));
   assert.deepEqual(Object.keys(response.body[0]).sort(), ['children', 'modified', 'name', 'path', 'permissions', 'permissionsRwx', 'size', 'type']);
@@ -152,44 +126,4 @@ test('binary content serving and write failures retain their HTTP contracts', as
   assert.deepEqual(response.body, { error: 'Project not found' });
 
   assert.equal(await readFile(path.join(projectRoot, 'existing.txt'), 'utf8'), 'after');
-});
-
-test('upload, workspace browsing, and folder creation retain success and error contracts', async () => {
-  const form = new FormData();
-  form.set('targetPath', '.');
-  form.set('requestedFileCount', '1');
-  form.append('files', new Blob(['upload body'], { type: 'text/plain' }), 'upload.txt');
-  let response = await request(`/api/projects/${projectId}/files/upload`, 'POST', form);
-  assert.equal(response.status, 200);
-  assert.deepEqual(response.body, {
-    success: true,
-    files: [{ name: 'upload.txt', path: path.join(projectRoot, 'upload.txt'), size: 11, mimeType: 'text/plain' }],
-    uploadedCount: 1,
-    requestedFileCount: 1,
-    targetPath: projectRoot,
-    message: 'Uploaded 1 file successfully',
-  });
-
-  response = await request(`/api/projects/${projectId}/files/upload`, 'POST', new FormData());
-  assert.equal(response.status, 400);
-  assert.deepEqual(response.body, { error: 'No files provided' });
-
-  response = await request('/api/create-folder', 'POST', { path: path.join(workspaceRoot, 'new-folder') });
-  assert.equal(response.status, 200);
-  assert.deepEqual(response.body, { success: true, path: path.join(workspaceRoot, 'new-folder') });
-
-  response = await request('/api/create-folder', 'POST', { path: '/tmp/not-in-workspace' });
-  assert.equal(response.status, 403);
-  assert.deepEqual(response.body, { error: 'Cannot create workspace in system directory: /tmp' });
-
-  response = await request(`/api/browse-filesystem?path=${encodeURIComponent(workspaceRoot)}`);
-  assert.equal(response.status, 200);
-  assert.deepEqual(response.body, {
-    path: workspaceRoot,
-    suggestions: [{ path: path.join(workspaceRoot, 'BrowseMe'), name: 'BrowseMe', type: 'directory' }, { path: path.join(workspaceRoot, 'new-folder'), name: 'new-folder', type: 'directory' }, { path: projectRoot, name: 'project', type: 'directory' }],
-  });
-
-  response = await request('/api/browse-filesystem?path=/tmp');
-  assert.equal(response.status, 403);
-  assert.deepEqual(response.body, { error: 'Cannot use system-critical directories as workspace locations' });
 });

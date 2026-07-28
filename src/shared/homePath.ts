@@ -11,8 +11,8 @@
 /**
  * Any accepted style → home-relative path ('' = home itself).
  * null = cannot resolve: unknown home for an absolute/tilde-less path, or an
- * absolute path OUTSIDE home (the tower and the files panel only operate
- * under $HOME — fail closed rather than guess).
+ * absolute path OUTSIDE home (directory suggestions operate under $HOME and
+ * fail closed rather than guessing).
  */
 export function toHomeRelative(value: string, home: string | null): string | null {
   const trimmed = value.trim();

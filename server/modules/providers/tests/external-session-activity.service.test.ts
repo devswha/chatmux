@@ -6,8 +6,10 @@ import test from 'node:test';
 
 import {
   parseExternalJsonlActivity,
+  parseExternalJsonlActivityEvidence,
   parseOmpTranscriptEnded,
   parseOpenCodeActivity,
+  parseOpenCodeActivityEvidence,
   readExternalSessionActivityDetailed,
   readExternalTranscriptEndedDetailed,
   resolveExternalSessionActivity,
@@ -63,6 +65,23 @@ test('Claude activity distinguishes tool execution, questions, and completed tur
     type: 'assistant',
     message: { role: 'assistant', stop_reason: 'end_turn', content: [{ type: 'text', text: 'done' }] },
   })), 'waiting_user');
+});
+test('Claude result evidence requires an exact success subtype', () => {
+  assert.deepEqual(
+    parseExternalJsonlActivityEvidence('claude', line({ type: 'result', subtype: ' SUCCESS ' })),
+    { activity: 'waiting_user', terminalOutcome: 'reply_ready' },
+  );
+  for (const subtype of ['error', 'cancelled', 'interrupted']) {
+    assert.deepEqual(
+      parseExternalJsonlActivityEvidence('claude', line({ type: 'result', subtype })),
+      { activity: 'waiting_user', terminalOutcome: 'failed' },
+      subtype,
+    );
+  }
+  assert.deepEqual(
+    parseExternalJsonlActivityEvidence('claude', line({ type: 'result', subtype: 'unknown' })),
+    { activity: 'unknown', terminalOutcome: 'unknown' },
+  );
 });
 
 test('Codex activity uses explicit task lifecycle events and request_user_input', () => {
@@ -193,9 +212,17 @@ test('resolver returns app metadata for readable evidence and fails closed for u
     { kind: 'claude', providerSessionId: 'provider-session' },
     {
       getAppSession: () => appSession,
-      readActivity: async (input) => {
+      readActivityEvidence: async (input) => {
         assert.equal(input.jsonlPath, appSession.jsonl_path);
-        return { status: 'resolved', activity: 'waiting_user' };
+        return {
+          status: 'resolved',
+          evidence: {
+            activity: 'waiting_user',
+            terminalOutcome: 'reply_ready',
+            evidenceCursor: 'test-cursor',
+            evidenceDigest: 'test-digest',
+          },
+        };
       },
       readTranscriptEnded: async () => ({ status: 'resolved', transcriptEnded: false }),
     },
@@ -203,6 +230,9 @@ test('resolver returns app metadata for readable evidence and fails closed for u
   assert.deepEqual(resolved, {
     status: 'resolved',
     activity: 'waiting_user',
+    terminalOutcome: 'reply_ready',
+    evidenceCursor: 'test-cursor',
+    evidenceDigest: 'test-digest',
     appSession: {
       session_id: appSession.session_id,
       project_path: appSession.project_path,
@@ -210,6 +240,9 @@ test('resolver returns app metadata for readable evidence and fails closed for u
     },
     transcriptEnded: false,
   });
+  const resolvedJson = JSON.stringify(resolved);
+  assert.doesNotMatch(resolvedJson, /provider-session/);
+  assert.doesNotMatch(resolvedJson, /\/tmp\/transcript\.jsonl/);
 
   const unavailableCases: Array<{
     name: string;
@@ -255,7 +288,7 @@ test('resolver returns app metadata for readable evidence and fails closed for u
       session: { kind: 'claude', providerSessionId: 'provider-session' },
       dependencies: {
         getAppSession: () => appSession,
-        readActivity: async () => ({
+        readActivityEvidence: async () => ({
           status: 'unavailable',
           activity: 'unknown',
           reasonCode: 'transcript_read_unavailable',
@@ -279,6 +312,53 @@ test('resolver returns app metadata for readable evidence and fails closed for u
       unavailableCase.reasonCode,
       unavailableCase.name,
     );
+  }
+});
+test('standalone Codex and OpenCode use production resolver paths while Claude and OMP fail closed', async () => {
+  const appSession = {
+    session_id: 'codex-app',
+    project_path: '/workspace/project',
+    jsonl_path: '/private/codex.jsonl',
+    custom_name: null,
+  };
+  for (const kind of ['codex', 'opencode'] as const) {
+    let appLookups = 0;
+    const result = await resolveExternalSessionActivity(
+      { kind, providerSessionId: `${kind}-native-id` },
+      {
+        getAppSession: () => {
+          appLookups += 1;
+          return kind === 'codex' && appLookups > 1 ? appSession : null;
+        },
+        resolveCodexRolloutPath: async () => '/private/rollout.jsonl',
+        synchronizeCodexRollout: async () => undefined,
+        readActivityEvidence: async (input) => {
+          assert.equal(input.jsonlPath, kind === 'codex' ? appSession.jsonl_path : null, kind);
+          return {
+            status: 'resolved',
+            evidence: {
+              activity: 'waiting_user',
+              terminalOutcome: 'reply_ready',
+              evidenceCursor: `${kind}-cursor`,
+              evidenceDigest: `${kind}-digest`,
+            },
+          };
+        },
+        readTranscriptEnded: async () => ({ status: 'resolved', transcriptEnded: false }),
+      },
+    );
+    assert.equal(result.status, 'resolved', kind);
+    assert.equal(result.terminalOutcome, 'reply_ready', kind);
+    assert.doesNotMatch(JSON.stringify(result), /native-id|\/private\//, kind);
+  }
+
+  for (const kind of ['claude', 'omp'] as const) {
+    const result = await resolveExternalSessionActivity(
+      { kind, providerSessionId: `${kind}-native-id` },
+      { getAppSession: () => null },
+    );
+    assert.equal(result.status, 'unavailable', kind);
+    assert.equal(result.status === 'unavailable' ? result.reasonCode : null, 'app_session_unavailable', kind);
   }
 });
 
@@ -311,7 +391,7 @@ test('file caches invalidate same-size rewrites with preserved mtime', async () 
       }),
       { status: 'resolved', activity: 'unknown' },
     );
-    const waiting = `${line({ type: 'result' })}\n`;
+    const waiting = `${line({ type: 'result', subtype: 'success' })}\n`;
     const running = `${line({ type: 'user' }).padEnd(waiting.length - 1, ' ')}\n`;
     assert.equal(Buffer.byteLength(waiting), Buffer.byteLength(running));
 
@@ -357,4 +437,37 @@ test('file caches invalidate same-size rewrites with preserved mtime', async () 
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+});
+test('OpenCode only treats a completed stop as reply-ready and gives errors precedence over asks', () => {
+  assert.deepEqual(
+    parseOpenCodeActivityEvidence({
+      role: 'assistant',
+      time: { created: 1, completed: 2 },
+      finish: 'length',
+    }),
+    { activity: 'unknown', terminalOutcome: 'unknown' },
+  );
+  assert.deepEqual(
+    parseOpenCodeActivityEvidence(
+      { role: 'assistant', error: { message: 'failed' }, time: { created: 1, completed: 2 }, finish: 'stop' },
+      [{ type: 'tool', tool: 'question', state: { status: 'pending' } }],
+    ),
+    { activity: 'waiting_user', terminalOutcome: 'failed' },
+  );
+});
+
+test('OMP error records take precedence over nearby asks and completed assistant stops are reply-ready', () => {
+  assert.deepEqual(
+    parseExternalJsonlActivityEvidence('omp', [
+      line({ type: 'message', message: { role: 'assistant', content: [{ type: 'toolCall', name: 'ask' }] } }),
+      line({ type: 'error', error: { message: 'network' } }),
+    ].join('\n')),
+    { activity: 'waiting_user', terminalOutcome: 'failed' },
+  );
+  assert.deepEqual(
+    parseExternalJsonlActivityEvidence('omp', line({
+      type: 'message', message: { role: 'assistant', stopReason: 'stop', content: [] },
+    })),
+    { activity: 'waiting_user', terminalOutcome: 'reply_ready' },
+  );
 });

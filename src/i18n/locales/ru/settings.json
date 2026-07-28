@@ -3,7 +3,6 @@
   "tabs": {
     "account": "Аккаунт",
     "permissions": "Разрешения",
-    "mcpServers": "MCP серверы",
     "appearance": "Внешний вид"
   },
   "account": {
@@ -15,24 +14,6 @@
     "email": "Email",
     "profile": "Профиль",
     "changePassword": "Изменить пароль"
-  },
-  "mcp": {
-    "title": "MCP серверы",
-    "addServer": "Добавить сервер",
-    "editServer": "Редактировать сервер",
-    "deleteServer": "Удалить сервер",
-    "serverName": "Имя сервера",
-    "serverType": "Тип сервера",
-    "config": "Конфигурация",
-    "testConnection": "Проверить подключение",
-    "status": "Статус",
-    "connected": "Подключен",
-    "disconnected": "Отключен",
-    "scope": {
-      "label": "Область",
-      "user": "Пользователь",
-      "project": "Проект"
-    }
   },
   "appearance": {
     "title": "Внешний вид",
@@ -133,55 +114,6 @@
       "iosHint": "На iOS нажмите кнопку «Поделиться» в Safari и выберите «На экран Домой».",
       "browserMenuHint": "Запрос на установку пока недоступен. Вместо этого используйте меню браузера: «Установить приложение» (Chrome/Edge) или «Добавить на главный экран».",
       "insecureHint": "Для установки приложения требуется защищённое соединение. Откройте ChatMux через HTTPS или localhost — браузеры отключают установку по обычным адресам http://."
-    }
-  },
-  "mcpForm": {
-    "title": {
-      "add": "Добавить MCP сервер",
-      "edit": "Редактировать MCP сервер"
-    },
-    "importMode": {
-      "form": "Ввод формы",
-      "json": "Импорт JSON"
-    },
-    "scope": {
-      "label": "Область",
-      "userGlobal": "Пользователь (глобально)",
-      "projectLocal": "Проект (локально)",
-      "userDescription": "Область пользователя: доступно во всех проектах на вашей машине",
-      "projectDescription": "Локальная область: доступно только в выбранном проекте",
-      "cannotChange": "Область не может быть изменена при редактировании существующего сервера"
-    },
-    "fields": {
-      "serverName": "Имя сервера",
-      "transportType": "Тип транспорта",
-      "command": "Команда",
-      "arguments": "Аргументы (по одному на строку)",
-      "jsonConfig": "JSON конфигурация",
-      "url": "URL",
-      "envVars": "Переменные окружения (КЛЮЧ=значение, по одной на строку)",
-      "headers": "Заголовки (КЛЮЧ=значение, по одному на строку)",
-      "selectProject": "Выберите проект..."
-    },
-    "placeholders": {
-      "serverName": "мой-сервер"
-    },
-    "validation": {
-      "missingType": "Отсутствует обязательное поле: type",
-      "stdioRequiresCommand": "тип stdio требует поле command",
-      "httpRequiresUrl": "тип {{type}} требует поле url",
-      "invalidJson": "Неверный формат JSON",
-      "jsonHelp": "Вставьте конфигурацию вашего MCP сервера в формате JSON. Примеры форматов:",
-      "jsonExampleStdio": "• stdio: {\"type\":\"stdio\",\"command\":\"npx\",\"args\":[\"@upstash/context7-mcp\"]}",
-      "jsonExampleHttp": "• http/sse: {\"type\":\"http\",\"url\":\"https://api.example.com/mcp\"}"
-    },
-    "configDetails": "Детали конфигурации (из {{configFile}})",
-    "projectPath": "Путь: {{path}}",
-    "actions": {
-      "cancel": "Отмена",
-      "saving": "Сохранение...",
-      "addServer": "Добавить сервер",
-      "updateServer": "Обновить сервер"
     }
   },
   "saveStatus": {
@@ -351,40 +283,6 @@
     },
     "actions": {
       "add": "Добавить"
-    }
-  },
-  "mcpServers": {
-    "title": "MCP серверы",
-    "description": {
-      "claude": "Серверы Model Context Protocol предоставляют дополнительные инструменты и источники данных для Claude",
-      "cursor": "Серверы Model Context Protocol предоставляют дополнительные инструменты и источники данных для Cursor",
-      "codex": "Серверы Model Context Protocol предоставляют дополнительные инструменты и источники данных для Codex"
-    },
-    "addButton": "Добавить MCP сервер",
-    "empty": "MCP серверы не настроены",
-    "serverType": "Тип",
-    "scope": {
-      "local": "локальный",
-      "user": "пользователь"
-    },
-    "config": {
-      "command": "Команда",
-      "url": "URL",
-      "args": "Аргументы",
-      "environment": "Окружение"
-    },
-    "tools": {
-      "title": "Инструменты",
-      "count": "({{count}}):",
-      "more": "+{{count}} еще"
-    },
-    "actions": {
-      "edit": "Редактировать сервер",
-      "delete": "Удалить сервер"
-    },
-    "help": {
-      "title": "О Codex MCP",
-      "description": "Codex поддерживает MCP серверы на основе stdio. Вы можете добавлять серверы, которые расширяют возможности Codex дополнительными инструментами и ресурсами."
     }
   }
 }

@@ -1,6 +1,16 @@
 import { getConnection } from '@/modules/database/connection.js';
 import { projectsDb } from '@/modules/database/repositories/projects.db.js';
 import { normalizeProjectPath } from '@/shared/utils.js';
+import { completionNotificationTargetsDb } from '@/modules/database/repositories/completion-notification-targets.js';
+import {
+  completionAppAlias,
+  completionAppIdentityKey,
+} from '@/modules/database/services/completion-target-identity.service.js';
+import {
+  revokeCompletionNotificationsForProject,
+  revokeCompletionNotificationsForSession,
+  revokeCompletionNotificationsForSessions,
+} from '@/modules/database/services/completion-notification-lifecycle.service.js';
 
 type SessionRow = {
   session_id: string;
@@ -9,16 +19,30 @@ type SessionRow = {
   project_path: string | null;
   jsonl_path: string | null;
   custom_name: string | null;
-  isArchived: number;
   created_at: string;
   updated_at: string;
 };
+const COMPLETION_APP_PROVIDERS = new Set(['claude', 'codex', 'opencode', 'gjc']);
+
+function completionAppTarget(sessionId: string, provider: string) {
+  if (!COMPLETION_APP_PROVIDERS.has(provider)) {
+    return null;
+  }
+
+  const identity = { provider, sessionId };
+  return completionNotificationTargetsDb.createTarget(
+    completionAppIdentityKey(identity),
+    'app',
+    [completionAppAlias(identity)],
+  );
+}
+
 export type ProjectSessionPageRow = SessionRow & {
   total: number;
 };
 
 const SESSION_ROW_COLUMNS =
-  'session_id, provider, provider_session_id, project_path, jsonl_path, custom_name, isArchived, created_at, updated_at';
+  'session_id, provider, provider_session_id, project_path, jsonl_path, custom_name, created_at, updated_at';
 
 const SQLITE_UTC_TIMESTAMP_REGEX = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
 
@@ -84,64 +108,67 @@ export const sessionsDb = {
     const updatedAtValue = normalizeTimestamp(updatedAt);
     const normalizedProjectPath = normalizeProjectPathForProvider(provider, projectPath);
 
-    // First, ensure the project path is recorded in the projects table,
-    // since it's a foreign key in the sessions table.
-    projectsDb.createProjectPath(normalizedProjectPath);
-
-    const existing = db
-      .prepare(
+    return db.transaction(() => {
+      projectsDb.createProjectPath(normalizedProjectPath);
+      const existing = db.prepare(
         `SELECT session_id FROM sessions
          WHERE provider_session_id = ? AND provider = ?
-         LIMIT 1`
-      )
-      .get(providerSessionId, provider) as { session_id: string } | undefined;
+         LIMIT 1`,
+      ).get(providerSessionId, provider) as { session_id: string } | undefined;
 
-    if (existing) {
+      if (existing) {
+        db.prepare(
+          `UPDATE sessions SET
+             provider = ?,
+             updated_at = COALESCE(?, CURRENT_TIMESTAMP),
+             project_path = ?,
+             jsonl_path = ?,
+             custom_name = COALESCE(?, custom_name)
+           WHERE session_id = ?`,
+        ).run(
+          provider,
+          updatedAtValue,
+          normalizedProjectPath,
+          jsonlPath ?? null,
+          customName ?? null,
+          existing.session_id,
+        );
+        completionAppTarget(existing.session_id, provider);
+        return existing.session_id;
+      }
+
+      const replaced = db.prepare(
+        'SELECT provider FROM sessions WHERE session_id = ?',
+      ).get(providerSessionId) as { provider: string } | undefined;
       db.prepare(
-        `UPDATE sessions SET
-           provider = ?,
-           updated_at = COALESCE(?, CURRENT_TIMESTAMP),
-           project_path = ?,
-           jsonl_path = ?,
-           custom_name = COALESCE(?, custom_name)
-         WHERE session_id = ?`
+        `INSERT INTO sessions (session_id, provider, provider_session_id, custom_name, project_path, jsonl_path, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), COALESCE(?, CURRENT_TIMESTAMP))
+         ON CONFLICT(session_id) DO UPDATE SET
+           provider = excluded.provider,
+           provider_session_id = excluded.provider_session_id,
+           updated_at = excluded.updated_at,
+           project_path = excluded.project_path,
+           jsonl_path = excluded.jsonl_path,
+           custom_name = COALESCE(excluded.custom_name, sessions.custom_name)`,
       ).run(
+        providerSessionId,
         provider,
-        updatedAtValue,
+        providerSessionId,
+        customName ?? null,
         normalizedProjectPath,
         jsonlPath ?? null,
-        customName ?? null,
-        existing.session_id
+        createdAtValue,
+        updatedAtValue,
       );
-
-      return existing.session_id;
-    }
-
-    // Sessions created outside the app (directly via the provider CLI) are
-    // keyed by the provider-native id for both columns. The ON CONFLICT path
-    // covers legacy rows that predate the provider_session_id mapping.
-    db.prepare(
-      `INSERT INTO sessions (session_id, provider, provider_session_id, custom_name, project_path, jsonl_path, isArchived, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, 0, COALESCE(?, CURRENT_TIMESTAMP), COALESCE(?, CURRENT_TIMESTAMP))
-       ON CONFLICT(session_id) DO UPDATE SET
-         provider = excluded.provider,
-         provider_session_id = excluded.provider_session_id,
-         updated_at = excluded.updated_at,
-         project_path = excluded.project_path,
-         jsonl_path = excluded.jsonl_path,
-         custom_name = COALESCE(excluded.custom_name, sessions.custom_name)`
-    ).run(
-      providerSessionId,
-      provider,
-      providerSessionId,
-      customName ?? null,
-      normalizedProjectPath,
-      jsonlPath ?? null,
-      createdAtValue,
-      updatedAtValue
-    );
-
-    return providerSessionId;
+      if (replaced && replaced.provider !== provider) {
+        revokeCompletionNotificationsForSessions(db, [
+          { sessionId: providerSessionId, provider: replaced.provider },
+          { sessionId: providerSessionId, provider },
+        ]);
+      }
+      completionAppTarget(providerSessionId, provider);
+      return providerSessionId;
+    })();
   },
 
   /**
@@ -156,14 +183,15 @@ export const sessionsDb = {
     const db = getConnection();
     const normalizedProjectPath = normalizeProjectPathForProvider(provider, projectPath);
 
-    projectsDb.createProjectPath(normalizedProjectPath);
-
-    db.prepare(
-      `INSERT INTO sessions (session_id, provider, provider_session_id, custom_name, project_path, jsonl_path, isArchived, created_at, updated_at)
-       VALUES (?, ?, NULL, NULL, ?, NULL, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
-    ).run(sessionId, provider, normalizedProjectPath);
-
-    return sessionId;
+    return db.transaction(() => {
+      projectsDb.createProjectPath(normalizedProjectPath);
+      db.prepare(
+        `INSERT INTO sessions (session_id, provider, provider_session_id, custom_name, project_path, jsonl_path, created_at, updated_at)
+         VALUES (?, ?, NULL, NULL, ?, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+      ).run(sessionId, provider, normalizedProjectPath);
+      completionAppTarget(sessionId, provider);
+      return sessionId;
+    })();
   },
 
   /**
@@ -193,15 +221,14 @@ export const sessionsDb = {
         );
       }
 
-      const duplicate = db
-        .prepare(
-          `SELECT ${SESSION_ROW_COLUMNS} FROM sessions
-           WHERE provider = ?
-             AND (session_id = ? OR provider_session_id = ?)
-             AND session_id <> ?
-           LIMIT 1`
-        )
-        .get(provider, providerSessionId, providerSessionId, sessionId) as SessionRow | undefined;
+      const duplicates = db.prepare(
+        `SELECT ${SESSION_ROW_COLUMNS} FROM sessions
+         WHERE provider = ?
+           AND (session_id = ? OR provider_session_id = ?)
+           AND session_id <> ?
+         ORDER BY session_id`,
+      ).all(provider, providerSessionId, providerSessionId, sessionId) as SessionRow[];
+      const adopted = duplicates[0];
 
       const assignment = db.prepare(
         `UPDATE sessions SET
@@ -209,24 +236,48 @@ export const sessionsDb = {
            jsonl_path = COALESCE(jsonl_path, ?),
            custom_name = COALESCE(custom_name, ?),
            updated_at = CURRENT_TIMESTAMP
-         WHERE session_id = ? AND provider = ?`
+         WHERE session_id = ? AND provider = ?`,
       ).run(
         providerSessionId,
-        duplicate?.jsonl_path ?? null,
-        duplicate?.custom_name ?? null,
+        adopted?.jsonl_path ?? null,
+        adopted?.custom_name ?? null,
         sessionId,
-        provider
+        provider,
       );
 
       if (assignment.changes !== 1) {
         throw new Error(
-          `Cannot assign provider session id: target session "${sessionId}" for provider "${provider}" was not updated`
+          `Cannot assign provider session id: target session "${sessionId}" for provider "${provider}" was not updated`,
         );
       }
 
-      if (duplicate) {
-        db.prepare('DELETE FROM sessions WHERE session_id = ? AND provider = ?')
-          .run(duplicate.session_id, provider);
+      const survivorTarget = completionAppTarget(sessionId, provider);
+      if (duplicates.length > 0) {
+        const duplicateIds = duplicates.map((duplicate) => duplicate.session_id);
+        const duplicateTargets = survivorTarget
+          ? duplicateIds.map((duplicateId) => completionAppTarget(duplicateId, provider))
+            .filter((target): target is NonNullable<typeof target> => target !== null)
+          : [];
+        const loserTargetIds = [...new Set(duplicateTargets.map((target) => target.id))]
+          .filter((targetId) => targetId !== survivorTarget?.id);
+        if (survivorTarget && loserTargetIds.length > 0) {
+          completionNotificationTargetsDb.mergeEquivalentApps(
+            loserTargetIds,
+            survivorTarget.id,
+            () => {
+              const rows = db.prepare(`SELECT session_id FROM sessions
+                WHERE provider = ? AND provider_session_id = ?
+                ORDER BY session_id`)
+                .all(provider, providerSessionId) as Array<{ session_id: string }>;
+              return rows.length === duplicateIds.length + 1
+                && rows.some((row) => row.session_id === sessionId)
+                && duplicateIds.every((duplicateId) => rows.some((row) => row.session_id === duplicateId));
+            },
+          );
+        }
+        const placeholders = duplicateIds.map(() => '?').join(', ');
+        db.prepare(`DELETE FROM sessions WHERE provider = ? AND session_id IN (${placeholders})`)
+          .run(provider, ...duplicateIds);
       }
     });
 
@@ -308,7 +359,6 @@ export const sessionsDb = {
          WHERE provider = ?
            AND project_path = ?
            AND provider_session_id IS NULL
-           AND isArchived = 0
          ORDER BY datetime(COALESCE(updated_at, created_at)) DESC, session_id DESC
          LIMIT 1`
       )
@@ -322,26 +372,7 @@ export const sessionsDb = {
     const rows = db
       .prepare(
         `SELECT ${SESSION_ROW_COLUMNS}
-         FROM sessions
-         WHERE isArchived = 0`
-      )
-      .all() as SessionRow[];
-
-    return normalizeSessionRows(rows);
-  },
-
-  /**
-   * Archived rows are intentionally queried separately so the caller can render
-   * them in a dedicated view without reintroducing them into active session lists.
-   */
-  getArchivedSessions(): SessionRow[] {
-    const db = getConnection();
-    const rows = db
-      .prepare(
-        `SELECT ${SESSION_ROW_COLUMNS}
-         FROM sessions
-         WHERE isArchived = 1
-         ORDER BY datetime(COALESCE(updated_at, created_at)) DESC, session_id DESC`
+         FROM sessions`
       )
       .all() as SessionRow[];
 
@@ -349,25 +380,6 @@ export const sessionsDb = {
   },
 
   getSessionsByProjectPath(projectPath: string): SessionRow[] {
-    const db = getConnection();
-    const normalizedProjectPath = normalizeProjectPath(projectPath);
-    const rows = db
-      .prepare(
-        `SELECT ${SESSION_ROW_COLUMNS}
-         FROM sessions
-         WHERE project_path = ?
-           AND isArchived = 0`
-      )
-      .all(normalizedProjectPath) as SessionRow[];
-
-    return normalizeSessionRows(rows);
-  },
-
-  /**
-   * Permanent project deletion must see every session row for the path,
-   * including archived ones, so their transcript files can be cleaned up.
-   */
-  getSessionsByProjectPathIncludingArchived(projectPath: string): SessionRow[] {
     const db = getConnection();
     const normalizedProjectPath = normalizeProjectPath(projectPath);
     const rows = db
@@ -389,7 +401,6 @@ export const sessionsDb = {
         `SELECT ${SESSION_ROW_COLUMNS}
          FROM sessions
          WHERE project_path = ?
-           AND isArchived = 0
          ORDER BY datetime(COALESCE(updated_at, created_at)) DESC, session_id DESC
          LIMIT ? OFFSET ?`
       )
@@ -409,7 +420,6 @@ export const sessionsDb = {
                     ORDER BY datetime(COALESCE(updated_at, created_at)) DESC, session_id DESC
                   ) AS row_number
            FROM sessions
-           WHERE isArchived = 0
          )
          SELECT ${SESSION_ROW_COLUMNS}, total
          FROM ranked_sessions
@@ -431,37 +441,6 @@ export const sessionsDb = {
       .prepare(
         `SELECT COUNT(*) AS count
          FROM sessions
-         WHERE project_path = ?
-           AND isArchived = 0`
-      )
-      .get(normalizedProjectPath) as { count: number } | undefined;
-
-    return Number(row?.count ?? 0);
-  },
-
-  getSessionsByProjectPathIncludingArchivedPage(projectPath: string, limit: number, offset: number): SessionRow[] {
-    const db = getConnection();
-    const normalizedProjectPath = normalizeProjectPath(projectPath);
-    const rows = db
-      .prepare(
-        `SELECT ${SESSION_ROW_COLUMNS}
-         FROM sessions
-         WHERE project_path = ?
-         ORDER BY datetime(COALESCE(updated_at, created_at)) DESC, session_id DESC
-         LIMIT ? OFFSET ?`
-      )
-      .all(normalizedProjectPath, limit, offset) as SessionRow[];
-
-    return normalizeSessionRows(rows);
-  },
-
-  countSessionsByProjectPathIncludingArchived(projectPath: string): number {
-    const db = getConnection();
-    const normalizedProjectPath = normalizeProjectPath(projectPath);
-    const row = db
-      .prepare(
-        `SELECT COUNT(*) AS count
-         FROM sessions
          WHERE project_path = ?`
       )
       .get(normalizedProjectPath) as { count: number } | undefined;
@@ -469,10 +448,14 @@ export const sessionsDb = {
     return Number(row?.count ?? 0);
   },
 
+
   deleteSessionsByProjectPath(projectPath: string): void {
     const db = getConnection();
     const normalizedProjectPath = normalizeProjectPath(projectPath);
-    db.prepare(`DELETE FROM sessions WHERE project_path = ?`).run(normalizedProjectPath);
+    db.transaction(() => {
+      revokeCompletionNotificationsForProject(db, normalizedProjectPath);
+      db.prepare(`DELETE FROM sessions WHERE project_path = ?`).run(normalizedProjectPath);
+    })();
   },
 
   getSessionName(sessionId: string, provider: string): string | null {
@@ -488,21 +471,12 @@ export const sessionsDb = {
     return row?.custom_name ?? null;
   },
 
-  /**
-   * Soft-delete and restore both use the same flag update so callers keep the
-   * row, metadata, and file path intact while toggling visibility.
-   */
-  updateSessionIsArchived(sessionId: string, isArchived: boolean): void {
-    const db = getConnection();
-    db.prepare(
-      `UPDATE sessions
-       SET isArchived = ?
-       WHERE session_id = ?`
-    ).run(isArchived ? 1 : 0, sessionId);
-  },
 
   deleteSessionById(sessionId: string): boolean {
     const db = getConnection();
-    return db.prepare('DELETE FROM sessions WHERE session_id = ?').run(sessionId).changes > 0;
+    return db.transaction(() => {
+      revokeCompletionNotificationsForSession(db, sessionId);
+      return db.prepare('DELETE FROM sessions WHERE session_id = ?').run(sessionId).changes > 0;
+    })();
   },
 };

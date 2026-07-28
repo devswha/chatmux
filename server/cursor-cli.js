@@ -1,7 +1,6 @@
 import crossSpawn from 'cross-spawn';
 
 import { appendImagesInputTag } from './shared/image-attachments.js';
-import { notifyRunFailed, notifyRunStopped } from './services/notification-orchestrator.js';
 import { sessionsService } from './modules/providers/services/sessions.service.js';
 import { providerAuthService } from './modules/providers/services/provider-auth.service.js';
 import { providerModelsService } from './modules/providers/services/provider-models.service.js';
@@ -29,7 +28,7 @@ function isWorkspaceTrustPrompt(text = '') {
 }
 
 async function spawnCursor(command, options = {}, ws) {
-  const { sessionId, projectPath, cwd, toolsSettings, skipPermissions, model, sessionSummary, images } = options;
+  const { sessionId, projectPath, cwd, toolsSettings, skipPermissions, model, images } = options;
   const resolvedModel = await providerModelsService.resolveResumeModel('cursor', sessionId, model);
 
   return new Promise((resolve, reject) => {
@@ -98,35 +97,6 @@ async function spawnCursor(command, options = {}, ws) {
       const isTrustRetry = runReason === 'trust-retry';
       let runSawWorkspaceTrustPrompt = false;
       let stdoutLineBuffer = '';
-      let terminalNotificationSent = false;
-
-      const notifyTerminalState = ({ code = null, error = null } = {}) => {
-        if (terminalNotificationSent) {
-          return;
-        }
-
-        terminalNotificationSent = true;
-
-        const finalSessionId = capturedSessionId || sessionId || processKey;
-        if (code === 0 && !error) {
-          notifyRunStopped({
-            userId: ws?.userId || null,
-            provider: 'cursor',
-            sessionId: finalSessionId,
-            sessionName: sessionSummary,
-            stopReason: 'completed'
-          });
-          return;
-        }
-
-        notifyRunFailed({
-          userId: ws?.userId || null,
-          provider: 'cursor',
-          sessionId: finalSessionId,
-          sessionName: sessionSummary,
-          error: error || `Cursor CLI exited with code ${code}`
-        });
-      };
 
       if (isTrustRetry) {
         console.log('Retrying Cursor CLI with --trust after workspace trust prompt');
@@ -285,10 +255,8 @@ async function spawnCursor(command, options = {}, ws) {
         }
 
         if (code === 0) {
-          notifyTerminalState({ code });
           settleOnce(() => resolve());
         } else {
-          notifyTerminalState({ code });
           settleOnce(() => reject(new Error(`Cursor CLI exited with code ${code}`)));
         }
       });
@@ -312,7 +280,6 @@ async function spawnCursor(command, options = {}, ws) {
           completeSent = true;
           ws.send(createCompleteMessage({ provider: 'cursor', sessionId: capturedSessionId || sessionId || null, exitCode: 1 }));
         }
-        notifyTerminalState({ error });
 
         settleOnce(() => reject(error));
       });

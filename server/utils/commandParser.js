@@ -24,7 +24,6 @@ const BASH_COMMAND_ALLOWLIST = [
   'cat',
   'grep',
   'find',
-  'task-master'
 ];
 
 /**

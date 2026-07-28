@@ -552,20 +552,15 @@ export type ProjectRepositoryRow = {
   project_path: string;
   custom_project_name: string | null;
   isStarred: number;
-  isArchived: number;
 };
 
 /**
  * Result category returned by `projectsDb.createProjectPath`.
  *
- * `created` means a fresh row was inserted, `reactivated_archived` means an
- * existing archived path was accepted and updated, and `active_conflict` means
- * an already-active path blocked project creation.
+ * `created` means a fresh row was inserted and `active_conflict` means an
+ * existing path blocked project creation.
  */
-export type CreateProjectPathOutcome =
-  | 'created'
-  | 'reactivated_archived'
-  | 'active_conflict';
+export type CreateProjectPathOutcome = 'created' | 'active_conflict';
 
 /**
  * Structured result returned by project-path upsert operations.

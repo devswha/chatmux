@@ -3,7 +3,6 @@
   "tabs": {
     "account": "Konto",
     "permissions": "Berechtigungen",
-    "mcpServers": "MCP-Server",
     "appearance": "Darstellung"
   },
   "account": {
@@ -15,24 +14,6 @@
     "email": "E-Mail",
     "profile": "Profil",
     "changePassword": "Passwort ändern"
-  },
-  "mcp": {
-    "title": "MCP-Server",
-    "addServer": "Server hinzufügen",
-    "editServer": "Server bearbeiten",
-    "deleteServer": "Server löschen",
-    "serverName": "Servername",
-    "serverType": "Servertyp",
-    "config": "Konfiguration",
-    "testConnection": "Verbindung testen",
-    "status": "Status",
-    "connected": "Verbunden",
-    "disconnected": "Getrennt",
-    "scope": {
-      "label": "Geltungsbereich",
-      "user": "Benutzer:in",
-      "project": "Projekt"
-    }
   },
   "appearance": {
     "title": "Darstellung",
@@ -133,55 +114,6 @@
       "iosHint": "Unter iOS in Safari auf die Teilen-Schaltfläche tippen und „Zum Home-Bildschirm“ auswählen.",
       "browserMenuHint": "Die Installationsaufforderung ist noch nicht verfügbar. Verwende stattdessen das Browsermenü: „App installieren“ (Chrome/Edge) oder „Zum Home-Bildschirm hinzufügen“.",
       "insecureHint": "Die App-Installation erfordert eine sichere Verbindung. Öffne ChatMux über HTTPS oder localhost – Browser deaktivieren die Installation unter einfachen http://-Adressen."
-    }
-  },
-  "mcpForm": {
-    "title": {
-      "add": "MCP-Server hinzufügen",
-      "edit": "MCP-Server bearbeiten"
-    },
-    "importMode": {
-      "form": "Formulareingabe",
-      "json": "JSON-Import"
-    },
-    "scope": {
-      "label": "Geltungsbereich",
-      "userGlobal": "Benutzer:in (Global)",
-      "projectLocal": "Projekt (Lokal)",
-      "userDescription": "Benutzerbereich: Auf allen Projekten deines Computers verfügbar",
-      "projectDescription": "Lokaler Bereich: Nur im ausgewählten Projekt verfügbar",
-      "cannotChange": "Der Geltungsbereich kann beim Bearbeiten eines vorhandenen Servers nicht geändert werden"
-    },
-    "fields": {
-      "serverName": "Servername",
-      "transportType": "Transporttyp",
-      "command": "Befehl",
-      "arguments": "Argumente (eines pro Zeile)",
-      "jsonConfig": "JSON-Konfiguration",
-      "url": "URL",
-      "envVars": "Umgebungsvariablen (SCHLÜSSEL=Wert, eine pro Zeile)",
-      "headers": "Header (SCHLÜSSEL=Wert, eine pro Zeile)",
-      "selectProject": "Projekt auswählen..."
-    },
-    "placeholders": {
-      "serverName": "mein-server"
-    },
-    "validation": {
-      "missingType": "Pflichtfeld fehlt: type",
-      "stdioRequiresCommand": "stdio-Typ erfordert ein Befehlsfeld",
-      "httpRequiresUrl": "{{type}}-Typ erfordert ein URL-Feld",
-      "invalidJson": "Ungültiges JSON-Format",
-      "jsonHelp": "Füge deine MCP-Server-Konfiguration im JSON-Format ein. Beispielformate:",
-      "jsonExampleStdio": "• stdio: {\"type\":\"stdio\",\"command\":\"npx\",\"args\":[\"@upstash/context7-mcp\"]}",
-      "jsonExampleHttp": "• http/sse: {\"type\":\"http\",\"url\":\"https://api.example.com/mcp\"}"
-    },
-    "configDetails": "Konfigurationsdetails (aus {{configFile}})",
-    "projectPath": "Pfad: {{path}}",
-    "actions": {
-      "cancel": "Abbrechen",
-      "saving": "Wird gespeichert...",
-      "addServer": "Server hinzufügen",
-      "updateServer": "Server aktualisieren"
     }
   },
   "saveStatus": {
@@ -351,40 +283,6 @@
     },
     "actions": {
       "add": "Hinzufügen"
-    }
-  },
-  "mcpServers": {
-    "title": "MCP-Server",
-    "description": {
-      "claude": "Model Context Protocol-Server stellen Claude zusätzliche Werkzeuge und Datenquellen zur Verfügung",
-      "cursor": "Model Context Protocol-Server stellen Cursor zusätzliche Werkzeuge und Datenquellen zur Verfügung",
-      "codex": "Model Context Protocol-Server stellen Codex zusätzliche Werkzeuge und Datenquellen zur Verfügung"
-    },
-    "addButton": "MCP-Server hinzufügen",
-    "empty": "Keine MCP-Server konfiguriert",
-    "serverType": "Typ",
-    "scope": {
-      "local": "lokal",
-      "user": "benutzer"
-    },
-    "config": {
-      "command": "Befehl",
-      "url": "URL",
-      "args": "Argumente",
-      "environment": "Umgebung"
-    },
-    "tools": {
-      "title": "Werkzeuge",
-      "count": "({{count}}):",
-      "more": "+{{count}} weitere"
-    },
-    "actions": {
-      "edit": "Server bearbeiten",
-      "delete": "Server löschen"
-    },
-    "help": {
-      "title": "Über Codex MCP",
-      "description": "Codex unterstützt stdio-basierte MCP-Server. Du kannst Server hinzufügen, die die Fähigkeiten von Codex mit zusätzlichen Werkzeugen und Ressourcen erweitern."
     }
   }
 }

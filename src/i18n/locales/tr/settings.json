@@ -3,7 +3,6 @@
   "tabs": {
     "account": "Hesap",
     "permissions": "İzinler",
-    "mcpServers": "MCP Sunucuları",
     "appearance": "Görünüm"
   },
   "account": {
@@ -15,24 +14,6 @@
     "email": "E-posta",
     "profile": "Profil",
     "changePassword": "Şifreyi Değiştir"
-  },
-  "mcp": {
-    "title": "MCP Sunucuları",
-    "addServer": "Sunucu Ekle",
-    "editServer": "Sunucuyu Düzenle",
-    "deleteServer": "Sunucuyu Sil",
-    "serverName": "Sunucu Adı",
-    "serverType": "Sunucu Türü",
-    "config": "Yapılandırma",
-    "testConnection": "Bağlantıyı Test Et",
-    "status": "Durum",
-    "connected": "Bağlı",
-    "disconnected": "Bağlantı kesildi",
-    "scope": {
-      "label": "Kapsam",
-      "user": "Kullanıcı",
-      "project": "Proje"
-    }
   },
   "appearance": {
     "title": "Görünüm",
@@ -134,55 +115,6 @@
       "iosHint": "iOS'ta Safari'deki Paylaş düğmesine dokunun ve \"Ana Ekrana Ekle\" seçeneğini belirleyin.",
       "browserMenuHint": "Yükleme istemi henüz kullanılamıyor. Bunun yerine tarayıcı menüsünü kullanın: \"Uygulamayı yükle\" (Chrome/Edge) veya \"Ana Ekrana Ekle\".",
       "insecureHint": "Uygulama yüklemek için güvenli bir bağlantı gerekir. ChatMux'u HTTPS veya localhost üzerinden açın — tarayıcılar düz http:// adreslerinde yüklemeyi devre dışı bırakır."
-    }
-  },
-  "mcpForm": {
-    "title": {
-      "add": "MCP Sunucusu Ekle",
-      "edit": "MCP Sunucusunu Düzenle"
-    },
-    "importMode": {
-      "form": "Form Girdisi",
-      "json": "JSON İçe Aktar"
-    },
-    "scope": {
-      "label": "Kapsam",
-      "userGlobal": "Kullanıcı (Genel)",
-      "projectLocal": "Proje (Yerel)",
-      "userDescription": "Kullanıcı kapsamı: Makinendeki tüm projelerde kullanılabilir",
-      "projectDescription": "Yerel kapsam: Yalnızca seçili projede kullanılabilir",
-      "cannotChange": "Mevcut bir sunucu düzenlenirken kapsam değiştirilemez"
-    },
-    "fields": {
-      "serverName": "Sunucu Adı",
-      "transportType": "Taşıma Türü",
-      "command": "Komut",
-      "arguments": "Argümanlar (satır başına bir tane)",
-      "jsonConfig": "JSON Yapılandırması",
-      "url": "URL",
-      "envVars": "Ortam Değişkenleri (KEY=değer, satır başına bir tane)",
-      "headers": "Başlıklar (KEY=değer, satır başına bir tane)",
-      "selectProject": "Bir proje seç..."
-    },
-    "placeholders": {
-      "serverName": "benim-sunucum"
-    },
-    "validation": {
-      "missingType": "Zorunlu alan eksik: type",
-      "stdioRequiresCommand": "stdio türü command alanı gerektirir",
-      "httpRequiresUrl": "{{type}} türü url alanı gerektirir",
-      "invalidJson": "Geçersiz JSON formatı",
-      "jsonHelp": "MCP sunucu yapılandırmanı JSON formatında yapıştır. Örnek formatlar:",
-      "jsonExampleStdio": "• stdio: {\"type\":\"stdio\",\"command\":\"npx\",\"args\":[\"@upstash/context7-mcp\"]}",
-      "jsonExampleHttp": "• http/sse: {\"type\":\"http\",\"url\":\"https://api.example.com/mcp\"}"
-    },
-    "configDetails": "Yapılandırma Detayları ({{configFile}} dosyasından)",
-    "projectPath": "Yol: {{path}}",
-    "actions": {
-      "cancel": "İptal",
-      "saving": "Kaydediliyor...",
-      "addServer": "Sunucu Ekle",
-      "updateServer": "Sunucuyu Güncelle"
     }
   },
   "saveStatus": {
@@ -352,40 +284,6 @@
     },
     "actions": {
       "add": "Ekle"
-    }
-  },
-  "mcpServers": {
-    "title": "MCP Sunucuları",
-    "description": {
-      "claude": "Model Context Protocol sunucuları Claude'a ek araçlar ve veri kaynakları sağlar",
-      "cursor": "Model Context Protocol sunucuları Cursor'a ek araçlar ve veri kaynakları sağlar",
-      "codex": "Model Context Protocol sunucuları Codex'e ek araçlar ve veri kaynakları sağlar"
-    },
-    "addButton": "MCP Sunucusu Ekle",
-    "empty": "Yapılandırılmış MCP sunucusu yok",
-    "serverType": "Tür",
-    "scope": {
-      "local": "yerel",
-      "user": "kullanıcı"
-    },
-    "config": {
-      "command": "Komut",
-      "url": "URL",
-      "args": "Argümanlar",
-      "environment": "Ortam"
-    },
-    "tools": {
-      "title": "Araçlar",
-      "count": "({{count}}):",
-      "more": "+{{count}} tane daha"
-    },
-    "actions": {
-      "edit": "Sunucuyu düzenle",
-      "delete": "Sunucuyu sil"
-    },
-    "help": {
-      "title": "Codex MCP Hakkında",
-      "description": "Codex stdio tabanlı MCP sunucularını destekler. Codex'in yeteneklerini ek araçlar ve kaynaklarla genişleten sunucular ekleyebilirsin."
     }
   }
 }

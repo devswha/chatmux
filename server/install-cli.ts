@@ -84,10 +84,9 @@ function parsePort(value: string, option: string): number {
   return port;
 }
 
-// Installation is deliberately a single fixed shape: local-only on loopback.
-// Remote access is enabled afterwards with `chatmux access enable
-// tailscale|vpn <address>`, so every install behaves identically regardless
-// of what happens to be running on the machine.
+// Installation chooses the safest ready-to-use path from the host state:
+// authenticated Tailscale Serve when the machine is logged in, otherwise
+// password-protected LAN access. Explicit legacy access flags remain removed.
 const REMOVED_ACCESS_OPTIONS = ['--tailscale', '--local', '--vpn', '--owner', '--https-port'];
 
 export function parseInstallOptions(args: string[]): InstallOptions {
@@ -110,8 +109,8 @@ export function parseInstallOptions(args: string[]): InstallOptions {
     }
     else if (REMOVED_ACCESS_OPTIONS.includes(arg) || REMOVED_ACCESS_OPTIONS.some((option) => arg.startsWith(`${option}=`))) {
       throw new Error(
-        `${arg} was removed: installation is always local-only. After installing, enable remote access with ` +
-        `"chatmux access enable tailscale" or "chatmux access enable vpn <address>".`,
+        `${arg} was removed: installation selects Tailscale automatically when it is running, ` +
+        `otherwise password-protected LAN access. Change it afterwards with "chatmux access enable".`,
       );
     }
     else throw new Error(`Unknown install option: ${arg}`);
@@ -408,13 +407,14 @@ export async function runInstallCli(args: string[], context: InstallContext): Pr
   const binPath = path.join(home, '.local', 'bin', 'chatmux');
   const nodeBinary = context.nodeBinary ?? process.execPath;
 
-  // Detection is advisory only: a running tailnet changes the wording of the
-  // "Reach" hint, never the installed mode.
-  const tailscaleAlreadyRunning = (await inspectTailscale(run)).running;
+  const tailscaleStatus = await inspectTailscale(run);
+  const tailscaleOwner = tailscaleStatus.running
+    ? normalizeTailscaleLogin(tailscaleStatus.owner)
+    : null;
+  const useTailscale = tailscaleOwner !== null;
 
-  // Install is one fixed shape: loopback bind, no application login required
-  // locally. Detect a previously configured remote mode only to tell the
-  // operator how to restore it after this reset.
+  // Preserve the previous remote mode only so a reinstall can explain a mode
+  // change caused by the currently available network.
   let previousRemoteMode: 'tailscale' | 'vpn' | null = null;
   try {
     const previousEnvironment = await fs.readFile(configPath, 'utf8');
@@ -443,11 +443,11 @@ export async function runInstallCli(args: string[], context: InstallContext): Pr
     workingDirectory: currentPath,
     nodeBinary,
     configFile: configPath,
-    host: '0.0.0.0',
+    host: useTailscale ? '127.0.0.1' : '0.0.0.0',
     port: options.serverPort,
   });
   const environment = buildManagedEnvironment({
-    authMode: 'password',
+    authMode: useTailscale ? 'tailscale' : 'password',
     databasePath,
     serverPort: options.serverPort,
   });
@@ -461,6 +461,7 @@ export async function runInstallCli(args: string[], context: InstallContext): Pr
       configPath,
       binPath,
       serverPort: options.serverPort,
+      accessMode: useTailscale ? 'tailscale' : 'password',
     }, null, 2));
     return;
   }
@@ -473,15 +474,17 @@ export async function runInstallCli(args: string[], context: InstallContext): Pr
   await fs.writeFile(unitPath, unit, 'utf8');
   await writeManagedCli(binPath, nodeBinary, currentPath, configPath);
 
+  closeConnection();
   process.env.DATABASE_PATH = databasePath;
   await initializeDatabase();
 
-  // Phone-ready out of the box: create the owner account before the service
-  // ever binds beyond loopback, so the exposure guard's fail-closed rule
-  // ("no users → no network bind") is satisfied without a setup round-trip.
-  // The generated password is printed exactly once below.
+  // Tailscale supplies the user identity, so it needs no ChatMux credential.
+  // Password fallback creates the owner before binding beyond loopback, keeping
+  // the exposure guard fail-closed without a browser setup round-trip.
   let initialPassword: string | null = null;
-  if (!userDb.hasUsers()) {
+  if (useTailscale) {
+    setTailscaleOwner(tailscaleOwner);
+  } else if (!userDb.hasUsers()) {
     initialPassword = generateInitialPassword();
     userDb.createUser(OWNER_USERNAME, await bcrypt.hash(initialPassword, PASSWORD_HASH_ROUNDS));
   }
@@ -492,12 +495,33 @@ export async function runInstallCli(args: string[], context: InstallContext): Pr
   await run('systemctl', ['--user', 'restart', 'chatmux.service']);
   await (context.healthCheck ?? waitForHealth)(options.serverPort, context.version);
 
+  let tailscaleUrl: string | null = null;
+  if (useTailscale) {
+    const serve = await configureTailscaleServe(run, options.serverPort, null);
+    tailscaleUrl = serve.url;
+    appConfigDb.set(MANAGED_SERVE_PORT_KEY, String(serve.httpsPort));
+  }
   closeConnection();
+
+  console.log('\nChatMux installation complete');
+  console.log(`  Local:  http://127.0.0.1:${options.serverPort}`);
+
+  if (useTailscale) {
+    if (!tailscaleUrl) throw new Error('Tailscale access was selected without a Serve URL');
+    console.log(`  Phone:  ${tailscaleUrl}`);
+    console.log('          Turn on Tailscale on your phone before scanning the QR, and keep it connected while using ChatMux.');
+    console.log(`  Login:  Tailscale account ${tailscaleOwner} — no ChatMux username or password`);
+    console.log('  Access: Tailscale HTTPS — only allowed Tailscale accounts can connect');
+    console.log('  Manage: chatmux status | chatmux access users | journalctl --user -u chatmux.service');
+    if (previousRemoteMode === 'vpn') {
+      console.log('  Note:   previous vpn access was replaced because Tailscale is running');
+    }
+    await printAccessQr(run, tailscaleUrl);
+    return;
+  }
 
   const lanAddresses = listLanAddresses(context.interfaces ?? os.networkInterfaces);
   const [primaryLan, ...alternateLans] = lanAddresses;
-  console.log('\nChatMux installation complete');
-  console.log(`  Local:  http://127.0.0.1:${options.serverPort}`);
   if (primaryLan) {
     console.log(`  Phone:  http://${primaryLan.address}:${options.serverPort} — same Wi-Fi: sign in from any browser, no app needed`);
   }
@@ -505,13 +529,7 @@ export async function runInstallCli(args: string[], context: InstallContext): Pr
     console.log(`  Also:   ${alternateLans.map((entry) => `http://${entry.address}:${options.serverPort} (${entry.interfaceName})`).join(' · ')} — reachable while that VPN is connected`);
   }
   if (primaryLan) {
-    // The one decision a first-time user faces after install. Keep it to the
-    // two paths that actually work, with their real cost stated. When
-    // Tailscale is already up, name it as the ready next step instead — the
-    // install never switches modes on its own (see docs/REMOTE-ACCESS.md).
-    console.log(tailscaleAlreadyRunning
-      ? `  Reach:  Tailscale is already running here — "chatmux access enable tailscale" gives an HTTPS address that works from anywhere, including mobile data`
-      : `  Reach:  from outside this Wi-Fi — "chatmux access enable tailscale" (free account + phone app; adds HTTPS, so notifications and home-screen install work), or forward TCP ${options.serverPort} on the router`);
+    console.log(`  Reach:  from outside this Wi-Fi — "chatmux access enable tailscale" (free account + phone app; adds HTTPS, so notifications and home-screen install work), or forward TCP ${options.serverPort} on the router`);
   }
   if (await isUfwEnabled()) {
     console.log(`  Note:   the ufw firewall is enabled — phones stay blocked until you run: sudo ufw allow ${options.serverPort}/tcp`);
@@ -523,7 +541,7 @@ export async function runInstallCli(args: string[], context: InstallContext): Pr
     console.log(`  Login:  existing account "${ownerUsername}" (forgot it? chatmux access password)`);
   }
   console.log('  Access: password — one sign-in stays valid while you keep using it');
-  console.log(`  Manage: chatmux status | chatmux access password | journalctl --user -u chatmux.service`);
+  console.log('  Manage: chatmux status | chatmux access password | journalctl --user -u chatmux.service');
   if (previousRemoteMode) {
     const restore = previousRemoteMode === 'vpn' ? 'chatmux access enable vpn <address>' : 'chatmux access enable tailscale';
     console.log(`  Note:   previous ${previousRemoteMode} remote access was replaced by password access; restore it with: ${restore}`);
@@ -736,7 +754,7 @@ export async function runAccessCli(args: string[], context: Pick<InstallContext,
       // The install-time LAN address and its QR stop working here: this mode
       // only authenticates loopback-sourced (Serve-proxied) requests.
       console.log('The LAN address printed at install no longer works — scan the code below instead.');
-      console.log('Every device needs Tailscale connected and an allowed account.');
+      console.log('Turn on Tailscale on the phone before scanning the QR, sign in with an allowed account, and keep it connected while using ChatMux.');
       await printAccessQr(run, serve.url);
       return;
     }

@@ -31,9 +31,8 @@ export const useEditorSidebar = ({
         name: fileName,
         path: filePath,
         // DB projectId is forwarded to the editor so it can read/save files
-        // via `/api/projects/:projectId/file` endpoints. Callers opening files
-        // that belong to a DIFFERENT project (e.g. the fixed-root files panel)
-        // pass their own projectId via options.
+        // via `/api/projects/:projectId/file` endpoints. Callers resolving files
+        // for a different project pass that project's id via options.
         projectId: options.projectId ?? selectedProject?.projectId,
         diffInfo,
       });

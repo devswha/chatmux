@@ -296,8 +296,8 @@ function AppContentInner() {
     };
   }, [externalTerminal, setActiveTab, sidebarSharedProps, subscribe]);
 
-  // Wrap navigation-ish sidebar handlers so leaving for a session/project/new
-  // chat drops the terminal takeover — without modifying the originals.
+  // Wrap sidebar navigation so leaving for a project or session drops the
+  // terminal takeover without modifying the original handlers.
   const sidebarProps = useMemo(() => ({
     ...sidebarSharedProps,
     onProjectSelect: (...args: Parameters<typeof sidebarSharedProps.onProjectSelect>) => {
@@ -309,11 +309,6 @@ function AppContentInner() {
       setExternalTerminal(null);
       setExternalTranscript(null);
       return sidebarSharedProps.onSessionSelect(...args);
-    },
-    onNewSession: (...args: Parameters<typeof sidebarSharedProps.onNewSession>) => {
-      setExternalTerminal(null);
-      setExternalTranscript(null);
-      return sidebarSharedProps.onNewSession(...args);
     },
     onExternalTerminalOpen: openExternalTerminal,
     onExternalSessionsChange: refreshExternalTerminalCapability,

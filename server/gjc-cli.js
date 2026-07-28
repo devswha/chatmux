@@ -252,7 +252,16 @@ export function spawnGjcWithRuntime(message, options = {}, writer, runtime = {})
   const processKey = options.runHandle || options.sessionId || randomUUID();
   let processId;
   const runPromise = new Promise((resolve, reject) => {
-    const { sessionId, projectPath, cwd, model, sessionDir, sessionSummary } = options;
+    const { sessionId, appSessionId: explicitAppSessionId, projectPath, cwd, model, sessionDir, sessionSummary } = options;
+    const appSessionId = (() => {
+      try {
+        const writerAppSessionId = writer?.getAppSessionId?.();
+        if (typeof writerAppSessionId === 'string' && writerAppSessionId.trim()) return writerAppSessionId;
+      } catch {
+        // A writer lookup failure must not affect the provider run.
+      }
+      return typeof explicitAppSessionId === 'string' && explicitAppSessionId.trim() ? explicitAppSessionId : null;
+    })();
     const workingDir = cwd || projectPath || process.cwd();
     const resolvedSessionDir = resolveGjcSessionDir(sessionId, sessionDir);
 
@@ -277,6 +286,7 @@ export function spawnGjcWithRuntime(message, options = {}, writer, runtime = {})
       isProviderInstalled = providerAuthService.isProviderInstalled.bind(providerAuthService),
       notifyRunFailed: notifyFailed = notifyRunFailed,
       notifyRunStopped: notifyStopped = notifyRunStopped,
+      diagnostic = (message) => console.error(`[gjc] ${message}`),
       detached = true,
       sdkUsageFlushGraceMs = SDK_USAGE_FLUSH_GRACE_MS,
       sdkBridgeCloseGraceMs = SDK_BRIDGE_CLOSE_GRACE_MS,
@@ -394,22 +404,34 @@ export function spawnGjcWithRuntime(message, options = {}, writer, runtime = {})
       }
 
       terminalNotificationSent = true;
-      const finalSessionId = capturedSessionId || sessionId || processKey;
-      if (code === 0 && !error) {
-        notifyStopped({
-          userId: writer?.userId || null,
-          provider: PROVIDER,
-          sessionId: finalSessionId,
-          sessionName: sessionSummary,
-          stopReason: 'completed',
-        });
+      const completionKey = typeof options.runHandle === 'string' && options.runHandle.trim()
+        ? options.runHandle
+        : null;
+      if (
+        !appSessionId
+        || gjcProcess?.aborted
+        || gjcProcess?.abortPending
+      ) {
         return;
       }
+      if (code === 0 && !error) {
+        if (!completionKey) {
+          return;
+        }
+        return notifyStopped({
+          userId: writer?.userId || null,
+          provider: PROVIDER,
+          sessionId: appSessionId,
+          sessionName: sessionSummary,
+          stopReason: 'completed',
+          completionKey,
+        });
+      }
 
-      notifyFailed({
+      return notifyFailed({
         userId: writer?.userId || null,
         provider: PROVIDER,
-        sessionId: finalSessionId,
+        sessionId: appSessionId,
         sessionName: sessionSummary,
         error: error || `gjc CLI exited with code ${code}`,
       });
@@ -852,20 +874,24 @@ export function spawnGjcWithRuntime(message, options = {}, writer, runtime = {})
           }
         }
 
-        try {
-          notifyTerminalState({ code, error });
-        } catch {
-          // Notification failures cannot prevent run settlement.
-        }
         if (!error && code === 0) {
           resolve();
-          return;
+        } else {
+          reject(error || new Error(
+            code === null
+              ? 'gjc CLI process was terminated'
+              : `gjc CLI exited with code ${code}`,
+          ));
         }
-        reject(error || new Error(
-          code === null
-            ? 'gjc CLI process was terminated'
-            : `gjc CLI exited with code ${code}`,
-        ));
+        void Promise.resolve()
+          .then(() => notifyTerminalState({ code, error }))
+          .catch(() => {
+            try {
+              diagnostic('terminal notification failed.');
+            } catch {
+              // Diagnostics must never interfere with provider settlement.
+            }
+          });
       })();
       return terminalPromise;
     };

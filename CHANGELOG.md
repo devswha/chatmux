@@ -4,31 +4,45 @@ All notable changes to ChatMux are documented in this file. Current and
 future server artifacts are published only through
 [GitHub Releases](https://github.com/devswha/chatmux/releases).
 
-## 1.4.2 (2026-07-27)
+## 1.4.2 (2026-07-28)
 
 ### Added
 
-- `chatmux status` now reports the active access mode and the address that
-  actually works: the Tailscale Serve URL in tailscale mode, the tunnel bind
-  address in VPN mode, and loopback plus LAN addresses in password mode.
-  It previously named `localhost` regardless of mode, which was wrong for
-  every remote configuration.
-- When Tailscale is already running, the install summary names
-  `chatmux access enable tailscale` as the ready next step. Detection only
-  changes the wording; the installed mode is still identical on every machine.
-- `chatmux access enable tailscale|vpn` states that the LAN address printed at
-  install stops working, because those modes rebind the backend to loopback.
+- Per-session completion bells now deliver durable PWA push notifications when
+  an agent reply is ready for the next user input. Target resolution, optimistic
+  concurrency, pause/resume, endpoint ownership, lifecycle cleanup, durable
+  outbox replay, and provider-specific terminal-state handling are covered by
+  server and browser contracts.
+- `chatmux browser-mcp-cleanup` provides explicit apply/rollback cleanup for
+  managed Browser MCP provider entries after the browser automation product
+  surface was removed.
+- `chatmux status` reports the active access mode and the address that actually
+  works: the Tailscale Serve URL, the VPN bind address, or loopback plus LAN
+  addresses in password mode.
+
+### Changed
+
+- A running, logged-in Tailscale daemon is now the automatic install path.
+  ChatMux binds only to loopback, configures a private Serve HTTPS front, prints
+  that URL and QR code, and trusts the Tailscale identity allowlist instead of
+  creating a ChatMux username/password credential. The install output tells
+  phone users to enable Tailscale before scanning and keep it connected.
+- Hosts without Tailscale retain the password-protected LAN fallback with its
+  one-time owner password and LAN QR.
+- The product surface was narrowed to agent sessions and the supporting
+  self-hosted runtime. Browser automation, Task Master/PRD, project creation
+  wizard, plugin UI/runtime, MCP and skills settings UI, voice, file-tree
+  management, and the Git panel were removed together with their server routes
+  and obsolete locale/storage scaffolding.
 
 ### Fixed
 
-- On a machine with no VPN interface — the normal first install — the summary
-  no longer points at a "tunnel address above" that was never printed. The
-  `Reach` line now states the two paths that actually work from outside the
-  local network and what each one costs, and tunnel addresses say plainly
-  that they only work while that VPN is connected.
-- The `Access` line explains the password session in one sentence instead of
-  listing mode-switch commands a first-time user has no basis to choose
-  between.
+- Completion detection now distinguishes reply-ready state from process or pane
+  exit, preserves queued delivery across restart and pause, and fails closed on
+  ambiguous external-session identity.
+- Install summaries no longer advertise unusable tunnel/LAN addresses, and
+  `chatmux access enable tailscale|vpn` explains when a previous LAN QR stops
+  working.
 
 ## 1.4.1 (2026-07-27)
 

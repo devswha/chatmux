@@ -9,7 +9,6 @@ import { Octokit } from '@octokit/rest';
 
 import { apiKeysDb, githubTokensDb, projectsDb } from '../modules/database/index.js';
 import { queryClaudeSDK } from '../claude-sdk.js';
-import { spawnCursor } from '../cursor-cli.js';
 import { queryCodex } from '../openai-codex.js';
 import { spawnOpenCode } from '../opencode-cli.js';
 import { spawnGjc } from '../gjc-worker-client.js';
@@ -601,7 +600,7 @@ class ResponseCollector {
  *                          - Source for auto-generated branch names (if createBranch=true and no branchName)
  *                          - Fallback for PR title if no commits are made
  *
- * @param {string} provider - (Optional) AI provider to use. Options: 'claude' | 'cursor' | 'codex' | 'opencode'
+ * @param {string} provider - (Optional) AI provider to use. Options: 'claude' | 'codex' | 'opencode' | 'gjc'
  *                           Default: 'claude'
  *
  * @param {boolean} stream - (Optional) Enable Server-Sent Events (SSE) streaming for real-time updates.
@@ -612,10 +611,6 @@ class ResponseCollector {
  * @param {string} model - (Optional) Model identifier for providers.
  *
  *                        Claude models: 'default', 'sonnet', 'opus', 'haiku', 'sonnet[1m]', 'opus[1m]', 'fable'
- *                        Cursor models: 'gpt-5' (default), 'gpt-5.2', 'gpt-5.2-high', 'sonnet-4.5', 'opus-4.5',
- *                                       'composer-1', 'auto', 'gpt-5.1', 'gpt-5.1-high',
- *                                       'gpt-5.1-codex', 'gpt-5.1-codex-high', 'gpt-5.1-codex-max',
- *                                       'gpt-5.1-codex-max-high', 'opus-4.1', 'grok', and thinking variants
  *                        Codex models: 'gpt-5.4' (default), 'gpt-5.5', 'gpt-5.4-mini'
  *
  * @param {string} effort - (Optional) Reasoning effort for providers/models that support it.
@@ -724,7 +719,7 @@ class ResponseCollector {
  * Input Validations (400 Bad Request):
  *   - Either githubUrl OR projectPath must be provided (not neither)
  *   - message must be non-empty string
- *   - provider must be 'claude', 'cursor', 'codex', or 'opencode'
+ *   - provider must be 'claude', 'codex', 'opencode', or 'gjc'
  *   - createBranch/createPR requires githubUrl OR projectPath (not neither)
  *   - branchName must pass Git naming rules (if provided)
  *
@@ -835,9 +830,10 @@ router.post('/', validateExternalApiKey, async (req, res) => {
     return res.status(400).json({ error: 'message is required' });
   }
 
-  if (!['claude', 'cursor', 'codex', 'opencode', 'gjc'].includes(provider)) {
-    return res.status(400).json({ error: 'provider must be "claude", "cursor", "codex", "opencode", or "gjc"' });
+  if (!['claude', 'codex', 'opencode', 'gjc'].includes(provider)) {
+    return res.status(400).json({ error: 'provider must be "claude", "codex", "opencode", or "gjc"' });
   }
+  const runHandle = crypto.randomUUID();
 
   // Validate GitHub branch/PR creation requirements
   // Allow branch/PR creation with projectPath as long as it has a GitHub remote
@@ -930,26 +926,16 @@ router.post('/', validateExternalApiKey, async (req, res) => {
         permissionMode: 'bypassPermissions' // Bypass all permissions for API calls
       }, writer);
 
-    } else if (provider === 'cursor') {
-      console.log('🖱️ Starting Cursor CLI session');
-
-      await spawnCursor(message.trim(), {
-        projectPath: finalProjectPath,
-        cwd: finalProjectPath,
-        sessionId: sessionId || null,
-        model: model || undefined,
-        skipPermissions: true // Bypass permissions for Cursor
-      }, writer);
     } else if (provider === 'codex') {
       console.log('🤖 Starting Codex SDK session');
-
       await queryCodex(message.trim(), {
         projectPath: finalProjectPath,
         cwd: finalProjectPath,
         sessionId: sessionId || null,
         model: model || codexModels.DEFAULT,
         effort,
-        permissionMode: 'bypassPermissions'
+        permissionMode: 'bypassPermissions',
+        runHandle,
       }, writer);
     } else if (provider === 'opencode') {
       console.log('Starting OpenCode CLI session');
@@ -960,7 +946,8 @@ router.post('/', validateExternalApiKey, async (req, res) => {
         sessionId: sessionId || null,
         model: model || opencodeModels.DEFAULT,
         effort,
-        permissionMode: 'bypassPermissions' // Agent runs are non-interactive, like the other providers above
+        permissionMode: 'bypassPermissions', // Agent runs are non-interactive, like the other providers above
+        runHandle,
       }, writer);
     } else if (provider === 'gjc') {
       console.log('🦞 Starting gjc headless session');

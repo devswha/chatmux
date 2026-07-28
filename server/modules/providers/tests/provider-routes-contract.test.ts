@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { chmod, mkdtemp, stat, writeFile } from 'node:fs/promises';
+import { access, chmod, mkdtemp, stat, writeFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
@@ -74,7 +74,7 @@ const { authenticateToken, generateToken, AUTH_MODE } = await import('@/middlewa
 assert.equal(AUTH_MODE, 'password');
 const { default: providerRoutes } = await import('../provider.routes.js');
 const { getCurrentTmuxPaneIdentityState } = await import('../services/external-cli-sessions.service.js');
-const { initializeDatabase, userDb } = await import('@/modules/database/index.js');
+const { initializeDatabase, sessionsDb, userDb } = await import('@/modules/database/index.js');
 
 type ApiError = { error?: string; code?: string };
 type ApiResponse = { status: number; body: ApiError & { success?: boolean; data?: Record<string, unknown> } };
@@ -166,6 +166,78 @@ test('provider routes enforce bearer-only password authentication and reject mal
   const payload = Buffer.from(JSON.stringify({ userId: 1, username: 'expired', tokenVersion: 0, exp: 1 })).toString('base64url');
   const expired = `${header}.${payload}.${createHmac('sha256', process.env.JWT_SECRET!).update(`${header}.${payload}`).digest('base64url')}`;
   assert.equal((await request('/sessions/live/commands', undefined, `Bearer ${expired}`)).status, 403);
+});
+
+test('archive session routes are removed and deletion is permanent', async () => {
+  assert.equal((await request('/sessions/archived')).status, 404);
+  assert.equal((await request('/sessions/missing/restore', {})).status, 404);
+
+  const transcriptPath = path.join(fixtureBin, 'delete-session.jsonl');
+  await writeFile(transcriptPath, '{"type":"message"}\n');
+  const sessionId = sessionsDb.createSession(
+    'delete-provider-session',
+    'claude',
+    '/workspace/provider-delete-contract',
+    'Delete me',
+    undefined,
+    undefined,
+    transcriptPath,
+  );
+
+  const response = await fetch(`${baseUrl}/api/providers/sessions/${sessionId}`, {
+    method: 'DELETE',
+    headers: { authorization: `Bearer ${token}` },
+  });
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    success: true,
+    data: {
+      sessionId,
+      action: 'deleted',
+      deletedFromDisk: true,
+    },
+  });
+  assert.equal(sessionsDb.getSessionById(sessionId), null);
+  await assert.rejects(
+    access(transcriptPath),
+    (error: NodeJS.ErrnoException) => error.code === 'ENOENT',
+  );
+});
+
+test('session deletion rejects a transcript shared with another session', async () => {
+  const transcriptPath = path.join(fixtureBin, 'shared-delete-session.jsonl');
+  await writeFile(transcriptPath, '{"type":"message"}\n');
+  const targetSessionId = sessionsDb.createSession(
+    'shared-delete-target',
+    'claude',
+    '/workspace/provider-shared-delete',
+    undefined,
+    undefined,
+    undefined,
+    transcriptPath,
+  );
+  const survivorSessionId = sessionsDb.createSession(
+    'shared-delete-survivor',
+    'claude',
+    '/workspace/provider-shared-delete',
+    undefined,
+    undefined,
+    undefined,
+    transcriptPath,
+  );
+
+  const response = await fetch(`${baseUrl}/api/providers/sessions/${targetSessionId}`, {
+    method: 'DELETE',
+    headers: { authorization: `Bearer ${token}` },
+  });
+  const body = await response.json() as { code?: string };
+
+  assert.equal(response.status, 409);
+  assert.equal(body.code, 'SESSION_TRANSCRIPT_SHARED');
+  assert.ok(sessionsDb.getSessionById(targetSessionId));
+  assert.ok(sessionsDb.getSessionById(survivorSessionId));
+  await access(transcriptPath);
 });
 
 test('auth-disabled mode accepts loopback provider requests without a bearer token', async () => {

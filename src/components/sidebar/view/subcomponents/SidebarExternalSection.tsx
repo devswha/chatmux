@@ -8,6 +8,8 @@ import type { ExternalCliSession, ExternalSessionActivity } from '../../hooks/us
 import SessionProviderLogo from '../../../llm-logo-provider/SessionProviderLogo';
 import { tmuxPaneIdentityKey } from '../../../../../shared/tmux';
 
+import SessionCompletionBell from './SessionCompletionBell';
+
 const KIND_LABEL: Record<ExternalCliSession['kind'], string> = {
   claude: 'Claude Code',
   codex: 'Codex CLI',
@@ -208,6 +210,18 @@ export default function SidebarExternalSection({ sessions, projects, onOpen, onC
         const canKill = !isAttachOnlyKind(session.kind) && session.process !== null;
         const activityBadgeForSession = canKill ? activityBadge(t, session.activity ?? 'unknown') : null;
         const isApprovalPending = canKill && session.activity === 'asking_user';
+        const completionDescriptor = (
+          (session.kind === 'claude' || session.kind === 'codex' || session.kind === 'opencode' || session.kind === 'omp')
+          && session.process
+        ) ? {
+          kind: 'external_generation' as const,
+          session: {
+            kind: session.kind,
+            tmux: session.tmux,
+            agentPid: session.process.pid,
+            startedAtMs: session.process.startedAtMs,
+          },
+        } : null;
         const sessionName = session.sessionName?.trim();
         const primary = session.tmuxName;
         const metadata = [
@@ -277,6 +291,9 @@ export default function SidebarExternalSection({ sessions, projects, onOpen, onC
                   <SquareTerminal className="mt-1 h-3.5 w-3.5 shrink-0 text-muted-foreground/60" aria-hidden />
                 )}
               </button>
+              {completionDescriptor && (
+                <SessionCompletionBell descriptor={completionDescriptor} className="m-1" />
+              )}
               {canKill && (
                 <button
                   type="button"

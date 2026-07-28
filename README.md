@@ -47,22 +47,25 @@ curl -fsSL https://github.com/devswha/chatmux/releases/latest/download/install.s
 
 It downloads the latest release, verifies its checksum, installs a private
 Node.js 22 runtime only if the machine needs one, and starts a user-level
-service that is phone-ready immediately: password login on every interface,
-owner account auto-created, one-time password and a QR code printed once. A
-successful install ends with:
+service. When the server is already logged into Tailscale, installation
+automatically configures private HTTPS access and uses the Tailscale identity
+instead of creating a ChatMux password:
 
 ```text
 ChatMux installation complete
   Local:  http://127.0.0.1:3001
-  Phone:  http://192.168.0.7:3001 — sign in from any browser, no app needed
-  Login:  owner / <one-time password>
-  Access: password — sessions renew on use; alternatives: chatmux access enable tailscale | enable vpn <address>
-  Manage: chatmux status | chatmux access password | journalctl --user -u chatmux.service
+  Phone:  https://server.example.ts.net:8443
+          Turn on Tailscale on your phone before scanning the QR, and keep it connected while using ChatMux.
+  Login:  Tailscale account owner@example.com — no ChatMux username or password
+  Access: Tailscale HTTPS — only allowed Tailscale accounts can connect
 ```
+
+Without a logged-in Tailscale daemon, installation falls back to a
+password-protected LAN address, one-time owner password, and LAN QR code.
 
 Then:
 
-1. Open the `Local` address in a browser (or the `Remote` address from your
+1. Open the `Local` address in a browser (or the `Phone` address from your
    phone). Running tmux agents appear in the sidebar automatically.
 2. On a phone, use the in-app **Install app** button to keep ChatMux as a PWA.
 3. Check `chatmux status` any time to see the configured addresses.
@@ -101,29 +104,29 @@ type into the real pane.
 | **Oh My Pi** | Yes | After its history is indexed | Prompts and `/skill:` skills | Yes |
 | **SSH tmux** | Yes | No — terminal only | Terminal keystrokes | No |
 
-Model pickers, reasoning levels, permissions, skills, and MCP controls appear
-only when the agent's CLI actually exposes them.
 
 <a id="remote-access"></a>
 ## Remote access
 
-Password access is on out of the box: sign in once from any browser and the
-session renews on use — devices that keep using ChatMux never re-login.
-Rotate or recover the password, or tune the mode, at any time:
+When Tailscale is running and logged in, the installer configures Tailscale
+Serve automatically. Approved tailnet accounts use the private HTTPS address
+without a separate ChatMux password; unapproved accounts are denied. Turn on
+Tailscale on the phone before scanning the install QR and keep it connected
+while using ChatMux.
+
+Without Tailscale, installation enables password access on the LAN. Sign in
+once from any browser and the session renews on use. Rotate or recover the
+password, or change the mode, at any time:
 
 ```bash
 chatmux access password                            # rotate/recover (signs out all sessions)
 chatmux access enable password --session-days 90   # longer idle window
+chatmux access enable tailscale                    # switch after Tailscale is available
 ```
 
-Same-Wi-Fi devices connect immediately; for the public internet, forward the
-TCP port and put a TLS proxy in front (see
+Password-mode devices on the same Wi-Fi connect immediately; for the public
+internet, forward the TCP port and put a TLS proxy in front (see
 [docs/INSTALL.md](docs/INSTALL.md)).
-
-`chatmux access enable tailscale` configures Tailscale Serve without exposing
-the backend beyond `127.0.0.1`. Approved tailnet accounts use the private
-HTTPS address without a separate ChatMux password; unapproved accounts are
-denied.
 
 ```bash
 chatmux access users
@@ -192,8 +195,8 @@ the tmux session identifier is rechecked before relay or termination.
 
 | Tab | Controls |
 |---|---|
-| **Agents** | CLI installation and authentication, provider permissions, MCP, and skills |
-| **Appearance** | Theme, language, thinking/raw parameters, send key, voice input, project order, and editor behavior |
+| **Agents** | CLI installation and authentication, and provider permissions |
+| **Appearance** | Theme, language, thinking/raw parameters, send key, project order, and editor behavior |
 | **API & Tokens** | ChatMux API keys and GitHub credentials |
 | **Access** | Tailscale HTTPS address, current identity, owner, and allowed accounts |
 

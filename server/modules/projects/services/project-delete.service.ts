@@ -4,6 +4,10 @@ import path from 'node:path';
 import { projectsDb, sessionsDb } from '@/modules/database/index.js';
 import { AppError } from '@/shared/utils.js';
 
+function normalizeJsonlPath(filePath: string): string {
+  return path.isAbsolute(filePath) ? path.normalize(filePath) : path.resolve(filePath);
+}
+
 function uniqueJsonlPathsFromSessions(
   sessions: Array<{ jsonl_path: string | null }>,
 ): string[] {
@@ -15,7 +19,7 @@ function uniqueJsonlPathsFromSessions(
     if (!raw) {
       continue;
     }
-    const absolute = path.isAbsolute(raw) ? path.normalize(raw) : path.resolve(raw);
+    const absolute = normalizeJsonlPath(raw);
     if (seen.has(absolute)) {
       continue;
     }
@@ -30,11 +34,10 @@ async function unlinkJsonlIfExists(filePath: string): Promise<void> {
   try {
     await fs.unlink(filePath);
   } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code === 'ENOENT') {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       return;
     }
-    console.warn(`[project-delete] Failed to remove ${filePath}:`, (error as Error).message);
+    throw error;
   }
 }
 
@@ -42,8 +45,24 @@ async function unlinkJsonlIfExists(filePath: string): Promise<void> {
  * Loads all session rows for the project path and removes each distinct `jsonl_path` file on disk.
  */
 export async function deleteSessionJsonlFilesForProjectPath(projectPath: string): Promise<void> {
-  const sessions = sessionsDb.getSessionsByProjectPathIncludingArchived(projectPath);
+  const sessions = sessionsDb.getSessionsByProjectPath(projectPath);
   const paths = uniqueJsonlPathsFromSessions(sessions);
+  const deletingSessionIds = new Set(sessions.map((session) => session.session_id));
+  const deletingPaths = new Set(paths);
+  const sharedOwner = sessionsDb.getAllSessions().find((session) => {
+    const rawPath = session.jsonl_path?.trim();
+    if (deletingSessionIds.has(session.session_id) || !rawPath) {
+      return false;
+    }
+    return deletingPaths.has(normalizeJsonlPath(rawPath));
+  });
+
+  if (sharedOwner) {
+    throw new AppError('A project transcript is shared with a session outside this project.', {
+      code: 'PROJECT_TRANSCRIPT_SHARED',
+      statusCode: 409,
+    });
+  }
 
   for (const filePath of paths) {
     await unlinkJsonlIfExists(filePath);
@@ -51,40 +70,18 @@ export async function deleteSessionJsonlFilesForProjectPath(projectPath: string)
 }
 
 /**
- * - **Soft delete** (`force` false): set `isArchived` on the `projects` row (hide from the active list; DB only).
- * - **Force** (`force` true): for each session row for that `project_path`, delete the file at `jsonl_path`
- *   (when set), then remove session rows and the `projects` row.
+ * Permanently deletes a project, its session rows, and their transcript files.
  */
-export async function deleteOrArchiveProject(projectId: string, force: boolean): Promise<void> {
+export async function deleteProject(projectId: string): Promise<void> {
   const row = projectsDb.getProjectById(projectId);
   if (!row) {
     throw new AppError(`Unknown projectId: ${projectId}`, {
       code: 'PROJECT_NOT_FOUND',
       statusCode: 404,
     });
-  }
-
-  if (!force) {
-    projectsDb.updateProjectIsArchivedById(projectId, true);
-    return;
   }
 
   await deleteSessionJsonlFilesForProjectPath(row.project_path);
   sessionsDb.deleteSessionsByProjectPath(row.project_path);
   projectsDb.deleteProjectById(projectId);
-}
-
-/**
- * Restores one archived project row back into the active project list.
- */
-export function restoreArchivedProject(projectId: string): void {
-  const row = projectsDb.getProjectById(projectId);
-  if (!row) {
-    throw new AppError(`Unknown projectId: ${projectId}`, {
-      code: 'PROJECT_NOT_FOUND',
-      statusCode: 404,
-    });
-  }
-
-  projectsDb.updateProjectIsArchivedById(projectId, false);
 }

@@ -1,7 +1,12 @@
-import { createHash } from 'node:crypto';
 
-import { userDb } from '@/modules/database/index.js';
-import { notifyLiveTurnEnded } from '@/modules/notifications/services/notification-orchestrator.service.js';
+import {
+  completionExternalGenerationIdentityFromSession,
+  completionExternalGenerationIdentityKey,
+  completionExternalGenerationPaneEvidenceKey,
+  completionNotificationOutboxDb,
+  completionNotificationTargetsDb,
+  userDb,
+} from '@/modules/database/index.js';
 import {
   getExternalCliSessionsDetailed,
   resolveExternalSessionActivity,
@@ -10,23 +15,27 @@ import {
   type ExternalSessionActivityResolutionResult,
 } from '@/modules/providers/index.js';
 
-import { tmuxPaneIdentityKey } from '../../../../shared/tmux.js';
+import { wakeCompletionOutboxDispatcher } from './completion-outbox-dispatcher.service.js';
+import {
+  completionTargetResolver,
+  isSupportedExternalCompletionProvider,
+  type CompletionTargetResolution,
+} from './completion-target-resolver.service.js';
+
+type TerminalCompletionDecision = Parameters<typeof completionNotificationOutboxDb.recordTerminalDecision>[0];
+type TerminalCompletionDecisionResult = ReturnType<typeof completionNotificationOutboxDb.recordTerminalDecision>;
+type GenerationObservation = Parameters<typeof completionNotificationTargetsDb.observeGeneration>[2];
 
 const DEFAULT_INTERVAL_MS = 5000;
-const TRACKED_KINDS = new Set(['claude', 'codex', 'cursor', 'opencode', 'omp']);
-
-// A pane whose transcript cannot be located fails identically on every poll
-// (e.g. a codex launched without a recoverable native session id). After two
-// straight failures the retry interval doubles per failure up to the cap, so
-// a dead-end pane costs one read per ten minutes instead of one per tick.
-// Any successful read, fresh process generation, or late native-id binding
-// resets the schedule immediately.
-const READ_BACKOFF_MIN_FAILURES = 2;
-const READ_BACKOFF_BASE_MS = 10_000;
-const READ_BACKOFF_MAX_MS = 600_000;
 
 type ResolvedActivity = Extract<ExternalSessionActivityResolutionResult, { status: 'resolved' }>;
-/** Stable, sensitive-data-free state-machine diagnostic codes. */
+type MonitorResolvedActivity = ResolvedActivity & {
+  terminalOutcome: NonNullable<ResolvedActivity['terminalOutcome']>;
+  evidenceCursor: NonNullable<ResolvedActivity['evidenceCursor']>;
+  evidenceDigest: NonNullable<ResolvedActivity['evidenceDigest']>;
+};
+
+
 export const EXTERNAL_TURN_MONITOR_DIAGNOSTIC_CODES = [
   'baselined',
   'late_id_rebaselined',
@@ -37,30 +46,76 @@ export const EXTERNAL_TURN_MONITOR_DIAGNOSTIC_CODES = [
   'pruned',
   'discovery_unavailable',
   'read_unavailable',
+  'decision_unavailable',
   'provider_id_conflict',
   'generation_reset',
+  'user_lookup_unavailable',
+  'unexpected_tick_failure',
 ] as const;
 
 const PRODUCTION_DIAGNOSTIC_INTERVAL_MS = 60_000;
 const PRODUCTION_EXCEPTIONAL_DIAGNOSTIC_CODES = new Set<ExternalTurnMonitorDiagnosticCode>([
   'discovery_unavailable',
   'read_unavailable',
+  'decision_unavailable',
   'provider_id_conflict',
+  'user_lookup_unavailable',
+  'unexpected_tick_failure',
 ]);
 
 export type ExternalTurnMonitorDiagnosticCode = (typeof EXTERNAL_TURN_MONITOR_DIAGNOSTIC_CODES)[number];
-
-/** Diagnostic payloads intentionally omit native IDs, pane identities, and transcript data. */
 export type ExternalTurnMonitorDiagnostic = Readonly<{
   code: ExternalTurnMonitorDiagnosticCode;
   provider?: string;
   tmuxName?: string;
   count: number;
 }>;
-
 export type ExternalTurnMonitorStats = Readonly<Record<ExternalTurnMonitorDiagnosticCode, number>>;
 
 type DiagnosticContext = Pick<ExternalTurnMonitorDiagnostic, 'provider' | 'tmuxName'>;
+type ResolveTargets = (detailed: ExternalCliSessionsDetailedResult, userId: number) => CompletionTargetResolution[];
+type ObserveGeneration = (
+  generationTargetId: number,
+  evidenceCursor: string,
+  observation: GenerationObservation,
+) => ReturnType<typeof completionNotificationTargetsDb.observeGeneration>;
+type CreateTerminalDecision = (input: TerminalCompletionDecision) => TerminalCompletionDecisionResult;
+type TouchObservedGenerations = Parameters<typeof completionNotificationTargetsDb.touchObservedGenerations>[0] extends infer Observations
+  ? (observations: Observations, lastSeenAt: number) => void
+  : never;
+type ListStaleGenerationCandidates = (cutoff: number) => Array<{
+  generationTargetId: number;
+  paneEvidenceKey: string;
+  lastSeenAt: number;
+}>;
+type PruneStaleGenerationCandidates = (cutoff: number, approvedGenerationTargetIds: readonly number[]) => number;
+type GenerationCount = () => number;
+type ListGenerationTargets = () => Array<{ id: number; identityKey: string }>;
+
+type MonitorDeps = {
+  getDetailed: () => Promise<ExternalCliSessionsDetailedResult>;
+  resolve: (session: ExternalCliSession) => Promise<ExternalSessionActivityResolutionResult>;
+  getUserId: () => number | null;
+    resolveTargets?: ResolveTargets;
+    observeGeneration?: ObserveGeneration;
+    createTerminalDecision?: CreateTerminalDecision;
+    listGenerationTargets?: ListGenerationTargets;
+    touchObservedGenerations?: TouchObservedGenerations;
+    listStaleGenerationCandidates?: ListStaleGenerationCandidates;
+    pruneStaleGenerationCandidates?: PruneStaleGenerationCandidates;
+    generationCount?: GenerationCount;
+  wake?: () => void;
+  diagnostic?: (event: ExternalTurnMonitorDiagnostic) => void;
+  now?: () => number;
+  /** @deprecated Durable outbox decisions replace callback notifications. */
+  notify?: (args: {
+    userId: number;
+    provider: string;
+    sessionId: string | null;
+    tmuxName: string;
+    completionKey: string;
+  }) => void;
+};
 
 function diagnosticContext(session: ExternalCliSession): DiagnosticContext {
   return {
@@ -71,182 +126,87 @@ function diagnosticContext(session: ExternalCliSession): DiagnosticContext {
 
 function createRateLimitedProductionDiagnosticSink(): (event: ExternalTurnMonitorDiagnostic) => void {
   const lastReportedAt = new Map<string, number>();
-
   return (event) => {
     if (!PRODUCTION_EXCEPTIONAL_DIAGNOSTIC_CODES.has(event.code)) return;
-
-    const rateLimitKey = `${event.code}\u0000${event.provider ?? ''}`;
+    const key = `${event.code}\u0000${event.provider ?? ''}`;
+    const previous = lastReportedAt.get(key);
     const now = Date.now();
-    const previous = lastReportedAt.get(rateLimitKey);
     if (previous !== undefined && now - previous < PRODUCTION_DIAGNOSTIC_INTERVAL_MS) return;
-
-    lastReportedAt.set(rateLimitKey, now);
-    const provider = event.provider ? ` for ${event.provider}` : '';
-    console.warn(`External turn monitor diagnostic: ${event.code}${provider} (count ${event.count}).`);
+    lastReportedAt.set(key, now);
+    console.warn(`External turn monitor diagnostic: ${event.code}${event.provider ? ` for ${event.provider}` : ''} (count ${event.count}).`);
   };
 }
 
-type MonitorDeps = {
-  getDetailed: () => Promise<ExternalCliSessionsDetailedResult>;
-  resolve: (session: ExternalCliSession) => Promise<ExternalSessionActivityResolutionResult>;
-  notify: (args: {
-    userId: number;
-    provider: string;
-    sessionId: string | null;
-    tmuxName: string;
-    completionKey: string;
-  }) => void;
-  getUserId: () => number | null;
-  diagnostic?: (event: ExternalTurnMonitorDiagnostic) => void;
-  now?: () => number;
-};
-
-type GenerationState = {
-  paneKey: string;
-  provider: string;
-  tmuxName?: string;
-  providerSessionId: string | null;
-  armed: boolean;
-  ordinal: number;
-  readFailures: number;
-  nextReadAtMs: number;
-};
-
-function providerSessionId(value: unknown): string | null {
-  return typeof value === 'string' && value.trim() ? value.trim() : null;
-}
-
-function observedPaneKey(session: ExternalCliSession): string | null {
-  if (
-    !TRACKED_KINDS.has(session.kind)
-    || !session.tmux
-    || typeof session.tmux.socketPath !== 'string'
-    || !session.tmux.socketPath
-    || typeof session.tmux.sessionId !== 'string'
-    || !session.tmux.sessionId
-    || typeof session.tmux.windowId !== 'string'
-    || !session.tmux.windowId
-    || typeof session.tmux.paneId !== 'string'
-    || !session.tmux.paneId
-  ) {
-    return null;
-  }
-  return `${tmuxPaneIdentityKey(session.tmux)}\u0000${session.kind}`;
-}
-
-function generationKey(session: ExternalCliSession): string | null {
-  const paneKey = observedPaneKey(session);
-  if (
-    !paneKey
-    || typeof session.agentPid !== 'number'
-    || !Number.isSafeInteger(session.agentPid)
-    || session.agentPid <= 0
-    || typeof session.startedAtMs !== 'number'
-    || !Number.isFinite(session.startedAtMs)
-    || session.startedAtMs <= 0
-  ) {
-    return null;
-  }
-  return `${paneKey}\u0000${session.agentPid}\u0000${session.startedAtMs}`;
-}
-
-function completionKey(key: string, ordinal: number): string {
-  return `${createHash('sha256').update(key).digest('hex')}:${ordinal}`;
-}
-
-function asResolvedActivity(value: unknown): ResolvedActivity | null {
+function asResolvedActivity(value: unknown): MonitorResolvedActivity | null {
   if (!value || typeof value !== 'object') return null;
   const result = value as Partial<ResolvedActivity>;
   if (
     result.status !== 'resolved'
     || !['running', 'waiting_user', 'asking_user', 'unknown'].includes(result.activity ?? '')
-  ) {
-    return null;
-  }
-  return result as ResolvedActivity;
+    || !['reply_ready', 'failed', 'none', 'unknown'].includes(result.terminalOutcome ?? '')
+    || typeof result.evidenceCursor !== 'string'
+    || !result.evidenceCursor
+    || typeof result.evidenceDigest !== 'string'
+    || !result.evidenceDigest
+  ) return null;
+  return result as MonitorResolvedActivity;
 }
 
-function notificationSessionId(result: ResolvedActivity): string | null {
-  return providerSessionId(result.appSession?.session_id);
+function completionPayload(session: ExternalCliSession, target: CompletionTargetResolution['target']): TerminalCompletionDecision['payload'] {
+  const title = typeof session.tmuxName === 'string' && session.tmuxName.trim()
+    ? session.tmuxName.trim()
+    : 'ChatMux';
+  const label = session.kind === 'omp' ? 'Oh My Pi' : ({
+    claude: 'Claude',
+    codex: 'Codex',
+    opencode: 'OpenCode',
+  } as Record<string, string>)[session.kind] ?? 'Assistant';
+  return {
+    title,
+    body: `${label}: Reply ready`,
+    navigation: {
+      href: `/session/${encodeURIComponent(target.alias)}`,
+      title,
+    },
+  };
 }
 
 /**
- * DI-friendly state machine for externally started tmux coding CLIs. Discovery
- * and activity resolution are intentionally separate: an unavailable source
- * must preserve the last known generation rather than invent a completion.
+ * A durable monitor: every arm, baseline, terminal decision, and cursor update
+ * is transactionally stored against the exact external process generation.
  */
 export function createExternalTurnMonitor(deps: MonitorDeps) {
-  const generations = new Map<string, GenerationState>();
   let ticking = false;
   const stats = Object.fromEntries(
     EXTERNAL_TURN_MONITOR_DIAGNOSTIC_CODES.map((code) => [code, 0]),
   ) as Record<ExternalTurnMonitorDiagnosticCode, number>;
+  const resolveTargets = deps.resolveTargets ?? completionTargetResolver.resolveDetailedScan;
+  const observeGeneration = deps.observeGeneration ?? completionNotificationTargetsDb.observeGeneration.bind(completionNotificationTargetsDb);
+  const createTerminalDecision = deps.createTerminalDecision ?? completionNotificationOutboxDb.recordTerminalDecision.bind(completionNotificationOutboxDb);
+  const wake = deps.wake ?? wakeCompletionOutboxDispatcher;
+  const touchObservedGenerations = deps.touchObservedGenerations
+    ?? completionNotificationTargetsDb.touchObservedGenerations.bind(completionNotificationTargetsDb);
+  const listGenerationTargets = deps.listGenerationTargets
+    ?? completionNotificationTargetsDb.listGenerationTargets.bind(completionNotificationTargetsDb);
+  const listStaleGenerationCandidates = deps.listStaleGenerationCandidates
+    ?? completionNotificationTargetsDb.listStaleGenerationCandidates.bind(completionNotificationTargetsDb);
+  const pruneStaleGenerationCandidates = deps.pruneStaleGenerationCandidates
+    ?? completionNotificationTargetsDb.pruneStaleGenerationCandidates.bind(completionNotificationTargetsDb);
+  const generationCount = deps.generationCount
+    ?? completionNotificationTargetsDb.generationCount.bind(completionNotificationTargetsDb);
+  const readBackoff = new Map<string, {
+    failures: number;
+    nextReadAt: number;
+    providerBinding: string | null;
+  }>();
+  const now = deps.now ?? Date.now;
 
   const emitDiagnostic = (detail: Omit<ExternalTurnMonitorDiagnostic, 'count'>): void => {
     stats[detail.code] += 1;
     try {
       deps.diagnostic?.({ ...detail, count: stats[detail.code] });
     } catch {
-      // Diagnostics are observational and must not alter monitor state.
-    }
-  };
-
-  const diagnosticStats = (): ExternalTurnMonitorStats => Object.freeze({ ...stats });
-
-  const now = deps.now ?? Date.now;
-
-  const resetReadBackoff = (state: GenerationState): void => {
-    state.readFailures = 0;
-    state.nextReadAtMs = 0;
-  };
-
-  const noteReadFailure = (state: GenerationState, nowMs: number): void => {
-    state.readFailures += 1;
-    if (state.readFailures < READ_BACKOFF_MIN_FAILURES) return;
-    const exponent = state.readFailures - READ_BACKOFF_MIN_FAILURES;
-    const delayMs = Math.min(READ_BACKOFF_BASE_MS * 2 ** exponent, READ_BACKOFF_MAX_MS);
-    state.nextReadAtMs = nowMs + delayMs;
-  };
-
-  const observeResolved = (
-    key: string,
-    state: GenerationState,
-    session: ExternalCliSession,
-    resolved: ResolvedActivity,
-    userId: number,
-    silent: boolean,
-  ): void => {
-    const activity = resolved.transcriptEnded ? 'unknown' : resolved.activity;
-    if (activity === 'running') {
-      if (!state.armed) {
-        state.ordinal += 1;
-        state.armed = true;
-        emitDiagnostic({ code: 'armed', ...diagnosticContext(session) });
-      }
-      return;
-    }
-    if (activity === 'waiting_user') {
-      if (state.armed && !silent) {
-        deps.notify({
-          userId,
-          provider: session.kind,
-          sessionId: notificationSessionId(resolved),
-          tmuxName: session.tmuxName,
-          completionKey: completionKey(key, state.ordinal),
-        });
-        emitDiagnostic({ code: 'notified', ...diagnosticContext(session) });
-      }
-      state.armed = false;
-      return;
-    }
-    // A question is not a turn completion; unknown evidence is never one.
-    const wasArmed = state.armed;
-    state.armed = false;
-    if (wasArmed) {
-      emitDiagnostic({
-        code: activity === 'asking_user' ? 'disarmed_asking' : 'disarmed_unknown',
-        ...diagnosticContext(session),
-      });
+      // Diagnostics never affect durable state.
     }
   };
 
@@ -254,129 +214,221 @@ export function createExternalTurnMonitor(deps: MonitorDeps) {
     if (ticking) return;
     ticking = true;
     try {
-      const userId = deps.getUserId();
-      if (userId == null) return;
-
-      let discovered: ExternalCliSessionsDetailedResult;
+      let userId: number | null;
       try {
-        discovered = await deps.getDetailed();
-      } catch (error) {
-        emitDiagnostic({ code: 'discovery_unavailable' });
-        throw error;
+        userId = deps.getUserId();
+      } catch {
+        emitDiagnostic({ code: 'user_lookup_unavailable' });
+        return;
       }
-      if (!discovered?.ok || !Array.isArray(discovered.sessions)) {
+      if (userId == null) {
+        emitDiagnostic({ code: 'user_lookup_unavailable' });
+        return;
+      }
+
+      let detailed: ExternalCliSessionsDetailedResult;
+      try {
+        detailed = await deps.getDetailed();
+      } catch {
+        emitDiagnostic({ code: 'discovery_unavailable' });
+        return;
+      }
+      if (!detailed?.ok || !Array.isArray(detailed.sessions)) {
         emitDiagnostic({ code: 'discovery_unavailable' });
         return;
       }
 
-      const nowMs = now();
-      const seen = new Set<string>();
-      const seenPanes = new Set<string>();
-      for (const session of discovered.sessions) {
-        const paneKey = observedPaneKey(session);
-        if (!paneKey) continue;
-        seenPanes.add(paneKey);
-        const key = generationKey(session);
-        if (!key) continue;
-        seen.add(key);
-
-        for (const [existingKey, existingState] of generations) {
-          if (existingState.paneKey === paneKey && existingKey !== key) {
-            generations.delete(existingKey);
-            emitDiagnostic({ code: 'generation_reset', ...diagnosticContext(session) });
-          }
+      // One detailed discovery result feeds both durable target resolution and
+      // activity reads. An incomplete scan cannot authoritatively prove absence.
+      const completeScan = detailed.sessions.every((session) => (
+        !isSupportedExternalCompletionProvider(session)
+        || completionExternalGenerationIdentityFromSession(session) !== null
+      ));
+      let resolutions: CompletionTargetResolution[];
+      try {
+        resolutions = resolveTargets(detailed, userId);
+      } catch {
+        emitDiagnostic({ code: 'decision_unavailable' });
+        return;
+      }
+      const sessionsByIdentity = new Map<string, ExternalCliSession | null>();
+      const duplicateSessionIdentities = new Set<string>();
+      for (const session of detailed.sessions) {
+        const identity = completionExternalGenerationIdentityFromSession(session);
+        if (!identity) continue;
+        const identityKey = completionExternalGenerationIdentityKey(identity);
+        if (sessionsByIdentity.has(identityKey)) {
+          sessionsByIdentity.set(identityKey, null);
+          duplicateSessionIdentities.add(identityKey);
+        } else {
+          sessionsByIdentity.set(identityKey, session);
         }
-
-        const observedProviderSessionId = providerSessionId(session.providerSessionId);
-        let state = generations.get(key);
-        let silent = false;
-        if (!state) {
-          state = {
-            paneKey,
-            provider: session.kind,
-            tmuxName: typeof session.tmuxName === 'string' ? session.tmuxName : undefined,
-            providerSessionId: observedProviderSessionId,
-            armed: false,
-            ordinal: 0,
-            readFailures: 0,
-            nextReadAtMs: 0,
-          };
-          generations.set(key, state);
-          emitDiagnostic({ code: 'baselined', ...diagnosticContext(session) });
-        } else if (observedProviderSessionId) {
-          state.tmuxName = typeof session.tmuxName === 'string' ? session.tmuxName : undefined;
-          if (!state.providerSessionId) {
-            // First late native-id binding may reveal old transcript state.
-            // Rebaseline that observation so it cannot replay a completion.
-            state.providerSessionId = observedProviderSessionId;
-            state.armed = false;
-            silent = true;
-            resetReadBackoff(state);
-            emitDiagnostic({ code: 'late_id_rebaselined', ...diagnosticContext(session) });
-          } else if (state.providerSessionId !== observedProviderSessionId) {
-            // A changed native id for one process generation is ambiguous.
-            // Keep the previous state and wait for trustworthy evidence.
-            emitDiagnostic({ code: 'provider_id_conflict', ...diagnosticContext(session) });
-            continue;
-          }
+      }
+      const resolutionByIdentity = new Map<string, CompletionTargetResolution | null>();
+      const duplicateResolutionIdentities = new Set<string>();
+      for (const resolution of resolutions) {
+        const identityKey = resolution.generationIdentityKey;
+        if (resolutionByIdentity.has(identityKey)) {
+          resolutionByIdentity.set(identityKey, null);
+          duplicateResolutionIdentities.add(identityKey);
+        } else {
+          resolutionByIdentity.set(identityKey, resolution);
         }
-
-        // Backoff suppresses only the transcript read; discovery bookkeeping
-        // above (generation reset, pruning, id binding) always runs.
-        if (state.nextReadAtMs > nowMs) continue;
-
-        const resolverSession = state.providerSessionId && !observedProviderSessionId
-          ? { ...session, providerSessionId: state.providerSessionId }
-          : session;
-        let resolved: ResolvedActivity | null;
+      }
+      for (const identityKey of new Set([...duplicateSessionIdentities, ...duplicateResolutionIdentities])) {
+        const session = sessionsByIdentity.get(identityKey);
+        emitDiagnostic({
+          code: 'provider_id_conflict',
+          ...(session ? diagnosticContext(session) : {}),
+        });
+      }
+      const completeObservations: Array<{ generationTargetId: number; paneEvidenceKey: string }> = [];
+      const currentPaneRoster = new Set<string>();
+      const replacementGenerationIdsByPane = new Map<string, Set<number>>();
+      if (completeScan && duplicateSessionIdentities.size === 0 && duplicateResolutionIdentities.size === 0) {
         try {
-          resolved = asResolvedActivity(await deps.resolve(resolverSession));
+          const generationTargetsByIdentity = new Map(
+            listGenerationTargets().map((target) => [target.identityKey, target.id]),
+          );
+          for (const [identityKey, session] of sessionsByIdentity) {
+            if (!session) continue;
+            const paneEvidenceKey = completionExternalGenerationPaneEvidenceKey(session.tmux);
+            currentPaneRoster.add(paneEvidenceKey);
+            const generationTargetId = generationTargetsByIdentity.get(identityKey);
+            if (generationTargetId === undefined) continue;
+            completeObservations.push({ generationTargetId, paneEvidenceKey });
+            const replacementGenerationIds = replacementGenerationIdsByPane.get(paneEvidenceKey) ?? new Set<number>();
+            replacementGenerationIds.add(generationTargetId);
+            replacementGenerationIdsByPane.set(paneEvidenceKey, replacementGenerationIds);
+          }
+          touchObservedGenerations(completeObservations, now());
         } catch {
-          emitDiagnostic({ code: 'read_unavailable', ...diagnosticContext(resolverSession) });
-          noteReadFailure(state, nowMs);
+          emitDiagnostic({ code: 'decision_unavailable' });
+          return;
+        }
+      }
+
+      for (const [identityKey, resolution] of resolutionByIdentity) {
+        const session = sessionsByIdentity.get(identityKey);
+        if (!session || !resolution) continue;
+        const providerBinding = session.providerSessionId ?? null;
+        let backoff = readBackoff.get(identityKey);
+        if (backoff && backoff.providerBinding !== providerBinding) {
+          readBackoff.delete(identityKey);
+          backoff = undefined;
+        }
+        if (backoff && now() < backoff.nextReadAt) continue;
+
+        let result: MonitorResolvedActivity | null;
+        try {
+          result = asResolvedActivity(await deps.resolve({
+            ...session,
+            ...(resolution.appSessionId ? { completionAppSessionId: resolution.appSessionId } : {}),
+          }));
+        } catch {
+          result = null;
+        }
+        if (!result || (resolution.appSessionId && result.appSession?.session_id !== resolution.appSessionId)) {
+          emitDiagnostic({ code: 'read_unavailable', ...diagnosticContext(session) });
+          const failures = (backoff?.failures ?? 0) + 1;
+          readBackoff.set(identityKey, {
+            failures,
+            nextReadAt: now() + Math.min(600_000, 5_000 * (2 ** Math.max(0, failures - 2))),
+            providerBinding,
+          });
           continue;
         }
-        if (!resolved) {
-          emitDiagnostic({ code: 'read_unavailable', ...diagnosticContext(resolverSession) });
-          noteReadFailure(state, nowMs);
-          continue; // unavailable/invalid resolution preserves state
-        }
-        resetReadBackoff(state);
-        observeResolved(key, state, resolverSession, resolved, userId, silent);
-      }
+        readBackoff.delete(identityKey);
 
-      // Only a successful discovery pass proves a generation is gone. A pane
-      // with temporarily incomplete process metadata preserves its generation.
-      for (const [key, state] of generations) {
-        if (!seen.has(key) && !seenPanes.has(state.paneKey)) {
-          generations.delete(key);
-          emitDiagnostic({ code: 'pruned', provider: state.provider, tmuxName: state.tmuxName });
+        const outcome = result.terminalOutcome;
+        const cursor = result.evidenceCursor;
+        const activity = result.activity;
+        if (result.transcriptEnded) {
+          try {
+            observeGeneration(resolution.generationTargetId, cursor, 'unknown');
+          } catch {
+            emitDiagnostic({ code: 'decision_unavailable', ...diagnosticContext(session) });
+          }
+          continue;
+        }
+        if (activity === 'running') {
+          try {
+            const transition = observeGeneration(resolution.generationTargetId, cursor, 'running');
+            if (!transition.replay && transition.sequence !== null) {
+              emitDiagnostic({ code: 'armed', ...diagnosticContext(session) });
+            }
+          } catch {
+            emitDiagnostic({ code: 'decision_unavailable', ...diagnosticContext(session) });
+          }
+          continue;
+        }
+        if (outcome === 'reply_ready') {
+          try {
+            const decision = createTerminalDecision({
+              generationTargetId: resolution.generationTargetId,
+              evidenceCursor: cursor,
+              eventCode: 'reply_ready',
+              targetAliasSnapshot: resolution.target.alias,
+              payload: completionPayload(session, resolution.target),
+              now: now(),
+            });
+            if (decision.status === 'baselined') emitDiagnostic({ code: 'baselined', ...diagnosticContext(session) });
+            if (decision.status === 'decided') {
+              emitDiagnostic({ code: 'notified', ...diagnosticContext(session) });
+              if (decision.decisionIds.length > 0) wake();
+            }
+          } catch {
+            emitDiagnostic({ code: 'decision_unavailable', ...diagnosticContext(session) });
+          }
+          continue;
+        }
+        try {
+          observeGeneration(
+            resolution.generationTargetId,
+            cursor,
+            outcome === 'failed' ? 'failed' : activity === 'asking_user' ? 'asking' : 'unknown',
+          );
+        } catch {
+          emitDiagnostic({ code: 'decision_unavailable', ...diagnosticContext(session) });
         }
       }
+      if (completeScan && duplicateSessionIdentities.size === 0 && duplicateResolutionIdentities.size === 0) {
+        try {
+          const cutoff = now() - (30 * 24 * 60 * 60 * 1_000);
+          const completeGenerationIds = new Set(completeObservations.map(({ generationTargetId }) => generationTargetId));
+
+          const approvedGenerationTargetIds = listStaleGenerationCandidates(cutoff)
+            .filter((candidate) => {
+              if (completeGenerationIds.has(candidate.generationTargetId)) return false;
+              if (!currentPaneRoster.has(candidate.paneEvidenceKey)) return true;
+              return replacementGenerationIdsByPane.get(candidate.paneEvidenceKey)
+                ?.has(candidate.generationTargetId) === false;
+            })
+            .map(({ generationTargetId }) => generationTargetId);
+          const pruned = pruneStaleGenerationCandidates(cutoff, approvedGenerationTargetIds);
+          for (let index = 0; index < pruned; index += 1) emitDiagnostic({ code: 'pruned' });
+        } catch {
+          emitDiagnostic({ code: 'decision_unavailable' });
+        }
+      }
+    } catch {
+      emitDiagnostic({ code: 'unexpected_tick_failure' });
     } finally {
       ticking = false;
     }
   };
 
-  return { tick, generationCount: () => generations.size, stats: diagnosticStats };
+  return { tick, generationCount, stats: () => Object.freeze({ ...stats }) };
 }
 
-/**
- * Starts browser-independent Web Push monitoring for tmux CLIs. Self-host is
- * single-user, so completions route to the first configured user.
- */
 export function startExternalTurnMonitor(intervalMs = DEFAULT_INTERVAL_MS): (() => void) | null {
   if (process.env.CHATMUX_LIVE_NOTIFY === '0') return null;
-
   const monitor = createExternalTurnMonitor({
     getDetailed: getExternalCliSessionsDetailed,
     resolve: resolveExternalSessionActivity,
-    notify: ({ userId, provider, sessionId, tmuxName, completionKey: key }) =>
-      notifyLiveTurnEnded({ userId, provider, sessionId, tmuxName, completionKey: key }),
     getUserId: () => {
       try {
-        const user = userDb.getFirstUser();
-        return user ? user.id : null;
+        return userDb.getFirstUser()?.id ?? null;
       } catch {
         return null;
       }

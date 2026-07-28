@@ -1,0 +1,29 @@
+{
+  "run": "2026-07-28",
+  "origin": "http://127.0.0.1:4011",
+  "isolation": {"database": "/tmp/chatmux-pwa-qa/auth.db", "home": "/tmp/chatmux-pwa-qa/home"},
+  "liveHttp": [
+    {"case": "app-only status", "request": "POST /api/settings/completion-notifications/status (claude/qa-claude)", "status": 200, "result": "one_active, eligible; no external discovery was needed"},
+    {"case": "unsupported ordinary providers", "request": "app descriptors cursor/qa-cursor and omp/qa-omp", "status": 200, "result": "both not_found; no eligible target was exposed"},
+    {"case": "CAS", "request": "PUT completion-notifications with revision 1, then stale revision 1", "status": [200, 409], "result": "explicit enable moved revision 1 to 2; stale mutation returned revision_conflict"},
+    {"case": "global pause/device state", "request": "status before and after explicit watch mutation", "status": 200, "result": "globalPaused stayed true; watched intent persisted; device reported device_endpoint_missing"},
+    {"case": "descriptor validation", "request": "malformed external_generation", "status": 400, "result": "Invalid completion notification descriptor"}
+  ],
+  "focusedContractTests": {
+    "command": "./node_modules/.bin/tsx --tsconfig server/tsconfig.json --test server/routes/completion-notifications.test.ts server/modules/database/tests/completion-notification-lifecycle.integration.test.ts server/modules/notifications/tests/completion-outbox-dispatcher.test.ts server/modules/notifications/tests/external-turn-monitor.test.ts server/modules/providers/tests/external-session-activity.service.test.ts",
+    "artifact": "artifacts/pwa-notification-final-focused-tests.tap",
+    "passed": 54,
+    "covered": [
+      "app-only status skips discovery; external discovery failure returns 503 without target/watch mutation",
+      "one-scan external resolver, active/inactive/ambiguous states and raw identity redaction",
+      "structured target/watch CAS and idempotent replay",
+      "global pause/resume and queued-delivery preservation",
+      "subscription registration/ownership/unsubscribe isolation",
+      "archive/delete lifecycle, redirect/alias targets, restore-off",
+      "outbox acknowledgement false/shutdown, endpoint gone/permanent/transient classifications",
+      "first-terminal baseline, durable replay, unavailable evidence and two-state monitor behavior",
+      "OpenCode stop-only/error precedence, Cursor omission, OMP handling, prune scenarios"
+    ]
+  },
+  "environmentalLimitations": ["The local discovery source returned a confirmed empty valid external set, so a live external-unavailable 503 could not be forced without replacing server discovery. The focused route test exercised that fail-closed HTTP branch.", "No physical iOS installed-PWA execution or remote OS push delivery was attempted."]
+}

@@ -18,8 +18,9 @@ import {
   runInstallCli,
 } from './install-cli.js';
 import { chooseServePort, parseServePorts } from './tailscale-access.js';
+import { getTailscaleAccessConfig } from './tailscale-auth.js';
 
-test('install options are fixed to one local-only shape with a validated port', () => {
+test('install options use automatic access selection with a validated port', () => {
   assert.deepEqual(parseInstallOptions(['--yes', '--port=3010']), {
     yes: true,
     dryRun: false,
@@ -32,7 +33,7 @@ test('install options are fixed to one local-only shape with a validated port', 
   for (const removed of ['--tailscale', '--local', '--vpn', '--vpn=10.0.0.1', '--owner', '--owner=a@b.c', '--https-port']) {
     assert.throws(
       () => parseInstallOptions([removed]),
-      /always local-only.*chatmux access enable/s,
+      /selects Tailscale automatically.*password-protected LAN access/s,
       removed,
     );
   }
@@ -132,7 +133,7 @@ test('managed environment and systemd unit keep the backend loopback-only', () =
   assert.equal(escaped, 'WorkingDirectory=/home/test\\x20user/.chatmux/current');
 });
 
-test('install dry-run computes a local plan without writing or invoking systemd', async () => {
+test('install dry-run computes an automatic plan without writing or invoking systemd', async () => {
   const commands: string[] = [];
   await runInstallCli(['--yes', '--dry-run'], {
     appRoot: process.cwd(),
@@ -146,8 +147,7 @@ test('install dry-run computes a local plan without writing or invoking systemd'
       throw new Error('not installed');
     },
   });
-  // The tailscale probe is advisory (it only changes the Reach hint wording),
-  // so it is the single command a dry run may issue.
+  // Access detection is the single command a dry run may issue.
   assert.deepEqual(commands, ['tailscale status --json']);
 });
 
@@ -238,6 +238,86 @@ test('managed install writes a complete isolated service layout before enabling 
   });
   await initializeDatabase();
   assert.equal(userDb.getFirstUser()?.id, owner?.id);
+  closeConnection();
+});
+
+test('managed install automatically uses Tailscale identity and prints its HTTPS QR', async (t) => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'chatmux-install-tailscale-'));
+  const originalDatabasePath = process.env.DATABASE_PATH;
+  t.after(async () => {
+    if (originalDatabasePath === undefined) delete process.env.DATABASE_PATH;
+    else process.env.DATABASE_PATH = originalDatabasePath;
+    await fs.rm(home, { recursive: true, force: true });
+  });
+
+  const commands: string[] = [];
+  const output: string[] = [];
+  let serveConfigured = false;
+  const serveUrl = 'https://host.example.ts.net:8443';
+  const originalLog = console.log;
+  console.log = (...values: unknown[]) => {
+    output.push(values.map(String).join(' '));
+  };
+  try {
+    await runInstallCli(['--yes', '--port=39102'], {
+      appRoot: process.cwd(),
+      version: 'test',
+      home,
+      platform: 'linux',
+      arch: 'x64',
+      nodeVersion: '22.22.2',
+      healthCheck: async () => {},
+      run: async (command, args) => {
+        commands.push([command, ...args].join(' '));
+        if (command === 'tailscale' && args.join(' ') === 'status --json') {
+          return {
+            stdout: JSON.stringify({
+              BackendState: 'Running',
+              Self: { UserID: 42 },
+              User: { 42: { LoginName: 'owner@example.com' } },
+            }),
+            stderr: '',
+          };
+        }
+        if (command === 'tailscale' && args.join(' ') === 'serve status --json') {
+          return { stdout: JSON.stringify({ TCP: {} }), stderr: '' };
+        }
+        if (command === 'tailscale' && args.join(' ') === 'serve status') {
+          return {
+            stdout: serveConfigured
+              ? `${serveUrl} (tailnet only)\n|-- / proxy http://127.0.0.1:39102\n`
+              : '',
+            stderr: '',
+          };
+        }
+        if (command === 'tailscale' && args[0] === 'serve' && args.includes('--bg')) {
+          serveConfigured = true;
+          return { stdout: '', stderr: '' };
+        }
+        if (command === 'qrencode') return { stdout: 'QR\n', stderr: '' };
+        return { stdout: '', stderr: '' };
+      },
+    });
+  } finally {
+    console.log = originalLog;
+  }
+
+  const environment = await fs.readFile(path.join(home, '.chatmux', 'chatmux.env'), 'utf8');
+  const unit = await fs.readFile(path.join(home, '.config', 'systemd', 'user', 'chatmux.service'), 'utf8');
+  assert.match(environment, /^CHATMUX_AUTH=tailscale$/m);
+  assert.match(unit, /^Environment=HOST=127\.0\.0\.1$/m);
+  assert.ok(commands.includes('tailscale serve --bg --yes --https=8443 http://127.0.0.1:39102'));
+  assert.ok(commands.includes(`qrencode -t ANSIUTF8 ${serveUrl}`));
+  assert.match(output.join('\n'), /Turn on Tailscale on your phone before scanning the QR/);
+  assert.match(output.join('\n'), /no ChatMux username or password/);
+
+  const { initializeDatabase, closeConnection, userDb } = await import('@/modules/database/index.js');
+  await initializeDatabase();
+  assert.equal(userDb.hasUsers(), false, 'Tailscale installs must not create an application password account');
+  assert.deepEqual(getTailscaleAccessConfig(), {
+    owner: 'owner@example.com',
+    users: ['owner@example.com'],
+  });
   closeConnection();
 });
 

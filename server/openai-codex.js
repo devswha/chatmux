@@ -23,6 +23,16 @@ import { providerModelsService } from './modules/providers/services/provider-mod
 import { createCompleteMessage, createNormalizedMessage } from './shared/utils.js';
 
 const activeCodexSessions = new Map();
+function publishNotification(publish) {
+  try {
+    Promise.resolve(publish()).catch((error) => {
+      console.error('[Codex] Notification publication failed:', error);
+    });
+  } catch (error) {
+    console.error('[Codex] Notification publication failed:', error);
+  }
+}
+
 
 function readUsageNumber(value) {
   const parsed = Number(value);
@@ -234,6 +244,12 @@ export async function queryCodex(command, options = {}, ws) {
     images,
     permissionMode = 'default'
   } = options;
+  const completionKey = typeof options.runHandle === 'string' && options.runHandle.trim()
+    ? options.runHandle
+    : null;
+  const appSessionId = typeof ws?.getAppSessionId === 'function'
+    ? ws.getAppSessionId()
+    : options.appSessionId;
 
   const resolvedModel = await providerModelsService.resolveResumeModel(
     'codex',
@@ -345,13 +361,13 @@ export async function queryCodex(command, options = {}, ws) {
 
       if (event.type === 'turn.failed' && !terminalFailure) {
         terminalFailure = event.error || new Error('Turn failed');
-        notifyRunFailed({
+        publishNotification(() => notifyRunFailed({
           userId: ws?.userId || null,
           provider: 'codex',
           sessionId: capturedSessionId || sessionId || null,
           sessionName: sessionSummary,
           error: terminalFailure
-        });
+        }));
       }
 
       // Extract and send token usage if available (normalized to match Claude format)
@@ -374,14 +390,15 @@ export async function queryCodex(command, options = {}, ws) {
         actualSessionId: capturedSessionId || thread.id || sessionId || null,
         exitCode: terminalFailure ? 1 : 0,
       }));
-      if (!terminalFailure) {
-        notifyRunStopped({
+      if (!terminalFailure && completionKey) {
+        publishNotification(() => notifyRunStopped({
           userId: ws?.userId || null,
           provider: 'codex',
-          sessionId: capturedSessionId || sessionId || null,
+          sessionId: appSessionId,
           sessionName: sessionSummary,
-          stopReason: 'completed'
-        });
+          stopReason: 'completed',
+          completionKey,
+        }));
       }
     }
 
@@ -408,13 +425,13 @@ export async function queryCodex(command, options = {}, ws) {
         exitCode: 1,
       }));
       if (!terminalFailure) {
-        notifyRunFailed({
+        publishNotification(() => notifyRunFailed({
           userId: ws?.userId || null,
           provider: 'codex',
           sessionId: capturedSessionId || sessionId || null,
           sessionName: sessionSummary,
           error
-        });
+        }));
       }
     }
 

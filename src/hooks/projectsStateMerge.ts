@@ -15,7 +15,6 @@ export type SessionUpsertedEvent = ServerEvent & {
   } | null;
 };
 
-type ProjectSessionPage = Pick<Project, 'sessions' | 'sessionMeta'>;
 
 const DEFAULT_PROVIDER: LLMProvider = 'claude';
 
@@ -54,34 +53,10 @@ export const projectsHaveChanges = (
       || Boolean(nextProject.isStarred) !== Boolean(prevProject.isStarred)
       || serialize(nextProject.sessionMeta) !== serialize(prevProject.sessionMeta)
       || serialize(nextProject.sessions) !== serialize(prevProject.sessions)
-      || serialize(nextProject.taskmaster) !== serialize(prevProject.taskmaster)
     );
   });
 };
 
-export const mergeTaskMasterCache = (nextProjects: Project[], previousProjects: Project[]): Project[] => {
-  if (previousProjects.length === 0) {
-    return nextProjects;
-  }
-
-  const previousTaskMasterByProject = new Map(
-    previousProjects
-      .filter((project) => Boolean(project.taskmaster))
-      .map((project) => [project.projectId, project.taskmaster]),
-  );
-
-  return nextProjects.map((project) => {
-    const cachedTaskMasterInfo = previousTaskMasterByProject.get(project.projectId);
-    if (!cachedTaskMasterInfo) {
-      return project;
-    }
-
-    return {
-      ...project,
-      taskmaster: cachedTaskMasterInfo,
-    };
-  });
-};
 
 const getProjectSessions = (project: Project): ProjectSession[] => project.sessions ?? [];
 
@@ -139,25 +114,6 @@ export const mergeExpandedSessionPages = (previousProjects: Project[], incomingP
   });
 };
 
-export const mergeProjectSessionPage = (
-  existingProject: Project,
-  sessionsPage: ProjectSessionPage,
-): Project => {
-  const mergedProject: Project = {
-    ...existingProject,
-    sessions: mergeSessionProviderLists(existingProject.sessions ?? [], sessionsPage.sessions ?? []),
-  };
-
-  const totalSessions = Number(sessionsPage.sessionMeta?.total ?? existingProject.sessionMeta?.total ?? 0);
-  mergedProject.sessionMeta = {
-    ...existingProject.sessionMeta,
-    ...sessionsPage.sessionMeta,
-    total: totalSessions,
-    hasMore: countLoadedProjectSessions(mergedProject) < totalSessions,
-  };
-
-  return mergedProject;
-};
 
 const getSessionAliasIds = (event: SessionUpsertedEvent): Set<string> => {
   const ids = new Set<string>();
@@ -245,26 +201,4 @@ export const projectFromRegistration = (project: Project): Project => ({
   isStarred: project.isStarred,
   sessions: project.sessions ?? [],
   sessionMeta: project.sessionMeta ?? { hasMore: false, total: countLoadedProjectSessions(project) },
-  taskmaster: project.taskmaster,
 });
-
-export const removeSessionFromProject = (project: Project, sessionIdToDelete: string): Project => {
-  const sessions = project.sessions ?? [];
-  const nextSessions = sessions.filter((session) => session.id !== sessionIdToDelete);
-  if (nextSessions.length === sessions.length) {
-    return project;
-  }
-
-  const updatedProject: Project = {
-    ...project,
-    sessions: nextSessions,
-  };
-  const totalSessions = Math.max(0, Number(project.sessionMeta?.total ?? 0) - 1);
-  updatedProject.sessionMeta = {
-    ...project.sessionMeta,
-    total: totalSessions,
-    hasMore: countLoadedProjectSessions(updatedProject) < totalSessions,
-  };
-
-  return updatedProject;
-};

@@ -2,6 +2,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
+import {
+  completionExternalGenerationIdentityFromSession,
+  completionExternalGenerationIdentityKey,
+} from '@/modules/database/index.js';
 import { createExternalTurnMonitor } from '@/modules/notifications/index.js';
 import {
   createDiscoveryCollector,
@@ -150,10 +154,42 @@ async function runScenario(subscribers: number, subscriberPolling = false): Prom
     },
     resolve: async () => {
       monitorAdapterCalls += 1;
-      return { status: 'resolved' as const, activity: 'running' as const, appSession: null, transcriptEnded: false };
+      return {
+        status: 'resolved' as const,
+        activity: 'running' as const,
+        terminalOutcome: 'none' as const,
+        evidenceCursor: `running-${monitorAdapterCalls}`,
+        evidenceDigest: `digest-${monitorAdapterCalls}`,
+        appSession: null,
+        transcriptEnded: false,
+      };
     },
     notify: () => undefined,
     getUserId: () => 1,
+    resolveTargets: ((detailed: { sessions: Array<Record<string, unknown>> }) => detailed.sessions.map((session) => {
+      const identity = completionExternalGenerationIdentityFromSession(session as never)!;
+      return {
+        generationIdentityKey: completionExternalGenerationIdentityKey(identity),
+        generationTargetId: 1,
+        appSessionId: null,
+        target: { alias: 'cost-monitor' },
+        mappingState: 'none',
+      };
+    })) as never,
+    listGenerationTargets: () => [{
+      id: 1,
+      identityKey: completionExternalGenerationIdentityKey(completionExternalGenerationIdentityFromSession({
+        tmuxName: 'external-monitor',
+        tmux: { socketPath: '/tmp/test', sessionId: '$1', windowId: '@1', paneId: '%1' },
+        kind: 'claude',
+        agentPid: 101,
+        startedAtMs: 1,
+      })!),
+    }],
+    touchObservedGenerations: () => undefined,
+    listStaleGenerationCandidates: () => [],
+    pruneStaleGenerationCandidates: () => 0,
+    generationCount: () => 0,
   });
 
   resetHostCommandCounters();

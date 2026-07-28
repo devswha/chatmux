@@ -1,0 +1,23 @@
+✔ SessionCompletionBell renders only for authoritative eligible targets (12.516308ms)
+✔ SessionCompletionBell keeps disabling available while repair is offered separately (1.100597ms)
+✔ SessionCompletionBell limits repair to explicit device failures (6.013572ms)
+✔ SessionCompletionBell shows localized environmental guidance without a repair action (2.048978ms)
+✔ SessionCompletionBell announces errors without changing pressed owner intent (0.944432ms)
+✔ SessionCompletionBell composes paused status with concurrent error and pending state (0.974329ms)
+✔ SessionCompletionBell disables pending spinner motion when reduced motion is requested (0.465228ms)
+✔ SessionCompletionBell retains keyboard semantics and 44px touch targets (0.522677ms)
+✔ ordinary and live sidebar rows retain a watched bell immediately before their remove control (17.175484ms)
+✔ mobile sidebar rows render the bell immediately before delete, including live rows (3.170535ms)
+✔ processing rows retain the mobile completion bell while omitting mobile and desktop remove controls (1.68959ms)
+✔ ordinary OMP and Cursor providers omit the completion bell (1.863949ms)
+✔ live GJC rows place their bell immediately left of the lineage-authorized stop control (1.770622ms)
+✔ external agent rows place their bell immediately left of the stop X and omit attach-only providers (2.390102ms)
+✔ external completion bells follow the documented provider allowlist (8.112495ms)
+ℹ tests 15
+ℹ suites 0
+ℹ pass 15
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 428.812517

@@ -1,0 +1,79 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-07-27",
+  "durationSeconds": 120,
+  "samples": [
+    {
+      "at": 0,
+      "serverRoots": [
+        {
+          "pid": 2928754,
+          "cmd": "sh -c tsx --env-file-if-exists=.env --tsconfig server/tsconfig.json server/index.js"
+        },
+        {
+          "pid": 2928755,
+          "cmd": "node /home/devswha/workspace/chatmux/node_modules/.bin/tsx --env-file-if-exists=.env --tsconfig server/tsconfig.json server/index.js"
+        },
+        {
+          "pid": 2928766,
+          "cmd": "/home/devswha/.nvm/versions/node/v24.18.0/bin/node --require /home/devswha/workspace/chatmux/node_modules/tsx/dist/preflight.cjs --import file:///home/devswha/workspace/chatmux/node_modules/tsx/dist/loader.mjs --env-file-if-exists=.env server/index.js"
+        }
+      ],
+      "suspiciousDescendants": []
+    },
+    {
+      "at": 30,
+      "serverRoots": [
+        {
+          "pid": 2928754,
+          "cmd": "sh -c tsx --env-file-if-exists=.env --tsconfig server/tsconfig.json server/index.js"
+        },
+        {
+          "pid": 2928755,
+          "cmd": "node /home/devswha/workspace/chatmux/node_modules/.bin/tsx --env-file-if-exists=.env --tsconfig server/tsconfig.json server/index.js"
+        },
+        {
+          "pid": 2928766,
+          "cmd": "/home/devswha/.nvm/versions/node/v24.18.0/bin/node --require /home/devswha/workspace/chatmux/node_modules/tsx/dist/preflight.cjs --import file:///home/devswha/workspace/chatmux/node_modules/tsx/dist/loader.mjs --env-file-if-exists=.env server/index.js"
+        }
+      ],
+      "suspiciousDescendants": []
+    },
+    {
+      "at": 120,
+      "serverRoots": [
+        {
+          "pid": 2928754,
+          "cmd": "sh -c tsx --env-file-if-exists=.env --tsconfig server/tsconfig.json server/index.js"
+        },
+        {
+          "pid": 2928755,
+          "cmd": "node /home/devswha/workspace/chatmux/node_modules/.bin/tsx --env-file-if-exists=.env --tsconfig server/tsconfig.json server/index.js"
+        },
+        {
+          "pid": 2928766,
+          "cmd": "/home/devswha/.nvm/versions/node/v24.18.0/bin/node --require /home/devswha/workspace/chatmux/node_modules/tsx/dist/preflight.cjs --import file:///home/devswha/workspace/chatmux/node_modules/tsx/dist/loader.mjs --env-file-if-exists=.env server/index.js"
+        }
+      ],
+      "suspiciousDescendants": []
+    }
+  ],
+  "health": {
+    "status": 200,
+    "body": {
+      "status": "ok",
+      "product": "chatmux",
+      "protocolVersion": 1,
+      "timestamp": "2026-07-27T18:52:36.802Z",
+      "version": "1.4.2",
+      "bootId": "de094b0d-a00b-4bf5-8e41-db16f60c218b",
+      "installMode": "source"
+    }
+  },
+  "removedSubsystemLogErrors": [],
+  "thresholds": {
+    "suspiciousDescendants": 0,
+    "removedSubsystemLogErrors": 0
+  },
+  "passed": true
+}

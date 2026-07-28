@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "tool": "GJC browser / Chromium",
+  "surface": "web",
+  "url": "http://127.0.0.1:5181/",
+  "manifestHash": "6328b30e1ad06496a940b3f4308282b07e8c6fa51b773d5d60a0058415644e08",
+  "actions": [
+    {
+      "type": "goto",
+      "timestamp": "2026-07-27T19:25:53.266Z",
+      "url": "http://127.0.0.1:5181/",
+      "result": "Choose Your Project rendered"
+    },
+    {
+      "type": "custom",
+      "timestamp": "2026-07-27T19:25:53.275Z",
+      "target": "localStorage.activeTab",
+      "value": "browser"
+    },
+    {
+      "type": "goto",
+      "timestamp": "2026-07-27T19:25:55.509Z",
+      "url": "http://127.0.0.1:5181/",
+      "result": "activeTab normalized to chat after reload"
+    },
+    {
+      "type": "custom",
+      "timestamp": "2026-07-27T19:25:55.525Z",
+      "target": "#final-qa-redaction",
+      "result": "Exact standalone Git, Tasks, Browser, and Files controls absent; fixed sidebar privacy overlay installed"
+    },
+    {
+      "type": "screenshot",
+      "timestamp": "2026-07-27T19:25:55.627Z",
+      "selector": "#final-qa-redaction",
+      "path": "artifacts/final-qa-sidebar-redacted.png"
+    }
+  ],
+  "passed": true
+}

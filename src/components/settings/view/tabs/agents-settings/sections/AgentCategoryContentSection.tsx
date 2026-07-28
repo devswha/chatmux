@@ -1,8 +1,4 @@
 import type { AgentCategoryContentSectionProps } from '../types';
-import type { McpProject } from '../../../../../mcp/types';
-import { McpServers } from '../../../../../mcp';
-import type { SkillsProject } from '../../../../../skills/types';
-import { ProviderSkills } from '../../../../../skills';
 
 import AccountContent from './content/AccountContent';
 import PermissionsContent from './content/PermissionsContent';
@@ -17,7 +13,6 @@ export default function AgentCategoryContentSection({
   onCursorPermissionsChange,
   codexPermissionMode,
   onCodexPermissionModeChange,
-  projects,
 }: AgentCategoryContentSectionProps) {
   return (
     <div className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden p-3 md:p-4">
@@ -73,31 +68,6 @@ export default function AgentCategoryContentSection({
         />
       )}
 
-      {selectedCategory === 'mcp' && (
-        // SettingsProject.name is populated from the DB projectId by
-        // normalizeProjectForSettings, so we can map it straight through.
-        <McpServers
-          selectedProvider={selectedAgent}
-          currentProjects={projects.map<McpProject>((project) => ({
-            projectId: project.name,
-            displayName: project.displayName,
-            fullPath: project.fullPath,
-            path: project.path,
-          }))}
-        />
-      )}
-
-      {selectedCategory === 'skills' && selectedAgent !== 'opencode' && (
-        <ProviderSkills
-          selectedProvider={selectedAgent}
-          currentProjects={projects.map<SkillsProject>((project) => ({
-            projectId: project.name,
-            displayName: project.displayName,
-            fullPath: project.fullPath,
-            path: project.path,
-          }))}
-        />
-      )}
     </div>
   );
 }

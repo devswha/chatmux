@@ -3,7 +3,6 @@
   "tabs": {
     "account": "アカウント",
     "permissions": "権限",
-    "mcpServers": "MCPサーバー",
     "appearance": "外観"
   },
   "account": {
@@ -15,24 +14,6 @@
     "email": "メールアドレス",
     "profile": "プロフィール",
     "changePassword": "パスワードを変更"
-  },
-  "mcp": {
-    "title": "MCPサーバー",
-    "addServer": "サーバーを追加",
-    "editServer": "サーバーを編集",
-    "deleteServer": "サーバーを削除",
-    "serverName": "サーバー名",
-    "serverType": "サーバーの種類",
-    "config": "設定",
-    "testConnection": "接続テスト",
-    "status": "状態",
-    "connected": "接続済み",
-    "disconnected": "未接続",
-    "scope": {
-      "label": "スコープ",
-      "user": "ユーザー",
-      "project": "プロジェクト"
-    }
   },
   "appearance": {
     "title": "外観",
@@ -133,55 +114,6 @@
       "iosHint": "iOSでは、Safariの共有ボタンをタップして「ホーム画面に追加」を選択してください。",
       "browserMenuHint": "インストールプロンプトはまだ利用できません。代わりにブラウザメニューから「アプリをインストール」（Chrome/Edge）または「ホーム画面に追加」を選択してください。",
       "insecureHint": "アプリのインストールには安全な接続が必要です。HTTPSまたはlocalhostでChatMuxを開いてください。ブラウザは通常のhttp://アドレスではインストールを無効にします。"
-    }
-  },
-  "mcpForm": {
-    "title": {
-      "add": "MCPサーバーを追加",
-      "edit": "MCPサーバーを編集"
-    },
-    "importMode": {
-      "form": "フォーム入力",
-      "json": "JSONインポート"
-    },
-    "scope": {
-      "label": "スコープ",
-      "userGlobal": "ユーザー（グローバル）",
-      "projectLocal": "プロジェクト（ローカル）",
-      "userDescription": "ユーザースコープ: すべてのプロジェクトで利用可能",
-      "projectDescription": "ローカルスコープ: 選択したプロジェクトでのみ利用可能",
-      "cannotChange": "既存のサーバーを編集する場合、スコープは変更できません"
-    },
-    "fields": {
-      "serverName": "サーバー名",
-      "transportType": "トランスポートの種類",
-      "command": "コマンド",
-      "arguments": "引数（1行に1つ）",
-      "jsonConfig": "JSON設定",
-      "url": "URL",
-      "envVars": "環境変数（KEY=value、1行に1つ）",
-      "headers": "ヘッダー（KEY=value、1行に1つ）",
-      "selectProject": "プロジェクトを選択..."
-    },
-    "placeholders": {
-      "serverName": "my-server"
-    },
-    "validation": {
-      "missingType": "必須フィールドがありません: type",
-      "stdioRequiresCommand": "stdioタイプにはcommandフィールドが必要です",
-      "httpRequiresUrl": "{{type}}タイプにはurlフィールドが必要です",
-      "invalidJson": "無効なJSON形式です",
-      "jsonHelp": "MCPサーバー設定をJSON形式で貼り付けてください。例:",
-      "jsonExampleStdio": "• stdio: {\"type\":\"stdio\",\"command\":\"npx\",\"args\":[\"@upstash/context7-mcp\"]}",
-      "jsonExampleHttp": "• http/sse: {\"type\":\"http\",\"url\":\"https://api.example.com/mcp\"}"
-    },
-    "configDetails": "設定の詳細（{{configFile}}より）",
-    "projectPath": "パス: {{path}}",
-    "actions": {
-      "cancel": "キャンセル",
-      "saving": "保存中...",
-      "addServer": "サーバーを追加",
-      "updateServer": "サーバーを更新"
     }
   },
   "saveStatus": {
@@ -351,40 +283,6 @@
     },
     "actions": {
       "add": "追加"
-    }
-  },
-  "mcpServers": {
-    "title": "MCPサーバー",
-    "description": {
-      "claude": "Model Context Protocolサーバーは、Claudeに追加のツールやデータソースを提供します",
-      "cursor": "Model Context Protocolサーバーは、Cursorに追加のツールやデータソースを提供します",
-      "codex": "Model Context Protocolサーバーは、Codexに追加のツールやデータソースを提供します"
-    },
-    "addButton": "MCPサーバーを追加",
-    "empty": "MCPサーバーは設定されていません",
-    "serverType": "種類",
-    "scope": {
-      "local": "ローカル",
-      "user": "ユーザー"
-    },
-    "config": {
-      "command": "コマンド",
-      "url": "URL",
-      "args": "引数",
-      "environment": "環境変数"
-    },
-    "tools": {
-      "title": "ツール",
-      "count": "（{{count}}）:",
-      "more": "他{{count}}件"
-    },
-    "actions": {
-      "edit": "サーバーを編集",
-      "delete": "サーバーを削除"
-    },
-    "help": {
-      "title": "Codex MCPについて",
-      "description": "Codexはstdioベースのツールサーバーをサポートしています。追加のツールやリソースでCodexの機能を拡張するサーバーを追加できます。"
     }
   }
 }

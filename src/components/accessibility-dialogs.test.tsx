@@ -7,13 +7,12 @@ import { renderToStaticMarkup } from 'react-dom/server';
 
 import { ThemeProvider } from '../contexts/ThemeContext';
 
-import ProjectCreationWizard from './project-creation-wizard/ProjectCreationWizard';
 import SidebarHeader from './sidebar/view/subcomponents/SidebarHeader';
 import Settings from './settings/view/Settings';
 
 const noop = () => {};
 
-test('settings and project creation surfaces expose labelled modal dialogs', () => {
+test('settings surface exposes a labelled modal dialog', () => {
   const storage = new Map<string, string>();
   Object.defineProperty(globalThis, 'localStorage', {
     configurable: true,
@@ -43,42 +42,21 @@ test('settings and project creation surfaces expose labelled modal dialogs', () 
   assert.match(settingsHtml, /aria-modal="true"/);
   assert.match(settingsHtml, /aria-labelledby="settings-dialog-title"/);
   assert.match(settingsHtml, /aria-label="(?:Close|common:buttons\.close)"/);
-
-  const projectHtml = renderToStaticMarkup(createElement(ProjectCreationWizard, {
-    onClose: noop,
-  }));
-  assert.match(projectHtml, /role="dialog"/);
-  assert.match(projectHtml, /aria-modal="true"/);
-  assert.match(projectHtml, /aria-labelledby="project-creation-dialog-title"/);
-  assert.match(projectHtml, /aria-label="(?:Close|buttons\.close)"/);
 });
 
 test('mobile sidebar icon buttons have translated accessible names', () => {
   const translations: Record<string, string> = {
     'tooltips.refresh': 'Refresh projects and sessions',
-    'tooltips.createProject': 'Create new project',
   };
   const t = ((key: string, fallback?: string) => translations[key] ?? fallback ?? key) as TFunction;
   const html = renderToStaticMarkup(createElement(SidebarHeader, {
     isPWA: false,
     isMobile: true,
-    isLoading: false,
-    projectsCount: 0,
-    runningSessionsCount: 0,
-    archivedSessionsCount: 0,
-    isArchivedSessionsLoading: false,
-    searchFilter: '',
-    onSearchFilterChange: noop,
-    onClearSearchFilter: noop,
-    searchMode: 'projects',
-    onSearchModeChange: noop,
     onRefresh: noop,
     isRefreshing: false,
-    onCreateProject: noop,
     onCollapseSidebar: noop,
     t,
   }));
 
   assert.match(html, /aria-label="Refresh projects and sessions"/);
-  assert.match(html, /aria-label="Create new project"/);
 });

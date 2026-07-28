@@ -1,6 +1,15 @@
 import webPush from 'web-push';
 
-import { notificationPreferencesDb, pushSubscriptionsDb, sessionsDb } from '@/modules/database/index.js';
+import {
+  completionAppAlias,
+  completionAppIdentityKey,
+  completionNotificationOutboxDb,
+  notificationPreferencesDb,
+  pushSubscriptionsDb,
+  sessionsDb,
+} from '@/modules/database/index.js';
+
+import { wakeCompletionOutboxDispatcher } from './completion-outbox-dispatcher.service.js';
 
 const KIND_TO_PREF_KEY = {
   action_required: 'actionRequired',
@@ -40,13 +49,20 @@ function isNotificationEventEnabled(preferences, event) {
   return eventEnabled;
 }
 
-function isDuplicate(event) {
+function hasDuplicate(event) {
   cleanupOldEventKeys();
   const key = event.dedupeKey || `${event.provider}:${event.kind || 'info'}:${event.code || 'generic'}:${event.sessionId || 'none'}`;
-  if (recentEventKeys.has(key)) {
-    return true;
-  }
+  return recentEventKeys.has(key);
+}
+
+function rememberDuplicate(event) {
+  const key = event.dedupeKey || `${event.provider}:${event.kind || 'info'}:${event.code || 'generic'}:${event.sessionId || 'none'}`;
   recentEventKeys.set(key, Date.now());
+}
+
+function isDuplicate(event) {
+  if (hasDuplicate(event)) return true;
+  rememberDuplicate(event);
   return false;
 }
 
@@ -185,6 +201,18 @@ function buildNotificationPayload(event) {
     }
   };
 }
+function buildCompletionPayload({ provider, sessionId, sessionName = null }) {
+  const title = normalizeSessionName(sessionName) || 'ChatMux';
+  const providerLabel = PROVIDER_LABELS[provider] || 'Assistant';
+  return Object.freeze({
+    title,
+    body: `${providerLabel}: Reply ready`,
+    navigation: Object.freeze({
+      href: `/session/${encodeURIComponent(sessionId)}`,
+      title,
+    }),
+  });
+}
 
 function sendWebPushPayload(userId, payload) {
   const subscriptions = pushSubscriptionsDb.getSubscriptions(userId);
@@ -209,7 +237,9 @@ function sendWebPushPayload(userId, payload) {
       if (result.status === 'rejected') {
         const statusCode = result.reason?.statusCode;
         if (statusCode === 410 || statusCode === 404) {
-          pushSubscriptionsDb.removeSubscription(subscriptions[index].endpoint);
+          pushSubscriptionsDb.removeSubscriptionForUser(userId, subscriptions[index].endpoint);
+        } else {
+          console.error('Web push send error:', result.reason);
         }
       }
     });
@@ -240,21 +270,84 @@ function notifyUserIfEnabled({ userId, event }) {
   });
 }
 
-function notifyRunStopped({ userId, provider, sessionId = null, stopReason = 'completed', sessionName = null }) {
-  notifyUserIfEnabled({
+/**
+ * Records, but never directly sends, a durable reply-ready completion decision.
+ * Callers must provide the producer's stable occurrence key; this API never
+ * derives one from mutable session state.
+ *
+ * @param {{ userId: number, target: { provider: string, sessionId: string }, event: { code: 'reply_ready', occurrenceKey: string, preferenceClass: 'stop' | 'liveStop', sessionName?: string | null, stopReason?: 'completed' } }} args
+ * @returns {number[]} immutable outbox decision ids
+ */
+function validateCompletionDecision({ userId, target, event }) {
+  if (!Number.isInteger(userId) || userId < 1
+    || !target || typeof target.provider !== 'string' || !target.provider
+    || typeof target.sessionId !== 'string' || !target.sessionId
+    || !event || event.code !== 'reply_ready'
+    || (event.preferenceClass !== 'stop' && event.preferenceClass !== 'liveStop')
+    || typeof event.occurrenceKey !== 'string' || !event.occurrenceKey.trim()
+    || (event.stopReason !== undefined && event.stopReason !== 'completed')) {
+    throw new TypeError('completion decision requires an owner, preference class, reply_ready, a normal completion, and a stable occurrence key');
+  }
+}
+
+function createCompletionDecision({ userId, target, event }) {
+  validateCompletionDecision({ userId, target, event });
+
+  const normalizedTarget = normalizeNotificationSession({
+    provider: target.provider,
+    sessionId: target.sessionId,
+  });
+  const identity = { provider: target.provider, sessionId: normalizedTarget.sessionId };
+
+  const decisions = completionNotificationOutboxDb.createApplicationDecision({
     userId,
-    event: createNotificationEvent({
-      provider,
-      sessionId,
-      kind: 'stop',
-      code: 'run.stopped',
-      meta: { stopReason, sessionName },
-      severity: 'info',
-      dedupeKey: `${provider}:run:stop:${sessionId || 'none'}:${stopReason}`
-    })
+    preferenceClass: event.preferenceClass,
+    targetIdentityKey: completionAppIdentityKey(identity),
+    provider: target.provider,
+    sessionId: normalizedTarget.sessionId,
+    eventOccurrenceKey: event.occurrenceKey,
+    eventCode: 'reply_ready',
+    targetAliasSnapshot: completionAppAlias(identity),
+    payload: buildCompletionPayload({
+      provider: target.provider,
+      sessionId: normalizedTarget.sessionId,
+      sessionName: event.sessionName,
+    }),
+    now: Date.now(),
+  });
+
+  // Wake only after the immutable decision commits; durable uniqueness handles replay.
+  if (decisions.length > 0) {
+    wakeCompletionOutboxDispatcher();
+  }
+  return decisions;
+}
+
+function notifyRunStopped({
+  userId,
+  provider,
+  sessionId = null,
+  stopReason = 'completed',
+  sessionName = null,
+  completionKey = null,
+}) {
+  if (stopReason !== 'completed') return;
+  createCompletionDecision({
+    userId,
+    target: { provider, sessionId },
+    event: {
+      code: 'reply_ready',
+      preferenceClass: 'stop',
+      occurrenceKey: completionKey,
+      sessionName,
+      stopReason,
+    },
   });
 }
 
+/**
+ * @param {{ userId: number, provider: string, sessionId?: string | null, error: unknown, sessionName?: string | null }} args
+ */
 function notifyRunFailed({ userId, provider, sessionId = null, error, sessionName = null }) {
   const errorMessage = normalizeErrorMessage(error);
 
@@ -273,41 +366,44 @@ function notifyRunFailed({ userId, provider, sessionId = null, error, sessionNam
 }
 
 /**
- * Turn completion of a tmux-driven session. `completionKey` is an opaque
- * generation digest plus ordinal for external CLIs; omitted GJC calls retain
- * their legacy session-id dedupe key.
+ * Turn completion of a tmux-driven session. The monitor must provide its
+ * durable generation occurrence key; no session-based fallback is permitted.
  *
- * @param {{ userId: number, provider?: string, sessionId: string | null, tmuxName?: string | null, stopReason?: string, completionKey?: string | null }} args
+ * @param {{ userId: number, provider?: 'gjc', sessionId: string | null, tmuxName?: string | null, stopReason?: string, completionKey?: string | null }} args
  */
 function notifyLiveTurnEnded({
   userId,
   provider = 'gjc',
   sessionId,
   tmuxName = null,
-  stopReason = 'stop',
+  stopReason = 'completed',
   completionKey = null
 }) {
-  notifyUserIfEnabled({
+  if (stopReason !== 'completed') return;
+  const decision = {
     userId,
-    event: createNotificationEvent({
-      provider,
-      sessionId,
-      kind: 'live_stop',
-      code: 'live.turn_end',
-      meta: { sessionName: tmuxName, stopReason },
-      severity: stopReason === 'error' ? 'error' : 'info',
-      dedupeKey: completionKey
-        ? `${provider}:live:turn:${completionKey}`
-        : `${provider}:live:turn:${sessionId || 'none'}`
-    })
-  });
+    target: { provider, sessionId },
+    event: {
+      code: 'reply_ready',
+      preferenceClass: 'liveStop',
+      occurrenceKey: completionKey,
+      sessionName: tmuxName,
+      stopReason,
+    },
+  };
+  if (provider !== 'gjc') {
+    throw new RangeError('live turn completion decisions are only supported for GJC');
+  }
+  createCompletionDecision(decision);
 }
 
 export {
+  buildCompletionPayload,
   buildNotificationPayload,
   createNotificationEvent,
   notifyUserIfEnabled,
   notifyRunStopped,
   notifyRunFailed,
-  notifyLiveTurnEnded
+  notifyLiveTurnEnded,
+  createCompletionDecision,
 };

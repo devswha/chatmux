@@ -56,21 +56,21 @@ port. `chatmux status` reports the configured address.
 Use `loginctl enable-linger "$USER"` only when the host policy permits the
 service to continue after logout.
 
-Installation enables password access on every interface with an
-auto-created owner account, so remote use needs no further setup. The mode
-can be changed with one command at any time:
+Installation automatically selects the access path:
 
-- **Password** (the default; `chatmux access enable password [address]
-  [--session-days <n>]`, rotate with `chatmux access password`) serves a
-  browser login so phones need no VPN app. Sessions renew on use (sliding
-  window, 1–365 days): active devices never re-login, idle ones expire, and
-  logout or rotation revokes immediately. Restrict the bind with
-  `chatmux access enable password 127.0.0.1`, and put a TLS proxy in front
-  before any public exposure.
-
-- **Tailscale** keeps the backend on `127.0.0.1`, configures a private HTTPS
-  Serve front on an unused port, and applies the same account allowlist to
-  HTTP and WebSocket requests.
+- **Tailscale** is selected when the daemon is running and logged in. The
+  installer keeps the backend on `127.0.0.1`, configures a private HTTPS Serve
+  front on an unused port, and applies the same account allowlist to HTTP and
+  WebSocket requests. No ChatMux username or password is required. On a phone,
+  turn on Tailscale before scanning the QR and keep it connected while using
+  ChatMux.
+- **Password** is the fallback when Tailscale is unavailable
+  (`chatmux access enable password [address] [--session-days <n>]`, rotate with
+  `chatmux access password`). It serves a browser login so phones need no VPN
+  app. Sessions renew on use (sliding window, 1–365 days): active devices never
+  re-login, idle ones expire, and logout or rotation revokes immediately.
+  Restrict the bind with `chatmux access enable password 127.0.0.1`, and put a
+  TLS proxy in front before any public exposure.
 - **VPN** (`chatmux access enable vpn <address>`) binds
   the backend to an existing WireGuard-style tunnel address with no
   application login. Access control is the tunnel itself — every VPN peer has
@@ -88,17 +88,6 @@ An SSH tunnel remains the local-only fallback when Tailscale is unavailable:
 ```sh
 ssh -N -L 3001:127.0.0.1:3001 user@server
 ```
-## Plugin trust boundary
-
-Plugins run code trusted by the owner with the host user's permissions. They are
-not sandboxed. A manifest's `permissions` field is metadata only: ChatMux
-validates that it is an array of strings, then stores it with the plugin; it
-does not enforce those permissions. Review a plugin repository directly before
-installing it, including its dependencies and build scripts.
-
-Plugin functionality is frozen for this release. Do not treat plugin
-installation as a safe way to add unreviewed host capabilities.
-
 ## Cutover to a verified release
 
 A cutover changes only the `current` symlink and then restarts the service.

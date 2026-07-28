@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 
-import { projectsDb, sessionsDb } from '@/modules/database/index.js';
+import { sessionsDb } from '@/modules/database/index.js';
 import { chatRunRegistry } from '@/modules/websocket/index.js';
 import { providerRegistry } from '@/modules/providers/provider.registry.js';
 import type {
@@ -18,57 +18,25 @@ type CreateAppSessionResult = {
   provider: LLMProvider;
   projectPath: string;
 };
-
-type ArchivedSessionListItem = {
-  sessionId: string;
-  provider: LLMProvider;
-  projectId: string | null;
-  projectPath: string | null;
-  projectDisplayName: string;
-  sessionTitle: string;
-  createdAt: string | null;
-  updatedAt: string | null;
-  lastActivity: string | null;
-  isProjectArchived: boolean;
-};
+function normalizeJsonlPath(filePath: string): string {
+  return path.isAbsolute(filePath) ? path.normalize(filePath) : path.resolve(filePath);
+}
 
 /**
- * Removes one file if it exists.
+ * Removes one transcript file if it exists.
  */
 async function removeFileIfExists(filePath: string): Promise<boolean> {
   try {
     await fsp.unlink(filePath);
     return true;
   } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code === 'ENOENT') {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       return false;
     }
     throw error;
   }
 }
 
-/**
- * Archive rows need a stable project label even when the owning project is not
- * part of the active sidebar payload. This lightweight resolver keeps the
- * archive API self-contained while still matching the project's stored display
- * name when one exists.
- */
-function resolveProjectDisplayName(
-  projectPath: string | null,
-  customProjectName: string | null | undefined,
-): string {
-  const trimmedCustomName = typeof customProjectName === 'string' ? customProjectName.trim() : '';
-  if (trimmedCustomName.length > 0) {
-    return trimmedCustomName;
-  }
-
-  if (!projectPath) {
-    return 'Unknown Project';
-  }
-
-  return path.basename(projectPath) || projectPath;
-}
 
 /**
  * Application service for provider-backed session message operations.
@@ -190,53 +158,11 @@ export const sessionsService = {
   },
 
   /**
-   * Returns archived sessions with enough project metadata for the sidebar to
-   * group, filter, open, and restore them without a per-row follow-up query.
+   * Permanently deletes one persisted session row and its transcript file.
    */
-  listArchivedSessions(): ArchivedSessionListItem[] {
-    const archivedSessions = sessionsDb.getArchivedSessions();
-    const projectCache = new Map<string, ReturnType<typeof projectsDb.getProjectPath>>();
-
-    return archivedSessions.map((session) => {
-      const projectPath = session.project_path?.trim() ? session.project_path : null;
-      let project = null;
-
-      if (projectPath) {
-        if (!projectCache.has(projectPath)) {
-          projectCache.set(projectPath, projectsDb.getProjectPath(projectPath));
-        }
-        project = projectCache.get(projectPath) ?? null;
-      }
-
-      return {
-        sessionId: session.session_id,
-        provider: session.provider as LLMProvider,
-        projectId: project?.project_id ?? null,
-        projectPath,
-        projectDisplayName: resolveProjectDisplayName(projectPath, project?.custom_project_name),
-        sessionTitle: session.custom_name?.trim() || session.session_id,
-        createdAt: session.created_at ?? null,
-        updatedAt: session.updated_at ?? null,
-        lastActivity: session.updated_at ?? session.created_at ?? null,
-        isProjectArchived: Boolean(project?.isArchived),
-      };
-    });
-  },
-
-  /**
-   * Archives or permanently deletes one persisted session row by id.
-   *
-   * Soft-delete mirrors the project behavior by toggling `isArchived` so the
-   * row disappears from active lists but remains restorable. Force-delete
-   * optionally removes the transcript file before deleting the database row.
-   */
-  async deleteOrArchiveSessionById(
+  async deleteSessionById(
     sessionId: string,
-    options: {
-      force?: boolean;
-      deletedFromDisk?: boolean;
-    } = {},
-  ): Promise<{ sessionId: string; action: 'archived' | 'deleted'; deletedFromDisk: boolean }> {
+  ): Promise<{ sessionId: string; action: 'deleted'; deletedFromDisk: boolean }> {
     const session = sessionsDb.getSessionById(sessionId);
     if (!session) {
       throw new AppError(`Session "${sessionId}" was not found.`, {
@@ -245,20 +171,28 @@ export const sessionsService = {
       });
     }
 
-    if (!options.force) {
-      sessionsDb.updateSessionIsArchived(sessionId, true);
-      return {
-        sessionId,
-        action: 'archived',
-        deletedFromDisk: false,
-      };
+    const transcriptPath = session.jsonl_path?.trim() || null;
+    if (transcriptPath) {
+      const normalizedTranscriptPath = normalizeJsonlPath(transcriptPath);
+      const sharedOwner = sessionsDb.getAllSessions().find((candidate) => {
+        const candidatePath = candidate.jsonl_path?.trim();
+        if (candidate.session_id === sessionId || !candidatePath) {
+          return false;
+        }
+        return normalizeJsonlPath(candidatePath) === normalizedTranscriptPath;
+      });
+
+      if (sharedOwner) {
+        throw new AppError('This transcript is shared with another session.', {
+          code: 'SESSION_TRANSCRIPT_SHARED',
+          statusCode: 409,
+        });
+      }
     }
 
-    let removedFromDisk = false;
-    if (options.deletedFromDisk && session.jsonl_path) {
-      removedFromDisk = await removeFileIfExists(session.jsonl_path);
-    }
-
+    const deletedFromDisk = transcriptPath
+      ? await removeFileIfExists(transcriptPath)
+      : false;
     const deleted = sessionsDb.deleteSessionById(sessionId);
     if (!deleted) {
       throw new AppError(`Session "${sessionId}" was not found.`, {
@@ -270,24 +204,8 @@ export const sessionsService = {
     return {
       sessionId,
       action: 'deleted',
-      deletedFromDisk: removedFromDisk,
+      deletedFromDisk,
     };
-  },
-
-  /**
-   * Restores one archived session back into the active sidebar lists.
-   */
-  restoreSessionById(sessionId: string): { sessionId: string; isArchived: false } {
-    const session = sessionsDb.getSessionById(sessionId);
-    if (!session) {
-      throw new AppError(`Session "${sessionId}" was not found.`, {
-        code: 'SESSION_NOT_FOUND',
-        statusCode: 404,
-      });
-    }
-
-    sessionsDb.updateSessionIsArchived(sessionId, false);
-    return { sessionId, isArchived: false };
   },
 
   /**

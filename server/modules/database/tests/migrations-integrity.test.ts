@@ -6,6 +6,8 @@ import test from 'node:test';
 
 import Database from 'better-sqlite3';
 
+import { closeConnection, getConnection } from '@/modules/database/connection.js';
+import { initializeDatabase } from '@/modules/database/init-db.js';
 import { runMigrations } from '@/modules/database/migrations.js';
 
 type Row = Record<string, unknown>;
@@ -61,6 +63,30 @@ const seedJournalThrough = (db: Database.Database, version: number): void => {
   db.exec('CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)');
   for (let currentVersion = 1; currentVersion <= version; currentVersion += 1) {
     db.prepare('INSERT INTO schema_migrations (version) VALUES (?)').run(currentVersion);
+  }
+};
+const completionNotificationTables = [
+  'completion_notification_aliases',
+  'completion_notification_deliveries',
+  'completion_notification_generation_state',
+  'completion_notification_outbox',
+  'completion_notification_policy',
+  'completion_notification_redirect_authorizations',
+  'completion_notification_targets',
+  'completion_notification_watch_mutations',
+  'completion_notification_watches',
+];
+
+const seedUserNotificationPreferencesDependency = (db: Database.Database, version: number): void => {
+  if (version >= 2) {
+    db.exec(`
+      CREATE TABLE user_notification_preferences (
+        user_id INTEGER PRIMARY KEY,
+        preferences_json TEXT NOT NULL,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+    `);
   }
 };
 
@@ -131,7 +157,6 @@ const fxFixtures: Array<{ id: string; seed: (db: Database.Database) => void; ver
     verify: (db) => {
       assert.deepEqual(columnNames(db, 'projects').sort(), [
         'custom_project_name',
-        'isArchived',
         'isStarred',
         'project_id',
         'project_path',
@@ -180,7 +205,6 @@ const fxFixtures: Array<{ id: string; seed: (db: Database.Database) => void; ver
       assert.deepEqual(columnNames(db, 'sessions').sort(), [
         'created_at',
         'custom_name',
-        'isArchived',
         'jsonl_path',
         'project_path',
         'provider',
@@ -218,8 +242,115 @@ const fxFixtures: Array<{ id: string; seed: (db: Database.Database) => void; ver
       runMigrations(db);
     },
     verify: (db) => {
-      assert.deepEqual(migrationVersions(db), Array.from({ length: 12 }, (_, index) => index + 1));
+      assert.deepEqual(migrationVersions(db), Array.from({ length: 14 }, (_, index) => index + 1));
       assert.ok(get<Row>(db, "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_sessions_provider_session_id'"));
+      assert.deepEqual(
+        all<TableInfoRow>(
+          db,
+          "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'completion_notification_%' ORDER BY name"
+        ).map(({ name }) => name),
+        completionNotificationTables
+      );
+      assert.deepEqual(
+        get<Row>(
+          db,
+          'SELECT user_id, desired_web_push, consent_configured, enforcement_enabled FROM completion_notification_policy'
+        ),
+        { user_id: 1, desired_web_push: 0, consent_configured: 0, enforcement_enabled: 1 }
+      );
+    },
+  },
+  {
+    id: 'FX-7 removes archive fields while preserving archived rows',
+    seed: (db) => {
+      db.exec(`
+        CREATE TABLE projects (
+          project_id TEXT PRIMARY KEY,
+          project_path TEXT NOT NULL UNIQUE,
+          custom_project_name TEXT,
+          isStarred BOOLEAN DEFAULT 0,
+          isArchived BOOLEAN DEFAULT 0
+        );
+        INSERT INTO projects VALUES ('project-archived', '/repo/archived', 'Archived project', 1, 1);
+        CREATE TABLE sessions (
+          session_id TEXT PRIMARY KEY,
+          provider TEXT NOT NULL DEFAULT 'claude',
+          provider_session_id TEXT,
+          custom_name TEXT,
+          project_path TEXT,
+          jsonl_path TEXT,
+          isArchived BOOLEAN DEFAULT 0,
+          created_at DATETIME,
+          updated_at DATETIME,
+          FOREIGN KEY (project_path) REFERENCES projects(project_path)
+            ON DELETE SET NULL
+            ON UPDATE CASCADE
+        );
+        INSERT INTO sessions VALUES (
+          'session-archived', 'codex', 'provider-archived', 'Archived session', '/repo/archived',
+          '/repo/archived/session.jsonl', 1, '2024-01-01', '2024-01-02'
+        );
+        CREATE INDEX idx_sessions_is_archived ON sessions(isArchived);
+        CREATE INDEX idx_projects_is_archived ON projects(isArchived);
+      `);
+      seedJournalThrough(db, 13);
+    },
+    verify: (db) => {
+      assert.deepEqual(columnNames(db, 'projects').sort(), [
+        'custom_project_name',
+        'isStarred',
+        'project_id',
+        'project_path',
+      ]);
+      assert.deepEqual(columnNames(db, 'sessions').sort(), [
+        'created_at',
+        'custom_name',
+        'jsonl_path',
+        'project_path',
+        'provider',
+        'provider_session_id',
+        'session_id',
+        'updated_at',
+      ]);
+      assert.deepEqual(
+        get<Row>(
+          db,
+          'SELECT project_id, project_path, custom_project_name, isStarred FROM projects WHERE project_id = ?',
+          'project-archived'
+        ),
+        {
+          project_id: 'project-archived',
+          project_path: '/repo/archived',
+          custom_project_name: 'Archived project',
+          isStarred: 1,
+        }
+      );
+      assert.deepEqual(
+        get<Row>(
+          db,
+          `SELECT session_id, provider, provider_session_id, custom_name, project_path, jsonl_path, created_at, updated_at
+           FROM sessions WHERE session_id = ?`,
+          'session-archived'
+        ),
+        {
+          session_id: 'session-archived',
+          provider: 'codex',
+          provider_session_id: 'provider-archived',
+          custom_name: 'Archived session',
+          project_path: '/repo/archived',
+          jsonl_path: '/repo/archived/session.jsonl',
+          created_at: '2024-01-01',
+          updated_at: '2024-01-02',
+        }
+      );
+      assert.equal(
+        get<Row>(db, "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_sessions_is_archived'"),
+        undefined
+      );
+      assert.equal(
+        get<Row>(db, "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_projects_is_archived'"),
+        undefined
+      );
     },
   },
   {
@@ -245,6 +376,47 @@ const fxFixtures: Array<{ id: string; seed: (db: Database.Database) => void; ver
     },
   },
 ];
+
+test('initialization repairs partial generation state before creating its stale index', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'migration-initialization-'));
+  const filename = join(directory, 'auth.db');
+  const previousDatabasePath = process.env.DATABASE_PATH;
+  const db = createLegacyDatabase(filename);
+
+  try {
+    seedJournalThrough(db, 12);
+    db.exec('ALTER TABLE users ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT 1');
+    db.exec(`
+      CREATE TABLE completion_notification_generation_state (
+        generation_target_id INTEGER PRIMARY KEY,
+        high_water_seq INTEGER NOT NULL DEFAULT 0,
+        armed_seq INTEGER,
+        monitor_state TEXT NOT NULL DEFAULT 'unobserved',
+        last_evidence_cursor TEXT,
+        state_revision INTEGER NOT NULL DEFAULT 1,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    db.close();
+
+    closeConnection();
+    process.env.DATABASE_PATH = filename;
+    await initializeDatabase();
+
+    const initializedDb = getConnection();
+    assert.equal(columnNames(initializedDb, 'completion_notification_generation_state').includes('pane_evidence_key'), true);
+    assert.equal(columnNames(initializedDb, 'completion_notification_generation_state').includes('last_seen_at'), true);
+    assert.ok(get<Row>(initializedDb, `SELECT name FROM sqlite_master
+      WHERE type = 'index' AND name = 'idx_completion_notification_generation_state_stale'`));
+
+    await initializeDatabase();
+  } finally {
+    closeConnection();
+    if (previousDatabasePath === undefined) delete process.env.DATABASE_PATH;
+    else process.env.DATABASE_PATH = previousDatabasePath;
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
 
 for (const fixture of fxFixtures) {
   test(`migrates independent ${fixture.id} fixture`, () => {
@@ -285,12 +457,12 @@ test('replays a complete pre-journal database without changing data, schema, or 
 
     runMigrations(db);
     assert.deepEqual(snapshot(), beforeReplay);
-    assert.deepEqual(migrationVersions(db), Array.from({ length: 12 }, (_, index) => index + 1));
+    assert.deepEqual(migrationVersions(db), Array.from({ length: 14 }, (_, index) => index + 1));
 
     const afterReplay = snapshot();
     runMigrations(db);
     assert.deepEqual(snapshot(), afterReplay);
-    assert.deepEqual(migrationVersions(db), Array.from({ length: 12 }, (_, index) => index + 1));
+    assert.deepEqual(migrationVersions(db), Array.from({ length: 14 }, (_, index) => index + 1));
     assertForeignKeysValid(db);
   } finally {
     db.close();
@@ -317,6 +489,7 @@ const destructiveFixtures: DestructiveFixture[] = [
         INSERT INTO projects VALUES ('project-1', '/repo/one', 'One');
       `);
       seedJournalThrough(db, 3);
+      seedUserNotificationPreferencesDependency(db, 3);
     },
     assertSourcePreserved: (db) => assert.deepEqual(get<Row>(db, 'SELECT * FROM projects'), {
       project_id: 'project-1',
@@ -340,6 +513,7 @@ const destructiveFixtures: DestructiveFixture[] = [
         INSERT INTO sessions VALUES ('session-1', '/repo/one', 'Preserve me');
       `);
       seedJournalThrough(db, 5);
+      seedUserNotificationPreferencesDependency(db, 5);
     },
     assertSourcePreserved: (db) => assert.deepEqual(get<Row>(db, 'SELECT * FROM sessions'), {
       session_id: 'session-1',
@@ -371,6 +545,7 @@ const destructiveFixtures: DestructiveFixture[] = [
         INSERT INTO session_names VALUES ('session-1', 'codex', 'Preserve me', '2024-01-01', '2024-01-01');
       `);
       seedJournalThrough(db, 6);
+      seedUserNotificationPreferencesDependency(db, 6);
     },
     assertSourcePreserved: (db) => assert.deepEqual(get<Row>(db, 'SELECT * FROM session_names'), {
       session_id: 'session-1',
@@ -402,6 +577,7 @@ const destructiveFixtures: DestructiveFixture[] = [
         INSERT INTO workspace_original_paths VALUES ('project-1', '/repo/one');
       `);
       seedJournalThrough(db, 10);
+      seedUserNotificationPreferencesDependency(db, 10);
     },
     assertSourcePreserved: (db) => assert.deepEqual(get<Row>(db, 'SELECT * FROM workspace_original_paths'), {
       workspace_id: 'project-1',

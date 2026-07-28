@@ -1,0 +1,1424 @@
+{
+  "schemaVersion": 1,
+  "frozenAt": "2026-07-27",
+  "base": "a0ff5cb96e220e5d42a1a8263e701f6bb4bc79df",
+  "manifestHash": "6328b30e1ad06496a940b3f4308282b07e8c6fa51b773d5d60a0058415644e08",
+  "supersedes": "41ba814f3d11b622ebe11250cd08f8c82c17ef4eb0fb58b07857e162bbbfca43",
+  "files": [
+    {
+      "path": "artifacts/ai-slop-cleanup-report.txt",
+      "status": "added",
+      "preExisting": false,
+      "sha256": "e7d687d96f5a10b86df1bbf3a9b9de501f6071a70328f47096101fad748e573a"
+    },
+    {
+      "path": "artifacts/browser-mcp-cleanup-evidence.json",
+      "status": "added",
+      "preExisting": false,
+      "sha256": "f91879fa0afb4f69c149c3217c75f6813c8b579e2dbb44b82f8532df8f8a7091"
+    },
+    {
+      "path": "artifacts/final-qa-automation-transcript.json",
+      "status": "added",
+      "preExisting": false,
+      "sha256": "eb5ccb7f21fa2d2af06b37a01cceaca7c8a299877dfe762ec8c358804c3c6b24"
+    },
+    {
+      "path": "artifacts/final-qa-browser-transcript.json",
+      "status": "added",
+      "preExisting": false,
+      "sha256": "f33c786d865c8881931051dbadf7a5a4afa2e5034e413e7e09e46eb0270bf4dd"
+    },
+    {
+      "path": "artifacts/final-qa-live-surface.png",
+      "status": "added",
+      "preExisting": false,
+      "sha256": "3940f9cff3c1eeb5543aa0732cdccfb89ad01fc20c67b61d750ec1f7fd01dcc0"
+    },
+    {
+      "path": "artifacts/final-qa-web.png",
+      "status": "added",
+      "preExisting": false,
+      "sha256": "4bd3495064ae921973ddb04e8bce3ee0ad7e92915e3ea945413b78056e286188"
+    },
+    {
+      "path": "artifacts/scope-removal-baseline.json",
+      "status": "added",
+      "preExisting": false,
+      "sha256": "8d07c50d05dbd093b175e26c589736a3ccdd71d607b1180e507853d23e497d8d"
+    },
+    {
+      "path": "artifacts/scope-removal-final-audit.json",
+      "status": "added",
+      "preExisting": false,
+      "sha256": "acb865f9fba3428ab4fc15384e859ce6bcb9451cd130a4686c53f24fa3cc05ef"
+    },
+    {
+      "path": "artifacts/scope-removal-live-routes.json",
+      "status": "added",
+      "preExisting": false,
+      "sha256": "0f97f4a97ee599757d3b4bc6edc8895171d1172bc3745e9d1d90d31bf0370c30"
+    },
+    {
+      "path": "artifacts/scope-removal-observability.json",
+      "status": "added",
+      "preExisting": false,
+      "sha256": "62d62d0725e1d54f4e7825f3eef018312fe32d4ca7b1bb5d330d157ffb004caa"
+    },
+    {
+      "path": "artifacts/scope-removal-shutdown.json",
+      "status": "added",
+      "preExisting": false,
+      "sha256": "f4ed52af3485c73530163a039c72adbc3ab54ad67f12a763b8c3b22f70096c88"
+    },
+    {
+      "path": "artifacts/scope-removal-test-ledger.json",
+      "status": "added",
+      "preExisting": false,
+      "sha256": "f4a2e24ee4e710e7264a218e2c708fbf52cffe8da960ee14e203764ab3778fce"
+    },
+    {
+      "path": "docs/SELF-HOST.md",
+      "status": "modified",
+      "sha256": "07f481992fcb9814a1f875dcfd4b6ae576318c2fca6fbd51ccd128aa17b5b763"
+    },
+    {
+      "path": "image.png",
+      "status": "added",
+      "preExisting": true,
+      "sha256": "fb5695ddcfa51272263c376988f0e3741731c38d6efd0aadf54c648a17897fdb"
+    },
+    {
+      "path": "package-lock.json",
+      "status": "modified",
+      "sha256": "e3286da3ca957cc4e44e4c20ff5743711c0f7fe273e545c2cc2d8db53c3e9417"
+    },
+    {
+      "path": "package.json",
+      "status": "modified",
+      "sha256": "e965f03fc067b46b20963d647354dc1ccc6d40556272aa581587ba357de3f989"
+    },
+    {
+      "path": "README.md",
+      "status": "modified",
+      "sha256": "a617eeeefde085db044776c8666aa9079c5d8db4173edbbcfacdf92e29ab1e8f"
+    },
+    {
+      "path": "server/browser-mcp-cleanup-cli.test.ts",
+      "status": "added",
+      "preExisting": false,
+      "sha256": "66589ce03989ce226174f14a3b54de7f9aadf1269b630153515a6d0b42d00c33"
+    },
+    {
+      "path": "server/browser-mcp-cleanup-cli.ts",
+      "status": "added",
+      "preExisting": false,
+      "sha256": "5ad397f0c3b9f39dd504c4dc1164ab93d2ddaf9037cad96d520beb090c988d9b"
+    },
+    {
+      "path": "server/cli.js",
+      "status": "modified",
+      "sha256": "5770f8d540254627cf2993837a130898e41b3993258f2e6999697465e3ce3164"
+    },
+    {
+      "path": "server/index.js",
+      "status": "modified",
+      "sha256": "fdd468774a5f0ef72a60e2c31b4febc42c9a3b9f406858fe26cefd7f6951a06a"
+    },
+    {
+      "path": "server/modules/files/files.routes.js",
+      "status": "modified",
+      "sha256": "d6dda3a66f1561b7a0c6d1a54fe2267f13341cab68c47f00e189dc5eecba9f6c"
+    },
+    {
+      "path": "server/modules/files/tests/files-routes-contract.test.ts",
+      "status": "modified",
+      "sha256": "a59bf66f10d13dc0ac90f6744957400e1936df5302a876803a19ac262d78c498"
+    },
+    {
+      "path": "server/modules/files/tests/files-ui-removal.contract.test.ts",
+      "status": "added",
+      "preExisting": false,
+      "sha256": "f4ab407991781d0581cdb4b6ea2ee4a006a70a84096c3ea335033cd6ace21966"
+    },
+    {
+      "path": "server/modules/projects/projects.routes.ts",
+      "status": "modified",
+      "sha256": "caeb600f43c20692709cff4adddde5981201288ccec9051a3277ac4997707a8e"
+    },
+    {
+      "path": "server/modules/projects/services/project-clone.service.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "server/modules/projects/services/project-management.service.ts",
+      "status": "modified",
+      "sha256": "57587fcf9e5a8c580f7921197384c0364652256352d70ea17c3764ad1235dcf0"
+    },
+    {
+      "path": "server/modules/projects/services/projects-has-taskmaster.service.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "server/modules/projects/tests/project-clone.service.test.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "server/modules/projects/tests/project-management.service.test.ts",
+      "status": "modified",
+      "sha256": "f19c30d50283c984cede2b525524927a23d6e84b91677e221e995e9e852af8bf"
+    },
+    {
+      "path": "server/modules/projects/tests/project-rename.routes.contract.test.ts",
+      "status": "added",
+      "preExisting": false,
+      "sha256": "1a339933065a38d1d16daa6c13306873c80e6c678b659ce7c50b953b6b133055"
+    },
+    {
+      "path": "server/modules/projects/tests/project-wizard-removal.contract.test.ts",
+      "status": "added",
+      "preExisting": false,
+      "sha256": "ba9179c6ecf8681009ca3d24bf6f88d3df9b972ed734cd9e16520f63c7ab4e45"
+    },
+    {
+      "path": "server/modules/projects/tests/projects-has-taskmaster.service.test.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "server/modules/providers/list/gjc/GJC-PROVIDER-SPEC.md",
+      "status": "modified",
+      "sha256": "3eb88a6d5e4d66dd75fc753114b319bc3a3c8b526b23005e524c79d383e597a8"
+    },
+    {
+      "path": "server/modules/providers/README.md",
+      "status": "modified",
+      "sha256": "cef6aa9adfa6c9ca71af9a531ee3e150fd6e50a048867c3dcda31504488bbbe1"
+    },
+    {
+      "path": "server/modules/providers/services/chatmux-browser-mcp-cleanup.service.ts",
+      "status": "added",
+      "preExisting": false,
+      "sha256": "de2af579f171ada4db0d1119600cd2d65e27f14247a854ff8d84025442be9428"
+    },
+    {
+      "path": "server/modules/providers/tests/browser-product-removal.contract.test.ts",
+      "status": "added",
+      "preExisting": false,
+      "sha256": "71cb8646e75b4d4406d7d464ccd80c23b70f45c6db8985285a553bb0f19134ce"
+    },
+    {
+      "path": "server/modules/providers/tests/chatmux-browser-mcp-cleanup.service.test.ts",
+      "status": "added",
+      "preExisting": false,
+      "sha256": "88904b6d7a76f601cc7c098150343d59870533fe5b2afbd0a430210f1a89b412"
+    },
+    {
+      "path": "server/modules/providers/tests/mcp-ui-removal.contract.test.ts",
+      "status": "added",
+      "preExisting": false,
+      "sha256": "50546b80c99b506b926dafed55bbc99cd403f1c2a87047ab70c91ab1b8e40fc7"
+    },
+    {
+      "path": "server/modules/providers/tests/skills-ui-removal.contract.test.ts",
+      "status": "added",
+      "preExisting": false,
+      "sha256": "3dc59598b8c80aa03af65d531ec19eb9f9d47b757bfa734715c159fe457217ca"
+    },
+    {
+      "path": "server/modules/websocket/README.md",
+      "status": "modified",
+      "sha256": "5481d638479126afe8df8d1ff84edd5e79111e617baca061a33b47b9bfb70739"
+    },
+    {
+      "path": "server/modules/websocket/services/plugin-websocket-proxy.service.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "server/modules/websocket/services/websocket-server.service.ts",
+      "status": "modified",
+      "sha256": "6215b900f83d72966ffe9d3beb2d40442d9c32920da5063707556e29af30ffca"
+    },
+    {
+      "path": "server/modules/websocket/tests/plugin-removal.contract.test.ts",
+      "status": "added",
+      "preExisting": false,
+      "sha256": "cff5156b3a03aed068c9a6c26eb31a23bde5ffb382fdd6743398c06864bbb776"
+    },
+    {
+      "path": "server/routes/mcp-utils.js",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "server/routes/plugins.js",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "server/routes/scope-removal-locale.contract.test.ts",
+      "status": "added",
+      "preExisting": false,
+      "sha256": "d307867170bea09ccce72ec9100fe0107234ec8d5a1e39fd6d6b7a74d78ba409"
+    },
+    {
+      "path": "server/routes/taskmaster-removal.contract.test.ts",
+      "status": "added",
+      "preExisting": false,
+      "sha256": "57e48a5c98072c82e3625b8083193938604370fd394be1305eb80eb74ec6548f"
+    },
+    {
+      "path": "server/routes/taskmaster.js",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "server/utils/commandParser.js",
+      "status": "modified",
+      "sha256": "59050f09af3219c0b1ee6387dc1e0ee0dee4a03bf9bccc386b15cc9964e5005b"
+    },
+    {
+      "path": "server/utils/mcp-detector.js",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "server/utils/plugin-loader.js",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "server/utils/plugin-loader.smoke.test.js",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "server/utils/plugin-process-manager.js",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "server/utils/taskmaster-websocket.js",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "server/voice-proxy.js",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "server/voice-proxy.test.js",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/App.tsx",
+      "status": "modified",
+      "sha256": "0f868242cbcbfbf57ed51339a54e4d7dba59ae70ff7913552729cc6bd9e651a4"
+    },
+    {
+      "path": "src/components/accessibility-dialogs.test.tsx",
+      "status": "modified",
+      "sha256": "4a21c29d7add8f3a42f4209988298a77cef5f32ebcd29b1bfb161fd2daa765fe"
+    },
+    {
+      "path": "src/components/browser-use/index.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/browser-use/view/BrowserUsePanel.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/chat/hooks/useChatComposerState.ts",
+      "status": "modified",
+      "sha256": "641a74e045ea8612541d83cc5faee93c231d5f135b735220581d9899dd43129b"
+    },
+    {
+      "path": "src/components/chat/hooks/useTts.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/chat/hooks/useVoiceAvailable.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/chat/hooks/useVoiceInput.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/chat/view/ChatInterface.tsx",
+      "status": "modified",
+      "sha256": "aeb83ed689ee8b30e511bc46fffd718c47f32bba8d22d648c1a4edbc2a46481d"
+    },
+    {
+      "path": "src/components/chat/view/subcomponents/ChatComposer.tsx",
+      "status": "modified",
+      "sha256": "2b993b62a9f5af5e9a2be065dc2275f301ac2a8cc5d7ee646b656e86cfc6c3b9"
+    },
+    {
+      "path": "src/components/chat/view/subcomponents/ChatMessagesPane.tsx",
+      "status": "modified",
+      "sha256": "3776aecfdfa180c246b874f85a962365833433546e8960a21df0a18832eac1a5"
+    },
+    {
+      "path": "src/components/chat/view/subcomponents/MessageComponent.tsx",
+      "status": "modified",
+      "sha256": "ba36d21d10c98d67f5c1d5a6029ffcf57c1df29a2f7e0431c1b9754d9f415e27"
+    },
+    {
+      "path": "src/components/chat/view/subcomponents/MessageSpeakControl.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/chat/view/subcomponents/ProviderSelectionEmptyState.tsx",
+      "status": "modified",
+      "sha256": "6dd310e6150a44a2afdeff92cc1e449246e674fe9cd8bbd5b4000d623a511874"
+    },
+    {
+      "path": "src/components/chat/view/subcomponents/VoiceInputButton.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/code-editor/hooks/useEditorSidebar.ts",
+      "status": "modified",
+      "sha256": "a0df696d4bef99d314ec97afcef97597d760d6d81855516942ce0b4a55fd7957"
+    },
+    {
+      "path": "src/components/code-editor/view/EditorSidebar.tsx",
+      "status": "modified",
+      "sha256": "34d98fb7667e7962670fda8a2bc59fac83b0f2eb134c30ade2952ab9f74ae62f"
+    },
+    {
+      "path": "src/components/command-palette/CommandPalette.tsx",
+      "status": "modified",
+      "sha256": "1d7fdea05267eb6c84f321043d17e7b1acf3e68537e8414c340dd34461a52f21"
+    },
+    {
+      "path": "src/components/file-tree/constants/constants.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/file-tree/constants/fileIcons.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/file-tree/hooks/useExpandedDirectories.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/file-tree/hooks/useFileTreeData.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/file-tree/hooks/useFileTreeOperations.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/file-tree/hooks/useFileTreeSearch.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/file-tree/hooks/useFileTreeUpload.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/file-tree/hooks/useFileTreeViewMode.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/file-tree/types/types.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/file-tree/utils/fileTreeUtils.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/file-tree/view/FileContextMenu.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/file-tree/view/FileTree.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/file-tree/view/FileTreeBody.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/file-tree/view/FileTreeDetailedColumns.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/file-tree/view/FileTreeEmptyState.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/file-tree/view/FileTreeHeader.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/file-tree/view/FileTreeList.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/file-tree/view/FileTreeLoadingState.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/file-tree/view/FileTreeNode.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/file-tree/view/FileTreeUploadProgress.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/file-tree/view/ImageViewer.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/git-panel/constants/constants.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/git-panel/hooks/useGitPanelController.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/git-panel/hooks/useRevertLocalCommit.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/git-panel/hooks/useSelectedProvider.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/git-panel/types/types.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/git-panel/utils/commitGraph.test.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/git-panel/utils/commitGraph.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/git-panel/utils/gitPanelUtils.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/git-panel/view/branches/BranchesView.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/git-panel/view/changes/ChangesView.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/git-panel/view/changes/CommitComposer.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/git-panel/view/changes/FileChangeItem.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/git-panel/view/changes/FileChangeList.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/git-panel/view/changes/FileSelectionControls.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/git-panel/view/changes/FileStatusLegend.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/git-panel/view/GitPanel.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/git-panel/view/GitPanelHeader.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/git-panel/view/GitRepositoryErrorState.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/git-panel/view/GitViewTabs.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/git-panel/view/history/CommitGraphStrip.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/git-panel/view/history/CommitHistoryItem.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/git-panel/view/history/HistoryView.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/git-panel/view/modals/ConfirmActionModal.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/git-panel/view/modals/NewBranchModal.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/git-panel/view/shared/GitDiffViewer.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/main-content/types/types.ts",
+      "status": "modified",
+      "sha256": "77fe9a1da8dec912384823e2e44676f169a66bd098fac5cdd5dcf912eb787f05"
+    },
+    {
+      "path": "src/components/main-content/view/MainContent.tsx",
+      "status": "modified",
+      "sha256": "ffffc658480bd6f1bb2aeeb5a9aaa408ac72c6f14e9a8231bcb1708481473e00"
+    },
+    {
+      "path": "src/components/main-content/view/subcomponents/FilesPanel.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/main-content/view/subcomponents/MainContentHeader.tsx",
+      "status": "modified",
+      "sha256": "4347325a588aa5ee83eafd524ce058107e3abb0d1a2fa22c197b8f005a651dc6"
+    },
+    {
+      "path": "src/components/main-content/view/subcomponents/MainContentStateView.tsx",
+      "status": "modified",
+      "sha256": "bb0e367ff2067a635c75bf3466888cbd71b83c5558a5061bf70e1edf9d29767a"
+    },
+    {
+      "path": "src/components/main-content/view/subcomponents/MainContentTabSwitcher.tsx",
+      "status": "modified",
+      "sha256": "a649bdb2693b6bf01164d5465fb7d6817052bd6ba2ccdbeda18dfe6db3b7c91c"
+    },
+    {
+      "path": "src/components/main-content/view/subcomponents/MainContentTitle.tsx",
+      "status": "modified",
+      "sha256": "8621d810a5163e20d86a1fe467546f754d28400d53b4212e26b44e234b87bbf8"
+    },
+    {
+      "path": "src/components/mcp/constants.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/mcp/hooks/useMcpServerForm.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/mcp/hooks/useMcpServers.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/mcp/index.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/mcp/types.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/mcp/utils/mcpFormatting.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/mcp/view/McpServers.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/mcp/view/modals/McpServerFormModal.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/plugins/view/PluginIcon.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/plugins/view/PluginTabContent.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/prd-editor/constants.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/prd-editor/hooks/usePrdDocument.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/prd-editor/hooks/usePrdKeyboardShortcuts.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/prd-editor/hooks/usePrdRegistry.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/prd-editor/hooks/usePrdSave.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/prd-editor/index.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/prd-editor/PRDEditor.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/prd-editor/types.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/prd-editor/utils/fileName.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/prd-editor/view/GenerateTasksModal.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/prd-editor/view/OverwriteConfirmModal.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/prd-editor/view/PrdEditorBody.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/prd-editor/view/PrdEditorFooter.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/prd-editor/view/PrdEditorHeader.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/prd-editor/view/PrdEditorLoadingState.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/prd-editor/view/PrdEditorWorkspace.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/project-creation-wizard/components/ErrorBanner.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/project-creation-wizard/components/FolderBrowserModal.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/project-creation-wizard/components/GithubAuthenticationCard.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/project-creation-wizard/components/StepConfiguration.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/project-creation-wizard/components/StepReview.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/project-creation-wizard/components/WizardFooter.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/project-creation-wizard/components/WizardProgress.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/project-creation-wizard/components/WorkspacePathField.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/project-creation-wizard/data/workspaceApi.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/project-creation-wizard/hooks/useGithubTokens.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/project-creation-wizard/index.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/project-creation-wizard/ProjectCreationWizard.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/project-creation-wizard/types.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/project-creation-wizard/utils/pathUtils.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/settings/constants/constants.ts",
+      "status": "modified",
+      "sha256": "d5a639475dbfd67021f02d3438137f2ae14e3efdd6f2811b12843425009f7b98"
+    },
+    {
+      "path": "src/components/settings/types/types.ts",
+      "status": "modified",
+      "sha256": "d2214b029c872ebed73942f08cc3d2d10ae85ccc08b105d9e1bff660be5e9d54"
+    },
+    {
+      "path": "src/components/settings/view/tabs/agents-settings/AgentsSettingsTab.tsx",
+      "status": "modified",
+      "sha256": "62547b87495145068cc020a2fce01bea1295919810c802b89ad09a3733f8ac9c"
+    },
+    {
+      "path": "src/components/settings/view/tabs/agents-settings/sections/AgentCategoryContentSection.tsx",
+      "status": "modified",
+      "sha256": "22418c56c730a29bf8c1aa6362a9a38c5c6d6b3c16ff506920e5fb92862f6507"
+    },
+    {
+      "path": "src/components/settings/view/tabs/agents-settings/sections/AgentCategoryTabsSection.tsx",
+      "status": "modified",
+      "sha256": "76e08c55a14dfae91186adfc8fd3b2a2a1c89adb94ff6f8220142657c22ac480"
+    },
+    {
+      "path": "src/components/settings/view/tabs/AppearanceSettingsTab.tsx",
+      "status": "modified",
+      "sha256": "de1571e07434f9a628d43810f06ea1917cf5bdd3fad690f93766699ad9727f37"
+    },
+    {
+      "path": "src/components/shell/shellProtocol.test.ts",
+      "status": "modified",
+      "sha256": "eb5150e4a8ccee20f93b0fac22e3480de628012911e93ec14593cb5a8bc19e78"
+    },
+    {
+      "path": "src/components/sidebar/hooks/useSidebarController.ts",
+      "status": "modified",
+      "sha256": "46ca21ac56e7058c9a199ba52f100fd932da889fd0690e63776a563b8b6f43e0"
+    },
+    {
+      "path": "src/components/sidebar/types/types.ts",
+      "status": "modified",
+      "sha256": "5c06efe29b27294221b204ac029ea5a6175e7940afe07dbe5982356c9522c352"
+    },
+    {
+      "path": "src/components/sidebar/utils/utils.ts",
+      "status": "modified",
+      "sha256": "bfa1d525b729107d5872ad774850b48bf9f99e0d3f9f60b4ce9280d8a23e9547"
+    },
+    {
+      "path": "src/components/sidebar/view/Sidebar.rename-project.contract.test.tsx",
+      "status": "added",
+      "preExisting": false,
+      "sha256": "5e13c43a4c3bd8a9d7fef4d6a1e6fd7ab521e8eff1c63de7ae96eeb09cd12244"
+    },
+    {
+      "path": "src/components/sidebar/view/Sidebar.tsx",
+      "status": "modified",
+      "sha256": "0429086a55b31cca94286d28d0f046a17b077d6d973dadb348909697dd4c1e6d"
+    },
+    {
+      "path": "src/components/sidebar/view/subcomponents/SidebarContent.tsx",
+      "status": "modified",
+      "sha256": "024619d841d0abcb5e026aac3835a483f82f55bfc0b2d4da61428b8e55bfddb7"
+    },
+    {
+      "path": "src/components/sidebar/view/subcomponents/SidebarHeader.tsx",
+      "status": "modified",
+      "sha256": "b2eee9d3755d3893c67ab8e1633e535c67ece5c7257cb81ba5a3efdb26f49334"
+    },
+    {
+      "path": "src/components/sidebar/view/subcomponents/SidebarModals.tsx",
+      "status": "modified",
+      "sha256": "9b12ea5cd5f9e236f3838a5cb9424c07c764924be18b395607574b66d44020a7"
+    },
+    {
+      "path": "src/components/sidebar/view/subcomponents/SidebarProjectItem.tsx",
+      "status": "modified",
+      "sha256": "bf6961f755a6ab4953867929accdd389a16ecb5645469a349b6cd0827aea5fb4"
+    },
+    {
+      "path": "src/components/sidebar/view/subcomponents/SidebarProjectList.tsx",
+      "status": "modified",
+      "sha256": "b4ab45beacee9331cb0775f25b93bb7f425a3b52045b6e6b02d3429d78c6564a"
+    },
+    {
+      "path": "src/components/sidebar/view/subcomponents/TaskIndicator.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/skills/hooks/useProviderSkills.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/skills/index.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/skills/types.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/skills/view/ProviderSkills.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/task-master/context/TaskMasterContext.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/task-master/hooks/useProjectPrdFiles.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/task-master/hooks/useTaskBoardState.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/task-master/index.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/task-master/types.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/task-master/utils/taskKanban.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/task-master/utils/taskSorting.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/task-master/view/modals/CreateTaskModal.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/task-master/view/modals/TaskHelpModal.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/task-master/view/modals/TaskMasterSetupModal.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/task-master/view/NextTaskBanner.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/task-master/view/shared/TaskFiltersPanel.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/task-master/view/shared/TaskQuickSortBar.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/task-master/view/TaskBoard.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/task-master/view/TaskBoardContent.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/task-master/view/TaskBoardToolbar.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/task-master/view/TaskCard.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/task-master/view/TaskDetailModal.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/task-master/view/TaskEmptyState.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/components/task-master/view/TaskMasterPanel.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/contexts/PluginsContext.tsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/contexts/TaskMasterContext.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/contexts/TasksSettingsContext.jsx",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/hooks/projectsStateMerge.ts",
+      "status": "modified",
+      "sha256": "2865bf5dbe3482a3b03a83a48c52ef66224c51648b2db93e63379e0682b67431"
+    },
+    {
+      "path": "src/hooks/useProjectsState.tabs.test.ts",
+      "status": "added",
+      "preExisting": false,
+      "sha256": "ec59bca8091840bf96fd4fb7c2e5379ada947f1ef9522e701f84aa982a8ede99"
+    },
+    {
+      "path": "src/hooks/useProjectsState.ts",
+      "status": "modified",
+      "sha256": "a0813b42f6638a73fc2e3cc0831e4c8cd472a743ff4f5a466e9fa91573146c3d"
+    },
+    {
+      "path": "src/hooks/useUiPreferences.ts",
+      "status": "modified",
+      "sha256": "f62993d6b6a033f2148b693c5ee7327f7afc79af54f1092477994f830381120d"
+    },
+    {
+      "path": "src/hooks/useVoiceConfig.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/i18n/config.js",
+      "status": "modified",
+      "sha256": "04bdf6b40fc0c6bf8e7eec96d9ab64bbb41c0d8780460ec3106a4ee69b710898"
+    },
+    {
+      "path": "src/i18n/locales/de/chat.json",
+      "status": "modified",
+      "sha256": "db14e5cfcab4a944c9d8e98e20df582d0ece59728aedde53ffb4410ae8e3e547"
+    },
+    {
+      "path": "src/i18n/locales/de/common.json",
+      "status": "modified",
+      "sha256": "f65c5e84ea3039210b656071b3634900055d51177dbb71b7e8cfaaa4c881410b"
+    },
+    {
+      "path": "src/i18n/locales/de/settings.json",
+      "status": "modified",
+      "sha256": "5dfab98978794bd5cf3babf3b8857feec1c12cde640d7e8df0dc2f99acc0f4e3"
+    },
+    {
+      "path": "src/i18n/locales/de/sidebar.json",
+      "status": "modified",
+      "sha256": "a5f61092c091539f3d790813d20749f8ff965422c9a9e425239ada220848db36"
+    },
+    {
+      "path": "src/i18n/locales/de/tasks.json",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/i18n/locales/en/chat.json",
+      "status": "modified",
+      "sha256": "0f7125d3088b1fbe143f717dc2674b6a6afa0e641db4d8264c2080a8e3d37367"
+    },
+    {
+      "path": "src/i18n/locales/en/common.json",
+      "status": "modified",
+      "sha256": "6da6669753023a80384d0d88d53cf9fe2cfb9efb0d91a455b762799d6fa21d7d"
+    },
+    {
+      "path": "src/i18n/locales/en/settings.json",
+      "status": "modified",
+      "sha256": "0f9512f0b3d81f929b7be9b001db452d167c6ed00cf6de2ebc732a8a06c8e987"
+    },
+    {
+      "path": "src/i18n/locales/en/sidebar.json",
+      "status": "modified",
+      "sha256": "1d92bcc80021d77adc6d09ae3d1d41c4ef370dbb3ad8c33721ceadf0fc1ffe06"
+    },
+    {
+      "path": "src/i18n/locales/en/tasks.json",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/i18n/locales/fr/chat.json",
+      "status": "modified",
+      "sha256": "8cd4192b41559ebb8dded83911d153826894b85d07bf4ebb29d41c2d684e8696"
+    },
+    {
+      "path": "src/i18n/locales/fr/common.json",
+      "status": "modified",
+      "sha256": "063fea85f33195dc32849e571f6474ab4c12286d56a002a8706dcbed4d706fb4"
+    },
+    {
+      "path": "src/i18n/locales/fr/settings.json",
+      "status": "modified",
+      "sha256": "8b9e4a19502245a85b16b9710a586ecb4a7cec48dd00e0dfdfcb544a806c77d1"
+    },
+    {
+      "path": "src/i18n/locales/fr/sidebar.json",
+      "status": "modified",
+      "sha256": "0687342a97b63e6e65426b42f3c6ed551a6755f445fe3f5af491324afedef67f"
+    },
+    {
+      "path": "src/i18n/locales/fr/tasks.json",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/i18n/locales/it/chat.json",
+      "status": "modified",
+      "sha256": "957dea78b85f869725a2a6d539ec239c88eb6d8309b37770eeaefe1ce96e4bf7"
+    },
+    {
+      "path": "src/i18n/locales/it/common.json",
+      "status": "modified",
+      "sha256": "94e9f67e7ea65547d92169f040ccea6438a0aecd8ccf6a2f747770ead9f535e4"
+    },
+    {
+      "path": "src/i18n/locales/it/settings.json",
+      "status": "modified",
+      "sha256": "695a27d90d01b18d800934e02b512fb337d823b3fb2230d9972171968663d0d6"
+    },
+    {
+      "path": "src/i18n/locales/it/sidebar.json",
+      "status": "modified",
+      "sha256": "f7e6288a0f3f777db172affd3d8895d6710a2b2dc94c3daab251d0c5e7520ce0"
+    },
+    {
+      "path": "src/i18n/locales/it/tasks.json",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/i18n/locales/ja/common.json",
+      "status": "modified",
+      "sha256": "b5d15f5f41327f621f25a65e94cbb9472454179d255015ddc59581e630230326"
+    },
+    {
+      "path": "src/i18n/locales/ja/settings.json",
+      "status": "modified",
+      "sha256": "842f43db4a54912ed8e7f9620ea9583c9a92569234be0d2396002e98af4667d3"
+    },
+    {
+      "path": "src/i18n/locales/ja/sidebar.json",
+      "status": "modified",
+      "sha256": "bdceddbac40b5f982d6ba06cfc93c4425a8e108fe2bec2405845d5d234ae5abe"
+    },
+    {
+      "path": "src/i18n/locales/ja/tasks.json",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/i18n/locales/ko/chat.json",
+      "status": "modified",
+      "sha256": "87b9edd048cb721e61ac8adb595f036f54bd265e775f564e5c3f35c8ed742f43"
+    },
+    {
+      "path": "src/i18n/locales/ko/common.json",
+      "status": "modified",
+      "sha256": "8fbcfda786bd1f117076a37b0fb76f63c413a24df223da49b034a6d4faa2dcf5"
+    },
+    {
+      "path": "src/i18n/locales/ko/settings.json",
+      "status": "modified",
+      "sha256": "c58e240a2acba81e8b1868c979d78ff3a979b7f119d5f9929fb91a22ba52f575"
+    },
+    {
+      "path": "src/i18n/locales/ko/sidebar.json",
+      "status": "modified",
+      "sha256": "7a3d7421ce8324babdebc2f6f8112b41c15b18e2256947152a2bc53b4d43d821"
+    },
+    {
+      "path": "src/i18n/locales/ru/chat.json",
+      "status": "modified",
+      "sha256": "13b496d0f6cdaaa10829c9dfba1782a26e74c267cc3c13fdfbcc2b430447debf"
+    },
+    {
+      "path": "src/i18n/locales/ru/common.json",
+      "status": "modified",
+      "sha256": "c875af3d54367f819b22521434d194bbce749341fc4213b4c358afe69b901baa"
+    },
+    {
+      "path": "src/i18n/locales/ru/settings.json",
+      "status": "modified",
+      "sha256": "d6d0e0229bec5250640823dc0f1afe29badf35f2bca14148697432015decd536"
+    },
+    {
+      "path": "src/i18n/locales/ru/sidebar.json",
+      "status": "modified",
+      "sha256": "ef5569dd0fa8a41d0b33eca0462c0595cf601b258df8db68903a4e8d56fb2427"
+    },
+    {
+      "path": "src/i18n/locales/ru/tasks.json",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/i18n/locales/tr/chat.json",
+      "status": "modified",
+      "sha256": "5fe2d723b6c0d431a21892823fbcdfc42a1fc31c131f1fab45c1dea78db0d830"
+    },
+    {
+      "path": "src/i18n/locales/tr/common.json",
+      "status": "modified",
+      "sha256": "20278ea641749881483b9343c69cb2befe3b924828e65c6c1a6d9e8b586578c5"
+    },
+    {
+      "path": "src/i18n/locales/tr/settings.json",
+      "status": "modified",
+      "sha256": "da92489fc3023b94ebff21711cc9964c48784b4eb60b3d445807af906d44046b"
+    },
+    {
+      "path": "src/i18n/locales/tr/sidebar.json",
+      "status": "modified",
+      "sha256": "6c7020144a6c0c3ef1682e163ee4a611f1123ec95b16ad7bb4c47f13b9ecd7f9"
+    },
+    {
+      "path": "src/i18n/locales/tr/tasks.json",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/i18n/locales/zh-CN/chat.json",
+      "status": "modified",
+      "sha256": "6f2a7ff96e85d86b13cf89fe916edc2333dc2914cbe55bf22369e3ae279587b0"
+    },
+    {
+      "path": "src/i18n/locales/zh-CN/common.json",
+      "status": "modified",
+      "sha256": "58b127b9374509c11b99591b32dc49f88d90457857c6e842068bb701b525c723"
+    },
+    {
+      "path": "src/i18n/locales/zh-CN/settings.json",
+      "status": "modified",
+      "sha256": "769416f1dc70a402dac8a5a7721e0b496f4f9a7ad9648ccdd8a6336e396a4f48"
+    },
+    {
+      "path": "src/i18n/locales/zh-CN/sidebar.json",
+      "status": "modified",
+      "sha256": "bf8d619e23be897acbcec1f193ff1fde6b234919f3e07ad9e97e27fbea0277c8"
+    },
+    {
+      "path": "src/i18n/locales/zh-TW/chat.json",
+      "status": "modified",
+      "sha256": "27df880557a3b94db4d707e75c4fb8b0c33078a1a262273edcfd429971e611aa"
+    },
+    {
+      "path": "src/i18n/locales/zh-TW/common.json",
+      "status": "modified",
+      "sha256": "91c735370c875179dcc61a7640149f83c16f1b8134a4c1a7242809e0e3d82e56"
+    },
+    {
+      "path": "src/i18n/locales/zh-TW/settings.json",
+      "status": "modified",
+      "sha256": "e595585f5138fe18f92a008d30b170664ec821203608a96046daceb942c7f97c"
+    },
+    {
+      "path": "src/i18n/locales/zh-TW/sidebar.json",
+      "status": "modified",
+      "sha256": "a1037629039ab92e7ddad1f96e4ad28eab3dcbd6dfa1c44c164b750ad177ce0b"
+    },
+    {
+      "path": "src/i18n/locales/zh-TW/tasks.json",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/lib/voiceApi.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/lib/voicePlayer.ts",
+      "status": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "src/shared/homePath.ts",
+      "status": "modified",
+      "sha256": "ec1d7404c1fdf153d3af2d07eeab5deba04551cddc99834fd28c74a70d72c60e"
+    },
+    {
+      "path": "src/types/app.ts",
+      "status": "modified",
+      "sha256": "45a1e2306c7af8e6a0cfb2349e670be0400477cff5545a64182006a6f56f096b"
+    },
+    {
+      "path": "src/utils/api.js",
+      "status": "modified",
+      "sha256": "39d72503109b9707ede80074cc8fc5ec4088721abe79d62921dd6c291803da4c"
+    },
+    {
+      "path": "vite.config.js",
+      "status": "modified",
+      "sha256": "b30508a4d63c97330cf652cb64756df5e74c457d1c3d00027a302c5959795245"
+    }
+  ],
+  "verification": {
+    "typecheck": "passed",
+    "lint": "passed",
+    "serverTests": {
+      "tests": 621,
+      "pass": 621,
+      "fail": 0,
+      "skipped": 0,
+      "todo": 0
+    },
+    "clientTests": {
+      "tests": 108,
+      "pass": 108,
+      "fail": 0,
+      "skipped": 0,
+      "todo": 0
+    },
+    "clientBuild": "passed",
+    "serverBuild": "passed",
+    "core": {
+      "tests": 15,
+      "pass": 15,
+      "fail": 0
+    },
+    "observability120s": "passed",
+    "shutdown": "passed"
+  }
+}

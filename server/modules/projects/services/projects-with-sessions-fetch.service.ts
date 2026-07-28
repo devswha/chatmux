@@ -40,9 +40,6 @@ export type ProjectListItem = {
   };
 };
 
-export type ArchivedProjectListItem = ProjectListItem & {
-  isArchived: true;
-};
 
 type ProgressUpdate = {
   phase: 'loading' | 'complete';
@@ -165,24 +162,6 @@ function mapSessionRowToSummary(row: SessionRepositoryRow): SessionSummary {
   };
 }
 
-function readProjectSessionsIncludingArchived(
-  projectPath: string,
-  options: SessionPaginationOptions = {},
-): ProjectSessionsPageResult {
-  const pagination = normalizeSessionPagination(options);
-  const rows = sessionsDb.getSessionsByProjectPathIncludingArchivedPage(
-    projectPath,
-    pagination.limit,
-    pagination.offset,
-  ) as SessionRepositoryRow[];
-  const total = sessionsDb.countSessionsByProjectPathIncludingArchived(projectPath);
-
-  return {
-    sessions: rows.map(mapSessionRowToSummary),
-    total,
-    hasMore: pagination.offset + rows.length < total,
-  };
-}
 
 /**
  * Reads one paginated project session slice from the DB and groups rows by provider.
@@ -321,56 +300,6 @@ export async function getProjectsWithSessions(
   return projects;
 }
 
-/**
- * Reads archived projects from DB. Each project's preserved history (active +
- * archived sessions) is returned as a bounded page; the full history stays
- * reachable via `sessionsLimit`/`sessionsOffset` (sessionMeta.hasMore/total),
- * so the archive view is not a single unbounded payload.
- */
-export async function getArchivedProjectsWithSessions(
-  options: Pick<GetProjectsWithSessionsOptions, 'skipSynchronization' | 'sessionsLimit' | 'sessionsOffset'> = {},
-): Promise<ArchivedProjectListItem[]> {
-  if (!options.skipSynchronization) {
-    await sessionSynchronizerService.synchronizeSessions();
-  }
-
-  const projectRows = projectsDb.getArchivedProjectPaths() as Array<{
-    project_id: string;
-    project_path: string;
-    custom_project_name?: string | null;
-    isStarred?: number;
-  }>;
-
-  const archivedProjects: ArchivedProjectListItem[] = [];
-
-  for (const row of projectRows) {
-    const displayName =
-      row.custom_project_name && row.custom_project_name.trim().length > 0
-        ? row.custom_project_name
-        : await generateDisplayName(path.basename(row.project_path) || row.project_path, row.project_path);
-
-    const sessionsPage = readProjectSessionsIncludingArchived(row.project_path, {
-      limit: options.sessionsLimit,
-      offset: options.sessionsOffset,
-    });
-
-    archivedProjects.push({
-      projectId: row.project_id,
-      path: row.project_path,
-      displayName,
-      fullPath: row.project_path,
-      isStarred: Boolean(row.isStarred),
-      isArchived: true,
-      sessions: sessionsPage.sessions,
-      sessionMeta: {
-        hasMore: sessionsPage.hasMore,
-        total: sessionsPage.total,
-      },
-    });
-  }
-
-  return archivedProjects;
-}
 
 /**
  * Loads one paginated session slice for a specific project id.

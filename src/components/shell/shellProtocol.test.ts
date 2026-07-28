@@ -85,13 +85,11 @@ test('plain shell init keeps its existing fields and adds the protocol version',
 
 test('shell consumers retain their command props and no client tmux command builder remains', () => {
   const mainContent = readFileSync(new URL('../main-content/view/MainContent.tsx', import.meta.url), 'utf8');
-  const taskMaster = readFileSync(new URL('../task-master/view/modals/TaskMasterSetupModal.tsx', import.meta.url), 'utf8');
   const providerLogin = readFileSync(new URL('../provider-auth/view/ProviderLoginModal.tsx', import.meta.url), 'utf8');
   const standalone = readFileSync(new URL('../standalone-shell/view/StandaloneShell.tsx', import.meta.url), 'utf8');
   const removedBuilder = ['buildExact', 'TmuxAttachCommand'].join('');
   assert.equal(mainContent.includes(removedBuilder), false);
   assert.match(mainContent, /attachTarget=\{attachTarget\}/);
-  assert.match(taskMaster, /initialCommand="npx task-master init"/);
   assert.match(providerLogin, /StandaloneShell project=\{DEFAULT_PROJECT_FOR_EMPTY_SHELL\} command=\{command\}/);
   assert.match(standalone, /initialCommand=\{command\}/);
 });

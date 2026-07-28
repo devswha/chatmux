@@ -208,7 +208,6 @@ If the provider is visible in the UI, update:
 - `src/components/chat/hooks/useChatProviderState.ts`
 - `src/components/chat/view/subcomponents/ProviderSelectionEmptyState.tsx`
 - `src/components/provider-auth/view/ProviderLoginModal.tsx`
-- `src/components/mcp/constants.ts`
 
 ## Minimal Wrapper Template
 

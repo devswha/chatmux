@@ -6,7 +6,6 @@ import type { ServerEvent } from '../contexts/WebSocketContext';
 import type {
   AppTab,
   LLMProvider,
-  LoadingProgress,
   Project,
   ProjectSession,
 } from '../types/app';
@@ -16,12 +15,9 @@ import { useDiscoveryStream, type DiscoveryRow } from './useDiscoveryStream';
 import type { SessionActivityMap } from './useSessionProtection';
 import {
   mergeExpandedSessionPages,
-  mergeProjectSessionPage,
-  mergeTaskMasterCache,
   normalizeSessionProvider,
   projectFromRegistration,
   projectsHaveChanges,
-  removeSessionFromProject,
   upsertSessionIntoProject,
   type SessionUpsertedEvent,
 } from './projectsStateMerge';
@@ -51,13 +47,11 @@ type RegisterOptimisticSessionArgs = {
 
 
 const DEFAULT_PROVIDER: LLMProvider = 'claude';
-type ProjectSessionPage = Pick<Project, 'sessions' | 'sessionMeta'>;
 
 const serialize = (value: unknown) => JSON.stringify(value ?? null);
 
 const getProjectSessions = (project: Project): ProjectSession[] => project.sessions ?? [];
 
-const countLoadedProjectSessions = (project: Project): number => getProjectSessions(project).length;
 const readSelectedProvider = (): LLMProvider => {
   try {
     const storedProvider = localStorage.getItem('selected-provider');
@@ -68,20 +62,18 @@ const readSelectedProvider = (): LLMProvider => {
 };
 
 
-// 'shell'/'git'/'files' were removed as tabs (Files is a side panel now);
-// persisted selections fall back to 'chat' via isValidTab.
-const VALID_TABS: Set<string> = new Set(['chat', 'tasks', 'browser']);
+const VALID_TABS: Set<string> = new Set(['chat']);
 
 const isValidTab = (tab: string): tab is AppTab => {
-  return VALID_TABS.has(tab) || tab.startsWith('plugin:');
+  return VALID_TABS.has(tab);
 };
+
+export const normalizePersistedTab = (stored: string | null): AppTab =>
+  stored && isValidTab(stored) ? stored : 'chat';
 
 const readPersistedTab = (): AppTab => {
   try {
-    const stored = localStorage.getItem('activeTab');
-    if (stored && isValidTab(stored)) {
-      return stored as AppTab;
-    }
+    return normalizePersistedTab(localStorage.getItem('activeTab'));
   } catch {
     // localStorage unavailable
   }
@@ -100,7 +92,6 @@ export function useProjectsState({
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [selectedSession, setSelectedSession] = useState<ProjectSession | null>(null);
-  const [attentionSessionIds, setAttentionSessionIds] = useState<Set<string>>(new Set());
   const [liveSessionIds, setLiveSessionIds] = useState<Set<string>>(new Set());
   const [liveSessionNames, setLiveSessionNames] = useState<Map<string, string>>(new Map());
   const [liveSessionModels, setLiveSessionModels] = useState<Map<string, string>>(new Map());
@@ -261,7 +252,6 @@ export function useProjectsState({
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isLoadingProjects, setIsLoadingProjects] = useState(true);
-  const [loadingProgress, setLoadingProgress] = useState<LoadingProgress | null>(null);
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [settingsInitialTab, setSettingsInitialTab] = useState('agents');
@@ -288,7 +278,6 @@ export function useProjectsState({
    */
   const [newSessionTrigger, setNewSessionTrigger] = useState(0);
 
-  const loadingProgressTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /**
    * Ref mirrors for state the websocket subscription handler needs.
    *
@@ -297,47 +286,18 @@ export function useProjectsState({
    * must read the latest values through refs instead of stale closures —
    * re-subscribing on every state change would risk missing events.
    */
+  const projectsRef = useRef(projects);
+  projectsRef.current = projects;
+  const selectedProjectRef = useRef(selectedProject);
+  selectedProjectRef.current = selectedProject;
   const selectedSessionRef = useRef(selectedSession);
   selectedSessionRef.current = selectedSession;
+  const sessionIdRef = useRef(sessionId);
+  sessionIdRef.current = sessionId;
   const activeSessionsRef = useRef(activeSessions);
   activeSessionsRef.current = activeSessions;
+  const sidebarRefreshGenerationRef = useRef(0);
 
-  const markSessionAttention = useCallback((targetSessionId?: string | null) => {
-    if (!targetSessionId) {
-      return;
-    }
-
-    const viewedSessionId = selectedSessionRef.current?.id ?? sessionId ?? null;
-    if (targetSessionId === viewedSessionId) {
-      return;
-    }
-
-    setAttentionSessionIds((previous) => {
-      if (previous.has(targetSessionId)) {
-        return previous;
-      }
-
-      const next = new Set(previous);
-      next.add(targetSessionId);
-      return next;
-    });
-  }, [sessionId]);
-
-  const clearSessionAttention = useCallback((targetSessionId?: string | null) => {
-    if (!targetSessionId) {
-      return;
-    }
-
-    setAttentionSessionIds((previous) => {
-      if (!previous.has(targetSessionId)) {
-        return previous;
-      }
-
-      const next = new Set(previous);
-      next.delete(targetSessionId);
-      return next;
-    });
-  }, []);
 
   const fetchProjects = useCallback(async ({ showLoadingState = true }: FetchProjectsOptions = {}) => {
     try {
@@ -348,8 +308,7 @@ export function useProjectsState({
       const projectData = (await response.json()) as Project[];
 
       setProjects((prevProjects) => {
-        const projectsWithTaskMaster = mergeTaskMasterCache(projectData, prevProjects);
-        const mergedProjects = mergeExpandedSessionPages(prevProjects, projectsWithTaskMaster);
+        const mergedProjects = mergeExpandedSessionPages(prevProjects, projectData);
 
         if (prevProjects.length === 0) {
           return mergedProjects;
@@ -442,47 +401,6 @@ export function useProjectsState({
     ));
   }, []);
 
-  // Hydrates TaskMaster details for the given `projectId`. The project
-  // identifier comes directly from the DB-driven /api/projects response.
-  const hydrateProjectTaskMaster = useCallback(async (projectId: string) => {
-    if (!projectId) {
-      return;
-    }
-
-    try {
-      const response = await api.projectTaskmaster(projectId);
-      if (!response.ok) {
-        return;
-      }
-
-      const data = (await response.json()) as { taskmaster?: Project['taskmaster'] };
-      const taskMasterInfo = data.taskmaster;
-      if (!taskMasterInfo) {
-        return;
-      }
-
-      setProjects((previousProjects) =>
-        previousProjects.map((project) =>
-          project.projectId === projectId
-            ? { ...project, taskmaster: taskMasterInfo }
-            : project,
-        ),
-      );
-
-      setSelectedProject((previousProject) => {
-        if (!previousProject || previousProject.projectId !== projectId) {
-          return previousProject;
-        }
-
-        return {
-          ...previousProject,
-          taskmaster: taskMasterInfo,
-        };
-      });
-    } catch (error) {
-      console.error(`Error fetching TaskMaster info for project ${projectId}:`, error);
-    }
-  }, []);
 
   const openSettings = useCallback((tab = 'tools') => {
     setSettingsInitialTab(tab);
@@ -493,13 +411,6 @@ export function useProjectsState({
     void fetchProjects();
   }, [fetchProjects]);
 
-  useEffect(() => {
-    if (!selectedProject?.projectId) {
-      return;
-    }
-
-    void hydrateProjectTaskMaster(selectedProject.projectId);
-  }, [hydrateProjectTaskMaster, selectedProject?.projectId]);
 
   // Auto-select the project when there is only one, so the user lands on the new session page
   useEffect(() => {
@@ -514,42 +425,7 @@ export function useProjectsState({
   // "suppress updates while a run is active" protection is needed anymore.
   useEffect(() => {
     const handleEvent = (event: ServerEvent) => {
-      if (event.kind === 'loading_progress') {
-        if (loadingProgressTimeoutRef.current) {
-          clearTimeout(loadingProgressTimeoutRef.current);
-          loadingProgressTimeoutRef.current = null;
-        }
 
-        setLoadingProgress(event as unknown as LoadingProgress);
-
-        if (event.phase === 'complete') {
-          loadingProgressTimeoutRef.current = setTimeout(() => {
-            setLoadingProgress(null);
-            loadingProgressTimeoutRef.current = null;
-          }, 500);
-        }
-
-        return;
-      }
-
-      const eventSessionId = typeof event.sessionId === 'string' && event.sessionId
-        ? event.sessionId
-        : null;
-      const viewedSessionId = selectedSessionRef.current?.id ?? sessionId ?? null;
-
-      if (
-        eventSessionId
-        && eventSessionId !== viewedSessionId
-        && event.kind !== 'chat_subscribed'
-        && event.kind !== 'loading_progress'
-        && event.kind !== 'session_upserted'
-        && event.kind !== 'status'
-        && event.kind !== 'stream_end'
-        && event.kind !== 'permission_cancelled'
-        && event.kind !== 'websocket_reconnected'
-      ) {
-        markSessionAttention(eventSessionId);
-      }
 
       if (event.kind !== 'session_upserted') {
         return;
@@ -570,8 +446,6 @@ export function useProjectsState({
         && !activeSessionsRef.current.has(upsert.sessionId)
       ) {
         setExternalMessageUpdate((prev) => prev + 1);
-      } else {
-        markSessionAttention(upsert.sessionId);
       }
 
       setProjects((previousProjects) => {
@@ -657,20 +531,9 @@ export function useProjectsState({
     };
 
     return subscribe(handleEvent);
-  }, [markSessionAttention, navigate, sessionId, subscribe]);
+  }, [navigate, sessionId, subscribe]);
 
-  useEffect(() => {
-    return () => {
-      if (loadingProgressTimeoutRef.current) {
-        clearTimeout(loadingProgressTimeoutRef.current);
-        loadingProgressTimeoutRef.current = null;
-      }
-    };
-  }, []);
 
-  useEffect(() => {
-    clearSessionAttention(selectedSession?.id ?? sessionId ?? null);
-  }, [clearSessionAttention, selectedSession?.id, sessionId]);
 
   useEffect(() => {
     if (!sessionId || projects.length === 0) {
@@ -743,32 +606,27 @@ export function useProjectsState({
   );
 
   const handleSessionSelect = useCallback(
-    (session: ProjectSession) => {
+    (session: ProjectSession, projectId?: string) => {
       // Live sessions open read-only (composer hidden in the chat view), so opening
       // one can't cause driver duplication — no confirmation needed.
-      clearSessionAttention(session.id);
-      setSelectedSession(session);
-
-      if (activeTab === 'tasks' || activeTab === 'browser') {
-        setActiveTab('chat');
-      }
+      const selected = projectId && session.__projectId !== projectId
+        ? { ...session, __projectId: projectId }
+        : session;
+      setSelectedSession(selected);
 
       if (isMobile) {
-        // Sessions are tagged with the owning project's DB `projectId` when
-        // picked from the sidebar (see useSidebarController); compare against
-        // the current selection's `projectId` so we know whether to collapse
-        // the sidebar after navigation.
-        const sessionProjectId = session.__projectId;
+        // Collapse after navigation when the selected session belongs to a
+        // different project.
         const currentProjectId = selectedProject?.projectId;
 
-        if (sessionProjectId !== currentProjectId) {
+        if (selected.__projectId !== currentProjectId) {
           setSidebarOpen(false);
         }
       }
 
-      navigate(`/session/${session.id}`);
+      navigate(`/session/${selected.id}`);
     },
-    [activeTab, clearSessionAttention, isMobile, navigate, selectedProject?.projectId],
+    [isMobile, navigate, selectedProject?.projectId],
   );
 
   const handleNewSession = useCallback(
@@ -786,141 +644,108 @@ export function useProjectsState({
     [isMobile, navigate],
   );
 
-  const handleSessionDelete = useCallback(
-    (sessionIdToDelete: string) => {
-      clearSessionAttention(sessionIdToDelete);
-
-      if (selectedSession?.id === sessionIdToDelete) {
-        setSelectedSession(null);
-        navigate('/');
-      }
-
-      setProjects((prevProjects) =>
-        prevProjects.map((project) => removeSessionFromProject(project, sessionIdToDelete)),
-      );
-    },
-    [clearSessionAttention, navigate, selectedSession?.id],
-  );
 
   const handleSidebarRefresh = useCallback(async () => {
+    const refreshGeneration = ++sidebarRefreshGenerationRef.current;
+
     try {
       const response = await api.projects();
       const freshProjects = (await response.json()) as Project[];
-      const projectsWithTaskMaster = mergeTaskMasterCache(freshProjects, projects);
-      const mergedProjects = mergeExpandedSessionPages(projects, projectsWithTaskMaster);
+      if (refreshGeneration !== sidebarRefreshGenerationRef.current) {
+        return;
+      }
 
-      setProjects((prevProjects) =>
-        projectsHaveChanges(prevProjects, mergedProjects) ? mergedProjects : prevProjects,
+      const mergedProjects = mergeExpandedSessionPages(projectsRef.current, freshProjects);
+      setProjects((previousProjects) => {
+        const nextProjects = mergeExpandedSessionPages(previousProjects, freshProjects);
+        return projectsHaveChanges(previousProjects, nextProjects) ? nextProjects : previousProjects;
+      });
+
+      const selectedProjectSnapshot = selectedProjectRef.current;
+      const selectedSessionSnapshot = selectedSessionRef.current;
+      if (!selectedProjectSnapshot) {
+        return;
+      }
+
+      const refreshedProject = mergedProjects.find(
+        (project) => project.projectId === selectedProjectSnapshot.projectId,
       );
-
-      if (!selectedProject) {
-        return;
-      }
-
-      const refreshedProject = mergedProjects.find((project) => project.projectId === selectedProject.projectId);
       if (!refreshedProject) {
+        setSelectedProject((current) =>
+          current?.projectId === selectedProjectSnapshot.projectId ? null : current,
+        );
+        if (selectedSessionSnapshot) {
+          setSelectedSession((current) =>
+            current?.id === selectedSessionSnapshot.id ? null : current,
+          );
+          if (sessionIdRef.current === selectedSessionSnapshot.id) {
+            navigate('/');
+          }
+        }
         return;
       }
 
-      if (serialize(refreshedProject) !== serialize(selectedProject)) {
-        setSelectedProject(refreshedProject);
+      setSelectedProject((current) => {
+        if (current?.projectId !== selectedProjectSnapshot.projectId) {
+          return current;
+        }
+        return serialize(refreshedProject) !== serialize(current) ? refreshedProject : current;
+      });
+
+      if (!selectedSessionSnapshot) {
+        return;
       }
 
-      if (!selectedSession) {
+      const sessionResponse = await api.sessionDetails(selectedSessionSnapshot.id);
+      if (
+        refreshGeneration !== sidebarRefreshGenerationRef.current
+        || selectedProjectRef.current?.projectId !== selectedProjectSnapshot.projectId
+        || selectedSessionRef.current?.id !== selectedSessionSnapshot.id
+      ) {
+        return;
+      }
+
+      if (sessionResponse.status === 404) {
+        setSelectedSession((current) =>
+          current?.id === selectedSessionSnapshot.id ? null : current,
+        );
+        if (sessionIdRef.current === selectedSessionSnapshot.id) {
+          navigate('/');
+        }
         return;
       }
 
       const refreshedSession = getProjectSessions(refreshedProject).find(
-        (session) => session.id === selectedSession.id,
+        (session) => session.id === selectedSessionSnapshot.id,
       );
-
-      if (refreshedSession) {
-        // Keep provider metadata stable when refreshed payload doesn't include __provider.
-        const normalizedRefreshedSession =
-          refreshedSession.__provider || !selectedSession.__provider
-            ? refreshedSession
-            : { ...refreshedSession, __provider: selectedSession.__provider };
-
-        if (serialize(normalizedRefreshedSession) !== serialize(selectedSession)) {
-          setSelectedSession(normalizedRefreshedSession);
-        }
+      if (!refreshedSession) {
+        return;
       }
+
+      setSelectedSession((current) => {
+        if (current?.id !== selectedSessionSnapshot.id) {
+          return current;
+        }
+
+        const normalizedRefreshedSession = {
+          ...refreshedSession,
+          __provider: refreshedSession.__provider ?? current.__provider,
+          __projectId: refreshedSession.__projectId ?? current.__projectId,
+        };
+        return serialize(normalizedRefreshedSession) !== serialize(current)
+          ? normalizedRefreshedSession
+          : current;
+      });
     } catch (error) {
       console.error('Error refreshing sidebar:', error);
     }
-  }, [projects, selectedProject, selectedSession]);
+  }, [navigate]);
 
-  const loadMoreProjectSessions = useCallback(async (projectId: string) => {
-    const project = projects.find((candidate) => candidate.projectId === projectId);
-    if (!project) {
-      return;
-    }
-
-    const loadedCount = countLoadedProjectSessions(project);
-    const totalCount = Number(project.sessionMeta?.total ?? 0);
-    if (totalCount > 0 && loadedCount >= totalCount) {
-      return;
-    }
-
-    const response = await api.projectSessions(projectId, {
-      limit: 20,
-      offset: loadedCount,
-    });
-
-    if (!response.ok) {
-      const payload = (await response.json().catch(() => ({}))) as { error?: string | { message?: string } };
-      const errorPayload = payload.error;
-      const message =
-        typeof errorPayload === 'string'
-          ? errorPayload
-          : errorPayload && typeof errorPayload === 'object' && errorPayload.message
-            ? errorPayload.message
-            : `Failed to load more sessions for project ${projectId}`;
-      throw new Error(message);
-    }
-
-    const sessionsPage = (await response.json()) as ProjectSessionPage;
-
-    let mergedProjectForSelection: Project | null = null;
-    setProjects((previousProjects) =>
-      previousProjects.map((candidate) => {
-        if (candidate.projectId !== projectId) {
-          return candidate;
-        }
-
-        const mergedProject = mergeProjectSessionPage(candidate, sessionsPage);
-        mergedProjectForSelection = mergedProject;
-        return mergedProject;
-      }),
-    );
-
-    if (selectedProject?.projectId === projectId && mergedProjectForSelection) {
-      setSelectedProject(mergedProjectForSelection);
-    }
-  }, [projects, selectedProject?.projectId]);
-
-  // `projectId` is the DB identifier passed from the sidebar's delete flow
-  // after the migration away from folder-derived project names.
-  const handleProjectDelete = useCallback(
-    (projectId: string) => {
-      if (selectedProject?.projectId === projectId) {
-        setSelectedProject(null);
-        setSelectedSession(null);
-        navigate('/');
-      }
-
-      setProjects((prevProjects) => prevProjects.filter((project) => project.projectId !== projectId));
-    },
-    [navigate, selectedProject?.projectId],
-  );
 
   const sidebarSharedProps = useMemo(
     () => ({
       projects,
-      selectedProject,
       selectedSession,
-      activeSessions,
-      attentionSessionIds,
       liveSessionIds,
       liveSessionNames,
       liveSessionEfforts,
@@ -932,12 +757,6 @@ export function useProjectsState({
       liveSessionsLoaded,
       onProjectSelect: handleProjectSelect,
       onSessionSelect: handleSessionSelect,
-      onNewSession: handleNewSession,
-      onSessionDelete: handleSessionDelete,
-      onLoadMoreSessions: loadMoreProjectSessions,
-      onProjectDelete: handleProjectDelete,
-      isLoading: isLoadingProjects,
-      loadingProgress,
       onRefresh: handleSidebarRefresh,
       onShowSettings: () => setShowSettings(true),
       showSettings,
@@ -946,7 +765,6 @@ export function useProjectsState({
       isMobile,
     }),
     [
-      attentionSessionIds,
       liveSessionIds,
       liveSessionNames,
       liveSessionEfforts,
@@ -956,20 +774,12 @@ export function useProjectsState({
       liveSessionKinds,
       liveSessionRunning,
       liveSessionsLoaded,
-      handleNewSession,
-      handleProjectDelete,
       handleProjectSelect,
-      handleSessionDelete,
-      loadMoreProjectSessions,
       handleSessionSelect,
       handleSidebarRefresh,
-      isLoadingProjects,
       isMobile,
-      loadingProgress,
-      activeSessions,
       projects,
       settingsInitialTab,
-      selectedProject,
       selectedSession,
       showSettings,
     ],
@@ -984,7 +794,6 @@ export function useProjectsState({
     activeTab,
     sidebarOpen,
     isLoadingProjects,
-    loadingProgress,
     isInputFocused,
     showSettings,
     settingsInitialTab,
@@ -1002,9 +811,6 @@ export function useProjectsState({
     handleProjectSelect,
     handleSessionSelect,
     handleNewSession,
-    handleSessionDelete,
-    loadMoreProjectSessions,
-    handleProjectDelete,
     handleSidebarRefresh,
   };
 }

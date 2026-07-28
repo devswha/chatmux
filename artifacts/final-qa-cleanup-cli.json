@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-07-27",
+  "surface": "cleanup-cli-isolated",
+  "command": [
+    "node",
+    "--import",
+    "tsx",
+    "server/cli.js",
+    "browser-mcp-cleanup",
+    "apply"
+  ],
+  "canonicalEnvLoaded": true,
+  "customDatabase": true,
+  "configuredPort": 4125,
+  "exitCode": 0,
+  "statusMatched": true,
+  "managedEntryRemoved": true,
+  "databaseBytesUnchanged": true,
+  "secretLeaked": false,
+  "passed": true
+}

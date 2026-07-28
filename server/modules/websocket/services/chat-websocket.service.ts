@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 
 import type { WebSocket } from 'ws';
@@ -202,10 +203,14 @@ async function handleChatSend(
     // Image attachments are re-validated server-side: only files inside the
     // global upload store may reach the provider runtimes' file reads.
     images: filterImagesToUploadStore(clientOptions.images),
+    // Keep the persisted app identity distinct from the provider-native id
+    // used for provider resume and session operations.
+    appSessionId: sessionId,
     sessionId: session.provider_session_id ?? undefined,
     resume: Boolean(session.provider_session_id),
     cwd: clientOptions.cwd ?? session.project_path ?? undefined,
     projectPath: session.project_path ?? clientOptions.projectPath,
+    ...(provider === 'cursor' ? {} : { runHandle: randomUUID() }),
   };
 
   try {

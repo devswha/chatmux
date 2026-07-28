@@ -10,7 +10,7 @@
  *   sandbox       - Manage Docker sandbox environments
  *   install       - Configure the managed user service and remote access
  *   access        - Manage Tailscale owner and allowed users
- *   browser-use-mcp - Run Browser MCP stdio server
+ *   browser-mcp-cleanup - Explicitly remove managed Browser MCP provider entries
  *   status        - Show configuration and data locations
  *   help          - Show help information
  *   version       - Show version information
@@ -224,7 +224,9 @@ Commands:
   sandbox          Manage Docker sandbox environments
   install          Install and start the managed user service
   access           Manage remote access (Tailscale accounts, VPN bind)
-  browser-use-mcp  Run the Browser MCP stdio server
+  browser-mcp-cleanup Explicitly remove managed Browser MCP provider entries
+    chatmux browser-mcp-cleanup apply
+    chatmux browser-mcp-cleanup rollback --run-id <UUID>
   status           Show configuration and data locations
   help             Show this help information
   version          Show version information
@@ -242,9 +244,9 @@ Examples:
   $ chatmux --port 8080            # Start on port 8080
   $ chatmux --host 0.0.0.0         # Expose on the network (auth required — see below)
   $ chatmux sandbox ~/my-project   # Run in a Docker sandbox
-  $ chatmux install                     # Password access ready out of the box (address + QR + one-time login)
-  $ chatmux access password             # Rotate or recover the owner password
-  $ chatmux access enable tailscale     # Then add private Tailscale HTTPS access
+  $ chatmux install                     # Auto-select Tailscale HTTPS, or password-protected LAN fallback
+  $ chatmux access password             # Rotate or recover the password-mode owner credential
+  $ chatmux access enable tailscale     # Switch after Tailscale becomes available
   $ chatmux access enable vpn 10.0.0.1  # Or bind to an existing WireGuard tunnel
   $ chatmux access users                # Show allowed Tailscale accounts
   $ chatmux access allow user@example.com
@@ -623,8 +625,10 @@ async function startServer() {
     await import('./index.js');
 }
 
-async function startBrowserUseMcp() {
-    await import('./browser-use-mcp.js');
+async function runBrowserMcpCleanup(args) {
+    loadEnvFile();
+    const { runBrowserMcpCleanupCli } = await import('./browser-mcp-cleanup-cli.js');
+    return runBrowserMcpCleanupCli(args);
 }
 
 async function runInstall(args) {
@@ -662,7 +666,7 @@ function parseArgs(args) {
             parsed.command = 'version';
         } else if (!arg.startsWith('-')) {
             parsed.command = arg;
-            if (arg === 'sandbox' || arg === 'install' || arg === 'access') {
+            if (arg === 'sandbox' || arg === 'install' || arg === 'access' || arg === 'browser-mcp-cleanup') {
                 parsed.remainingArgs = args.slice(i + 1);
                 break;
             }
@@ -701,9 +705,13 @@ async function main() {
         case 'access':
             await runAccess(remainingArgs || []);
             break;
-        case 'browser-use-mcp':
-            await startBrowserUseMcp();
+        case 'browser-mcp-cleanup': {
+            const exitCode = await runBrowserMcpCleanup(remainingArgs || []);
+            if (exitCode !== 0) {
+                process.exitCode = exitCode;
+            }
             break;
+        }
         case 'status':
         case 'info':
             await showStatus();

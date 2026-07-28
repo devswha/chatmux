@@ -20,10 +20,6 @@
   "tabs": {
     "chat": "Sohbet",
     "shell": "Shell",
-    "files": "Dosyalar",
-    "git": "Kaynak Kontrolü",
-    "tasks": "Görevler",
-    "browser": "Browser",
     "computer": "Bilgisayar"
   },
   "status": {
@@ -90,122 +86,9 @@
     "settingUpWorkspace": "Çalışma alanın hazırlanıyor...",
     "chooseProject": "Projeni Seç",
     "selectProjectDescription": "ChatMux ile kodlamaya başlamak için kenar çubuğundan bir proje seç. Her proje kendi sohbet oturumlarını ve dosya geçmişini içerir.",
-    "tip": "İpucu",
-    "createProjectMobile": "Projelere erişmek için yukarıdaki menü düğmesine dokun",
-    "createProjectDesktop": "Kenar çubuğundaki klasör simgesine tıklayarak yeni bir proje oluştur",
     "newSession": "Yeni Oturum",
     "untitledSession": "Adsız Oturum",
     "projectFiles": "Proje Dosyaları"
-  },
-  "fileTree": {
-    "loading": "Dosyalar yükleniyor...",
-    "files": "Dosyalar",
-    "simpleView": "Basit görünüm",
-    "compactView": "Kompakt görünüm",
-    "detailedView": "Detaylı görünüm",
-    "searchPlaceholder": "Dosya ve klasörlerde ara...",
-    "clearSearch": "Aramayı temizle",
-    "name": "İsim",
-    "size": "Boyut",
-    "modified": "Değiştirilme",
-    "permissions": "İzinler",
-    "noFilesFound": "Dosya bulunamadı",
-    "checkProjectPath": "Proje yolunun erişilebilir olduğunu kontrol et",
-    "noMatchesFound": "Eşleşme bulunamadı",
-    "tryDifferentSearch": "Farklı bir arama terimi dene veya aramayı temizle",
-    "justNow": "az önce",
-    "minAgo": "{{count}} dakika önce",
-    "hoursAgo": "{{count}} saat önce",
-    "daysAgo": "{{count}} gün önce",
-    "newFile": "Yeni Dosya (Cmd+N)",
-    "newFolder": "Yeni Klasör (Cmd+Shift+N)",
-    "refresh": "Yenile",
-    "collapseAll": "Tümünü Daralt",
-    "context": {
-      "rename": "Yeniden Adlandır",
-      "delete": "Sil",
-      "copyPath": "Yolu Kopyala",
-      "download": "İndir",
-      "newFile": "Yeni Dosya",
-      "newFolder": "Yeni Klasör",
-      "refresh": "Yenile",
-      "menuLabel": "Dosya bağlam menüsü",
-      "loading": "Yükleniyor..."
-    }
-  },
-  "projectWizard": {
-    "title": "Yeni Proje Oluştur",
-    "steps": {
-      "type": "Tür",
-      "configure": "Yapılandır",
-      "confirm": "Onayla"
-    },
-    "step1": {
-      "question": "Zaten bir çalışma alanın var mı, yoksa yeni bir tane mi oluşturmak istersin?",
-      "existing": {
-        "title": "Mevcut Çalışma Alanı",
-        "description": "Sunucumda zaten bir çalışma alanım var, sadece proje listesine eklemek istiyorum"
-      },
-      "new": {
-        "title": "Yeni Çalışma Alanı",
-        "description": "Yeni bir çalışma alanı oluştur, istersen bir GitHub deposundan klonla"
-      }
-    },
-    "step2": {
-      "existingPath": "Çalışma Alanı Yolu",
-      "newPath": "Çalışma Alanı Yolu",
-      "existingPlaceholder": "/mevcut/calisma-alani/yolu",
-      "newPlaceholder": "/yeni/calisma-alani/yolu",
-      "existingHelp": "Mevcut çalışma alanı dizinine giden tam yol",
-      "newHelp": "Çalışma alanı dizinine giden tam yol",
-      "githubUrl": "GitHub URL'si (İsteğe Bağlı)",
-      "githubPlaceholder": "https://github.com/kullanici/depo",
-      "githubHelp": "İsteğe bağlı: bir depoyu klonlamak için GitHub URL'si gir",
-      "githubAuth": "GitHub Kimlik Doğrulama (İsteğe Bağlı)",
-      "githubAuthHelp": "Yalnızca özel depolar için gereklidir. Genel depolar kimlik doğrulama olmadan klonlanabilir.",
-      "loadingTokens": "Kayıtlı token'lar yükleniyor...",
-      "storedToken": "Kayıtlı Token",
-      "newToken": "Yeni Token",
-      "nonePublic": "Yok (Genel)",
-      "selectToken": "Token Seç",
-      "selectTokenPlaceholder": "-- Bir token seç --",
-      "tokenPlaceholder": "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-      "tokenHelp": "Bu token sadece bu işlem için kullanılacak",
-      "publicRepoInfo": "Genel depolar kimlik doğrulama gerektirmez. Genel bir depo klonluyorsan token girmeyi atlayabilirsin.",
-      "noTokensHelp": "Kayıtlı token yok. Kolay tekrar kullanım için Ayarlar → API Anahtarları bölümünden token ekleyebilirsin.",
-      "optionalTokenPublic": "GitHub Token (Genel Depolar için İsteğe Bağlı)",
-      "tokenPublicPlaceholder": "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx (genel depolar için boş bırak)"
-    },
-    "step3": {
-      "reviewConfig": "Yapılandırmanı Gözden Geçir",
-      "existingWorkspace": "Mevcut Çalışma Alanı",
-      "newWorkspace": "Yeni Çalışma Alanı",
-      "path": "Yol:",
-      "cloneFrom": "Şuradan Klonla:",
-      "authentication": "Kimlik Doğrulama:",
-      "usingStoredToken": "Kayıtlı token kullanılıyor:",
-      "usingProvidedToken": "Girilen token kullanılıyor",
-      "noAuthentication": "Kimlik doğrulama yok",
-      "sshKey": "SSH Anahtarı",
-      "existingInfo": "Çalışma alanı proje listene eklenecek ve Claude/Cursor oturumları için kullanılabilir olacak.",
-      "newWithClone": "Depo bu klasöre klonlanacak.",
-      "newEmpty": "Çalışma alanı proje listene eklenecek ve Claude/Cursor oturumları için kullanılabilir olacak.",
-      "cloningRepository": "Depo klonlanıyor..."
-    },
-    "buttons": {
-      "cancel": "İptal",
-      "back": "Geri",
-      "next": "İleri",
-      "createProject": "Projeyi Oluştur",
-      "creating": "Oluşturuluyor...",
-      "cloning": "Klonlanıyor..."
-    },
-    "errors": {
-      "selectType": "Lütfen mevcut çalışma alanın olduğunu mu yoksa yeni oluşturmak mı istediğini seç",
-      "providePath": "Lütfen bir çalışma alanı yolu gir",
-      "failedToCreate": "Çalışma alanı oluşturulamadı",
-      "failedToCreateFolder": "Klasör oluşturulamadı"
-    }
   },
   "notifications": {
     "genericTool": "bir araç",

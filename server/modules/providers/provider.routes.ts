@@ -695,13 +695,6 @@ router.get(
   }),
 );
 
-router.get(
-  '/sessions/archived',
-  asyncHandler(async (_req: Request, res: Response) => {
-    const sessions = sessionsService.listArchivedSessions();
-    res.json(createApiSuccessResponse({ sessions }));
-  }),
-);
 
 router.get(
   '/sessions/live',
@@ -1065,21 +1058,7 @@ router.delete(
   '/sessions/:sessionId',
   asyncHandler(async (req: Request, res: Response) => {
     const sessionId = parseSessionId(req.params.sessionId);
-    const force = parseOptionalBooleanQuery(req.query.force, 'force') ?? false;
-    const deletedFromDisk = parseOptionalBooleanQuery(req.query.deletedFromDisk, 'deletedFromDisk') ?? force;
-    const result = await sessionsService.deleteOrArchiveSessionById(sessionId, {
-      force,
-      deletedFromDisk,
-    });
-    res.json(createApiSuccessResponse(result));
-  }),
-);
-
-router.post(
-  '/sessions/:sessionId/restore',
-  asyncHandler(async (req: Request, res: Response) => {
-    const sessionId = parseSessionId(req.params.sessionId);
-    const result = sessionsService.restoreSessionById(sessionId);
+    const result = await sessionsService.deleteSessionById(sessionId);
     res.json(createApiSuccessResponse(result));
   }),
 );

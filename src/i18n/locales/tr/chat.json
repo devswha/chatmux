@@ -215,9 +215,6 @@
   "projectSelection": {
     "startChatWithProvider": "{{provider}} ile sohbet etmeye başlamak için bir proje seç"
   },
-  "tasks": {
-    "nextTaskPrompt": "Sonraki görevi başlat"
-  },
   "relay": {
     "interrupt": "Durdur",
     "interrupting": "Durduruluyor…",

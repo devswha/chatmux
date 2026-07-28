@@ -1,0 +1,95 @@
+Database connection closed
+Database schema applied
+Database migrations completed successfully
+Database connection closed
+✔ project archive invalidates an unwatched redirected app target and restore leaves it off (957.922195ms)
+Database schema applied
+Database migrations completed successfully
+Database connection closed
+✔ session archive invalidates an unwatched redirected app target and restore leaves it off (814.182316ms)
+Database schema applied
+Database migrations completed successfully
+Database connection closed
+✔ project archive atomically revokes app intent and invalidates stale enables (639.362355ms)
+Database schema applied
+Database migrations completed successfully
+Database connection closed
+✔ project archive permanently closes paused deliveries after global re-enable (593.232323ms)
+Database schema applied
+Database migrations completed successfully
+Database connection closed
+✔ project archive closes immutable outbox deliveries redirected to a survivor target (623.394001ms)
+Database schema applied
+Database migrations completed successfully
+Database connection closed
+✔ session delete closes immutable outbox deliveries redirected to a survivor target (609.275249ms)
+Database schema applied
+Database migrations completed successfully
+Database connection closed
+✔ session archive revokes app intent, preserves generation watches, and invalidates stale enables (612.282797ms)
+Database schema applied
+Database migrations completed successfully
+Database connection closed
+✔ project delete atomically revokes watches and queued deliveries before claim (567.036181ms)
+Database schema applied
+Database migrations completed successfully
+Database connection closed
+✔ session delete atomically revokes watches and queued deliveries before claim (621.129219ms)
+Database schema applied
+Database migrations completed successfully
+Database connection closed
+✔ resolver preserves evidence for pre- and post-promotion identity conflicts (535.52726ms)
+✔ dispatcher acknowledges a successful push and does not send a lost claim (6.863467ms)
+✔ dispatcher removes gone endpoints and classifies permanent and retryable transport failures (2.408156ms)
+✔ dispatcher drains full batches and coalesces wakes while a drain is active (0.800592ms)
+✔ dispatcher retries a transient acknowledgement failure without sending the push again (0.658162ms)
+✔ dispatcher retries a false acknowledgement result without sending the push again (0.613408ms)
+✔ dispatcher preserves a terminal acknowledgement conflict without resending (0.56142ms)
+✔ dispatcher acknowledges a send that resolves while stop is waiting (0.596035ms)
+✔ dispatcher stop clears its polling work and bounds an in-flight send wait (1.750023ms)
+✔ external monitor silently persists a startup reply-ready baseline, then creates a durable decision after a running arm (3.876689ms)
+✔ terminal replay is delegated to the durable decision repository after an armed generation (0.77836ms)
+✔ unavailable evidence never touches durable state (0.298874ms)
+✔ running arms, transcript end suppresses, and failed asking or unknown evidence disarm through observations (0.936638ms)
+✔ database observation errors preserve the next terminal decision attempt (0.522977ms)
+✔ Cursor is omitted while supported external OMP generations are included (0.334591ms)
+✔ complete scans touch exact durable generations even when they have no notification resolution (0.377693ms)
+✔ incomplete scans preserve durable generations while complete scans touch before pruning absent targets (0.345783ms)
+✔ unavailable discovery neither touches nor prunes generations (0.233531ms)
+✔ complete scans retain an old generation when its pane has no complete replacement (0.490065ms)
+✔ complete scans prune an old generation only after touching an authoritative same-pane replacement (0.350371ms)
+✔ same-pane active and ambiguous complete replacements can prune stale generations (0.409272ms)
+✔ read backoff resets when a provider binding changes (0.587018ms)
+✔ Oh My Pi activity follows the final turn-relevant JSONL message (1.656557ms)
+✔ Oh My Pi recognizes a native user question inside a tool-use turn (0.191943ms)
+✔ Oh My Pi transcript-ended matches only a trailing session_exit record (0.146227ms)
+✔ Claude activity distinguishes tool execution, questions, and completed turns (0.25418ms)
+✔ Claude result evidence requires an exact success subtype (0.660276ms)
+✔ Codex activity uses explicit task lifecycle events and request_user_input (0.225766ms)
+✔ Cursor activity fails closed and treats unfinished tools as running (0.246976ms)
+✔ OpenCode activity uses assistant completion and pending question parts (0.231036ms)
+✔ all external provider parsers classify running, waiting, asking, and unknown evidence (0.356193ms)
+✔ resolver returns app metadata for readable evidence and fails closed for unavailable sources (0.802045ms)
+✔ standalone Codex and OpenCode use production resolver paths while Claude and OMP fail closed (0.415083ms)
+✔ file caches invalidate same-size rewrites with preserved mtime (11.552919ms)
+✔ OpenCode only treats a completed stop as reply-ready and gives errors precedence over asks (0.198686ms)
+✔ OMP error records take precedence over nearby asks and completed assistant stops are reply-ready (0.133181ms)
+Database schema applied
+Database migrations completed successfully
+✔ completion status is authenticated, deduplicates app descriptors, and skips discovery for app-only requests (45.820699ms)
+✔ direct app descriptors expose active and mapping-state outcomes without leaking raw discovery fields (18.960413ms)
+✔ active GJC app descriptors are eligible while OMP and Cursor remain excluded (52.784986ms)
+✔ standalone Codex and OpenCode generations use production evidence paths while Claude, OMP, and Cursor are omitted (178.203499ms)
+✔ external descriptors return all resolver states from one HTTP discovery result and redact raw descriptor data (3.57556ms)
+✔ external discovery failures are fail-closed and do not mutate targets or watches (11.196566ms)
+✔ watch mutations provide CAS conflicts, idempotent replay, replay conflict, and global pause state (44.437468ms)
+✔ completion preference updates require explicit subscription to enable and atomically pause queued delivery on normal disable (113.916459ms)
+✔ push subscribe records consent while register does not; validation, owner isolation, and unsubscribe are HTTP-visible (74.406453ms)
+ℹ tests 54
+ℹ suites 0
+ℹ pass 54
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 6923.09519

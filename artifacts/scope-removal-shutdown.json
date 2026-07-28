@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-07-27",
+  "fixture": {
+    "isolatedHome": true,
+    "isolatedDatabase": true,
+    "orphanTaskmaster": true,
+    "browserAppConfigAndProfiles": true,
+    "pluginConfigAndDirectory": true,
+    "port": 39222,
+    "auth": "none"
+  },
+  "ready": true,
+  "signal": "SIGTERM",
+  "shutdownMs": 167,
+  "thresholdMs": 10000,
+  "stoppedWithinThreshold": true,
+  "descendantsAfterFiveSeconds": [],
+  "tmuxBefore": [
+    "Chatmux:1.1:%131:2450341:gjc",
+    "cctest:1.1:%128:984878:claude",
+    "claudecode-test:1.1:%111:1443091:claude",
+    "company-rt:1.1:%78:2770382:zsh",
+    "company:1.1:%94:3759783:ssh",
+    "gjcapp:1.1:%144:2162081:ssh",
+    "horcrux:1.1:%134:910132:bun",
+    "opencode-test:1.1:%112:1466455:opencode",
+    "patina2:1.1:%130:2016137:zsh",
+    "patina:1.1:%101:326719:gjc",
+    "stock:1.1:%105:922562:bun",
+    "test-codex:1.1:%109:845171:node",
+    "vibetip:1.1:%143:1185155:gjc"
+  ],
+  "tmuxAfter": [
+    "Chatmux:1.1:%131:2450341:gjc",
+    "cctest:1.1:%128:984878:claude",
+    "claudecode-test:1.1:%111:1443091:claude",
+    "company-rt:1.1:%78:2770382:zsh",
+    "company:1.1:%94:3759783:ssh",
+    "gjcapp:1.1:%144:2162081:ssh",
+    "horcrux:1.1:%134:910132:bun",
+    "opencode-test:1.1:%112:1466455:opencode",
+    "patina2:1.1:%130:2016137:zsh",
+    "patina:1.1:%101:326719:gjc",
+    "stock:1.1:%105:922562:bun",
+    "test-codex:1.1:%109:845171:node",
+    "vibetip:1.1:%143:1185155:gjc"
+  ],
+  "tmuxIdentical": true,
+  "passed": true
+}

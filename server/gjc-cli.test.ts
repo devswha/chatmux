@@ -434,7 +434,7 @@ test('spawnGjcWithRuntime emits bounded SDK usage before terminal complete', asy
   );
 });
 
-test('spawnGjcWithRuntime emits one complete across error/close races without production callbacks', async () => {
+test('spawnGjcWithRuntime emits one complete across error/close races without an owner-scoped notification', async () => {
   const child = createFakeChild();
   const writer = createWriter();
   let providerChecks = 0;
@@ -460,7 +460,7 @@ test('spawnGjcWithRuntime emits one complete across error/close races without pr
 
   assert.equal(writer.messages.filter((message) => message.kind === 'complete').length, 1);
   assert.equal(providerChecks, 1);
-  assert.equal(failedNotifications, 1);
+  assert.equal(failedNotifications, 0);
   assert.deepEqual(writer.messages.slice(-2).map((message) => message.kind), ['error', 'complete']);
 });
 
@@ -510,4 +510,69 @@ test('spawnGjcWithRuntime skips complete when an SDK abort is pending during clo
 
   resolveAbort(false);
   await abort;
+});
+test('spawnGjcWithRuntime classifies terminal notifications across success, failures, and aborted terminals', async () => {
+  const cases = [
+    { name: 'success', terminal: (child: FakeChild) => child.emit('close', 0), stopped: 1, failed: 0 },
+    { name: 'nonzero close', terminal: (child: FakeChild) => child.emit('close', 2), stopped: 0, failed: 1 },
+    { name: 'error', terminal: (child: FakeChild) => child.emit('error', new Error('broken')), stopped: 0, failed: 1 },
+    { name: 'aborted nonzero close', aborted: true, terminal: (child: FakeChild) => child.emit('close', 2), stopped: 0, failed: 0 },
+    { name: 'abort pending error', abortPending: true, terminal: (child: FakeChild) => child.emit('error', new Error('broken')), stopped: 0, failed: 0 },
+  ];
+
+  for (const scenario of cases) {
+    const child = createFakeChild();
+    let stopped = 0;
+    let failed = 0;
+    const run = spawnGjcWithRuntime('prompt', {
+      appSessionId: 'app-session',
+      runHandle: 'completion-key',
+    }, createWriter(), {
+      spawn: () => child,
+      attachSdkBridge: async () => null,
+      isProviderInstalled: async () => true,
+      notifyRunStopped: () => { stopped += 1; },
+      notifyRunFailed: () => { failed += 1; },
+    });
+
+    if (scenario.aborted) (child as FakeChild & { aborted?: boolean }).aborted = true;
+    if (scenario.abortPending) (child as FakeChild & { abortPending?: boolean }).abortPending = true;
+    scenario.terminal(child);
+    await run.catch(() => {});
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.equal(stopped, scenario.stopped, scenario.name);
+    assert.equal(failed, scenario.failed, scenario.name);
+  }
+});
+
+test('spawnGjcWithRuntime reports notifier failures without changing provider settlement', async () => {
+  const diagnostics: string[] = [];
+  const successChild = createFakeChild();
+  const success = spawnGjcWithRuntime('prompt', {
+    appSessionId: 'app-session',
+    runHandle: 'completion-key',
+  }, createWriter(), {
+    spawn: () => successChild,
+    attachSdkBridge: async () => null,
+    notifyRunStopped: () => { throw new Error('sync failure'); },
+    notifyRunFailed: () => {},
+    diagnostic: (message: string) => diagnostics.push(message),
+  });
+  successChild.emit('close', 0);
+  await success;
+
+  const failedChild = createFakeChild();
+  const failed = spawnGjcWithRuntime('prompt', { appSessionId: 'app-session' }, createWriter(), {
+    spawn: () => failedChild,
+    attachSdkBridge: async () => null,
+    notifyRunStopped: () => {},
+    notifyRunFailed: async () => { throw new Error('async failure'); },
+    diagnostic: (message: string) => diagnostics.push(message),
+  });
+  failedChild.emit('close', 1);
+  await assert.rejects(failed, /exited with code 1/);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(diagnostics, ['terminal notification failed.', 'terminal notification failed.']);
 });

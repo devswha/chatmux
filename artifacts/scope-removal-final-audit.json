@@ -1,0 +1,533 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-07-27",
+  "checks": {
+    "removedPathsAbsent": [
+      {
+        "path": "src/components/git-panel",
+        "absent": true
+      },
+      {
+        "path": "src/components/task-master",
+        "absent": true
+      },
+      {
+        "path": "src/components/prd-editor",
+        "absent": true
+      },
+      {
+        "path": "src/components/project-creation-wizard",
+        "absent": true
+      },
+      {
+        "path": "src/components/mcp",
+        "absent": true
+      },
+      {
+        "path": "src/components/skills",
+        "absent": true
+      },
+      {
+        "path": "src/components/browser-use",
+        "absent": true
+      },
+      {
+        "path": "src/components/file-tree",
+        "absent": true
+      },
+      {
+        "path": "server/modules/browser-use",
+        "absent": true
+      },
+      {
+        "path": "server/browser-use-mcp.ts",
+        "absent": true
+      },
+      {
+        "path": "server/routes/taskmaster.js",
+        "absent": true
+      },
+      {
+        "path": "server/routes/mcp-utils.js",
+        "absent": true
+      },
+      {
+        "path": "server/routes/plugins.js",
+        "absent": true
+      },
+      {
+        "path": "server/voice-proxy.js",
+        "absent": true
+      },
+      {
+        "path": "server/utils/plugin-loader.js",
+        "absent": true
+      },
+      {
+        "path": "server/utils/plugin-process-manager.js",
+        "absent": true
+      },
+      {
+        "path": "server/utils/taskmaster-websocket.js",
+        "absent": true
+      },
+      {
+        "path": "server/modules/websocket/services/plugin-websocket-proxy.service.ts",
+        "absent": true
+      },
+      {
+        "path": "src/components/main-content/view/subcomponents/FilesPanel.tsx",
+        "absent": true
+      },
+      {
+        "path": "src/contexts/PluginsContext.tsx",
+        "absent": true
+      }
+    ],
+    "preservedPathsPresent": [
+      {
+        "path": "server/routes/git.js",
+        "present": true
+      },
+      {
+        "path": "server/modules/providers/provider.routes.ts",
+        "present": true
+      },
+      {
+        "path": "server/modules/providers/services/chatmux-browser-mcp-cleanup.service.ts",
+        "present": true
+      },
+      {
+        "path": "server/browser-mcp-cleanup-cli.ts",
+        "present": true
+      },
+      {
+        "path": "server/modules/files/files.routes.js",
+        "present": true
+      },
+      {
+        "path": "server/modules/projects/services/project-management.service.ts",
+        "present": true
+      },
+      {
+        "path": "server/modules/projects/projects.routes.ts",
+        "present": true
+      },
+      {
+        "path": "server/modules/database/schema.ts",
+        "present": true
+      },
+      {
+        "path": "native/chatmux-core/src/main.rs",
+        "present": true
+      },
+      {
+        "path": "src/components/chat/hooks/useSlashCommands.ts",
+        "present": true
+      },
+      {
+        "path": "src/utils/api.js",
+        "present": true
+      }
+    ],
+    "protectedFiles": [
+      {
+        "path": "native/chatmux-core/Cargo.lock",
+        "baselineSha256": "ee3506a282c775cd4671e04475d21ab202b714c277fc1cbf7463216655356693",
+        "currentSha256": "ee3506a282c775cd4671e04475d21ab202b714c277fc1cbf7463216655356693",
+        "approvedChange": false,
+        "passed": true
+      },
+      {
+        "path": "native/chatmux-core/Cargo.toml",
+        "baselineSha256": "551dd94840ea83b173b70227a42154f860dddce59dca6f5ae2d123039be462c2",
+        "currentSha256": "551dd94840ea83b173b70227a42154f860dddce59dca6f5ae2d123039be462c2",
+        "approvedChange": false,
+        "passed": true
+      },
+      {
+        "path": "native/chatmux-core/src/jobs.rs",
+        "baselineSha256": "a6d2cc0667a9406797739e85fbc1a4ba425508b0b4dc0003622775b7c7af2812",
+        "currentSha256": "a6d2cc0667a9406797739e85fbc1a4ba425508b0b4dc0003622775b7c7af2812",
+        "approvedChange": false,
+        "passed": true
+      },
+      {
+        "path": "native/chatmux-core/src/lib.rs",
+        "baselineSha256": "2c5f0a115ba01988c4aedd70f7ce9937fd0233d2e94e24e60955319f700e9358",
+        "currentSha256": "2c5f0a115ba01988c4aedd70f7ce9937fd0233d2e94e24e60955319f700e9358",
+        "approvedChange": false,
+        "passed": true
+      },
+      {
+        "path": "native/chatmux-core/src/main.rs",
+        "baselineSha256": "a9468eca6b3a51fc51eabe35ca6b16260479c3f509752becbdc60539a5881f0c",
+        "currentSha256": "a9468eca6b3a51fc51eabe35ca6b16260479c3f509752becbdc60539a5881f0c",
+        "approvedChange": false,
+        "passed": true
+      },
+      {
+        "path": "native/chatmux-core/src/pty.rs",
+        "baselineSha256": "703aca71b9834ea0b3965f0274065aae373f8e8e95ef6673ce82f886fbbf2aa4",
+        "currentSha256": "703aca71b9834ea0b3965f0274065aae373f8e8e95ef6673ce82f886fbbf2aa4",
+        "approvedChange": false,
+        "passed": true
+      },
+      {
+        "path": "native/chatmux-core/src/watcher.rs",
+        "baselineSha256": "34b3fc2d9c704c8eaaa03d2145022471d965279e85de3c4d7696a60b415177ea",
+        "currentSha256": "34b3fc2d9c704c8eaaa03d2145022471d965279e85de3c4d7696a60b415177ea",
+        "approvedChange": false,
+        "passed": true
+      },
+      {
+        "path": "server/gjc-core-host.test.ts",
+        "baselineSha256": "dedca693b05d726970e478e40e6b0044b613d15f39214b30a7071caf2e1d304c",
+        "currentSha256": "dedca693b05d726970e478e40e6b0044b613d15f39214b30a7071caf2e1d304c",
+        "approvedChange": false,
+        "passed": true
+      },
+      {
+        "path": "server/middleware/auth.js",
+        "baselineSha256": "388aeec95ecbab66111fc298911b1f573a24fa28d248944839888313be563273",
+        "currentSha256": "388aeec95ecbab66111fc298911b1f573a24fa28d248944839888313be563273",
+        "approvedChange": false,
+        "passed": true
+      },
+      {
+        "path": "server/middleware/auth.test.js",
+        "baselineSha256": "c780cc5283e3e44a88a3451598a3fb7e81778f6b2c483b30f5fd1c58820d32cf",
+        "currentSha256": "c780cc5283e3e44a88a3451598a3fb7e81778f6b2c483b30f5fd1c58820d32cf",
+        "approvedChange": false,
+        "passed": true
+      },
+      {
+        "path": "server/modules/database/schema.ts",
+        "baselineSha256": "911ef8954bcd80e51fa9e0e057cf5b16f8d670cdc90a67824f00b54eca8dee02",
+        "currentSha256": "911ef8954bcd80e51fa9e0e057cf5b16f8d670cdc90a67824f00b54eca8dee02",
+        "approvedChange": false,
+        "passed": true
+      },
+      {
+        "path": "server/modules/database/tests/migrations-integrity.test.ts",
+        "baselineSha256": "13d965ab82697ee1a497e1cc83e66d416bb2ee6be40f30d7962864c89e98d38e",
+        "currentSha256": "13d965ab82697ee1a497e1cc83e66d416bb2ee6be40f30d7962864c89e98d38e",
+        "approvedChange": false,
+        "passed": true
+      },
+      {
+        "path": "server/modules/database/tests/projects.db.integration.test.ts",
+        "baselineSha256": "6121eb01a3ac7fdcbaec1eebcb935d9959593416da15c52ab57c2e08a5c9f927",
+        "currentSha256": "6121eb01a3ac7fdcbaec1eebcb935d9959593416da15c52ab57c2e08a5c9f927",
+        "approvedChange": false,
+        "passed": true
+      },
+      {
+        "path": "server/modules/database/tests/sessions-provider-mapping.test.ts",
+        "baselineSha256": "45a8219a03f37372721690fcbad9f932a5566353811bf8525d6797f3842b9fb7",
+        "currentSha256": "45a8219a03f37372721690fcbad9f932a5566353811bf8525d6797f3842b9fb7",
+        "approvedChange": false,
+        "passed": true
+      },
+      {
+        "path": "server/modules/database/tests/sessions.db.integration.test.ts",
+        "baselineSha256": "62b0f77897b97b3092f3c710aa56f76b2565fcfefaa83027e3fa1f95f5f7e00b",
+        "currentSha256": "62b0f77897b97b3092f3c710aa56f76b2565fcfefaa83027e3fa1f95f5f7e00b",
+        "approvedChange": false,
+        "passed": true
+      },
+      {
+        "path": "server/modules/providers/services/discovery-collector.service.ts",
+        "baselineSha256": "79ca04df9e87741fdb218034bd9dfa8d3da854095dc02fa01dd1ceb5d25228ca",
+        "currentSha256": "79ca04df9e87741fdb218034bd9dfa8d3da854095dc02fa01dd1ceb5d25228ca",
+        "approvedChange": false,
+        "passed": true
+      },
+      {
+        "path": "server/modules/providers/services/external-cli-sessions.service.ts",
+        "baselineSha256": "c9269f1124e1d0ab34bcb467ca6b14d6865e9cb48b0bf784bcd90eaa72234a30",
+        "currentSha256": "c9269f1124e1d0ab34bcb467ca6b14d6865e9cb48b0bf784bcd90eaa72234a30",
+        "approvedChange": false,
+        "passed": true
+      },
+      {
+        "path": "server/modules/providers/services/live-sessions.service.ts",
+        "baselineSha256": "be4136a4ac2a3e84bc59ff4332e20c639e8099696c4db970d79779daad797eb5",
+        "currentSha256": "be4136a4ac2a3e84bc59ff4332e20c639e8099696c4db970d79779daad797eb5",
+        "approvedChange": false,
+        "passed": true
+      },
+      {
+        "path": "server/modules/providers/services/pane-output-stream.service.ts",
+        "baselineSha256": "a4a9fae9e2d7c32507589c56b1123db247b5f9c28cc66c1e8070117c809e3803",
+        "currentSha256": "a4a9fae9e2d7c32507589c56b1123db247b5f9c28cc66c1e8070117c809e3803",
+        "approvedChange": false,
+        "passed": true
+      },
+      {
+        "path": "server/modules/providers/services/sessions-watcher.service.ts",
+        "baselineSha256": "765a1f88fc5eb9e3e964d80f399ca9f5b478be0eac9eac14793a1d5e09c36212",
+        "currentSha256": "765a1f88fc5eb9e3e964d80f399ca9f5b478be0eac9eac14793a1d5e09c36212",
+        "approvedChange": false,
+        "passed": true
+      },
+      {
+        "path": "server/modules/providers/services/tmux-fresh-verifier.service.ts",
+        "baselineSha256": "592852199917b7de6e7049ba3f5d3af4db6e6aae91589667bcc8c6c93ede5786",
+        "currentSha256": "592852199917b7de6e7049ba3f5d3af4db6e6aae91589667bcc8c6c93ede5786",
+        "approvedChange": false,
+        "passed": true
+      },
+      {
+        "path": "server/modules/providers/services/tmux-pane-actions.service.ts",
+        "baselineSha256": "399fcee3e869b7983557edcbf5dc1f9d72a029d52bba21851c63bf1ac5973aae",
+        "currentSha256": "399fcee3e869b7983557edcbf5dc1f9d72a029d52bba21851c63bf1ac5973aae",
+        "approvedChange": false,
+        "passed": true
+      },
+      {
+        "path": "server/modules/providers/tests/discovery-collector.service.test.ts",
+        "baselineSha256": "021a6f2edc9f4909242b38dafc1506ab68908ab9e65757d11b406e98ef910834",
+        "currentSha256": "021a6f2edc9f4909242b38dafc1506ab68908ab9e65757d11b406e98ef910834",
+        "approvedChange": false,
+        "passed": true
+      },
+      {
+        "path": "server/modules/providers/tests/discovery-cost.test.ts",
+        "baselineSha256": "0fec4a55008e9de06a112dc01e0aa617414f48017953d4f76f3f95f3ab28a103",
+        "currentSha256": "0fec4a55008e9de06a112dc01e0aa617414f48017953d4f76f3f95f3ab28a103",
+        "approvedChange": false,
+        "passed": true
+      },
+      {
+        "path": "server/modules/providers/tests/external-cli-sessions.service.test.ts",
+        "baselineSha256": "4f82805b88fa05b5b6823becb253078cb8ca60125a5dd6ec6726bd24b652136a",
+        "currentSha256": "4f82805b88fa05b5b6823becb253078cb8ca60125a5dd6ec6726bd24b652136a",
+        "approvedChange": false,
+        "passed": true
+      },
+      {
+        "path": "server/modules/providers/tests/live-send.service.test.ts",
+        "baselineSha256": "6b03aeb2214b6b5bb1539be4a9a13752a9a6595ae56b83f120594dfaa8140823",
+        "currentSha256": "6b03aeb2214b6b5bb1539be4a9a13752a9a6595ae56b83f120594dfaa8140823",
+        "approvedChange": false,
+        "passed": true
+      },
+      {
+        "path": "server/modules/providers/tests/live-sessions.service.test.ts",
+        "baselineSha256": "58f266c825bc6470522b9425e2499dbfab9ea9e402102bc1c5c12294529c628d",
+        "currentSha256": "58f266c825bc6470522b9425e2499dbfab9ea9e402102bc1c5c12294529c628d",
+        "approvedChange": false,
+        "passed": true
+      },
+      {
+        "path": "server/modules/providers/tests/pane-output-stream.service.test.ts",
+        "baselineSha256": "b12b109ce8ab087c1efc65ab474d99458a6781dbc4391749a8546c1924d0c569",
+        "currentSha256": "b12b109ce8ab087c1efc65ab474d99458a6781dbc4391749a8546c1924d0c569",
+        "approvedChange": false,
+        "passed": true
+      },
+      {
+        "path": "server/modules/providers/tests/provider-routes-contract.test.ts",
+        "baselineSha256": "aeb5e390a40a15d2c76d0e01b4d57f644145d6aa9e68e8b8a958bba45118ac2c",
+        "currentSha256": "aeb5e390a40a15d2c76d0e01b4d57f644145d6aa9e68e8b8a958bba45118ac2c",
+        "approvedChange": false,
+        "passed": true
+      },
+      {
+        "path": "server/modules/providers/tests/tmux-fresh-verifier.service.test.ts",
+        "baselineSha256": "fa69d556815fee0dc3180b8434a970062d5356f95092620c78b58cc565597fc6",
+        "currentSha256": "fa69d556815fee0dc3180b8434a970062d5356f95092620c78b58cc565597fc6",
+        "approvedChange": false,
+        "passed": true
+      },
+      {
+        "path": "server/modules/providers/tests/tmux-pane-actions.service.test.ts",
+        "baselineSha256": "f46bc8eeac60bb381612eaa3cb4fc35356cab19ff0868a93edcf0ee8c81a673c",
+        "currentSha256": "f46bc8eeac60bb381612eaa3cb4fc35356cab19ff0868a93edcf0ee8c81a673c",
+        "approvedChange": false,
+        "passed": true
+      },
+      {
+        "path": "server/modules/providers/tests/tmux-runtime.e2e.test.ts",
+        "baselineSha256": "2dbd7cf2852c55ee17dabe10ef52bdfab6ebaa829d9b05c0bb269132b3fe5ebc",
+        "currentSha256": "2dbd7cf2852c55ee17dabe10ef52bdfab6ebaa829d9b05c0bb269132b3fe5ebc",
+        "approvedChange": false,
+        "passed": true
+      },
+      {
+        "path": "server/modules/websocket/services/chat-run-registry.service.ts",
+        "baselineSha256": "db3f05ce0662e38ccef940ce6f4f17ace775461ffcd43d246af4626ec99109fb",
+        "currentSha256": "db3f05ce0662e38ccef940ce6f4f17ace775461ffcd43d246af4626ec99109fb",
+        "approvedChange": false,
+        "passed": true
+      },
+      {
+        "path": "server/modules/websocket/services/chat-session-writer.service.ts",
+        "baselineSha256": "b11d0cdb692b5aa6692a8a76a694db34e3ca76795f087db1c8d849f26b5f6310",
+        "currentSha256": "b11d0cdb692b5aa6692a8a76a694db34e3ca76795f087db1c8d849f26b5f6310",
+        "approvedChange": false,
+        "passed": true
+      },
+      {
+        "path": "server/modules/websocket/services/chat-websocket.service.ts",
+        "baselineSha256": "801dd17a58e98da59d82a5fdfbc4b1d4638bdd713ec669f9f44e36249d63a2f2",
+        "currentSha256": "801dd17a58e98da59d82a5fdfbc4b1d4638bdd713ec669f9f44e36249d63a2f2",
+        "approvedChange": false,
+        "passed": true
+      },
+      {
+        "path": "server/modules/websocket/services/discovery-stream.service.ts",
+        "baselineSha256": "9c9a8ef6bf0211c5cb401861152066e3b26860fe42f8840de2da7e8cc996feef",
+        "currentSha256": "9c9a8ef6bf0211c5cb401861152066e3b26860fe42f8840de2da7e8cc996feef",
+        "approvedChange": false,
+        "passed": true
+      },
+      {
+        "path": "server/modules/websocket/services/shell-websocket.service.ts",
+        "baselineSha256": "ccf6cd7e53500c6867c538101970ac988557d43d2abc8e1c0328dd2573760bb2",
+        "currentSha256": "ccf6cd7e53500c6867c538101970ac988557d43d2abc8e1c0328dd2573760bb2",
+        "approvedChange": false,
+        "passed": true
+      },
+      {
+        "path": "server/modules/websocket/services/websocket-auth.service.ts",
+        "baselineSha256": "cae61902ee48c7425a0dd0adc1ada455172f99c910be94778fdd0458f1ec362c",
+        "currentSha256": "cae61902ee48c7425a0dd0adc1ada455172f99c910be94778fdd0458f1ec362c",
+        "approvedChange": false,
+        "passed": true
+      },
+      {
+        "path": "server/modules/websocket/services/websocket-state.service.ts",
+        "baselineSha256": "08d05a3d44f1be96da9d511927969d2aebf68418a1b7eac4bde49e84f839c83a",
+        "currentSha256": "08d05a3d44f1be96da9d511927969d2aebf68418a1b7eac4bde49e84f839c83a",
+        "approvedChange": false,
+        "passed": true
+      },
+      {
+        "path": "server/modules/websocket/services/websocket-writer.service.ts",
+        "baselineSha256": "2e4fa9434d4170cad707e4c1f81319ba10d51d1e4e3d3d61a88f5f186b2802f0",
+        "currentSha256": "2e4fa9434d4170cad707e4c1f81319ba10d51d1e4e3d3d61a88f5f186b2802f0",
+        "approvedChange": false,
+        "passed": true
+      },
+      {
+        "path": "server/modules/websocket/tests/discovery-stream.service.test.ts",
+        "baselineSha256": "37bf4c3f12040f29c9fd3b525c1035126c39e20475c6186c73a483a82d1dc513",
+        "currentSha256": "37bf4c3f12040f29c9fd3b525c1035126c39e20475c6186c73a483a82d1dc513",
+        "approvedChange": false,
+        "passed": true
+      },
+      {
+        "path": "server/modules/websocket/tests/shell-websocket-protocol.test.ts",
+        "baselineSha256": "b944cced7382ec8fa85cd3bb7bd290e99d66ec5e41e1a90cde0f3b7034b213ba",
+        "currentSha256": "b944cced7382ec8fa85cd3bb7bd290e99d66ec5e41e1a90cde0f3b7034b213ba",
+        "approvedChange": false,
+        "passed": true
+      },
+      {
+        "path": "shared/tmux.ts",
+        "baselineSha256": "885c1fd9673ba04aad595741d0123e6cd6894ca8d2431f7b94989f3599d787ec",
+        "currentSha256": "885c1fd9673ba04aad595741d0123e6cd6894ca8d2431f7b94989f3599d787ec",
+        "approvedChange": false,
+        "passed": true
+      },
+      {
+        "path": "src/components/app/AppContent.test.ts",
+        "baselineSha256": "10df4085b0d2a1220a76822a46dd96c0b4a6458e1651ec18e36dde36c7ee2950",
+        "currentSha256": "10df4085b0d2a1220a76822a46dd96c0b4a6458e1651ec18e36dde36c7ee2950",
+        "approvedChange": false,
+        "passed": true
+      },
+      {
+        "path": "src/components/main-content/view/MainContent.test.ts",
+        "baselineSha256": "dcda3495e3654b726cee21879d2ad783b5e0a57ec3a8a8a2b288e8fc27d73aee",
+        "currentSha256": "dcda3495e3654b726cee21879d2ad783b5e0a57ec3a8a8a2b288e8fc27d73aee",
+        "approvedChange": false,
+        "passed": true
+      },
+      {
+        "path": "src/components/shell/shellProtocol.test.ts",
+        "baselineSha256": "a0c53de94c99896b378df439b648fa69bec7ac02d0886d93f4825aefa4826b45",
+        "currentSha256": "eb5150e4a8ccee20f93b0fac22e3480de628012911e93ec14593cb5a8bc19e78",
+        "approvedChange": true,
+        "passed": true
+      },
+      {
+        "path": "src/components/sidebar/hooks/useExternalCliSessions.test.ts",
+        "baselineSha256": "5e3a124d9b9c688f2473057652e84cbcb768d9bdbc0611c1a8922e92758c472e",
+        "currentSha256": "5e3a124d9b9c688f2473057652e84cbcb768d9bdbc0611c1a8922e92758c472e",
+        "approvedChange": false,
+        "passed": true
+      },
+      {
+        "path": "src/components/sidebar/view/subcomponents/SidebarExternalSection.test.tsx",
+        "baselineSha256": "bb73ba8acc7707b6ade1b1ac21a895030edc453f81d1c81ca8014e5928ed8134",
+        "currentSha256": "bb73ba8acc7707b6ade1b1ac21a895030edc453f81d1c81ca8014e5928ed8134",
+        "approvedChange": false,
+        "passed": true
+      },
+      {
+        "path": "src/components/sidebar/view/subcomponents/SidebarLiveSection.test.tsx",
+        "baselineSha256": "8f2e3d757b5fdfaea78e5bc6d7b455a3c0a4f1ea191c04f67b526c8b9cd20b79",
+        "currentSha256": "8f2e3d757b5fdfaea78e5bc6d7b455a3c0a4f1ea191c04f67b526c8b9cd20b79",
+        "approvedChange": false,
+        "passed": true
+      },
+      {
+        "path": "src/components/sidebar/view/subcomponents/SidebarNewSession.test.tsx",
+        "baselineSha256": "739bd1260b2a743867af7fab301a4a2fd3408bc77308e3740ec23f4d58bd1f10",
+        "currentSha256": "739bd1260b2a743867af7fab301a4a2fd3408bc77308e3740ec23f4d58bd1f10",
+        "approvedChange": false,
+        "passed": true
+      },
+      {
+        "path": "src/hooks/useDiscoveryStream.test.ts",
+        "baselineSha256": "72153403b2e4a8732455ef9bdfd57c129b0940346e5f9ad11c547f490a046a40",
+        "currentSha256": "72153403b2e4a8732455ef9bdfd57c129b0940346e5f9ad11c547f490a046a40",
+        "approvedChange": false,
+        "passed": true
+      },
+      {
+        "path": "src/utils/liveSessions.test.ts",
+        "baselineSha256": "1b33b2befea8982f51d8417f7110ed639e3212cda2bf3e869f87153219f10ea3",
+        "currentSha256": "1b33b2befea8982f51d8417f7110ed639e3212cda2bf3e869f87153219f10ea3",
+        "approvedChange": false,
+        "passed": true
+      }
+    ],
+    "gateway": {
+      "path": "server/modules/websocket/services/websocket-server.service.ts",
+      "hunks": 3,
+      "expectedHunks": 3,
+      "passed": true
+    },
+    "projectRenameSubtree": {
+      "path": "server/modules/projects/projects.routes.ts",
+      "baselineSha256": "596a48664ada12b6d1a30f18d52387693d6cf400c0cd2c0385f1850a7fc670dc",
+      "currentSha256": "596a48664ada12b6d1a30f18d52387693d6cf400c0cd2c0385f1850a7fc670dc",
+      "nonEmpty": true,
+      "passed": true
+    },
+    "releaseBoundary": {
+      "head": "a0ff5cb96e220e5d42a1a8263e701f6bb4bc79df",
+      "originMain": "2a108dedbbe131707d1ff058d63bd09a602c0b4b",
+      "publicTag": "87acf7d8b334c915cd1d02f65f737723956a44c1",
+      "packageVersion": "1.4.2",
+      "changelogChanged": false,
+      "passed": true
+    },
+    "dependencies": {
+      "jsoncParser": "3.3.1",
+      "jszip": null,
+      "passed": true
+    },
+    "artifacts": {
+      "cleanup": true,
+      "routes": true,
+      "testLedger": true,
+      "shutdown": true
+    }
+  },
+  "passed": true
+}

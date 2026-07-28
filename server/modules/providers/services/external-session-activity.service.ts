@@ -3,7 +3,7 @@ import { open, stat } from 'node:fs/promises';
 
 import Database from 'better-sqlite3';
 
-import { sessionsDb } from '@/modules/database/index.js';
+import { getConnection } from '@/modules/database/index.js';
 import { sessionSynchronizerService } from '@/modules/providers/services/session-synchronizer.service.js';
 import { getOpenCodeDatabasePath } from '@/shared/utils.js';
 
@@ -15,6 +15,31 @@ import {
 import { recordHostCommand } from './host-command-metrics.service.js';
 
 export type ExternalSessionActivity = 'running' | 'waiting_user' | 'asking_user' | 'unknown';
+export type ExternalSessionTerminalOutcome = 'reply_ready' | 'failed' | 'none' | 'unknown';
+
+export type ExternalSessionActivityEvidence = {
+  activity: ExternalSessionActivity;
+  terminalOutcome: ExternalSessionTerminalOutcome;
+  /**
+   * Opaque, provider-scoped hashes for monitor cursors and diagnostics. They
+   * never contain transcript content, database paths, or provider session IDs.
+   */
+  evidenceCursor: string;
+  evidenceDigest: string;
+};
+
+export type ExternalSessionActivityEvidenceReadResult =
+  | { status: 'resolved'; evidence: ExternalSessionActivityEvidence }
+  | {
+    status: 'unavailable';
+    activity: 'unknown';
+    reasonCode: ExternalSessionActivityUnavailableReasonCode;
+  };
+
+export type ExternalSessionParsedActivityEvidence = Pick<
+  ExternalSessionActivityEvidence,
+  'activity' | 'terminalOutcome'
+>;
 export type ExternalSessionActivityUnavailableReasonCode =
   | 'unsupported_session_kind'
   | 'provider_session_id_unavailable'
@@ -59,6 +84,10 @@ export type ExternalSessionActivityResolutionResult =
   | {
     status: 'resolved';
     activity: ExternalSessionActivity;
+    terminalOutcome?: ExternalSessionTerminalOutcome;
+    /** Opaque evidence values; never transcript content, paths, or native IDs. */
+    evidenceCursor?: string;
+    evidenceDigest?: string;
     appSession: ExternalSessionAppSession | null;
     transcriptEnded: boolean;
   }
@@ -77,11 +106,11 @@ export type ExternalSessionActivityResolverDependencies = {
   ) => ExternalSessionActivityAppSession | null;
   resolveCodexRolloutPath?: (providerSessionId: string) => Promise<string | null>;
   synchronizeCodexRollout?: (rolloutPath: string) => Promise<unknown>;
-  readActivity?: (input: {
+  readActivityEvidence?: (input: {
     kind: ExternalLocalCliKind;
     providerSessionId: string | null | undefined;
     jsonlPath: string | null | undefined;
-  }) => Promise<ExternalSessionActivityReadResult>;
+  }) => Promise<ExternalSessionActivityEvidenceReadResult>;
   readTranscriptEnded?: (input: {
     kind: ExternalLocalCliKind;
     jsonlPath: string | null | undefined;
@@ -179,93 +208,137 @@ const containsToolCall = (value: unknown, depth = 0): boolean => {
   return Object.values(record).some((nested) => containsToolCall(nested, depth + 1));
 };
 
-const parseOmpActivity = (records: JsonRecord[]): ExternalSessionActivity => {
+const evidence = (
+  activity: ExternalSessionActivity,
+  terminalOutcome: ExternalSessionTerminalOutcome,
+): ExternalSessionParsedActivityEvidence => ({ activity, terminalOutcome });
+
+const parseOmpEvidence = (records: JsonRecord[]): ExternalSessionParsedActivityEvidence => {
   for (let index = records.length - 1; index >= 0; index -= 1) {
     const record = records[index];
-    if (record.type !== 'message') continue;
+    const type = readString(record.type)?.toLowerCase();
     const message = asRecord(record.message);
+    if (type === 'error' || isErrorRecord(record) || isErrorRecord(message ?? {})) {
+      return evidence('waiting_user', 'failed');
+    }
+    if (type !== 'message') continue;
     const role = readString(message?.role);
     if (role === 'assistant') {
-      if (containsAskingTool(message?.content)) return 'asking_user';
-      const stopReason = readString(message?.stopReason);
-      return stopReason === 'stop' || stopReason === 'error' ? 'waiting_user' : 'running';
+      const stopReason = readString(message?.stopReason)?.toLowerCase();
+      if (stopReason === 'error') return evidence('waiting_user', 'failed');
+      if (containsAskingTool(message?.content)) return evidence('asking_user', 'none');
+      if (!stopReason || stopReason === 'tooluse' || stopReason === 'tool-use') return evidence('running', 'none');
+      if (stopReason === 'stop') return evidence('waiting_user', 'reply_ready');
+      return evidence('unknown', 'unknown');
     }
-    if (role === 'user' || role === 'toolResult') return 'running';
+    if (role === 'user' || role === 'toolResult') return evidence('running', 'none');
   }
-  return 'unknown';
+  return evidence('unknown', 'unknown');
 };
 
-const parseClaudeActivity = (records: JsonRecord[]): ExternalSessionActivity => {
+const isErrorRecord = (record: JsonRecord): boolean => (
+  record.is_error === true
+  || record.isError === true
+  || readString(record.subtype)?.toLowerCase().includes('error') === true
+  || readString(record.resultSubtype)?.toLowerCase().includes('error') === true
+  || (record.error !== null && record.error !== undefined)
+);
+
+const parseClaudeEvidence = (records: JsonRecord[]): ExternalSessionParsedActivityEvidence => {
   for (let index = records.length - 1; index >= 0; index -= 1) {
     const record = records[index];
-    const type = readString(record.type);
-    if (type === 'result' || type === 'error') return 'waiting_user';
-    if (type !== 'assistant' && type !== 'user') continue;
+    const type = readString(record.type)?.toLowerCase();
     const message = asRecord(record.message);
+    if (type === 'error' || isErrorRecord(record) || isErrorRecord(message ?? {})) {
+      return evidence('waiting_user', 'failed');
+    }
+    if (type === 'result') {
+      const subtype = readString(record.subtype)?.toLowerCase();
+      if (subtype === 'success') return evidence('waiting_user', 'reply_ready');
+      if (subtype === 'error' || subtype === 'cancelled' || subtype === 'canceled' || subtype === 'interrupted') {
+        return evidence('waiting_user', 'failed');
+      }
+      return evidence('unknown', 'unknown');
+    }
+    if (type !== 'assistant' && type !== 'user') continue;
     const role = readString(message?.role) ?? type;
-    if (role === 'user') return 'running';
+    if (role === 'user') return evidence('running', 'none');
     if (role !== 'assistant') continue;
-    if (containsAskingTool(message?.content)) return 'asking_user';
+    if (containsAskingTool(message?.content)) return evidence('asking_user', 'none');
     const stopReason = readString(message?.stop_reason) ?? readString(message?.stopReason);
-    if (!stopReason || stopReason === 'tool_use') return 'running';
-    return 'waiting_user';
+    if (!stopReason || stopReason === 'tool_use') return evidence('running', 'none');
+    if (stopReason === 'end_turn') return evidence('waiting_user', 'reply_ready');
+    return evidence('unknown', 'unknown');
   }
-  return 'unknown';
+  return evidence('unknown', 'unknown');
 };
 
-const parseCodexActivity = (records: JsonRecord[]): ExternalSessionActivity => {
+const parseCodexEvidence = (records: JsonRecord[]): ExternalSessionParsedActivityEvidence => {
   for (let index = records.length - 1; index >= 0; index -= 1) {
     const record = records[index];
-    const type = readString(record.type);
+    const type = readString(record.type)?.toLowerCase();
     const payload = asRecord(record.payload);
-    const payloadType = readString(payload?.type);
+    const payloadType = readString(payload?.type)?.toLowerCase();
 
-    if (type === 'turn_complete' || type === 'turn_failed' || type === 'error') return 'waiting_user';
+    if (type === 'turn_failed' || type === 'error' || isErrorRecord(record) || isErrorRecord(payload ?? {})) {
+      return evidence('waiting_user', 'failed');
+    }
+    if (type === 'turn_complete') return evidence('waiting_user', 'reply_ready');
     if (type === 'event_msg') {
-      if (payloadType === 'task_complete' || payloadType === 'turn_complete' || payloadType === 'turn_failed' || payloadType === 'error') {
-        return 'waiting_user';
-      }
-      if (containsAskingTool(payload)) return 'asking_user';
+      if (payloadType === 'turn_failed' || payloadType === 'error') return evidence('waiting_user', 'failed');
+      if (payloadType === 'task_complete' || payloadType === 'turn_complete') return evidence('waiting_user', 'reply_ready');
+      if (containsAskingTool(payload)) return evidence('asking_user', 'none');
       if (payloadType === 'task_started' || payloadType === 'user_message' || payloadType === 'turn_started') {
-        return 'running';
+        return evidence('running', 'none');
       }
       continue;
     }
     if (type === 'response_item') {
-      if (containsAskingTool(payload)) return 'asking_user';
+      if (payloadType === 'error' || payloadType === 'turn_failed' || (payload?.error !== null && payload?.error !== undefined)) {
+        return evidence('waiting_user', 'failed');
+      }
+      if (containsAskingTool(payload)) return evidence('asking_user', 'none');
       const role = readString(payload?.role);
-      if (role === 'user' || containsToolCall(payload) || payloadType === 'function_call_output') return 'running';
-      if (role === 'assistant') return 'running';
+      if (role === 'user' || containsToolCall(payload) || payloadType === 'function_call_output' || role === 'assistant') {
+        return evidence('running', 'none');
+      }
       continue;
     }
-    if (type === 'turn_context') return 'running';
+    if (type === 'turn_context') return evidence('running', 'none');
   }
-  return 'unknown';
+  return evidence('unknown', 'unknown');
 };
 
-const parseCursorActivity = (records: JsonRecord[]): ExternalSessionActivity => {
+const parseCursorEvidence = (records: JsonRecord[]): ExternalSessionParsedActivityEvidence => {
   for (let index = records.length - 1; index >= 0; index -= 1) {
     const record = records[index];
     const message = asRecord(record.message);
     const role = readString(record.role) ?? readString(message?.role);
     const content = record.content ?? message?.content;
-    if (role === 'user' || role === 'tool') return 'running';
+    if (role === 'user' || role === 'tool') return evidence('running', 'none');
     if (role !== 'assistant') continue;
-    if (containsAskingTool(content)) return 'asking_user';
-    return containsToolCall(content) ? 'running' : 'waiting_user';
+    if (containsAskingTool(content)) return evidence('asking_user', 'none');
+    return evidence(containsToolCall(content) ? 'running' : 'waiting_user', 'unknown');
   }
-  return 'unknown';
+  return evidence('unknown', 'unknown');
 };
+
+export function parseExternalJsonlActivityEvidence(
+  kind: Exclude<ExternalLocalCliKind, 'opencode'>,
+  tailText: string,
+): ExternalSessionParsedActivityEvidence {
+  const records = parseJsonLines(tailText);
+  if (kind === 'omp') return parseOmpEvidence(records);
+  if (kind === 'claude') return parseClaudeEvidence(records);
+  if (kind === 'codex') return parseCodexEvidence(records);
+  return parseCursorEvidence(records);
+}
 
 export function parseExternalJsonlActivity(
   kind: Exclude<ExternalLocalCliKind, 'opencode'>,
   tailText: string,
 ): ExternalSessionActivity {
-  const records = parseJsonLines(tailText);
-  if (kind === 'omp') return parseOmpActivity(records);
-  if (kind === 'claude') return parseClaudeActivity(records);
-  if (kind === 'codex') return parseCodexActivity(records);
-  return parseCursorActivity(records);
+  return parseExternalJsonlActivityEvidence(kind, tailText).activity;
 }
 
 const isPendingQuestionPart = (value: unknown): boolean => {
@@ -275,23 +348,35 @@ const isPendingQuestionPart = (value: unknown): boolean => {
   const status = readString(state?.status)?.toLowerCase();
   return status === 'pending' || status === 'running';
 };
+const normalizeOpenCodeFinish = (value: unknown): string | null => (
+  typeof value === 'string' && value.length > 0 ? value.toLowerCase() : null
+);
+
+export function parseOpenCodeActivityEvidence(
+  messageData: unknown,
+  partData: readonly unknown[] = [],
+): ExternalSessionParsedActivityEvidence {
+  const message = parseRecord(messageData);
+  if (!message) return evidence('unknown', 'unknown');
+  const role = readString(message.role);
+  if (role === 'user') return evidence('running', 'none');
+  if (role !== 'assistant') return evidence('unknown', 'unknown');
+  if (message.error !== null && message.error !== undefined) return evidence('waiting_user', 'failed');
+  if (partData.some(isPendingQuestionPart)) return evidence('asking_user', 'none');
+  const time = asRecord(message.time);
+  const completed = time?.completed;
+  if (completed === null || completed === undefined) return evidence('running', 'none');
+  const finish = normalizeOpenCodeFinish(message.finish);
+  if (finish === 'tool-calls') return evidence('running', 'none');
+  if (finish === 'stop') return evidence('waiting_user', 'reply_ready');
+  return evidence('unknown', 'unknown');
+}
 
 export function parseOpenCodeActivity(
   messageData: unknown,
   partData: readonly unknown[] = [],
 ): ExternalSessionActivity {
-  const message = parseRecord(messageData);
-  if (!message) return 'unknown';
-  const role = readString(message.role);
-  if (role === 'user') return 'running';
-  if (role !== 'assistant') return 'unknown';
-  if (message.error !== null && message.error !== undefined) return 'waiting_user';
-  if (partData.some(isPendingQuestionPart)) return 'asking_user';
-  const time = asRecord(message.time);
-  const completed = time?.completed;
-  if (completed === null || completed === undefined) return 'running';
-  const finish = readString(message.finish)?.toLowerCase();
-  return finish === 'tool-calls' ? 'running' : 'waiting_user';
+  return parseOpenCodeActivityEvidence(messageData, partData).activity;
 }
 
 async function readFileTail(filePath: string): Promise<FileTail> {
@@ -472,6 +557,179 @@ function readOpenCodeActivity(providerSessionId: string): ExternalSessionActivit
   }
   return result;
 }
+const opaqueEvidence = (
+  kind: ExternalLocalCliKind,
+  providerSessionId: string,
+  sourceDigest: string,
+  parsed: ExternalSessionParsedActivityEvidence,
+): ExternalSessionActivityEvidence => {
+  const evidenceDigest = createHash('sha256')
+    .update('external-session-activity:evidence-digest:v1\0')
+    .update(kind)
+    .update('\0')
+    .update(sourceDigest)
+    .digest('hex');
+  const evidenceCursor = createHash('sha256')
+    .update('external-session-activity:evidence-cursor:v1\0')
+    .update(kind)
+    .update('\0')
+    .update(providerSessionId)
+    .update('\0')
+    .update(evidenceDigest)
+    .digest('hex');
+  return { ...parsed, evidenceCursor, evidenceDigest };
+};
+
+async function readJsonlActivityEvidence(
+  kind: Exclude<ExternalLocalCliKind, 'opencode'>,
+  providerSessionId: string,
+  filePath: string,
+): Promise<ExternalSessionActivityEvidenceReadResult> {
+  try {
+    const tail = await readFileTail(filePath);
+    return {
+      status: 'resolved',
+      evidence: opaqueEvidence(
+        kind,
+        providerSessionId,
+        tail.digest,
+        parseExternalJsonlActivityEvidence(kind, tail.text),
+      ),
+    };
+  } catch {
+    return {
+      status: 'unavailable',
+      activity: 'unknown',
+      reasonCode: 'transcript_read_unavailable',
+    };
+  }
+}
+async function readOmpActivityAndTranscriptEvidence(
+  providerSessionId: string,
+  filePath: string,
+): Promise<{
+  activityResult: ExternalSessionActivityEvidenceReadResult;
+  transcriptEndedResult: ExternalTranscriptEndedReadResult;
+}> {
+  try {
+    const tail = await readFileTail(filePath);
+    const records = parseJsonLines(tail.text);
+    return {
+      activityResult: {
+        status: 'resolved',
+        evidence: opaqueEvidence('omp', providerSessionId, tail.digest, parseOmpEvidence(records)),
+      },
+      transcriptEndedResult: {
+        status: 'resolved',
+        transcriptEnded: parseOmpTranscriptEnded(records),
+      },
+    };
+  } catch {
+    return {
+      activityResult: {
+        status: 'unavailable',
+        activity: 'unknown',
+        reasonCode: 'transcript_read_unavailable',
+      },
+      transcriptEndedResult: {
+        status: 'unavailable',
+        transcriptEnded: false,
+        reasonCode: 'transcript_read_unavailable',
+      },
+    };
+  }
+}
+
+function readOpenCodeActivityEvidence(
+  providerSessionId: string,
+): ExternalSessionActivityEvidenceReadResult {
+  let db: Database.Database | null = null;
+  let result: ExternalSessionActivityEvidenceReadResult;
+  try {
+    db = new Database(getOpenCodeDatabasePath(), { readonly: true, fileMustExist: true });
+    const message = db.prepare(`
+      SELECT id, data
+      FROM message
+      WHERE session_id = ?
+      ORDER BY time_created DESC, time_updated DESC, id DESC
+      LIMIT 1
+    `).get(providerSessionId) as { id?: string; data?: string } | undefined;
+    if (!message?.id || !message.data) {
+      result = {
+        status: 'resolved',
+        evidence: opaqueEvidence(
+          'opencode',
+          providerSessionId,
+          createHash('sha256').update('empty').digest('hex'),
+          evidence('unknown', 'unknown'),
+        ),
+      };
+    } else {
+      const parts = db.prepare(`
+        SELECT data
+        FROM part
+        WHERE message_id = ?
+        ORDER BY time_updated DESC, time_created DESC, id DESC
+        LIMIT 32
+      `).all(message.id) as Array<{ data?: string }>;
+      const sourceDigest = createHash('sha256')
+        .update('opencode-message-and-parts:v1\0')
+        .update(message.data)
+        .update('\0')
+        .update(JSON.stringify(parts.map((part) => part.data ?? null)))
+        .digest('hex');
+      result = {
+        status: 'resolved',
+        evidence: opaqueEvidence(
+          'opencode',
+          providerSessionId,
+          sourceDigest,
+          parseOpenCodeActivityEvidence(message.data, parts.map((part) => part.data)),
+        ),
+      };
+    }
+  } catch {
+    result = {
+      status: 'unavailable',
+      activity: 'unknown',
+      reasonCode: 'opencode_database_unavailable',
+    };
+  }
+
+  try {
+    db?.close();
+  } catch {
+    return {
+      status: 'unavailable',
+      activity: 'unknown',
+      reasonCode: 'opencode_database_unavailable',
+    };
+  }
+  return result;
+}
+
+export async function readExternalSessionActivityEvidenceDetailed(input: {
+  kind: ExternalLocalCliKind;
+  providerSessionId: string | null | undefined;
+  jsonlPath: string | null | undefined;
+}): Promise<ExternalSessionActivityEvidenceReadResult> {
+  if (!input.providerSessionId) {
+    return {
+      status: 'unavailable',
+      activity: 'unknown',
+      reasonCode: 'provider_session_id_unavailable',
+    };
+  }
+  if (input.kind === 'opencode') return readOpenCodeActivityEvidence(input.providerSessionId);
+  if (!input.jsonlPath) {
+    return {
+      status: 'unavailable',
+      activity: 'unknown',
+      reasonCode: 'transcript_path_unavailable',
+    };
+  }
+  return readJsonlActivityEvidence(input.kind, input.providerSessionId, input.jsonlPath);
+}
 
 export async function readExternalSessionActivityDetailed(input: {
   kind: ExternalLocalCliKind;
@@ -540,21 +798,27 @@ export async function resolveExternalSessionActivity(
   if (!session.providerSessionId) {
     return unavailableResolution('provider_session_id_unavailable', null);
   }
-
+  const kind: ExternalLocalCliKind = session.kind;
+  const providerSessionId = session.providerSessionId;
   const getAppSession: NonNullable<ExternalSessionActivityResolverDependencies['getAppSession']> = dependencies.getAppSession
-    ?? ((provider: ExternalLocalCliKind, providerSessionId: string) => (
-      sessionsDb.getSessionByProviderSessionId(provider, providerSessionId)
-    ));
+    ?? ((provider: ExternalLocalCliKind, nativeSessionId: string) => getConnection().prepare(`
+      SELECT session_id, project_path, custom_name, jsonl_path
+      FROM sessions session
+      JOIN projects project ON project.project_path = session.project_path
+      WHERE session.provider = ?
+        AND session.provider_session_id = ?
+      LIMIT 1
+    `).get(provider, nativeSessionId) as ExternalSessionActivityAppSession | null);
   const syncCodexRollout: NonNullable<ExternalSessionActivityResolverDependencies['synchronizeCodexRollout']> = dependencies.synchronizeCodexRollout
     ?? ((rolloutPath: string) => sessionSynchronizerService.synchronizeProviderFile('codex', rolloutPath));
   const resolveCodexRollout: NonNullable<ExternalSessionActivityResolverDependencies['resolveCodexRolloutPath']> = dependencies.resolveCodexRolloutPath
     ?? resolveCodexRolloutPath;
-  const readActivity: NonNullable<ExternalSessionActivityResolverDependencies['readActivity']> = dependencies.readActivity
-    ?? readExternalSessionActivityDetailed;
+  const readActivityEvidence: NonNullable<ExternalSessionActivityResolverDependencies['readActivityEvidence']> = dependencies.readActivityEvidence
+    ?? readExternalSessionActivityEvidenceDetailed;
   const readTranscriptEnded: NonNullable<ExternalSessionActivityResolverDependencies['readTranscriptEnded']> = dependencies.readTranscriptEnded
     ?? readExternalTranscriptEndedDetailed;
 
-  let appSession: ExternalSessionActivityAppSession | null;
+  let appSession: ExternalSessionActivityAppSession | null = null;
   try {
     appSession = getAppSession(session.kind, session.providerSessionId);
   } catch {
@@ -587,20 +851,32 @@ export async function resolveExternalSessionActivity(
     return unavailableResolution('app_session_unavailable', null);
   }
 
-  let activityResult: ExternalSessionActivityReadResult;
+  let activityResult: ExternalSessionActivityEvidenceReadResult;
   let transcriptEndedResult: ExternalTranscriptEndedReadResult;
   try {
-    [activityResult, transcriptEndedResult] = await Promise.all([
-      readActivity({
-        kind: session.kind,
-        providerSessionId: session.providerSessionId,
-        jsonlPath: appSession?.jsonl_path,
-      }),
-      readTranscriptEnded({
-        kind: session.kind,
-        jsonlPath: appSession?.jsonl_path,
-      }),
-    ]);
+    if (
+      kind === 'omp'
+      && !dependencies.readActivityEvidence
+      && !dependencies.readTranscriptEnded
+      && appSession?.jsonl_path
+    ) {
+      ({ activityResult, transcriptEndedResult } = await readOmpActivityAndTranscriptEvidence(
+        providerSessionId,
+        appSession.jsonl_path,
+      ));
+    } else {
+      [activityResult, transcriptEndedResult] = await Promise.all([
+        readActivityEvidence({
+          kind,
+          providerSessionId: session.providerSessionId,
+          jsonlPath: appSession?.jsonl_path ?? null,
+        }),
+        readTranscriptEnded({
+          kind: session.kind,
+          jsonlPath: appSession?.jsonl_path ?? null,
+        }),
+      ]);
+    }
   } catch {
     return unavailableResolution('transcript_read_unavailable', appSessionMetadata(appSession));
   }
@@ -613,7 +889,10 @@ export async function resolveExternalSessionActivity(
   }
   return {
     status: 'resolved',
-    activity: activityResult.activity,
+    activity: activityResult.evidence.activity,
+    terminalOutcome: activityResult.evidence.terminalOutcome,
+    evidenceCursor: activityResult.evidence.evidenceCursor,
+    evidenceDigest: activityResult.evidence.evidenceDigest,
     appSession: appSessionMetadata(appSession),
     transcriptEnded: transcriptEndedResult.transcriptEnded,
   };

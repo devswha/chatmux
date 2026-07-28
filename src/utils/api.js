@@ -102,7 +102,6 @@ export const api = {
     }),
   },
   projects: () => authenticatedFetch('/api/projects?skipSynchronization=1'),
-  archivedProjects: () => authenticatedFetch('/api/projects/archived'),
   // Stores pasted/dropped relay images in the shared `~/.chatmux/assets`
   // store and returns their absolute paths — the only upload path the live
   // relay composer uses (B10: no bespoke upload endpoint).
@@ -206,14 +205,6 @@ export const api = {
   // Home-relative directory autocomplete ({ home, suggestions }).
   dirSuggestions: (prefix) =>
     authenticatedFetch(`/api/providers/fs/dir-suggestions?prefix=${encodeURIComponent(prefix)}`),
-  projectSessions: (projectId, { limit = 20, offset = 0 } = {}) => {
-    const params = new URLSearchParams();
-    params.set('limit', String(limit));
-    params.set('offset', String(offset));
-    return authenticatedFetch(`/api/projects/${encodeURIComponent(projectId)}/sessions?${params.toString()}`);
-  },
-  projectTaskmaster: (projectId) =>
-    authenticatedFetch(`/api/projects/${encodeURIComponent(projectId)}/taskmaster`),
   // Unified endpoint for persisted session messages.
   // Provider/project metadata are resolved by the backend from sessionId.
   unifiedSessionMessages: (sessionId, _provider = 'claude', { limit = null, offset = 0 } = {}) => {
@@ -225,68 +216,12 @@ export const api = {
     const queryString = params.toString();
     return authenticatedFetch(`/api/providers/sessions/${encodeURIComponent(sessionId)}/messages${queryString ? `?${queryString}` : ''}`);
   },
-  renameProject: (projectId, displayName) =>
-    authenticatedFetch(`/api/projects/${projectId}/rename`, {
-      method: 'PUT',
-      body: JSON.stringify({ displayName }),
-    }),
-  restoreProject: (projectId) =>
-    authenticatedFetch(`/api/projects/${encodeURIComponent(projectId)}/restore`, {
-      method: 'POST',
-    }),
-  // Session deletion now mirrors project deletion:
-  // - default: archive only (`isArchived = 1`)
-  // - hardDelete: remove the row and, by default, its persisted transcript file
-  deleteSession: (sessionId, hardDelete = false) => {
-    const params = new URLSearchParams();
-    if (hardDelete) {
-      params.set('force', 'true');
-    }
-    const qs = params.toString();
-    return authenticatedFetch(`/api/providers/sessions/${sessionId}${qs ? `?${qs}` : ''}`, {
-      method: 'DELETE',
-    });
-  },
-  getArchivedSessions: () =>
-    authenticatedFetch('/api/providers/sessions/archived'),
   runningSessions: () =>
     authenticatedFetch('/api/providers/sessions/running'),
-  restoreSession: (sessionId) =>
-    authenticatedFetch(`/api/providers/sessions/${sessionId}/restore`, {
-      method: 'POST',
-    }),
-  renameSession: (sessionId, summary) =>
-    authenticatedFetch(`/api/providers/sessions/${sessionId}`, {
-      method: 'PUT',
-      body: JSON.stringify({ summary }),
-    }),
-  // `hardDelete` => server `?force=true` (remove DB row + Claude *.jsonl + sessions rows for path).
-  deleteProject: (projectId, hardDelete = false) => {
-    const params = new URLSearchParams();
-    if (hardDelete) params.set('force', 'true');
-    const qs = params.toString();
-    return authenticatedFetch(`/api/projects/${projectId}${qs ? `?${qs}` : ''}`, {
-      method: 'DELETE',
-    });
-  },
   searchConversationsUrl: (query, limit = 50) => {
     const params = new URLSearchParams({ q: query, limit: String(limit) });
     return `/api/providers/search/sessions?${params.toString()}`;
   },
-  createProject: (projectData) =>
-    authenticatedFetch('/api/projects/create-project', {
-      method: 'POST',
-      body: JSON.stringify(projectData),
-    }),
-  migrateLegacyProjectStars: (projectIds) =>
-    authenticatedFetch('/api/projects/migrate-legacy-stars', {
-      method: 'POST',
-      body: JSON.stringify({ projectIds }),
-    }),
-  toggleProjectStar: (projectId) =>
-    authenticatedFetch(`/api/projects/${encodeURIComponent(projectId)}/toggle-star`, {
-      method: 'POST',
-    }),
   readFile: (projectId, filePath) =>
     authenticatedFetch(`/api/projects/${projectId}/file?filePath=${encodeURIComponent(filePath)}`),
   readFileBlob: (projectId, filePath) =>
@@ -299,87 +234,36 @@ export const api = {
   getFiles: (projectId, options = {}) =>
     authenticatedFetch(`/api/projects/${projectId}/files`, options),
 
-  // File operations
-  createFile: (projectId, { path, type, name }) =>
-    authenticatedFetch(`/api/projects/${projectId}/files/create`, {
-      method: 'POST',
-      body: JSON.stringify({ path, type, name }),
-    }),
 
-  renameFile: (projectId, { oldPath, newName }) =>
-    authenticatedFetch(`/api/projects/${projectId}/files/rename`, {
+  completionNotifications: {
+    status: (descriptors, deviceEndpoint, options = {}) => authenticatedFetch('/api/settings/completion-notifications/status', {
+      ...options,
+      method: 'POST',
+      body: JSON.stringify({
+        descriptors,
+        ...(deviceEndpoint ? { deviceEndpoint } : {}),
+      }),
+    }),
+    setWatch: (mutation, deviceEndpoint, options = {}) => authenticatedFetch('/api/settings/completion-notifications', {
+      ...options,
       method: 'PUT',
-      body: JSON.stringify({ oldPath, newName }),
+      body: JSON.stringify({
+        ...mutation,
+        ...(deviceEndpoint ? { deviceEndpoint } : {}),
+      }),
     }),
-
-  deleteFile: (projectId, { path, type }) =>
-    authenticatedFetch(`/api/projects/${projectId}/files`, {
-      method: 'DELETE',
-      body: JSON.stringify({ path, type }),
-    }),
-
-  uploadFiles: (projectId, formData) =>
-    authenticatedFetch(`/api/projects/${projectId}/files/upload`, {
+    vapidPublicKey: (options = {}) => authenticatedFetch('/api/settings/push/vapid-public-key', options),
+    subscribe: (subscription, options = {}) => authenticatedFetch('/api/settings/push/subscribe', {
+      ...options,
       method: 'POST',
-      body: formData,
-      headers: {}, // Let browser set Content-Type for FormData
+      body: JSON.stringify(subscription),
     }),
-
-  // TaskMaster endpoints — all addressed by DB projectId post-migration.
-  taskmaster: {
-    // Initialize TaskMaster in a project
-    init: (projectId) =>
-      authenticatedFetch(`/api/taskmaster/init/${projectId}`, {
-        method: 'POST',
-      }),
-
-    // Add a new task
-    addTask: (projectId, { prompt, title, description, priority, dependencies }) =>
-      authenticatedFetch(`/api/taskmaster/add-task/${projectId}`, {
-        method: 'POST',
-        body: JSON.stringify({ prompt, title, description, priority, dependencies }),
-      }),
-
-    // Parse PRD to generate tasks
-    parsePRD: (projectId, { fileName, numTasks, append }) =>
-      authenticatedFetch(`/api/taskmaster/parse-prd/${projectId}`, {
-        method: 'POST',
-        body: JSON.stringify({ fileName, numTasks, append }),
-      }),
-
-    // Get available PRD templates
-    getTemplates: () =>
-      authenticatedFetch('/api/taskmaster/prd-templates'),
-
-    // Apply a PRD template
-    applyTemplate: (projectId, { templateId, fileName, customizations }) =>
-      authenticatedFetch(`/api/taskmaster/apply-template/${projectId}`, {
-        method: 'POST',
-        body: JSON.stringify({ templateId, fileName, customizations }),
-      }),
-
-    // Update a task
-    updateTask: (projectId, taskId, updates) =>
-      authenticatedFetch(`/api/taskmaster/update-task/${projectId}/${taskId}`, {
-        method: 'PUT',
-        body: JSON.stringify(updates),
-      }),
-  },
-
-  // Browse filesystem for project suggestions
-  browseFilesystem: (dirPath = null) => {
-    const params = new URLSearchParams();
-    if (dirPath) params.append('path', dirPath);
-
-    return authenticatedFetch(`/api/browse-filesystem?${params}`);
-  },
-
-  createFolder: (folderPath) =>
-    authenticatedFetch('/api/create-folder', {
+    register: (subscription, options = {}) => authenticatedFetch('/api/settings/push/register', {
+      ...options,
       method: 'POST',
-      body: JSON.stringify({ path: folderPath }),
+      body: JSON.stringify(subscription),
     }),
-
+  },
   // User endpoints
   user: {
     gitConfig: () => authenticatedFetch('/api/user/git-config'),

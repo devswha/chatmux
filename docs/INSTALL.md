@@ -15,32 +15,37 @@ The bootstrap:
    compatible version;
 3. downloads the latest GitHub Release archive and its SHA-256 checksum;
 4. verifies the archive before extracting it below `~/.chatmux/releases`;
-5. installs and starts `chatmux.service` with password login on every
-   interface, creating the owner account and printing its one-time password;
-6. verifies the running ChatMux version through `/health`.
+5. detects whether Tailscale is running and logged in;
+6. installs and starts `chatmux.service` using Tailscale Serve identity when
+   available, otherwise password-protected LAN access;
+7. verifies the running ChatMux version through `/health`.
 
-Installation always produces the same result: a password-protected service
-any browser on your network can sign in to — no access-mode flags, no
-interactive prompts, nothing to install on the phone. No root-owned ChatMux
-service or package-registry install is used.
+There are no access-mode flags or interactive prompts. A logged-in Tailscale
+daemon produces private HTTPS access with no ChatMux username or password.
+Without Tailscale, the installer creates the owner account, prints its one-time
+password, and binds to the LAN. No root-owned ChatMux service or
+package-registry install is used.
 
-A successful run ends with a block like this:
+A Tailscale-backed install ends with a block like this:
 
 ```text
 ChatMux installation complete
   Local:  http://127.0.0.1:3001
-  Phone:  http://192.168.0.7:3001 — sign in from any browser, no app needed
-  Login:  owner / dQw4w9WgXcQtQzNb
-          (shown only this once — change it with: chatmux access password)
-  Access: password — sessions renew on use; alternatives: chatmux access enable tailscale | enable vpn <address>
-  Manage: chatmux status | chatmux access password | journalctl --user -u chatmux.service
+  Phone:  https://server.example.ts.net:8443
+          Turn on Tailscale on your phone before scanning the QR, and keep it connected while using ChatMux.
+  Login:  Tailscale account owner@example.com — no ChatMux username or password
+  Access: Tailscale HTTPS — only allowed Tailscale accounts can connect
 ```
 
-When `qrencode` is installed the `Phone` address is also printed as a
-terminal QR code — scan it, sign in once with the printed password, and the
-session then renews itself on every visit. Reinstalling keeps the existing
-account, and a previous Tailscale/VPN mode is replaced by the password
-default with a note showing the exact restore command.
+When `qrencode` is installed, the private HTTPS address is printed as a
+terminal QR code. Tailscale must be installed, signed in, and connected on the
+phone before scanning; it must remain connected while ChatMux is in use. The
+phone's Tailscale account must be the owner or be added with
+`chatmux access allow <login>`.
+
+If Tailscale is unavailable or not logged in, the same install command instead
+prints the LAN URL, a one-time owner password, and a QR for that LAN URL.
+Reinstalling preserves an existing local owner account.
 
 ## Requirements
 
@@ -69,8 +74,8 @@ application owns it.
 
 ## Change the access mode (optional)
 
-Password access is on from the moment the install finishes. Everything below
-is optional tuning, and can be changed or re-run at any time:
+Installation selects Tailscale when it is ready and otherwise selects password
+access. Either mode can be changed or re-run at any time:
 
 ```sh
 # Rotate (or recover) the owner password; signs out every session

@@ -60,10 +60,6 @@ export default defineConfig(({ mode }) => {
         '/shell': {
           target: `ws://${proxyHost}:${serverPort}`,
           ws: true
-        },
-        '/plugin-ws': {
-          target: `ws://${proxyHost}:${serverPort}`,
-          ws: true
         }
       }
     },
@@ -95,7 +91,7 @@ export default defineConfig(({ mode }) => {
             'vendor-syntax': ['react-syntax-highlighter'],
             'vendor-icons': ['lucide-react'],
             'vendor-i18n': ['i18next', 'i18next-browser-languagedetector', 'react-i18next'],
-            'vendor-tools': ['cmdk', 'fuse.js', 'jszip', 'react-dropzone'],
+            'vendor-tools': ['cmdk', 'fuse.js', 'react-dropzone'],
             'vendor-xterm': ['@xterm/xterm', '@xterm/addon-fit', '@xterm/addon-clipboard', '@xterm/addon-webgl']
           }
         }

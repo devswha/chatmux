@@ -251,9 +251,6 @@
   "projectSelection": {
     "startChatWithProvider": "選擇一個專案以開始與 {{provider}} 聊天"
   },
-  "tasks": {
-    "nextTaskPrompt": "開始下一個任務"
-  },
   "relay": {
     "interrupt": "中斷",
     "interrupting": "正在中斷…",

@@ -55,12 +55,10 @@ type CommandPaletteProps = {
   onShowTab?: (tab: AppTab) => void;
 };
 
-// 'files'/'shell'/'git' tabs no longer exist (Files is a side panel; the git
-// panel and app-pty shell were removed) — git actions below run without a
-// destination tab.
+// Chat is the only destination tab; Git actions below operate without switching
+// the main surface.
 const NAV_TABS: Array<{ id: AppTab; label: string; keywords: string }> = [
   { id: 'chat', label: 'Go to Chat', keywords: 'chat messages conversation' },
-  { id: 'tasks', label: 'Go to Tasks', keywords: 'tasks taskmaster' },
 ];
 
 export default function CommandPalette({

@@ -43,11 +43,6 @@ export default function MainContentStateView({ mode, isMobile, onMenuClick }: Ma
             </div>
             <h2 className="mb-2 text-xl font-semibold text-foreground">{t('mainContent.chooseProject')}</h2>
             <p className="mb-5 text-sm leading-relaxed text-muted-foreground">{t('mainContent.selectProjectDescription')}</p>
-            <div className="rounded-xl border border-primary/10 bg-primary/5 p-3.5">
-              <p className="text-sm text-primary">
-                <strong>{t('mainContent.tip')}:</strong> {isMobile ? t('mainContent.createProjectMobile') : t('mainContent.createProjectDesktop')}
-              </p>
-            </div>
           </div>
         </div>
       )}

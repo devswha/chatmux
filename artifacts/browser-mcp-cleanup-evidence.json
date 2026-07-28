@@ -1,0 +1,110 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-07-27",
+  "gate": "P5b",
+  "runs": [
+    {
+      "runId": "53d40878-f3f9-404e-a61d-2a28759b8619",
+      "status": "blocked",
+      "providers": [
+        {
+          "provider": "claude",
+          "classification": "absent"
+        },
+        {
+          "provider": "cursor",
+          "classification": "absent"
+        },
+        {
+          "provider": "codex",
+          "classification": "absent"
+        },
+        {
+          "provider": "opencode",
+          "classification": "partial-or-unknown blocker"
+        },
+        {
+          "provider": "gjc",
+          "classification": "unsupported-read-only"
+        },
+        {
+          "provider": "omp",
+          "classification": "unsupported-read-only"
+        }
+      ],
+      "receiptPath": "~/.chatmux/data/migrations/browser-mcp-cleanup/53d40878-f3f9-404e-a61d-2a28759b8619/receipt.json"
+    },
+    {
+      "runId": "765bd751-f90b-4a29-b5a0-13361b09c174",
+      "status": "completed_noop",
+      "providers": [
+        {
+          "provider": "claude",
+          "classification": "absent"
+        },
+        {
+          "provider": "cursor",
+          "classification": "absent"
+        },
+        {
+          "provider": "codex",
+          "classification": "absent"
+        },
+        {
+          "provider": "opencode",
+          "classification": "absent"
+        },
+        {
+          "provider": "gjc",
+          "classification": "unsupported-read-only"
+        },
+        {
+          "provider": "omp",
+          "classification": "unsupported-read-only"
+        }
+      ],
+      "receiptPath": "~/.chatmux/data/migrations/browser-mcp-cleanup/765bd751-f90b-4a29-b5a0-13361b09c174/receipt.json"
+    },
+    {
+      "runId": "1a09d929-9542-4a3a-991c-406445e0c783",
+      "status": "completed_noop",
+      "providers": [
+        {
+          "provider": "claude",
+          "classification": "absent"
+        },
+        {
+          "provider": "cursor",
+          "classification": "absent"
+        },
+        {
+          "provider": "codex",
+          "classification": "absent"
+        },
+        {
+          "provider": "opencode",
+          "classification": "absent"
+        },
+        {
+          "provider": "gjc",
+          "classification": "unsupported-read-only"
+        },
+        {
+          "provider": "omp",
+          "classification": "unsupported-read-only"
+        }
+      ],
+      "receiptPath": "~/.chatmux/data/migrations/browser-mcp-cleanup/1a09d929-9542-4a3a-991c-406445e0c783/receipt.json"
+    }
+  ],
+  "independentRereadRunId": "1a09d929-9542-4a3a-991c-406445e0c783",
+  "supportedProviderManagedEntriesAfter": 0,
+  "externalConfig": {
+    "path": "~/.config/opencode/opencode.jsonc",
+    "sha256": "325d46094362ea1c8edde03d063e5808d0e18535ff6a234c474f474336aabe91",
+    "mode": "664",
+    "contentMutation": false,
+    "note": "Temporarily hardened mode 0664 to 0644 for fail-closed inventory, then restored 0664 after two completed_noop inventories; content bytes remained unchanged."
+  },
+  "retainedRollback": true
+}

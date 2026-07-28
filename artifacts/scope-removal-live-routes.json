@@ -1,0 +1,127 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-07-27",
+  "base": "http://127.0.0.1:<dev-port>",
+  "results": [
+    {
+      "id": "health",
+      "method": "GET",
+      "path": "/health",
+      "status": 200,
+      "expected": 200,
+      "passed": true
+    },
+    {
+      "id": "browser-api",
+      "method": "GET",
+      "path": "/api/browser-use/status",
+      "status": 404,
+      "expected": 404,
+      "passed": true
+    },
+    {
+      "id": "browser-mcp-api",
+      "method": "POST",
+      "path": "/api/browser-use-mcp",
+      "status": 404,
+      "expected": 404,
+      "passed": true
+    },
+    {
+      "id": "taskmaster",
+      "method": "GET",
+      "path": "/api/taskmaster",
+      "status": 404,
+      "expected": 404,
+      "passed": true
+    },
+    {
+      "id": "mcp-utils",
+      "method": "GET",
+      "path": "/api/mcp-utils",
+      "status": 404,
+      "expected": 404,
+      "passed": true
+    },
+    {
+      "id": "plugins",
+      "method": "GET",
+      "path": "/api/plugins",
+      "status": 404,
+      "expected": 404,
+      "passed": true
+    },
+    {
+      "id": "create-project",
+      "method": "POST",
+      "path": "/api/projects/create-project",
+      "status": 404,
+      "expected": 404,
+      "passed": true
+    },
+    {
+      "id": "browse-filesystem",
+      "method": "POST",
+      "path": "/api/browse-filesystem",
+      "status": 404,
+      "expected": 404,
+      "passed": true
+    },
+    {
+      "id": "create-folder",
+      "method": "POST",
+      "path": "/api/create-folder",
+      "status": 404,
+      "expected": 404,
+      "passed": true
+    },
+    {
+      "id": "provider-mcp",
+      "method": "GET",
+      "path": "/api/providers/claude/mcp/servers",
+      "status": 200,
+      "expected": 200,
+      "passed": true
+    },
+    {
+      "id": "projects",
+      "method": "GET",
+      "path": "/api/projects?skipSynchronization=1",
+      "status": 200,
+      "expected": 200,
+      "passed": true
+    },
+    {
+      "id": "file-create",
+      "method": "POST",
+      "path": "/api/projects/nonexistent/files",
+      "status": 404,
+      "expected": 404,
+      "passed": true
+    },
+    {
+      "id": "file-path-rename",
+      "method": "PUT",
+      "path": "/api/projects/nonexistent/files/rename",
+      "status": 404,
+      "expected": 404,
+      "passed": true
+    },
+    {
+      "id": "file-delete",
+      "method": "DELETE",
+      "path": "/api/projects/nonexistent/files?path=x",
+      "status": 404,
+      "expected": 404,
+      "passed": true
+    },
+    {
+      "id": "file-upload",
+      "method": "POST",
+      "path": "/api/projects/nonexistent/files/upload",
+      "status": 404,
+      "expected": 404,
+      "passed": true
+    }
+  ]
+}

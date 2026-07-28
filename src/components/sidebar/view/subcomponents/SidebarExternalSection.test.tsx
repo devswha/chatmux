@@ -11,6 +11,7 @@ import enSidebar from '../../../../i18n/locales/en/sidebar.json';
 import koSidebar from '../../../../i18n/locales/ko/sidebar.json';
 import type { ExternalTerminalTarget, Project } from '../../../../types/app';
 import type { TmuxPaneIdentity, TmuxProcessGeneration } from '../../../../../shared/tmux';
+import { CompletionNotificationsProvider } from '../../context/CompletionNotificationsContext';
 
 import SidebarExternalSection, { resolveExternalSessionProject } from './SidebarExternalSection';
 
@@ -62,7 +63,11 @@ const renderSection = async (
     createElement(
       I18nextProvider,
       { i18n: instance },
-      createElement(SidebarExternalSection, props),
+      createElement(
+        CompletionNotificationsProvider,
+        null,
+        createElement(SidebarExternalSection, props),
+      ),
     ),
   );
 };
@@ -78,33 +83,45 @@ test('resolveExternalSessionProject selects the transcript owner instead of the 
 });
 
 test('SidebarExternalSection uses the tmux name as primary and transcript metadata as secondary', () => {
-  const html = renderToStaticMarkup(createElement(SidebarExternalSection, {
-    sessions: [external('codex-review', 'codex', '%1', 101, {
-      transcriptSessionId: 'session-1',
-      sessionName: 'Adversarial review',
-      model: 'openai-codex/gpt-5.6-sol',
-      effort: 'xhigh',
-    })],
-    projects: [project],
-    onOpen,
-    onChanged: noop,
-  }));
+  const html = renderToStaticMarkup(
+    createElement(
+      CompletionNotificationsProvider,
+      null,
+      createElement(SidebarExternalSection, {
+        sessions: [external('codex-review', 'codex', '%1', 101, {
+          transcriptSessionId: 'session-1',
+          sessionName: 'Adversarial review',
+          model: 'openai-codex/gpt-5.6-sol',
+          effort: 'xhigh',
+        })],
+        projects: [project],
+        onOpen,
+        onChanged: noop,
+      }),
+    ),
+  );
   assert.ok(html.includes('>codex-review</span>'), 'uses the tmux session name as the primary label');
   assert.ok(html.includes('Adversarial review · gpt-5.6-sol · xhigh effort · Codex CLI'), 'shows model and reasoning effort without raw tmux ids');
   assert.ok(!html.includes('%1'));
 });
 
 test('SidebarExternalSection shows an indexed Claude session as a structured transcript', () => {
-  const html = renderToStaticMarkup(createElement(SidebarExternalSection, {
-    sessions: [external('claude-review', 'claude', '%2', 102, {
-      transcriptSessionId: 'session-claude',
-      sessionName: 'Architecture review',
-      model: 'claude-sonnet-4-6',
-    })],
-    projects: [project],
-    onOpen,
-    onChanged: noop,
-  }));
+  const html = renderToStaticMarkup(
+    createElement(
+      CompletionNotificationsProvider,
+      null,
+      createElement(SidebarExternalSection, {
+        sessions: [external('claude-review', 'claude', '%2', 102, {
+          transcriptSessionId: 'session-claude',
+          sessionName: 'Architecture review',
+          model: 'claude-sonnet-4-6',
+        })],
+        projects: [project],
+        onOpen,
+        onChanged: noop,
+      }),
+    ),
+  );
   assert.ok(html.includes('>claude-review</span>'), 'uses the Claude tmux name as primary');
   assert.ok(html.includes('Architecture review · claude-sonnet-4-6 · Claude Code'));
   assert.ok(!html.includes('%2'));
@@ -112,16 +129,22 @@ test('SidebarExternalSection shows an indexed Claude session as a structured tra
 });
 
 test('SidebarExternalSection renders an indexed Oh My Pi transcript with its provider mark', () => {
-  const html = renderToStaticMarkup(createElement(SidebarExternalSection, {
-    sessions: [external('omp-review', 'omp', '%3', 103, {
-      transcriptSessionId: 'session-omp',
-      sessionName: 'Pi integration review',
-      model: 'openai-codex/gpt-5.6-sol',
-    })],
-    projects: [project],
-    onOpen,
-    onChanged: noop,
-  }));
+  const html = renderToStaticMarkup(
+    createElement(
+      CompletionNotificationsProvider,
+      null,
+      createElement(SidebarExternalSection, {
+        sessions: [external('omp-review', 'omp', '%3', 103, {
+          transcriptSessionId: 'session-omp',
+          sessionName: 'Pi integration review',
+          model: 'openai-codex/gpt-5.6-sol',
+        })],
+        projects: [project],
+        onOpen,
+        onChanged: noop,
+      }),
+    ),
+  );
   assert.ok(html.includes('Pi integration review · gpt-5.6-sol · Oh My Pi'));
   assert.ok(!html.includes('%3'));
   assert.ok(html.includes('aria-label="Oh My Pi"'));

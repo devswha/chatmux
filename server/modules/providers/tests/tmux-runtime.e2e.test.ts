@@ -6,6 +6,8 @@ import test from 'node:test';
 
 import {
   closeConnection,
+  completionExternalGenerationIdentityFromSession,
+  completionExternalGenerationIdentityKey,
   initializeDatabase,
   projectsDb,
   sessionsDb,
@@ -400,18 +402,60 @@ test('real tmux external monitor notifies once per observed Codex turn and rebas
   t.after(() => harness.dispose());
 
   let activity: 'running' | 'waiting_user' = 'running';
+  let lastActivity: 'running' | 'waiting_user' | null = null;
+  let turnOrdinal = 0;
+  let observedState: 'unobserved' | 'running' | 'terminal' = 'unobserved';
+  const terminalDecisions = new Map<string, number>();
   let discoveredSessions: Awaited<ReturnType<typeof harness.discoverFromFreshProcess>> = [];
   const notifications: Array<{ completionKey: string }> = [];
   const monitor = createExternalTurnMonitor({
     getDetailed: async () => ({ ok: true, sessions: discoveredSessions }),
-    resolve: async () => ({
-      status: 'resolved',
-      activity,
-      appSession: null,
-      transcriptEnded: false,
-    }),
-    notify: (notification) => notifications.push(notification),
+    resolve: async () => {
+      if (activity === 'running' && lastActivity !== 'running') turnOrdinal += 1;
+      lastActivity = activity;
+      return {
+        status: 'resolved' as const,
+        activity,
+        terminalOutcome: activity === 'waiting_user' ? 'reply_ready' as const : 'none' as const,
+        evidenceCursor: `${turnOrdinal}:${activity}`,
+        evidenceDigest: `codex-${turnOrdinal}:${activity}`,
+        appSession: null,
+        transcriptEnded: false,
+      };
+    },
+    resolveTargets: ((detailed: { sessions: typeof discoveredSessions }) => detailed.sessions.map((session: (typeof discoveredSessions)[number]) => {
+      const identity = completionExternalGenerationIdentityFromSession(session)!;
+      return {
+        generationIdentityKey: completionExternalGenerationIdentityKey(identity),
+        generationTargetId: 1,
+        appSessionId: null,
+        target: { alias: 'e2e-codex' },
+      };
+    })) as never,
+    observeGeneration: (_targetId, _cursor, observation) => {
+      observedState = observation === 'running' ? 'running' : 'terminal';
+      return {
+        state: observedState,
+        sequence: observation === 'running' ? turnOrdinal : null,
+        replay: false,
+        stateRevision: turnOrdinal,
+      };
+    },
+    createTerminalDecision: (input) => {
+      const existing = terminalDecisions.get(input.evidenceCursor);
+      if (existing !== undefined) return { status: 'replay', decisionIds: [existing] };
+      if (observedState !== 'running') return { status: 'baselined', decisionIds: [] };
+      const id = terminalDecisions.size + 1;
+      terminalDecisions.set(input.evidenceCursor, id);
+      notifications.push({ completionKey: input.evidenceCursor });
+      observedState = 'terminal';
+      return { status: 'decided', decisionIds: [id] };
+    },
     getUserId: () => 1,
+    touchObservedGenerations: () => undefined,
+    listStaleGenerationCandidates: () => [],
+    pruneStaleGenerationCandidates: () => 0,
+    generationCount: () => 0,
   });
 
   const first = await harness.startFakeCodex('e2e-external-notify');

@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { projectsDb, sessionsDb } from '@/modules/database/index.js';
-import { getArchivedProjectsWithSessions, getProjectsWithSessions } from '@/modules/projects/services/projects-with-sessions-fetch.service.js';
+import { getProjectsWithSessions } from '@/modules/projects/services/projects-with-sessions-fetch.service.js';
 
 type Stubs = {
   getProjectPaths: typeof projectsDb.getProjectPaths;
@@ -61,44 +61,6 @@ test('getProjectsWithSessions respects an explicit sessionsLimit (no forced cap)
   });
 });
 
-function withArchivedStubs(total: number, run: (captured: { limit?: number }) => Promise<void>): Promise<void> {
-  const original = {
-    getArchivedProjectPaths: projectsDb.getArchivedProjectPaths,
-    pageFn: sessionsDb.getSessionsByProjectPathIncludingArchivedPage,
-    countFn: sessionsDb.countSessionsByProjectPathIncludingArchived,
-  };
-  const captured: { limit?: number } = {};
-  (projectsDb as unknown as { getArchivedProjectPaths: () => unknown }).getArchivedProjectPaths = () => [
-    { project_id: 'a1', project_path: '/ws/a1', custom_project_name: 'a1', isStarred: 0 },
-  ];
-  (sessionsDb as unknown as { getSessionsByProjectPathIncludingArchivedPage: (p: string, l: number, o: number) => unknown[] })
-    .getSessionsByProjectPathIncludingArchivedPage = (_p, limit) => { captured.limit = limit; return []; };
-  (sessionsDb as unknown as { countSessionsByProjectPathIncludingArchived: () => number })
-    .countSessionsByProjectPathIncludingArchived = () => total;
-
-  return run(captured).finally(() => {
-    projectsDb.getArchivedProjectPaths = original.getArchivedProjectPaths;
-    sessionsDb.getSessionsByProjectPathIncludingArchivedPage = original.pageFn;
-    sessionsDb.countSessionsByProjectPathIncludingArchived = original.countFn;
-  });
-}
-
-test('getArchivedProjectsWithSessions returns a bounded page instead of every session', async () => {
-  await withArchivedStubs(100, async (captured) => {
-    const projects = await getArchivedProjectsWithSessions({ skipSynchronization: true });
-    assert.equal(captured.limit, 20, 'archived sessions are paged (default 20), not returned unbounded');
-    assert.equal(projects.length, 1);
-    assert.equal(projects[0].sessionMeta.total, 100, 'total reflects the full preserved history');
-    assert.equal(projects[0].sessionMeta.hasMore, true, 'hasMore lets a client page through all archived history');
-  });
-});
-
-test('getArchivedProjectsWithSessions honors an explicit sessionsLimit', async () => {
-  await withArchivedStubs(100, async (captured) => {
-    await getArchivedProjectsWithSessions({ skipSynchronization: true, sessionsLimit: 50 });
-    assert.equal(captured.limit, 50);
-  });
-});
 
 test('generateDisplayName caches package.json reads instead of re-reading per call', async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'chatmux-display-name-'));

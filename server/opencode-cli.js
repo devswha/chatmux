@@ -15,6 +15,16 @@ import { createCompleteMessage, createNormalizedMessage, flattenPromptForWindows
 const spawnFunction = crossSpawn;
 
 const activeOpenCodeProcesses = new Map();
+function publishNotification(publish) {
+  try {
+    Promise.resolve(publish()).catch((error) => {
+      console.error('[OpenCode] Notification publication failed:', error);
+    });
+  } catch (error) {
+    console.error('[OpenCode] Notification publication failed:', error);
+  }
+}
+
 
 /**
  * Maps the UI permission mode onto OpenCode's non-interactive controls.
@@ -126,6 +136,12 @@ async function spawnOpenCode(command, options = {}, ws) {
   return new Promise((resolve, reject) => {
     const { sessionId, projectPath, cwd, model, effort, sessionSummary, images, permissionMode } = options;
     const workingDir = cwd || projectPath || process.cwd();
+    const completionKey = typeof options.runHandle === 'string' && options.runHandle.trim()
+      ? options.runHandle
+      : null;
+    const appSessionId = typeof ws?.getAppSessionId === 'function'
+      ? ws.getAppSessionId()
+      : options.appSessionId;
     const processKey = sessionId || Date.now().toString();
     let capturedSessionId = sessionId || null;
     let sessionCreatedSent = false;
@@ -144,23 +160,30 @@ async function spawnOpenCode(command, options = {}, ws) {
       terminalNotificationSent = true;
       const finalSessionId = capturedSessionId || sessionId || processKey;
       if (code === 0 && !error) {
-        notifyRunStopped({
+        if (opencodeProcess?.aborted || !completionKey) {
+          return;
+        }
+        publishNotification(() => notifyRunStopped({
           userId: ws?.userId || null,
           provider: 'opencode',
-          sessionId: finalSessionId,
+          sessionId: appSessionId,
           sessionName: sessionSummary,
           stopReason: 'completed',
-        });
+          completionKey,
+        }));
         return;
       }
 
-      notifyRunFailed({
+      if (opencodeProcess?.aborted) {
+        return;
+      }
+      publishNotification(() => notifyRunFailed({
         userId: ws?.userId || null,
         provider: 'opencode',
         sessionId: finalSessionId,
         sessionName: sessionSummary,
         error: error || `OpenCode CLI exited with code ${code}`,
-      });
+      }));
     };
 
     const registerSession = (nextSessionId) => {

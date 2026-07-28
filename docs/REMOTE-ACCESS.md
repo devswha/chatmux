@@ -106,11 +106,11 @@ Cloudflare Quick Tunnel(TryCloudflare)은 계정·도메인 없이 공개 HTTPS 
 
 | 사용자가 이미 가진 것 | 권장 경로 | 폰 앱 |
 |---|---|---|
-| 아무것도 없음 / 같은 Wi-Fi면 충분 | 기본 password 모드 (LAN 주소 + QR) | 0개 |
-| 없음 + 밖에서도 필요 | `access enable tailscale` | 1개 |
+| Tailscale 실행·로그인됨 | 자동 Tailscale Serve (HTTPS 주소 + QR, 앱 비밀번호 없음) | 1개; QR 스캔 전 켜고 사용 중 연결 유지 |
+| 아무것도 없음 / 같은 Wi-Fi면 충분 | 자동 password 모드 (LAN 주소 + QR) | 0개 |
 | 도메인 | named tunnel 또는 리버스 프록시 + `access enable password` | 0개 |
 | 공유기 권한 + 공인 IP | 포트포워딩 + 무료 DDNS + 자동 HTTPS | 0개 |
-| 이미 구축한 메시 VPN | `access enable vpn <address>` (Headscale·NetBird·ZeroTier·Nebula·WireGuard 모두 동일) | 1개 |
+| 이미 구축한 다른 메시 VPN | `access enable vpn <address>` (Headscale·NetBird·ZeroTier·Nebula·WireGuard 모두 동일) | 1개 |
 
 CGNAT 환경에서는 포트포워딩이 불가능하므로 Tailscale 또는 도메인 기반 터널만
 남는다.
@@ -121,16 +121,99 @@ CGNAT 환경에서는 포트포워딩이 불가능하므로 Tailscale 또는 도
 "단계를 알려주는 것"이다. 5단계 원격 설정은 물리적 하한이며, 사용자가 겪는
 실제 마찰은 안내 부재다.
 
-- [x] 설치 기본값을 password + 전체 인터페이스 바인딩으로 고정하고, LAN 주소와
-      QR을 출력한다.
-- [x] 설치 요약이 Wi-Fi 범위임을 명시하고 밖에서 쓰는 방법을 안내한다.
-- [x] **A.** 설치 시 Tailscale이 이미 실행 중이면 `access enable tailscale`을
-      안내한다. 탐지 결과는 안내 문구에만 반영하고 설치 결과는 바꾸지 않는다.
-- [x] **B.** `access enable tailscale|vpn` 실행 시 설치 때 안내한 LAN 주소가 더
-      이상 접속되지 않음을 알린다. (모드 전환으로 loopback 바인딩이 되어 첫 QR이 죽는다)
+- [x] 설치 시 Tailscale이 실행·로그인되어 있으면 Serve HTTPS를 자동 구성하고 해당
+      주소와 QR을 출력한다. ChatMux 아이디·비밀번호는 만들지 않고 Tailscale identity와
+      allowlist를 인증 경계로 사용한다.
+- [x] Tailscale 설치 결과에 폰에서도 QR 스캔 전에 Tailscale을 켜고, ChatMux 사용 중
+      연결을 유지해야 한다고 명시한다.
+- [x] Tailscale이 준비되지 않은 경우 password + 전체 인터페이스 바인딩으로 폴백하고,
+      LAN 주소·QR·일회용 비밀번호를 출력한다.
+- [x] `access enable tailscale|vpn` 실행 시 기존 LAN 주소가 더 이상 접속되지 않음을
+      알린다.
 - [x] **C.** `chatmux status`가 현재 접근 모드와 유효한 접속 주소를 표시한다.
       tailscale 모드는 Serve 주소를, vpn 모드는 unit의 바인딩 주소를, password
       모드는 loopback과 LAN 주소를 보여준다.
+
+## 6. 세션 완료 벨 (per-session push)
+
+세션 행의 벨은 tmux pane이나 에이전트 프로세스가 끝났다는 알림이 아니다. 감시를
+켜 둔 세션에서 에이전트의 **응답/턴이 준비되어 다음 사용자 입력을 기다릴 때**만
+`reply_ready` 알림을 보낸다. 도구 호출 중, 실패, pane 종료, 프로세스 종료는 완료
+벨의 조건이 아니다.
+
+### 6.1 먼저 필요한 접속 조건
+
+Push와 Service Worker는 secure context에서만 동작한다. HTTP LAN 주소, IP 주소의
+평문 HTTP, 그리고 HTTP 포트포워딩으로 연 화면에서는 벨을 설정할 수 없다. 다음 중
+하나의 **HTTPS origin**으로 ChatMux를 열어야 한다.
+
+- TLS를 종료하는 리버스 프록시 또는 named tunnel의 고정 HTTPS 주소
+- tailnet에서 HTTPS를 제공하는 **Tailscale Serve** 주소
+
+Tailscale 앱으로 네트워크에만 접속한 뒤 HTTP 주소를 여는 것은 충분하지 않다.
+주소가 바뀌는 Quick Tunnel도 origin 단위인 PWA/Push 등록용으로 쓰지 않는다
+([2절](#2-무계정-터널을-채택하지-않는-이유) 참조).
+HTTPS origin(스킴·호스트·포트)이 바뀌면 이전 origin에 묶인 PWA, Service Worker,
+Push 등록은 새 주소에서 유효하지 않다. 새 HTTPS origin에서 PWA를 다시 설치하고,
+현재 기기의 등록이 없거나 폐기되었으면 렌치로 복구한다. 이 복구는 소유자의 감시
+의도를 끄지 않는다.
+
+지원되는 클라이언트는 Chromium 데스크톱과 Android의 **설치된 PWA**다. iPhone과
+iPad는 iOS/iPadOS 16.4 이상에서만 지원하며, 역시 홈 화면에 설치한 PWA여야 한다.
+iOS/iPadOS에서는 Safari 등의 일반 브라우저 탭에서 ChatMux HTTPS 주소를 연 뒤
+공유 메뉴의 **홈 화면에 추가**로 설치하고, 이후 홈 화면 아이콘으로 열어 설정한다.
+브라우저 탭만 열어 둔 상태를 설치된 PWA로 간주하지 않는다.
+
+### 6.2 설정과 벨의 의미
+
+1. 위 HTTPS 주소에서 설치된 PWA를 열고, 알림을 받을 **해당 세션 행의 벨을
+   직접 클릭**한다.
+2. 그 클릭이 브라우저 권한 요청과 이 기기의 Push 등록을 시작한다. 페이지 열기,
+   로그인, 원격 접속, 세션 생성은 권한을 요청하거나 감시를 자동으로 켜지 않는다.
+3. 벨이 켜진 세션만 그 소유자에게 `reply_ready`를 fanout한다. 같은 소유자가
+   등록한 모든 기기로 전달되므로, 한 세션을 여러 기기에서 켜거나 끌 필요는 없다.
+   다른 사용자에게는 전달되지 않는다.
+
+감시(watch), 기기 등록, 전역 일시는 서로 다른 상태다.
+
+- **소유자 감시**는 세션별 의도다. 이 소유자의 **벨만** 감시 의도를 바꾼다.
+  꺼진 벨은 감시를 켜고, 켜진 벨은 감시를 끈다. 벨은 기기 복구 수단이 아니다.
+- **기기 복구**(렌치)는 현재 기기의 권한/Service Worker/Push endpoint가 없거나
+  폐기되었을 때 이를 다시 등록한다. 소유자가 이미 켜 둔 감시 의도는 바꾸지 않는다.
+  새 기기나 HTTPS origin을 바꾼 뒤에는 새 origin의 PWA를 설치한 후 렌치로 이
+  기기를 복구한다.
+- **전역 일시**는 소유자 전체의 발송을 멈춘 상태다. 세션 벨을 끄는 동작도,
+  기기 복구도 이를 해제하지 않는다. 전역 일시를 해제한 뒤 기존 감시는 그대로
+  다시 전달 대상이 된다.
+
+### 6.3 보이는 행과 범위
+
+- 일반 대화 행은 OMP를 제외한 지원 provider에서 벨을 표시한다. **일반 OMP
+  대화에는 벨이 없다.**
+- 외부 tmux 행은 실행 중인 Claude Code, Codex, OpenCode, OMP generation에만
+  표시한다. SSH/일반 shell 행과 **외부 Cursor 행에는 벨이 없다.**
+- archived 목록과 restore 흐름은 완료 벨의 범위 밖이다. 아카이브/복원이 감시를
+  만들거나 자동으로 켜지지 않으며, 복원한 활성 행에서 필요하면 다시 설정한다.
+
+### 6.4 막힘과 복구
+
+- **권한 거부**: 운영체제 또는 브라우저 사이트 설정에서 이 HTTPS origin의 알림
+  권한을 허용한 뒤 PWA를 다시 연다. 감시가 꺼져 있으면 소유자 벨로 감시를 켜고,
+  이미 켜져 있으면 렌치로 이 기기를 복구한다.
+- **보안 연결 오류**: HTTPS origin으로 다시 열고, Tailscale 경로라면 Serve의 HTTPS
+  주소인지 확인한다. HTTP 주소에서는 복구할 수 없다.
+- **HTTPS origin 변경**: 이전 주소의 PWA, Service Worker, Push 등록은 새 주소에
+  사용할 수 없다. 새 HTTPS origin에서 PWA를 다시 설치한 뒤, 현재 기기의 등록이
+  없거나 폐기되었으면 렌치로 복구한다.
+- **설치 필요(iOS/iPadOS)**: 브라우저 탭이 아니라 홈 화면 PWA로 열어 위 설치
+  절차를 마친다.
+- **등록/전송 오류, 폐기된 등록 또는 기기 변경**: 켜진 벨이 렌치로 보이면 렌치를
+  클릭해 이 기기만 복구한다. 이 동작은 소유자 감시를 끄지 않는다. 계속 실패하면
+  브라우저의 사이트 데이터·알림 차단, Service Worker, 네트워크를 확인한 뒤 PWA를
+  다시 열어 재시도한다.
+
+이 안내는 현재 제품 범위와 원격 origin 요구사항을 설명할 뿐, 릴레이·배포·릴리스가
+수행되었음을 뜻하지 않는다.
 
 ## 참고
 

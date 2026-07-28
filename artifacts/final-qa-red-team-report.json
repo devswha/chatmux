@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-07-27",
+  "snapshot": {
+    "manifestPath": "artifacts/scope-removal-frozen-change-set.json",
+    "manifestHash": "6328b30e1ad06496a940b3f4308282b07e8c6fa51b773d5d60a0058415644e08",
+    "manifestFileSha256": "4cd62b8d7ae36f79eebfc84e1d33684430ffbf0ff684d8b2eb225768105209b0",
+    "verifiedEntries": {
+      "server/modules/providers/tests/browser-product-removal.contract.test.ts": "71cb8646e75b4d4406d7d464ccd80c23b70f45c6db8985285a553bb0f19134ce",
+      "server/modules/providers/tests/chatmux-browser-mcp-cleanup.service.test.ts": "88904b6d7a76f601cc7c098150343d59870533fe5b2afbd0a430210f1a89b412",
+      "server/cli.js": "5770f8d540254627cf2993837a130898e41b3993258f2e6999697465e3ce3164"
+    }
+  },
+  "commands": [
+    { "command": "npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/browser-product-removal.contract.test.ts server/modules/providers/tests/chatmux-browser-mcp-cleanup.service.test.ts", "status": "passed", "result": "20/20 tests passed" },
+    { "command": "node server/cli.js --help", "status": "passed", "result": "exit 0; browser-mcp-cleanup present; browser-use-mcp absent", "artifact": "artifacts/final-qa-cli-help.txt" },
+    { "command": "live Chromium actions at http://127.0.0.1:5181/: set localStorage.activeTab=browser, reload, scan removed standalone controls, redact sidebar, screenshot", "status": "passed", "artifact": "artifacts/final-qa-browser-transcript.json" },
+    { "command": "live Chromium fetch adversarial matrix at http://127.0.0.1:5181/", "status": "passed", "result": "15/15 expected statuses", "artifact": "artifacts/final-qa-api-matrix.json" }
+  ],
+  "ledger": {
+    "source": "manifest verification field; not re-run under the no-broad-gates constraint",
+    "typecheck": "passed",
+    "lint": "passed",
+    "serverTests": { "tests": 621, "pass": 621, "fail": 0, "skipped": 0, "todo": 0 },
+    "clientTests": { "tests": 108, "pass": 108, "fail": 0, "skipped": 0, "todo": 0 },
+    "clientBuild": "passed",
+    "serverBuild": "passed",
+    "core": { "tests": 15, "pass": 15, "fail": 0 },
+    "observability120s": "passed",
+    "shutdown": "passed"
+  },
+  "adversarialCases": [
+    { "id": "p5a-unrelated-cwd-script-resolution", "status": "passed", "evidence": "focused service test: derives the default script path from its runtime layout instead of cwd" },
+    { "id": "p5a-custom-db-non-3001-port", "status": "passed", "evidence": "focused service test: uses a read-only custom database token and configured port" },
+    { "id": "p5a-missing-db-no-creation", "status": "passed", "evidence": "focused service test: fails closed without creating a nonexistent token database" },
+    { "id": "p5a-private-receipt-public-redaction", "status": "passed", "evidence": "focused service test: keeps raw private receipt evidence separate from public output" },
+    { "id": "p5a-apply-post-rename-compensation", "status": "passed", "evidence": "focused service test: compensates an apply rename when its directory fsync fails; later-provider apply failure also compensates" },
+    { "id": "p5a-rollback-post-rename-compensation", "status": "passed", "evidence": "focused service tests: rollback later-restore failure compensates forward; directory fsync failure forward-compensates rollback rename" },
+    { "id": "removed-and-preserved-api-routes", "status": "passed", "evidence": "artifacts/final-qa-api-matrix.json" },
+    { "id": "cli-retains-cleanup-omits-removed-command", "status": "passed", "evidence": "artifacts/final-qa-cli-help.txt" }
+  ],
+  "computerControlSuite": "Excluded: control product is removed; no computer-control surface remains to execute.",
+  "passed": true,
+  "blockers": []
+}

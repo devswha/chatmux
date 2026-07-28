@@ -43,6 +43,30 @@ const abortedSessionIds = new Set();
 const TOOL_APPROVAL_TIMEOUT_MS = parseInt(process.env.CLAUDE_TOOL_APPROVAL_TIMEOUT_MS, 10) || 55000;
 
 const TOOLS_REQUIRING_INTERACTION = new Set(['AskUserQuestion', 'ExitPlanMode']);
+function resolveAppSessionId(ws, explicitAppSessionId) {
+  try {
+    const writerAppSessionId = ws?.getAppSessionId?.();
+    if (typeof writerAppSessionId === 'string' && writerAppSessionId.trim()) {
+      return writerAppSessionId;
+    }
+  } catch {
+    // A writer lookup failure must not affect the provider run.
+  }
+  return typeof explicitAppSessionId === 'string' && explicitAppSessionId.trim()
+    ? explicitAppSessionId
+    : null;
+}
+
+function publishNotification(publish) {
+  try {
+    Promise.resolve(publish()).catch((error) => {
+      console.error('[Claude SDK] Notification publication failed:', error);
+    });
+  } catch (error) {
+    console.error('[Claude SDK] Notification publication failed:', error);
+  }
+}
+
 
 function resolveClaudeEffort(model, effort, modelsDefinition = CLAUDE_FALLBACK_MODELS) {
   const selectedModel = modelsDefinition?.OPTIONS?.find((option) => option.value === model) || null;
@@ -457,28 +481,69 @@ async function loadMcpConfig(cwd) {
  * @param {Object} ws - WebSocket connection
  * @returns {Promise<void>}
  */
-async function queryClaudeSDK(command, options = {}, ws) {
+async function queryClaudeSDK(command, options = {}, ws, runtime = {}) {
   const { sessionId, sessionSummary } = options;
   let capturedSessionId = sessionId;
   let sessionCreatedSent = false;
+  let completionKey = null;
+  let terminalFailure = null;
 
+  const {
+    query: queryFn = query,
+    resolveResumeModel = providerModelsService.resolveResumeModel.bind(providerModelsService),
+    getProviderModels = providerModelsService.getProviderModels.bind(providerModelsService),
+    loadMcpConfig: loadMcpConfigFn = loadMcpConfig,
+    isProviderInstalled = providerAuthService.isProviderInstalled.bind(providerAuthService),
+    notifyRunFailed: notifyFailed = notifyRunFailed,
+    notifyRunStopped: notifyStopped = notifyRunStopped,
+    notifyUserIfEnabled: notifyEnabled = notifyUserIfEnabled,
+  } = runtime;
+  const appSessionId = resolveAppSessionId(ws, options.appSessionId);
+  let terminalNotificationSent = false;
   const emitNotification = (event) => {
-    notifyUserIfEnabled({
+    if (!appSessionId) {
+      return;
+    }
+    publishNotification(() => notifyEnabled({
       userId: ws?.userId || null,
       writer: ws,
       event
-    });
+    }));
+  };
+  const notifyTerminalState = ({ completionKey: terminalCompletionKey = null, error = null } = {}) => {
+    if (terminalNotificationSent || !appSessionId) {
+      return;
+    }
+    terminalNotificationSent = true;
+    if (error) {
+      publishNotification(() => notifyFailed({
+        userId: ws?.userId || null,
+        provider: 'claude',
+        sessionId: appSessionId,
+        sessionName: sessionSummary,
+        error,
+      }));
+    } else if (terminalCompletionKey) {
+      publishNotification(() => notifyStopped({
+        userId: ws?.userId || null,
+        provider: 'claude',
+        sessionId: appSessionId,
+        sessionName: sessionSummary,
+        stopReason: 'completed',
+        completionKey: terminalCompletionKey,
+      }));
+    }
   };
 
   try {
-    const resolvedModel = await providerModelsService.resolveResumeModel(
+    const resolvedModel = await resolveResumeModel(
       'claude',
       sessionId,
       options.model,
     );
     let effortModels = CLAUDE_FALLBACK_MODELS;
     try {
-      effortModels = (await providerModelsService.getProviderModels('claude')).models;
+      effortModels = (await getProviderModels('claude')).models;
     } catch (error) {
       console.warn('[Claude SDK] Unable to load provider models for effort validation:', error);
     }
@@ -489,7 +554,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
       effortModels,
     });
 
-    const mcpServers = await loadMcpConfig(options.cwd);
+    const mcpServers = await loadMcpConfigFn(options.cwd);
     if (mcpServers) {
       sdkOptions.mcpServers = mcpServers;
     }
@@ -506,13 +571,13 @@ async function queryClaudeSDK(command, options = {}, ws) {
           const message = typeof input?.message === 'string' ? input.message : 'Claude requires your attention.';
           emitNotification(createNotificationEvent({
             provider: 'claude',
-            sessionId: capturedSessionId || sessionId || null,
+            sessionId: appSessionId,
             kind: 'action_required',
             code: 'agent.notification',
             meta: { message, sessionName: sessionSummary },
             severity: 'warning',
             requiresUserAction: true,
-            dedupeKey: `claude:hook:notification:${capturedSessionId || sessionId || 'none'}:${message}`
+            dedupeKey: `claude:hook:notification:${appSessionId}:${message}`
           }));
           return {};
         }]
@@ -552,13 +617,13 @@ async function queryClaudeSDK(command, options = {}, ws) {
       ws.send(createNormalizedMessage({ kind: 'permission_request', requestId, toolName, input, sessionId: capturedSessionId || sessionId || null, provider: 'claude' }));
       emitNotification(createNotificationEvent({
         provider: 'claude',
-        sessionId: capturedSessionId || sessionId || null,
+        sessionId: appSessionId,
         kind: 'action_required',
         code: 'permission.required',
         meta: { toolName, sessionName: sessionSummary },
         severity: 'warning',
         requiresUserAction: true,
-        dedupeKey: `claude:permission:${capturedSessionId || sessionId || 'none'}:${requestId}`
+        dedupeKey: `claude:permission:${appSessionId}:${requestId}`
       }));
 
       const decision = await waitForToolApproval(requestId, {
@@ -603,7 +668,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
 
     let queryInstance;
     try {
-      queryInstance = query({
+      queryInstance = queryFn({
         prompt: await createPrompt(),
         options: sdkOptions
       });
@@ -612,7 +677,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
       // Keep notification behavior operational via runtime events even if hook registration fails.
       console.warn('Failed to initialize Claude query with hooks, retrying without hooks:', hookError?.message || hookError);
       delete sdkOptions.hooks;
-      queryInstance = query({
+      queryInstance = queryFn({
         prompt: await createPrompt(),
         options: sdkOptions
       });
@@ -654,6 +719,14 @@ async function queryClaudeSDK(command, options = {}, ws) {
       }
 
       // Transform and normalize message via adapter
+      if (message.type === 'result') {
+        if (message.subtype === 'success' && typeof message.uuid === 'string' && message.uuid.trim()) {
+          completionKey = message.uuid;
+        } else {
+          terminalFailure = message;
+        }
+      }
+
       const transformedMessage = transformMessage(message);
       const sid = capturedSessionId || sessionId || null;
 
@@ -683,15 +756,18 @@ async function queryClaudeSDK(command, options = {}, ws) {
     // terminal `complete` (aborted: true) was already sent by abort-session.
     const wasAborted = capturedSessionId ? abortedSessionIds.delete(capturedSessionId) : false;
     if (!wasAborted) {
-      ws.send(createCompleteMessage({ provider: 'claude', sessionId: capturedSessionId || sessionId || null, exitCode: 0 }));
+      ws.send(createCompleteMessage({
+        provider: 'claude',
+        sessionId: capturedSessionId || sessionId || null,
+        exitCode: terminalFailure ? 1 : 0,
+      }));
+      notifyTerminalState({
+        completionKey,
+        error: terminalFailure
+          ? terminalFailure.errors?.join('\n') || `Claude SDK ${terminalFailure.subtype}`
+          : null,
+      });
     }
-    notifyRunStopped({
-      userId: ws?.userId || null,
-      provider: 'claude',
-      sessionId: capturedSessionId || sessionId || null,
-      sessionName: sessionSummary,
-      stopReason: wasAborted ? 'aborted' : 'completed'
-    });
     // Complete
 
   } catch (error) {
@@ -710,7 +786,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
     }
 
     // Check if Claude CLI is installed for a clearer error message
-    const installed = await providerAuthService.isProviderInstalled('claude');
+    const installed = await isProviderInstalled('claude');
     const errorContent = !installed
       ? 'Claude Code is not installed. Please install it first: https://docs.anthropic.com/en/docs/claude-code'
       : error.message;
@@ -718,13 +794,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
     // Send error to WebSocket, then the terminal complete
     ws.send(createNormalizedMessage({ kind: 'error', content: errorContent, sessionId: capturedSessionId || sessionId || null, provider: 'claude' }));
     ws.send(createCompleteMessage({ provider: 'claude', sessionId: capturedSessionId || sessionId || null, exitCode: 1 }));
-    notifyRunFailed({
-      userId: ws?.userId || null,
-      provider: 'claude',
-      sessionId: capturedSessionId || sessionId || null,
-      sessionName: sessionSummary,
-      error
-    });
+    notifyTerminalState({ error });
   }
 }
 

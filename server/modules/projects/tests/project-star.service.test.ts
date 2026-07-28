@@ -10,7 +10,6 @@ type ProjectRow = {
   project_path: string;
   custom_project_name: string | null;
   isStarred: number;
-  isArchived: number;
 };
 
 test('toggleProjectStar throws when projectId is missing', () => {
@@ -53,7 +52,6 @@ test('toggleProjectStar flips star state and persists it', () => {
         project_path: '/workspace/project-1',
         custom_project_name: 'project-1',
         isStarred: 0,
-        isArchived: 0,
       }) as ProjectRow;
     projectsDb.updateProjectIsStarredById = (projectId: string, isStarred: boolean) => {
       capturedProjectId = projectId;
@@ -85,7 +83,6 @@ test('applyLegacyStarredProjectIds stars only valid, unstarred projects', () => 
           project_path: '/workspace/project-a',
           custom_project_name: 'A',
           isStarred: 0,
-          isArchived: 0,
         } as ProjectRow;
       }
 
@@ -95,7 +92,6 @@ test('applyLegacyStarredProjectIds stars only valid, unstarred projects', () => 
           project_path: '/workspace/project-b',
           custom_project_name: 'B',
           isStarred: 1,
-          isArchived: 0,
         } as ProjectRow;
       }
 

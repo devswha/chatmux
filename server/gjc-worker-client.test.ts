@@ -353,8 +353,14 @@ test('aborts an issued run by runId and waits for its terminal start response', 
   const child = new FakeChild();
   const peer = new FakePeer(child);
   replyToHandshake(peer);
-  const supervisor = new GjcWorkerSupervisor(runtime(child, 'app-abort'));
-  const run = supervisor.spawn('hello', {}, { send() {} });
+  let stopped = 0;
+  let failed = 0;
+  const supervisor = new GjcWorkerSupervisor({
+    ...runtime(child, 'app-abort'),
+    notifyRunStopped: () => { stopped += 1; },
+    notifyRunFailed: () => { failed += 1; },
+  });
+  const run = supervisor.spawn('hello', { appSessionId: 'app-abort' }, { send() {} });
   const start = await peer.waitFor('session.start');
   let settled = false;
   void run.then(() => { settled = true; });
@@ -370,6 +376,68 @@ test('aborts an issued run by runId and waits for its terminal start response', 
   peer.respond(start, { ok: true, result: { runId: start.id } });
   await run;
   assert.equal(settled, true);
+  assert.equal(stopped, 0);
+  assert.equal(failed, 0);
+});
+test('settles worker runs while reporting sync and async notifier failures exactly once', async () => {
+  const diagnostics: string[] = [];
+  const successChild = new FakeChild();
+  const successPeer = new FakePeer(successChild);
+  replyToHandshake(successPeer);
+  let stopped = 0;
+  const successSupervisor = new GjcWorkerSupervisor({
+    ...runtime(successChild, 'app-success'),
+    notifyRunStopped: () => {
+      stopped += 1;
+      throw new Error('sync failure');
+    },
+    diagnostic: (message) => diagnostics.push(message),
+  });
+  const success = successSupervisor.spawn('hello', { appSessionId: 'app-success' }, { send() {} });
+  successPeer.respond(await successPeer.waitFor('session.start'));
+  await success;
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(stopped, 1);
+
+  const failureChild = new FakeChild();
+  const failurePeer = new FakePeer(failureChild);
+  replyToHandshake(failurePeer);
+  let failed = 0;
+  const failureSupervisor = new GjcWorkerSupervisor({
+    ...runtime(failureChild, 'app-failure'),
+    notifyRunFailed: async () => {
+      failed += 1;
+      throw new Error('async failure');
+    },
+    diagnostic: (message) => diagnostics.push(message),
+  });
+  const failure = failureSupervisor.spawn('hello', { appSessionId: 'app-failure' }, { send() {} });
+  failurePeer.respond(await failurePeer.waitFor('session.start'), {
+    ok: false,
+    error: { code: 'run_failed', message: 'safe' },
+  });
+  await assert.rejects(failure, /GJC worker failed/);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(failed, 1);
+  assert.deepEqual(diagnostics, ['GJC stop notification failed.', 'GJC failure notification failed.']);
+});
+
+test('worker skips terminal notifications without an app identity', async () => {
+  const child = new FakeChild();
+  const peer = new FakePeer(child);
+  replyToHandshake(peer);
+  let stopped = 0;
+  const supervisor = new GjcWorkerSupervisor({
+    ...runtime(child),
+    notifyRunStopped: () => { stopped += 1; },
+  });
+  const run = supervisor.spawn('hello', {}, { send() {} });
+  peer.respond(await peer.waitFor('session.start'));
+  await run;
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(stopped, 0);
 });
 
 test('keeps a run active when the worker cannot confirm abort', async () => {
@@ -598,7 +666,7 @@ test('ignores stale events when a later run reuses the same app scope', async ()
   );
 });
 
-test('forwards one worker terminal event without synthesizing a duplicate', async () => {
+test('forwards one worker terminal event without synthesizing a duplicate or owner-scoped notification', async () => {
   const child = new FakeChild();
   const peer = new FakePeer(child);
   replyToHandshake(peer);
@@ -617,10 +685,10 @@ test('forwards one worker terminal event without synthesizing a duplicate', asyn
   await assert.rejects(run, /GJC worker failed/);
 
   assert.deepEqual(sent, [terminal]);
-  assert.equal(failures, 1);
+  assert.equal(failures, 0);
 });
 
-test('completed terminal event remains authoritative if the worker exits before its response', async () => {
+test('completed terminal event remains authoritative if the worker exits before its response without an owner-scoped notification', async () => {
   const child = new FakeChild();
   const peer = new FakePeer(child);
   replyToHandshake(peer);
@@ -645,12 +713,12 @@ test('completed terminal event remains authoritative if the worker exits before 
   await run;
 
   assert.deepEqual(sent, [terminal]);
-  assert.equal(stopped, 1);
+  assert.equal(stopped, 0);
   assert.equal(failed, 0);
   assert.deepEqual(ownedProcessKills, []);
 });
 
-test('graceful shutdown waits for the worker response then terminates its process tree', async () => {
+test('graceful shutdown waits for the worker response then terminates its process tree without an owner-scoped notification', async () => {
   const child = new FakeChild();
   const peer = new FakePeer(child);
   replyToHandshake(peer);
@@ -669,7 +737,7 @@ test('graceful shutdown waits for the worker response then terminates its proces
   peer.respond(shutdown);
   await Promise.all([run, shutdownPromise]);
 
-  assert.equal(stopped, 1);
+  assert.equal(stopped, 0);
   assert.equal(child.killed, true);
   await assert.rejects(
     supervisor.spawn('too-late', {}, { send() {} }),

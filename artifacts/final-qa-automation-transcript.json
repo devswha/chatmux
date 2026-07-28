@@ -1,0 +1,107 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-07-27T18:57:31Z",
+  "scope": {
+    "frozenManifest": "artifacts/scope-removal-frozen-change-set.json",
+    "manifestHash": "41ba814f3d11b622ebe11250cd08f8c82c17ef4eb0fb58b07857e162bbbfca43",
+    "approvedPlan": ".gjc/_session-019fa45f-5659-7000-9701-71b40ce04344/plans/ralplan/019fa45f-5659-7000-9701-71b40ce04344/pending-approval.md"
+  },
+  "automation": {
+    "tool": "GJC browser / Chromium",
+    "uiUrl": "http://127.0.0.1:5181",
+    "serverUrl": "http://127.0.0.1:39111",
+    "viewport": "1440x1000",
+    "actions": [
+      "Opened the live dev UI and observed the rendered sidebar and main surface.",
+      "Set localStorage.activeTab to browser, reloaded, and read localStorage.activeTab after hydration.",
+      "Opened an existing session at /session/019fa45f-5659-7000-9701-71b40ce04344 without sending input.",
+      "Captured artifacts/final-qa-live-surface.png from the rendered Chat surface.",
+      "Opened Settings without mutation and inspected visible category controls.",
+      "Replayed removed API paths through the authenticated dev proxy with adversarial method/body combinations.",
+      "Read direct server health at http://127.0.0.1:39111/health and retained API responses through the dev proxy."
+    ]
+  },
+  "webResults": {
+    "health": {
+      "url": "http://127.0.0.1:39111/health",
+      "status": 200,
+      "contentType": "application/json; charset=utf-8",
+      "product": "chatmux",
+      "version": "1.4.2"
+    },
+    "staleTabNormalization": {
+      "injected": "browser",
+      "afterReload": "chat",
+      "result": "pass"
+    },
+    "mainSurface": {
+      "sessionUrl": "http://127.0.0.1:5181/session/019fa45f-5659-7000-9701-71b40ce04344",
+      "heading": "hey",
+      "mainTabs": [
+        {"name": "Chat", "selected": true},
+        {"name": "CLI output", "selected": false}
+      ],
+      "composerPresent": true,
+      "result": "pass"
+    },
+    "removedUi": {
+      "mainTabNames": ["Chat", "CLI output"],
+      "absentMainTabs": ["Git", "Tasks", "Browser", "Files", "plugin:*"],
+      "settingsVisibleControls": ["Account", "Permissions"],
+      "absentSettingsManagement": ["MCP", "Skills"],
+      "result": "pass"
+    },
+    "preservedApis": [
+      {"method": "GET", "path": "/api/projects", "status": 200, "responseShape": "project array"},
+      {"method": "GET", "path": "/api/providers/claude/mcp/servers", "status": 200, "responseShape": "success/data/provider/scopes"}
+    ],
+    "removedApiReplay": [
+      {"method": "GET", "path": "/api/browser-use", "body": null, "status": 404},
+      {"method": "POST", "path": "/api/browser-use", "body": "{probe:adversarial}", "status": 404},
+      {"method": "DELETE", "path": "/api/browser-use", "body": null, "status": 404},
+      {"method": "GET", "path": "/api/taskmaster/status", "body": null, "status": 404},
+      {"method": "POST", "path": "/api/taskmaster/run", "body": "{probe:adversarial}", "status": 404},
+      {"method": "GET", "path": "/api/mcp-utils/taskmaster-server", "body": null, "status": 404},
+      {"method": "PUT", "path": "/api/plugins/example", "body": "{enabled:true}", "status": 404},
+      {"method": "POST", "path": "/api/plugins", "body": "{name:adversarial}", "status": 404},
+      {"method": "POST", "path": "/api/projects/create-project", "body": "{path:/tmp/adversarial}", "status": 404},
+      {"method": "POST", "path": "/api/voice/transcribe", "body": "{probe:adversarial}", "status": 404}
+    ],
+    "notApplicable": [
+      "Computer-control kill-switch suite: Browser computer-control surface is removed; this QA exercised the web, HTTP API, and CLI surfaces instead."
+    ]
+  },
+  "cli": {
+    "command": "node server/cli.js --help",
+    "exitCode": 0,
+    "contains": ["browser-mcp-cleanup", "browser-mcp-cleanup apply", "browser-mcp-cleanup rollback --run-id <UUID>"],
+    "absent": ["browser-use-mcp"],
+    "mutationInvoked": false,
+    "result": "pass"
+  },
+  "evidenceRead": {
+    "browserMcpCleanup": {
+      "path": "artifacts/browser-mcp-cleanup-evidence.json",
+      "completedNoopRunsBeforeBrowserDeletion": [
+        "765bd751-f90b-4a29-b5a0-13361b09c174",
+        "1a09d929-9542-4a3a-991c-406445e0c783"
+      ],
+      "managedEntriesAfter": 0,
+      "retainedRollback": true
+    },
+    "testLedger": {
+      "path": "artifacts/scope-removal-test-ledger.json",
+      "server": "616/616 pass",
+      "client": "108/108 pass",
+      "arithmeticPassed": true
+    },
+    "coreAudit": {
+      "path": "artifacts/scope-removal-final-audit.json",
+      "protectedFilesPassed": true,
+      "gatewayHunks": "3/3",
+      "projectRenameSubtreePassed": true,
+      "releaseBoundaryPassed": true
+    }
+  },
+  "overall": "pass"
+}

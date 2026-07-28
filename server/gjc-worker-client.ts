@@ -30,6 +30,7 @@ type RunStoppedNotification = {
   sessionId: string | null;
   sessionName: string | null;
   stopReason: string;
+  completionKey: string;
 };
 
 type RunFailedNotification = {
@@ -43,7 +44,7 @@ type RunFailedNotification = {
 type RunStoppedNotifier = (notification: RunStoppedNotification) => unknown;
 type RunFailedNotifier = (notification: RunFailedNotification) => unknown;
 export type GjcApprovalDecision = { allow: boolean; updatedInput?: unknown; message?: string; rememberEntry?: unknown };
-export type GjcWorkerOptions = Record<string, unknown> & { sessionId?: string | null; cwd?: string; projectPath?: string; sessionSummary?: string };
+export type GjcWorkerOptions = Record<string, unknown> & { sessionId?: string | null; appSessionId?: string | null; cwd?: string; projectPath?: string; sessionSummary?: string };
 export type GjcWorkerWriter = { send(value: unknown): void; setSessionId?(id: string): void; getAppSessionId?(): string | undefined; userId?: string | number | null };
 type Child = {
   pid?: number;
@@ -88,6 +89,7 @@ export type GjcWorkerSupervisorRuntime = {
 type Run = {
   runId: string;
   appScope: string;
+  appSessionId?: string;
   writer: GjcWorkerWriter;
   options: GjcWorkerOptions;
   aborted: boolean;
@@ -139,7 +141,7 @@ function safeJsonObject(value: unknown): JsonObject | undefined {
 }
 
 function safeOptions(options: GjcWorkerOptions): JsonObject | undefined {
-  const { sessionId: _sessionId, ...rest } = options;
+  const { sessionId: _sessionId, appSessionId: _appSessionId, ...rest } = options;
   return safeJsonObject(rest);
 }
 
@@ -228,7 +230,7 @@ export class GjcWorkerSupervisor {
       initializeTimeoutMs: runtime.initializeTimeoutMs ?? 5_000,
       requestTimeoutMs: runtime.requestTimeoutMs ?? 30_000,
       createScope: runtime.createScope ?? (() => `gjc-${randomUUID()}`),
-      diagnostic: runtime.diagnostic ?? (() => {}),
+      diagnostic: runtime.diagnostic ?? ((message) => console.error(`[gjc-worker] ${message}`)),
       notifyRunStopped: runtime.notifyRunStopped ?? notifyRunStopped as unknown as RunStoppedNotifier,
       notifyRunFailed: runtime.notifyRunFailed ?? notifyRunFailed as unknown as RunFailedNotifier,
       killTree: runtime.killTree ?? killWorkerTree,
@@ -263,13 +265,15 @@ export class GjcWorkerSupervisor {
       rejected.abortHandle = runId;
       return rejected;
     }
-    const appScope = safeId(writer.getAppSessionId?.()) ?? safeId(this.runtime.createScope()) ?? `gjc-${randomUUID()}`;
+    const appSessionId = safeId(writer.getAppSessionId?.()) ?? safeId(options.appSessionId);
+    const appScope = appSessionId ?? safeId(this.runtime.createScope()) ?? `gjc-${randomUUID()}`;
     let resolve!: () => void; let reject!: (error: Error) => void;
     const promise = new Promise<void>((res, rej) => { resolve = res; reject = rej; }) as Promise<void> & { abortHandle: string };
     promise.abortHandle = runId;
     const run: Run = {
       runId,
       appScope,
+      appSessionId,
       writer,
       options,
       aborted: false,
@@ -692,7 +696,8 @@ export class GjcWorkerSupervisor {
       if (pending.runId === run.runId) this.approvals.delete(id);
     }
 
-    const sessionId = run.providerSessionId ?? run.appScope;
+    const providerSessionId = run.providerSessionId ?? run.appScope;
+    const appSessionId = run.appSessionId;
     if (failed && !run.aborted) {
       if (!run.terminalForwarded) {
         try {
@@ -700,25 +705,27 @@ export class GjcWorkerSupervisor {
             kind: 'error',
             content: SAFE_FAILURE,
             provider: 'gjc',
-            sessionId,
+            sessionId: providerSessionId,
           }));
           run.writer.send(createCompleteMessage({
             provider: 'gjc',
-            sessionId,
-            actualSessionId: sessionId,
+            sessionId: providerSessionId,
+            actualSessionId: providerSessionId,
             exitCode: 1,
           }));
         } catch {
           // Notification and promise settlement remain authoritative.
         }
       }
-      this.invokeAppCallback('GJC failure notification failed.', () => this.runtime.notifyRunFailed({
-        userId: run.writer.userId ?? null,
-        provider: 'gjc',
-        sessionId,
-        sessionName: run.options.sessionSummary ?? null,
-        error: SAFE_FAILURE,
-      }));
+      if (appSessionId) {
+        this.invokeAppCallback('GJC failure notification failed.', () => this.runtime.notifyRunFailed({
+          userId: run.writer.userId ?? null,
+          provider: 'gjc',
+          sessionId: appSessionId,
+          sessionName: run.options.sessionSummary ?? null,
+          error: SAFE_FAILURE,
+        }));
+      }
       run.reject(new Error(SAFE_FAILURE));
       return;
     }
@@ -727,21 +734,24 @@ export class GjcWorkerSupervisor {
       try {
         run.writer.send(createCompleteMessage({
           provider: 'gjc',
-          sessionId,
-          actualSessionId: sessionId,
+          sessionId: providerSessionId,
+          actualSessionId: providerSessionId,
           exitCode: 0,
         }));
       } catch {
         // Notification and promise settlement remain authoritative.
       }
     }
-    this.invokeAppCallback('GJC stop notification failed.', () => this.runtime.notifyRunStopped({
-      userId: run.writer.userId ?? null,
-      provider: 'gjc',
-      sessionId,
-      sessionName: run.options.sessionSummary ?? null,
-      stopReason: run.aborted ? 'aborted' : 'completed',
-    }));
+    if (!run.aborted && appSessionId) {
+      this.invokeAppCallback('GJC stop notification failed.', () => this.runtime.notifyRunStopped({
+        userId: run.writer.userId ?? null,
+        provider: 'gjc',
+        sessionId: appSessionId,
+        sessionName: run.options.sessionSummary ?? null,
+        stopReason: 'completed',
+        completionKey: run.runId,
+      }));
+    }
     run.resolve();
   }
 

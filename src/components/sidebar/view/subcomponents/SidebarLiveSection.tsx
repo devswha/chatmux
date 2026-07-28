@@ -9,8 +9,8 @@ import { getAllSessions, getSessionTime } from '../../utils/utils';
 import SessionProviderLogo from '../../../llm-logo-provider/SessionProviderLogo';
 import type { TmuxPaneTarget } from '../../../../../shared/tmux';
 
-import type { SidebarProjectListProps } from './SidebarProjectList';
 import SidebarIdleComposer from './SidebarIdleComposer';
+import SessionCompletionBell from './SessionCompletionBell';
 
 type SidebarLiveSectionProps = {
   projects: Project[];
@@ -32,12 +32,15 @@ type SidebarLiveSectionProps = {
   // of LIVE (blue). Presentational only.
   liveSessionRunning: ReadonlySet<string>;
   selectedSession: ProjectSession | null;
-  onProjectSelect: SidebarProjectListProps['onProjectSelect'];
-  onSessionSelect: SidebarProjectListProps['onSessionSelect'];
+  onProjectSelect: (project: Project) => void;
+  onSessionSelect: (session: ProjectSession, projectId: string) => void;
   onExternalTerminalOpen?: (target: ExternalTerminalTarget) => void;
 };
 
 const EMPTY_SESSION_METADATA = new Map<string, string>();
+const isStableGjcSessionId = (sessionId: string) => (
+  sessionId.length > 0 && !sessionId.startsWith('idle-gjc:')
+);
 
 /** Per-row kill flow state (2-step confirm before the tower is asked to kill). */
 type KillStatus =
@@ -296,6 +299,8 @@ export default function SidebarLiveSection({
             project.displayName,
             age || null,
           ].filter(Boolean).join(' · ');
+          const isGjcAppSession = (session.__provider ?? session.provider) === 'gjc'
+            && isStableGjcSessionId(session.id);
           return (
             <div
               key={session.id}
@@ -350,7 +355,15 @@ export default function SidebarLiveSection({
                     </span>
                   </span>
                 </button>
-                {tmuxName && liveSessionLineage.has(session.id) && liveSessionTargets.has(session.id) && killButton(session.id, tmuxName)}
+                {isGjcAppSession && (
+                  <SessionCompletionBell
+                    descriptor={{ kind: 'app', provider: 'gjc', sessionId: session.id }}
+                    className="mt-1.5"
+                  />
+                )}
+                {tmuxName && liveSessionLineage.has(session.id) && liveSessionTargets.has(session.id) && (
+                  killButton(session.id, tmuxName)
+                )}
               </div>
               {tmuxName && liveSessionLineage.has(session.id) && liveSessionTargets.has(session.id) && killStrip(session.id, tmuxName)}
             </div>
@@ -435,6 +448,12 @@ export default function SidebarLiveSection({
                   >
                     {content}
                   </button>
+                )}
+                {!isIdle && isStableGjcSessionId(id) && (
+                  <SessionCompletionBell
+                    descriptor={{ kind: 'app', provider: 'gjc', sessionId: id }}
+                    className="mt-1.5"
+                  />
                 )}
                 {tmuxName && liveSessionLineage.has(id) && liveSessionTargets.has(id) && killButton(id, tmuxName)}
               </div>

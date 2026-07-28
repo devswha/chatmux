@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "kind": "browser-api-test-report",
+  "surface": "web",
+  "baseUrl": "http://127.0.0.1:5199",
+  "observations": {
+    "desktopBellCount": 6,
+    "mobileBellCount": 4,
+    "mobileTouchTargets": [
+      { "width": 44, "height": 44 },
+      { "width": 44, "height": 44 },
+      { "width": 44, "height": 44 }
+    ],
+    "bellClickStayedOnCurrentPage": true,
+    "permissionDeniedDescription": "Notifications when the assistant has a reply ready are paused globally Notification permission for assistant replies was denied",
+    "vapidPublicKeyStatus": 200,
+    "vapidPublicKeyPresent": true,
+    "statusEndpointStatus": 200,
+    "statusEndpointRedactedInputIdentity": true,
+    "statusEndpointGlobalPaused": true,
+    "statusEndpointDeviceSetupRequired": true,
+    "invalidPushRegistrationStatus": 400,
+    "invalidPushRegistrationError": "Invalid push subscription"
+  },
+  "artifacts": [
+    "artifacts/pwa-completion-notification-desktop.png"
+  ],
+  "limitations": [
+    "Headless Chromium auto-denied notification permission; successful OS notification display was covered by dispatcher/provider integration tests rather than a real push service.",
+    "iOS Home Screen PWA behavior was documented and code-reviewed but not executed on physical iOS hardware."
+  ]
+}

@@ -1,118 +1,14 @@
 {
-  "projects": {
-    "title": "Projekte",
-    "newProject": "Neues Projekt",
-    "deleteProject": "Projekt entfernen",
-    "renameProject": "Projekt umbenennen",
-    "noProjects": "Keine Projekte gefunden",
-    "loadingProjects": "Projekte werden geladen...",
-    "searchPlaceholder": "Projekte durchsuchen...",
-    "projectNamePlaceholder": "Projektname",
-    "starred": "Favoriten",
-    "all": "Alle",
-    "untitledSession": "Unbenannte Sitzung",
-    "newSession": "Neue Sitzung",
-    "codexSession": "Codex-Sitzung",
-    "fetchingProjects": "Deine Claude-Projekte und -Sitzungen werden abgerufen",
-    "projects": "Projekte",
-    "noMatchingProjects": "Keine passenden Projekte",
-    "tryDifferentSearch": "Versuch, den Suchbegriff anzupassen",
-    "runClaudeCli": "Führ Claude CLI in einem Projektverzeichnis aus, um zu beginnen"
-  },
-  "app": {
-    "title": "ChatMux",
-    "subtitle": "KI-Programmierassistent-Oberfläche"
-  },
-  "sessions": {
-    "title": "Sitzungen",
-    "newSession": "Neue Sitzung",
-    "deleteSession": "Sitzung löschen",
-    "renameSession": "Sitzung umbenennen",
-    "noSessions": "Noch keine Sitzungen",
-    "loadingSessions": "Sitzungen werden geladen...",
-    "unnamed": "Unbenannt",
-    "loading": "Lädt...",
-    "showMore": "Weitere Sitzungen anzeigen"
-  },
   "tooltips": {
-    "viewEnvironments": "Umgebungen anzeigen",
     "hideSidebar": "Seitenleiste ausblenden",
-    "createProject": "Neues Projekt erstellen",
-    "refresh": "Projekte und Sitzungen aktualisieren (Strg+R)",
-    "renameProject": "Projekt umbenennen (F2)",
-    "deleteProject": "Projekt aus Seitenleiste entfernen (Entf)",
-    "addToFavorites": "Zu Favoriten hinzufügen",
-    "removeFromFavorites": "Aus Favoriten entfernen",
-    "editSessionName": "Sitzungsname manuell bearbeiten",
-    "deleteSession": "Diese Sitzung dauerhaft löschen",
-    "activeSessionIndicator": "Kürzlich aktive Sitzung (letzte 10 Minuten)",
-    "save": "Speichern",
-    "cancel": "Abbrechen",
-    "clearSearch": "Suche leeren",
-    "openCommandPalette": "Befehlspalette öffnen",
-    "attentionRequiredIndicator": "Sitzung erfordert Aufmerksamkeit"
-  },
-  "navigation": {
-    "chat": "Chat",
-    "files": "Dateien",
-    "git": "Git",
-    "terminal": "Terminal",
-    "tasks": "Aufgaben"
+    "refresh": "Projekte und Sitzungen aktualisieren (Strg+R)"
   },
   "actions": {
-    "refresh": "Aktualisieren",
     "settings": "Einstellungen",
-    "installApp": "Als App installieren",
-    "collapseAll": "Alle einklappen",
-    "expandAll": "Alle ausklappen",
-    "cancel": "Abbrechen",
-    "save": "Speichern",
-    "delete": "Löschen",
-    "rename": "Umbenennen",
-    "starOnGithub": "Stern auf GitHub"
+    "installApp": "Als App installieren"
   },
   "branding": {
     "openSource": "Open Source"
-  },
-  "status": {
-    "active": "Aktiv",
-    "inactive": "Inaktiv",
-    "thinking": "Denkt nach...",
-    "error": "Fehler",
-    "aborted": "Abgebrochen",
-    "unknown": "Unbekannt"
-  },
-  "time": {
-    "justNow": "Gerade eben",
-    "oneMinuteAgo": "vor 1 Min.",
-    "minutesAgo": "vor {{count}} Min.",
-    "oneHourAgo": "vor 1 Std.",
-    "hoursAgo": "vor {{count}} Std.",
-    "oneDayAgo": "vor 1 Tag",
-    "daysAgo": "vor {{count}} Tagen"
-  },
-  "messages": {
-    "deleteConfirm": "Möchtest du das wirklich löschen?",
-    "renameSuccess": "Erfolgreich umbenannt",
-    "deleteSuccess": "Erfolgreich gelöscht",
-    "errorOccurred": "Ein Fehler ist aufgetreten",
-    "deleteSessionConfirm": "Möchtest du diese Sitzung wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.",
-    "deleteProjectConfirm": "Projekt aus der Seitenleiste entfernen? Deine Projektdateien, Erinnerungen und Sitzungsdaten werden nicht gelöscht.",
-    "enterProjectPath": "Bitte gib einen Projektpfad ein",
-    "deleteSessionFailed": "Sitzung konnte nicht gelöscht werden. Bitte erneut versuchen.",
-    "deleteSessionError": "Fehler beim Löschen der Sitzung. Bitte erneut versuchen.",
-    "renameSessionFailed": "Sitzung konnte nicht umbenannt werden. Bitte erneut versuchen.",
-    "renameSessionError": "Fehler beim Umbenennen der Sitzung. Bitte erneut versuchen.",
-    "deleteProjectFailed": "Projekt konnte nicht entfernt werden. Bitte erneut versuchen.",
-    "deleteProjectError": "Fehler beim Entfernen des Projekts. Bitte erneut versuchen.",
-    "createProjectFailed": "Projekt konnte nicht erstellt werden. Bitte erneut versuchen.",
-    "createProjectError": "Fehler beim Erstellen des Projekts. Bitte erneut versuchen.",
-    "updateProjectError": "Fehler beim Aktualisieren des Projekts. Bitte erneut versuchen.",
-    "refreshError": "Aktualisierung fehlgeschlagen. Bitte erneut versuchen.",
-    "restoreProjectFailed": "Projekt konnte nicht wiederhergestellt werden. Bitte erneut versuchen.",
-    "restoreProjectError": "Fehler beim Wiederherstellen des Projekts. Bitte erneut versuchen.",
-    "restoreSessionFailed": "Sitzung konnte nicht wiederhergestellt werden. Bitte erneut versuchen.",
-    "restoreSessionError": "Fehler beim Wiederherstellen der Sitzung. Bitte erneut versuchen."
   },
   "version": {
     "updateAvailable": "Update verfügbar",
@@ -131,29 +27,6 @@
       "nameConflict": "Eine Sitzung mit diesem Namen existiert bereits",
       "createFailed": "Sitzung konnte nicht erstellt werden"
     }
-  },
-  "search": {
-    "modeProjects": "Projekte",
-    "modeConversations": "Unterhaltungen",
-    "conversationsPlaceholder": "In Unterhaltungen suchen...",
-    "searching": "Sucht...",
-    "noResults": "Keine Ergebnisse gefunden",
-    "tryDifferentQuery": "Versuch eine andere Suchanfrage",
-    "matches_one": "{{count}} Treffer",
-    "matches_other": "{{count}} Treffer",
-    "projectsScanned_one": "{{count}} Projekt durchsucht",
-    "projectsScanned_other": "{{count}} Projekte durchsucht"
-  },
-  "deleteConfirmation": {
-    "deleteProject": "Projekt entfernen",
-    "deleteSession": "Sitzung löschen",
-    "confirmDelete": "Was möchtest du mit",
-    "sessionCount_one": "Dieses Projekt enthält {{count}} Unterhaltung.",
-    "sessionCount_other": "Dieses Projekt enthält {{count}} Unterhaltungen.",
-    "removeFromSidebar": "Nur aus der Seitenleiste entfernen",
-    "deleteAllData": "Alle Daten dauerhaft löschen",
-    "allConversationsDeleted": "Das Projekt wird aus der Seitenleiste entfernt. Deine Dateien, Erinnerungen und Sitzungsdaten bleiben erhalten.",
-    "cannotUndo": "Du kannst das Projekt später erneut hinzufügen."
   },
   "externalSessions": {
     "viewInTerminal": "Tmux-Sitzung '{{name}}' im Terminal anzeigen",
@@ -176,8 +49,19 @@
       "unknownTitle": "Der aktuelle Zustand kann aus Provider-Daten nicht sicher bestimmt werden"
     }
   },
-  "tabs": {
-    "sessions": "Sitzungen",
-    "archive": "Verlauf"
+  "completionNotifications": {
+    "pending": "Benachrichtigungen werden aktualisiert, wenn die Assistentenantwort bereit ist",
+    "unsupported": "Benachrichtigungen, wenn die Assistentenantwort bereit ist, werden auf diesem Gerät nicht unterstützt",
+    "denied": "Die Benachrichtigungsberechtigung für Assistentenantworten wurde verweigert",
+    "insecure": "Benachrichtigungen, wenn die Assistentenantwort bereit ist, erfordern eine sichere Verbindung",
+    "iosInstall": "Installiere diese App, um auf iOS Benachrichtigungen zu aktivieren, wenn die Assistentenantwort bereit ist",
+    "error": "Benachrichtigungen, wenn die Assistentenantwort bereit ist, konnten nicht geprüft werden",
+    "repairError": "Benachrichtigungen, wenn die Assistentenantwort bereit ist, konnten nicht repariert werden",
+    "repair": "Benachrichtigungen reparieren, wenn die Assistentenantwort bereit ist",
+    "paused": "Benachrichtigungen, wenn die Assistentenantwort bereit ist, sind global pausiert",
+    "disable": "Benachrichtigungen für diese Sitzung deaktivieren, wenn die Assistentenantwort bereit ist",
+    "enable": "Benachrichtigungen für diese Sitzung aktivieren, wenn die Assistentenantwort bereit ist",
+    "timeout": "Benachrichtigungen, wenn die Assistentenantwort bereit ist, haben zu lange gedauert. Versuche es erneut.",
+    "conflict": "Die Benachrichtigungseinstellungen für Assistentenantworten wurden geändert. Versuche es erneut."
   }
 }

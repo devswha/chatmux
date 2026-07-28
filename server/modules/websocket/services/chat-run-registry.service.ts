@@ -64,7 +64,7 @@ const runs = new Map<string, ChatRun>();
 
 async function broadcastCanonicalSessionUpsert(appSessionId: string): Promise<void> {
   const row = sessionsDb.getSessionById(appSessionId);
-  if (!row || row.isArchived) {
+  if (!row) {
     return;
   }
 

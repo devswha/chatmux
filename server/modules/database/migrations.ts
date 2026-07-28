@@ -2,11 +2,13 @@ import { Database } from 'better-sqlite3';
 
 import {
   APP_CONFIG_TABLE_SCHEMA_SQL,
+  COMPLETION_NOTIFICATION_GENERATION_STATE_STALE_INDEX_SQL,
+  COMPLETION_NOTIFICATION_SCHEMA_SQL,
   LAST_SCANNED_AT_SQL,
   PROJECTS_TABLE_SCHEMA_SQL,
   PUSH_SUBSCRIPTIONS_TABLE_SCHEMA_SQL,
-  SESSIONS_TABLE_SCHEMA_SQL,
   USER_NOTIFICATION_PREFERENCES_TABLE_SCHEMA_SQL,
+  USER_NOTIFICATION_PREFERENCES_LIVE_STOP_LATCH_SQL,
   VAPID_KEYS_TABLE_SCHEMA_SQL,
 } from '@/modules/database/schema.js';
 
@@ -21,6 +23,51 @@ lower(hex(randomblob(6)))
 type TableInfoRow = {
   name: string;
   pk: number;
+};
+type IndexListRow = {
+  name: string;
+};
+
+type IndexInfoRow = {
+  name: string;
+};
+
+const quoteIdentifier = (identifier: string): string => `"${identifier.replaceAll('"', '""')}"`;
+
+const dropIndexesForColumn = (db: Database, tableName: string, columnName: string): void => {
+  const indexes = db.prepare(`PRAGMA index_list(${tableName})`).all() as IndexListRow[];
+
+  for (const { name } of indexes) {
+    const columns = db.prepare(`PRAGMA index_info(${quoteIdentifier(name)})`).all() as IndexInfoRow[];
+    if (columns.some((column) => column.name === columnName)) {
+      db.exec(`DROP INDEX IF EXISTS ${quoteIdentifier(name)}`);
+    }
+  }
+};
+
+const activateArchivedRows = (db: Database, tableName: string): void => {
+  if (!tableExists(db, tableName)) {
+    return;
+  }
+
+  const columnNames = getTableInfo(db, tableName).map((column) => column.name);
+  if (columnNames.includes('isArchived')) {
+    db.exec(`UPDATE ${tableName} SET isArchived = 0`);
+  }
+};
+
+const removeArchiveColumn = (db: Database, tableName: string): void => {
+  if (!tableExists(db, tableName)) {
+    return;
+  }
+
+  const columnNames = getTableInfo(db, tableName).map((column) => column.name);
+  if (!columnNames.includes('isArchived')) {
+    return;
+  }
+
+  dropIndexesForColumn(db, tableName, 'isArchived');
+  db.exec(`ALTER TABLE ${tableName} DROP COLUMN isArchived`);
 };
 
 const addColumnToTableIfNotExists = (
@@ -225,10 +272,28 @@ const rebuildProjectsTableWithPrimaryKeySchema = (db: Database): void => {
   db.exec('ALTER TABLE projects__new RENAME TO projects');
 };
 
+const LEGACY_SESSIONS_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS sessions (
+    session_id TEXT NOT NULL,
+    provider TEXT NOT NULL DEFAULT 'claude',
+    provider_session_id TEXT,
+    custom_name TEXT,
+    project_path TEXT,
+    jsonl_path TEXT,
+    isArchived BOOLEAN DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (session_id),
+    FOREIGN KEY (project_path) REFERENCES projects(project_path)
+    ON DELETE SET NULL
+    ON UPDATE CASCADE
+);
+`;
+
 const rebuildSessionsTableWithProjectSchema = (db: Database): void => {
   const hasSessions = tableExists(db, 'sessions');
   if (!hasSessions) {
-    db.exec(SESSIONS_TABLE_SCHEMA_SQL);
+    db.exec(LEGACY_SESSIONS_TABLE_SCHEMA_SQL);
     return;
   }
 
@@ -412,6 +477,7 @@ const SCHEMA_MIGRATIONS_TABLE_SQL = `
   )
 `;
 
+
 /**
  * A journaled migration is committed atomically with its version record. Existing
  * installations without the journal replay every step once; all legacy helpers
@@ -478,6 +544,60 @@ const MIGRATIONS: Migration[] = [
     },
   },
   { version: 12, migrate: (db) => db.exec(LAST_SCANNED_AT_SQL) },
+  {
+    version: 13,
+    migrate: (db) => {
+      const generationStateColumns = getTableInfo(db, 'completion_notification_generation_state')
+        .map((column) => column.name);
+      if (generationStateColumns.length > 0) {
+        addColumnToTableIfNotExists(
+          db,
+          'completion_notification_generation_state',
+          generationStateColumns,
+          'pane_evidence_key',
+          'TEXT',
+        );
+        addColumnToTableIfNotExists(
+          db,
+          'completion_notification_generation_state',
+          generationStateColumns,
+          'last_seen_at',
+          'INTEGER CHECK (last_seen_at IS NULL OR last_seen_at >= 0)',
+        );
+      }
+      db.exec(COMPLETION_NOTIFICATION_SCHEMA_SQL);
+      db.exec(USER_NOTIFICATION_PREFERENCES_LIVE_STOP_LATCH_SQL);
+      db.exec(`UPDATE user_notification_preferences
+        SET preferences_json = json_set(
+          CASE json_type(preferences_json, '$.events')
+            WHEN 'object' THEN preferences_json
+            ELSE json_set(preferences_json, '$.events', json_object())
+          END,
+          '$.events.liveStop', json('false')
+        )
+        WHERE json_valid(preferences_json)
+          AND json_extract(preferences_json, '$.events.liveStop') IS NOT 0`);
+      db.exec(COMPLETION_NOTIFICATION_GENERATION_STATE_STALE_INDEX_SQL);
+      db.exec(`
+        INSERT INTO completion_notification_policy (
+          user_id, desired_web_push, consent_configured, enforcement_enabled
+        )
+        SELECT id, 0, 0, 1 FROM users WHERE true
+        ON CONFLICT(user_id) DO NOTHING;
+      `);
+    },
+  },
+  {
+    version: 14,
+    migrate: (db) => {
+      activateArchivedRows(db, 'sessions');
+      activateArchivedRows(db, 'projects');
+      db.exec('DROP INDEX IF EXISTS idx_sessions_is_archived');
+      db.exec('DROP INDEX IF EXISTS idx_projects_is_archived');
+      removeArchiveColumn(db, 'sessions');
+      removeArchiveColumn(db, 'projects');
+    },
+  },
 ];
 
 export const runMigrations = (db: Database) => {

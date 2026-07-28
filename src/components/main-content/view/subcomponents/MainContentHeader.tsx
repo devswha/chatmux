@@ -1,6 +1,5 @@
 import { useCallback, useRef, useState, useEffect } from 'react';
-import { useTranslation } from 'react-i18next';
-import { FolderOpen } from 'lucide-react';
+
 
 import type { MainContentHeaderProps } from '../../types/types';
 
@@ -13,14 +12,11 @@ export default function MainContentHeader({
   setActiveTab,
   selectedProject,
   selectedSession,
-  shouldShowTasksTab,
-  shouldShowBrowserTab,
   isMobile,
   onMenuClick,
-  filesPanelOpen,
-  onToggleFilesPanel,
+
 }: MainContentHeaderProps) {
-  const { t } = useTranslation('common');
+
   const scrollRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
@@ -50,7 +46,6 @@ export default function MainContentHeader({
             activeTab={activeTab}
             selectedProject={selectedProject}
             selectedSession={selectedSession}
-            shouldShowTasksTab={shouldShowTasksTab}
           />
         </div>
 
@@ -67,26 +62,12 @@ export default function MainContentHeader({
             <MainContentTabSwitcher
               activeTab={activeTab}
               setActiveTab={setActiveTab}
-              shouldShowTasksTab={shouldShowTasksTab}
-              shouldShowBrowserTab={shouldShowBrowserTab}
             />
           </div>
           {canScrollRight && (
             <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-6 bg-gradient-to-l from-background to-transparent" />
           )}
         </div>
-        <button
-          type="button"
-          onClick={onToggleFilesPanel}
-          title={filesPanelOpen ? t('filesPanel.close') : t('filesPanel.open')}
-          className={`shrink-0 rounded-md p-1.5 transition-colors ${
-            filesPanelOpen
-              ? 'bg-muted text-foreground'
-              : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
-          }`}
-        >
-          <FolderOpen className="h-4 w-4" />
-        </button>
         </div>
       </div>
     </div>

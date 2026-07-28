@@ -4,6 +4,13 @@ import path from 'node:path';
 import { getConnection } from '@/modules/database/connection.js';
 import type { CreateProjectPathResult, ProjectRepositoryRow } from '@/shared/types.js';
 import { normalizeProjectPath } from '@/shared/utils.js';
+import { revokeCompletionNotificationsForProject } from '@/modules/database/services/completion-notification-lifecycle.service.js';
+
+function projectPathForId(projectId: string): string | null {
+    const row = getConnection().prepare('SELECT project_path FROM projects WHERE project_id = ?')
+        .get(projectId) as { project_path: string } | undefined;
+    return row?.project_path ?? null;
+}
 
 function normalizeProjectDisplayName(projectPath: string, customProjectName: string | null): string {
     const trimmedCustomName = typeof customProjectName === 'string' ? customProjectName.trim() : '';
@@ -22,17 +29,15 @@ export const projectsDb = {
         const normalizedProjectName = normalizeProjectDisplayName(normalizedProjectPath, customProjectName);
         const attemptedId = randomUUID();
         const row = db.prepare(`
-        INSERT INTO projects (project_id, project_path, custom_project_name, isArchived)
-            VALUES (?, ?, ?, 0)
-            ON CONFLICT(project_path) DO UPDATE SET
-            isArchived = 0
-            WHERE projects.isArchived = 1
-            RETURNING project_id, project_path, custom_project_name, isStarred, isArchived
+        INSERT INTO projects (project_id, project_path, custom_project_name)
+            VALUES (?, ?, ?)
+            ON CONFLICT(project_path) DO NOTHING
+            RETURNING project_id, project_path, custom_project_name, isStarred
         `).get(attemptedId, normalizedProjectPath, normalizedProjectName) as ProjectRepositoryRow | undefined;
 
         if (row) {
             return {
-                outcome: row.project_id === attemptedId ? 'created' : 'reactivated_archived',
+                outcome: 'created',
                 project: row,
             };
         }
@@ -48,7 +53,7 @@ export const projectsDb = {
         const db = getConnection();
         const normalizedProjectPath = normalizeProjectPath(projectPath);
         const row = db.prepare(`
-            SELECT project_id, project_path, custom_project_name, isStarred, isArchived
+            SELECT project_id, project_path, custom_project_name, isStarred
             FROM projects
             WHERE project_path = ?
         `).get(normalizedProjectPath) as ProjectRepositoryRow | undefined;
@@ -59,7 +64,7 @@ export const projectsDb = {
     getProjectById(projectId: string): ProjectRepositoryRow | null {
         const db = getConnection();
         const row = db.prepare(`
-            SELECT project_id, project_path, custom_project_name, isStarred, isArchived
+            SELECT project_id, project_path, custom_project_name, isStarred
             FROM projects
             WHERE project_id = ?
         `).get(projectId) as ProjectRepositoryRow | undefined;
@@ -89,22 +94,8 @@ export const projectsDb = {
     getProjectPaths(): ProjectRepositoryRow[] {
         const db = getConnection();
         return db.prepare(`
-            SELECT project_id, project_path, custom_project_name, isStarred, isArchived
+            SELECT project_id, project_path, custom_project_name, isStarred
             FROM projects
-            WHERE isArchived = 0
-        `).all() as ProjectRepositoryRow[];
-    },
-
-    /**
-     * Archived rows are queried separately so archive-focused UIs can present
-     * hidden workspaces without reintroducing them into the active sidebar list.
-     */
-    getArchivedProjectPaths(): ProjectRepositoryRow[] {
-        const db = getConnection();
-        return db.prepare(`
-            SELECT project_id, project_path, custom_project_name, isStarred, isArchived
-            FROM projects
-            WHERE isArchived = 1
         `).all() as ProjectRepositoryRow[];
     },
 
@@ -158,39 +149,28 @@ export const projectsDb = {
         `).run(isStarred ? 1 : 0, projectId);
     },
 
-    updateProjectIsArchived(projectPath: string, isArchived: boolean): void {
-        const db = getConnection();
-        const normalizedProjectPath = normalizeProjectPath(projectPath);
-        db.prepare(`
-            UPDATE projects
-            SET isArchived = ?
-            WHERE project_path = ?
-        `).run(isArchived ? 1 : 0, normalizedProjectPath);
-    },
-
-    updateProjectIsArchivedById(projectId: string, isArchived: boolean): void {
-        const db = getConnection();
-        db.prepare(`
-            UPDATE projects
-            SET isArchived = ?
-            WHERE project_id = ?
-        `).run(isArchived ? 1 : 0, projectId);
-    },
 
     deleteProjectPath(projectPath: string): void {
         const db = getConnection();
         const normalizedProjectPath = normalizeProjectPath(projectPath);
-        db.prepare(`
-            DELETE FROM projects
-            WHERE project_path = ?
-        `).run(normalizedProjectPath);
+        db.transaction(() => {
+            revokeCompletionNotificationsForProject(db, normalizedProjectPath);
+            db.prepare(`
+                DELETE FROM projects
+                WHERE project_path = ?
+            `).run(normalizedProjectPath);
+        })();
     },
 
     deleteProjectById(projectId: string): void {
         const db = getConnection();
-        db.prepare(`
-            DELETE FROM projects
-            WHERE project_id = ?
-        `).run(projectId);
+        db.transaction(() => {
+            const projectPath = projectPathForId(projectId);
+            if (projectPath) revokeCompletionNotificationsForProject(db, projectPath);
+            db.prepare(`
+                DELETE FROM projects
+                WHERE project_id = ?
+            `).run(projectId);
+        })();
     },
 };

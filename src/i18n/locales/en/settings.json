@@ -3,8 +3,6 @@
   "tabs": {
     "account": "Account",
     "permissions": "Permissions",
-    "mcpServers": "MCP Servers",
-    "skills": "Skills",
     "appearance": "Appearance"
   },
   "account": {
@@ -16,24 +14,6 @@
     "email": "Email",
     "profile": "Profile",
     "changePassword": "Change Password"
-  },
-  "mcp": {
-    "title": "MCP Servers",
-    "addServer": "Add Server",
-    "editServer": "Edit Server",
-    "deleteServer": "Delete Server",
-    "serverName": "Server Name",
-    "serverType": "Server Type",
-    "config": "Configuration",
-    "testConnection": "Test Connection",
-    "status": "Status",
-    "connected": "Connected",
-    "disconnected": "Disconnected",
-    "scope": {
-      "label": "Scope",
-      "user": "User",
-      "project": "Project"
-    }
   },
   "appearance": {
     "title": "Appearance",
@@ -61,7 +41,6 @@
     "showRawParameters": "Show raw parameters",
     "showThinking": "Show thinking",
     "sendByCtrlEnter": "Send by Ctrl+Enter",
-    "voiceEnabled": "Voice (mic + read aloud)",
     "sendByCtrlEnterDescription": "When enabled, pressing Ctrl+Enter will send the message instead of just Enter. This is useful for IME users to avoid accidental sends.",
     "dragHandle": {
       "dragging": "Dragging handle",
@@ -135,55 +114,6 @@
       "iosHint": "On iOS, tap the Share button in Safari and choose \"Add to Home Screen\".",
       "browserMenuHint": "The install prompt is not available yet. Use your browser menu instead: \"Install app\" (Chrome/Edge) or \"Add to Home Screen\".",
       "insecureHint": "App installation requires a secure connection. Open ChatMux over HTTPS or localhost — browsers disable install on plain http:// addresses."
-    }
-  },
-  "mcpForm": {
-    "title": {
-      "add": "Add MCP Server",
-      "edit": "Edit MCP Server"
-    },
-    "importMode": {
-      "form": "Form Input",
-      "json": "JSON Import"
-    },
-    "scope": {
-      "label": "Scope",
-      "userGlobal": "User (Global)",
-      "projectLocal": "Project (Local)",
-      "userDescription": "User scope: Available across all projects on your machine",
-      "projectDescription": "Local scope: Only available in the selected project",
-      "cannotChange": "Scope cannot be changed when editing an existing server"
-    },
-    "fields": {
-      "serverName": "Server Name",
-      "transportType": "Transport Type",
-      "command": "Command",
-      "arguments": "Arguments (one per line)",
-      "jsonConfig": "JSON Configuration",
-      "url": "URL",
-      "envVars": "Environment Variables (KEY=value, one per line)",
-      "headers": "Headers (KEY=value, one per line)",
-      "selectProject": "Select a project..."
-    },
-    "placeholders": {
-      "serverName": "my-server"
-    },
-    "validation": {
-      "missingType": "Missing required field: type",
-      "stdioRequiresCommand": "stdio type requires a command field",
-      "httpRequiresUrl": "{{type}} type requires a url field",
-      "invalidJson": "Invalid JSON format",
-      "jsonHelp": "Paste your MCP server configuration in JSON format. Example formats:",
-      "jsonExampleStdio": "• stdio: {\"type\":\"stdio\",\"command\":\"npx\",\"args\":[\"@upstash/context7-mcp\"]}",
-      "jsonExampleHttp": "• http/sse: {\"type\":\"http\",\"url\":\"https://api.example.com/mcp\"}"
-    },
-    "configDetails": "Configuration Details (from {{configFile}})",
-    "projectPath": "Path: {{path}}",
-    "actions": {
-      "cancel": "Cancel",
-      "saving": "Saving...",
-      "addServer": "Add Server",
-      "updateServer": "Update Server"
     }
   },
   "saveStatus": {
@@ -356,45 +286,6 @@
     },
     "actions": {
       "add": "Add"
-    }
-  },
-  "mcpServers": {
-    "title": "MCP Servers",
-    "description": {
-      "claude": "Model Context Protocol servers provide additional tools and data sources to Claude",
-      "cursor": "Model Context Protocol servers provide additional tools and data sources to Cursor",
-      "codex": "Model Context Protocol servers provide additional tools and data sources to Codex",
-      "opencode": "Model Context Protocol servers provide additional tools and data sources to OpenCode"
-    },
-    "addButton": "Add MCP Server",
-    "empty": "No MCP servers configured",
-    "serverType": "Type",
-    "scope": {
-      "local": "local",
-      "user": "user"
-    },
-    "config": {
-      "command": "Command",
-      "url": "URL",
-      "args": "Args",
-      "environment": "Environment"
-    },
-    "tools": {
-      "title": "Tools",
-      "count": "({{count}}):",
-      "more": "+{{count}} more"
-    },
-    "actions": {
-      "edit": "Edit server",
-      "delete": "Delete server"
-    },
-    "managed": {
-      "badge": "Managed",
-      "hint": "Managed by ChatMux."
-    },
-    "help": {
-      "title": "About Codex MCP",
-      "description": "Codex supports stdio-based MCP servers. You can add servers that extend Codex's capabilities with additional tools and resources."
     }
   }
 }

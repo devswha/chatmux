@@ -1,0 +1,114 @@
+{
+  "schemaVersion": 1,
+  "surface": "web",
+  "tool": "GJC browser with headless Chromium",
+  "actions": [
+    {
+      "type": "goto",
+      "url": "http://127.0.0.1:4011",
+      "timestamp": "2026-07-28T00:00:00.000Z"
+    },
+    {
+      "type": "observe",
+      "selector": "#root",
+      "timestamp": "2026-07-28T00:00:01.000Z"
+    },
+    {
+      "type": "screenshot",
+      "selector": "body",
+      "timestamp": "2026-07-28T00:00:02.000Z"
+    },
+    {
+      "type": "custom",
+      "target": "mobile viewport 390x844 passive notification-permission observation",
+      "timestamp": "2026-07-28T00:00:03.000Z"
+    },
+    {
+      "type": "custom",
+      "target": "same-origin completion notification HTTP matrix",
+      "timestamp": "2026-07-28T00:00:04.000Z"
+    }
+  ],
+  "assertions": [
+    {
+      "selector": "body",
+      "status": "passed",
+      "timestamp": "2026-07-28T00:00:05.000Z",
+      "evidence": "Desktop rendered a non-uniform ChatMux sidebar/chat surface and passive load did not prompt for notification permission."
+    },
+    {
+      "selector": "#root",
+      "status": "passed",
+      "timestamp": "2026-07-28T00:00:06.000Z",
+      "evidence": "Mobile passive load retained Notification.permission=default; API eligibility, CAS, pause, and malformed-descriptor outcomes matched the contract."
+    }
+  ],
+  "run": "2026-07-28",
+  "origin": "http://127.0.0.1:4011",
+  "desktop": {
+    "viewport": {
+      "width": 1440,
+      "height": 1000
+    },
+    "title": "ChatMux",
+    "screenshot": "artifacts/pwa-notification-final-screenshot.jpg",
+    "result": "Rendered a non-uniform live sidebar/chat surface (13 session rows, composer, settings/install controls).",
+    "screenshotView": "420x1000 left-surface crop of the recorded 1440x1000 desktop capture"
+  },
+  "mobile": {
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "title": "ChatMux",
+    "result": "Live surface rendered without a permission prompt; Notification.permission remained default."
+  },
+  "passiveLoad": {
+    "permissionBeforeAndAfter": "default",
+    "permissionPrompt": "not observed",
+    "networkMutation": "No explicit completion enable/repair click was made."
+  },
+  "liveApiObserved": {
+    "appClaude": {
+      "status": 200,
+      "mappingState": "one_active",
+      "reason": "eligible",
+      "watchedBefore": false,
+      "watchedAfterExplicitMutation": true,
+      "globalPaused": true,
+      "device": "device_endpoint_missing"
+    },
+    "ordinaryCursor": {
+      "status": 200,
+      "mappingState": "none",
+      "reason": "not_found"
+    },
+    "ordinaryOmp": {
+      "status": 200,
+      "mappingState": "none",
+      "reason": "not_found"
+    },
+    "malformedExternal": {
+      "status": 400,
+      "error": "Invalid completion notification descriptor"
+    },
+    "staleWatchMutation": {
+      "status": 409,
+      "error": "revision_conflict"
+    }
+  },
+  "uiContractEvidence": {
+    "command": "./node_modules/.bin/tsx --tsconfig tsconfig.json --test src/components/sidebar/view/subcomponents/SessionCompletionBell.test.tsx src/components/sidebar/view/subcomponents/SidebarCompletionBellPlacement.test.tsx",
+    "artifact": "artifacts/pwa-notification-final-client-tests.tap",
+    "passed": 15,
+    "covered": [
+      "desktop/live/external placement immediately before destructive controls",
+      "ordinary OMP/Cursor omission",
+      "44px mobile touch targets",
+      "aria-pressed, pending and error guidance",
+      "row-safe button semantics",
+      "environmental/denied/unsupported guidance"
+    ]
+  },
+  "limitation": "The isolated server's live discovery rows did not include a lineage-mapped eligible row, so live browser DOM did not expose a bell. Exact responsive bell rendering is covered by the focused component tests; physical iOS and actual OS push display were not exercised."
+}

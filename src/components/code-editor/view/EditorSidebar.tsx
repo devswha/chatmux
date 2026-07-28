@@ -19,7 +19,7 @@ type EditorSidebarProps = {
   fillSpace?: boolean;
 };
 
-// Minimum width for the left content (file tree, chat, etc.)
+// Minimum width for the primary content beside the editor.
 const MIN_LEFT_CONTENT_WIDTH = 200;
 // Minimum width for the editor sidebar
 const MIN_EDITOR_WIDTH = 280;
