@@ -177,7 +177,7 @@ async function discoveryFetch(fetcher: FetchLike, url: string, init: RequestInit
     }
   };
   try {
-    const response = await Promise.race([fetcher(url, { ...init, redirect: 'error', signal: controller.signal, headers: { accept: 'application/vnd.github+json', 'user-agent': DISCOVERY_USER_AGENT, ...init.headers } }), timedOut]);
+    const response = await Promise.race([fetcher(url, { ...init, redirect: 'manual', signal: controller.signal, headers: { accept: 'application/vnd.github+json', 'user-agent': DISCOVERY_USER_AGENT, ...init.headers } }), timedOut]);
     return { response, timeout: timedOut, done: finish };
   } catch (error) {
     finish();
@@ -225,7 +225,7 @@ async function downloadCanonicalChecksum(fetcher: FetchLike, checksumUrl: string
     let url = checksumUrl;
     const visited = new Set([url]);
     for (let redirects = 0; ; redirects += 1) {
-      const response = await Promise.race([fetcher(url, { redirect: 'error', signal: controller.signal, headers: { accept: 'application/vnd.github+json', 'user-agent': DISCOVERY_USER_AGENT } }), timedOut]);
+      const response = await Promise.race([fetcher(url, { redirect: 'manual', signal: controller.signal, headers: { accept: 'application/vnd.github+json', 'user-agent': DISCOVERY_USER_AGENT } }), timedOut]);
       if (response.status < 300 || response.status >= 400) return await readText({ response, timeout: timedOut, done: finish });
       if (redirects >= CHECKSUM_MAX_REDIRECTS) throw new Error('Canonical release checksum redirect limit exceeded.');
       const location = response.headers?.get('location');

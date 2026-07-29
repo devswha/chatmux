@@ -336,10 +336,11 @@ test('canonical release discovery accepts only exact three-asset stable contract
   assert.equal(release.release.archiveName, archive);
   assert.deepEqual(release.compatibility.database.rollbackCompatibleFrom, ['1.2.2']);
 });
-function canonicalDiscoveryFetcher(checksumResponse: (url: string) => any, checksumUrl?: string) {
+function canonicalDiscoveryFetcher(checksumResponse: (url: string) => any, checksumUrl?: string, onRequest?: (url: string, init?: RequestInit) => void) {
   const version = '1.2.3';
   const archive = `chatmux-server-${version}-linux-x64-node22.tar.gz`;
-  return async (url: string) => {
+  return async (url: string, init?: RequestInit) => {
+    onRequest?.(url, init);
     if (url.includes('/releases/latest')) return {
       ok: true, status: 200,
       json: async () => ({ tag_name: `v${version}`, published_at: '2026-01-02T03:04:05.000Z', assets: [
@@ -361,14 +362,16 @@ test('canonical checksum download follows only documented HTTPS asset redirects'
   const archive = `chatmux-server-${version}-linux-x64-node22.tar.gz`;
   const canonical = `https://github.com/devswha/chatmux/releases/download/v${version}/${archive}.sha256`;
   const calls: string[] = [];
+  const redirectModes: Array<RequestInit['redirect']> = [];
   const release = await discoverCanonicalRelease(canonicalDiscoveryFetcher((url) => {
     calls.push(url);
     return url === canonical
       ? { ok: false, status: 302, headers: new Headers({ location: `https://objects.githubusercontent.com/${archive}.sha256?X-Amz-Signature=example` }), json: async () => ({}), text: async () => '' }
       : { ok: true, status: 200, json: async () => ({}), text: async () => `${'a'.repeat(64)}  ${archive}\n` };
-  }) as any);
+  }, undefined, (_url, init) => redirectModes.push(init?.redirect)) as any);
   assert.equal(release.release.archiveSha256, 'a'.repeat(64));
   assert.deepEqual(calls, [canonical, `https://objects.githubusercontent.com/${archive}.sha256?X-Amz-Signature=example`], 'the initial canonical zero-selector URL is fetched before its permitted redirect');
+  assert.deepEqual(redirectModes, ['manual', 'manual', 'manual', 'manual'], 'native fetch must expose each redirect response to the bounded redirect validator');
 
   await assert.rejects(discoverCanonicalRelease(canonicalDiscoveryFetcher(() => ({
     ok: false, status: 302, headers: new Headers({ location: 'https://attacker.example/checksum' }), json: async () => ({}), text: async () => '',

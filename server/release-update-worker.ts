@@ -20,7 +20,7 @@ const MAX_ARCHIVE_BYTES = 512 * 1024 * 1024;
 const MAX_CHECKSUM_BYTES = 4096;
 const MAX_EXPANDED_BYTES = 2 * 1024 * 1024 * 1024;
 const MAX_ARCHIVE_ENTRIES = 50_000;
-const REQUEST_TIMEOUT_MS = 30_000;
+const REQUEST_TIMEOUT_MS = 300_000;
 const PROCESS_TIMEOUT_MS = 120_000;
 const MAX_PROCESS_STDOUT_BYTES = 16 * 1024 * 1024;
 const MAX_PROCESS_STDERR_BYTES = 1 * 1024 * 1024;
@@ -239,6 +239,7 @@ export class ReleaseUpdateWorker {
         this.boundary('terminalized');
         return;
       }
+      await this.fs.rm(recovery.targetRelease.path, { recursive: true, force: true });
       this.store.persistRecoveryCheckpoint(id, { ...recovery, rollbackState: 'completed' });
       this.boundary('rollback_completed');
     } catch (error) {
@@ -288,7 +289,13 @@ export class ReleaseUpdateWorker {
         continue;
       }
       if (response.status !== 200) { clearTimeout(timer); return response; }
-      return { ...response, body: (async function* (): AsyncGenerator<Uint8Array> { try { yield* response.body; } finally { clearTimeout(timer); } })() };
+      return {
+        status: response.status,
+        headers: response.headers,
+        body: (async function* (): AsyncGenerator<Uint8Array> {
+          try { yield* response.body; } finally { clearTimeout(timer); }
+        })(),
+      };
     }
     throw new ReleaseUpdateWorkerError('Release redirect limit exceeded.');
   }

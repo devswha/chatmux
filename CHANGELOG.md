@@ -4,6 +4,13 @@ All notable changes to ChatMux are documented in this file. Current and
 future server artifacts are published only through
 [GitHub Releases](https://github.com/devswha/chatmux/releases).
 
+## 1.4.6 (2026-07-29)
+
+### Fixed
+
+- Canonical GitHub checksum redirects are now exposed to ChatMux's bounded,
+  allowlisted redirect validator instead of being rejected internally by native fetch.
+  Release downloads retain a five-minute full-body deadline for the canonical bundle.
 ## 1.4.5 (2026-07-29)
 
 ### Changed

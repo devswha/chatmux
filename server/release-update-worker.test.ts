@@ -112,6 +112,7 @@ async function workerFixture(options: {
   restartFails?: number;
   fetch?: (url: string, signal: AbortSignal) => AsyncIterable<Uint8Array>;
   requestTimeoutMs?: number;
+  nativeResponse?: boolean;
   crashAt?: 'prepared' | 'live_link_swapped' | 'rollback_in_progress' | 'rollback_link_restored' | 'rollback_completed' | 'terminalized';
 } = {}) {
   const home = await fs.mkdtemp(path.join(tmpdir(), 'chatmux-release-worker-'));
@@ -155,15 +156,19 @@ async function workerFixture(options: {
       },
       persistRecoveryCheckpoint: state.persistRecoveryCheckpoint.bind(state),
     },
-    fetch: async (url, fetchOptions) => ({
-      status: 200,
-      headers: { get: () => null },
-      body: options.fetch?.(url, fetchOptions.signal) ?? (async function* () {
+    fetch: async (url, fetchOptions) => {
+      const body = options.fetch?.(url, fetchOptions.signal) ?? (async function* () {
         yield url.endsWith('.sha256')
           ? Buffer.from(`${archiveHash}  ${descriptor.release.archiveName}\n`)
           : archive;
-      })(),
-    }),
+      })();
+      if (options.nativeResponse) {
+        const chunks: Uint8Array[] = [];
+        for await (const chunk of body) chunks.push(chunk);
+        return new Response(Buffer.concat(chunks), { status: 200 }) as never;
+      }
+      return { status: 200, headers: { get: () => null }, body };
+    },
     run: async (command, args, processOptions) => {
       commandEnvironments.push(processOptions?.env ?? {});
       commands.push([command, args]);
@@ -210,6 +215,14 @@ test('worker performs a complete staged cutover with exact health descriptor arg
   } finally { await fixture.cleanup(); }
 });
 
+test('worker preserves native Response status, headers, and body across its bounded timer wrapper', async () => {
+  const fixture = await workerFixture({ nativeResponse: true });
+  try {
+    await fixture.worker.run(jobId);
+    assert.equal(fixture.state.get(jobId)?.phase, 'succeeded');
+  } finally { await fixture.cleanup(); }
+});
+
 test('worker rolls back the current link when target health fails', async () => {
   const fixture = await workerFixture({ health: (version) => version === '1.0.0' });
   try {
@@ -219,6 +232,7 @@ test('worker rolls back the current link when target health fails', async () => 
     assert.deepEqual(fixture.healthArgs.map(([version]) => version), ['1.2.3', '1.0.0']);
     assert.equal(fixture.commands.filter(([command]) => command === '/usr/bin/systemctl').length, 2);
     assert.equal(fixture.state.get(jobId)?.phase, 'failed_rolled_back');
+    await assert.rejects(fs.lstat(path.join(fixture.releases, '1.2.3')));
   } finally { await fixture.cleanup(); }
 });
 
@@ -231,6 +245,7 @@ test('worker rolls back after a post-cutover systemctl restart failure', async (
     assert.deepEqual(fixture.healthArgs.map(([version]) => version), ['1.0.0']);
     assert.equal(fixture.commands.filter(([command]) => command === '/usr/bin/systemctl').length, 2);
     assert.equal(fixture.state.get(jobId)?.phase, 'failed_rolled_back');
+    await assert.rejects(fs.lstat(path.join(fixture.releases, '1.2.3')));
   } finally { await fixture.cleanup(); }
 });
 
