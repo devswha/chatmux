@@ -4,6 +4,12 @@ All notable changes to ChatMux are documented in this file. Current and
 future server artifacts are published only through
 [GitHub Releases](https://github.com/devswha/chatmux/releases).
 
+## 1.4.5 (2026-07-29)
+
+### Changed
+
+- Promoted the managed release updater after public-install, Tailscale, mobile, exact
+  cutover, and rollback canaries passed against the 1.4.4 release.
 ## 1.4.4 (2026-07-29)
 
 ### Added
