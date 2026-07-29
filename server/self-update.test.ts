@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { createServer, request as httpRequest } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+
+import express from 'express';
 
 import {
   buildSelfUpdateScript,
@@ -11,10 +14,27 @@ import {
   planSelfUpdate,
   SELF_UPDATE_STALE_MS,
   shellQuote,
+  canUpdate,
+  discoverCanonicalRelease,
+  createSystemRouter,
+  exactUpdateRequestGuard,
+  mapSystemctlIsActiveResult,
 } from './self-update.js';
+import { ReleaseUpdateStateStore } from './release-update-state.js';
+import type { ImmutableUpdateJobDescriptor } from './release-update-contract.js';
 
 function tempRoot(): string {
   return mkdtempSync(path.join(tmpdir(), 'self-update-'));
+}
+function releaseJob(index: number): ImmutableUpdateJobDescriptor {
+  const id = index.toString(36).padStart(22, '0');
+  const version = `1.0.${index}`;
+  const archiveName = `chatmux-server-${version}-linux-x64-node22.tar.gz`;
+  return {
+    id, createdAt: 1, installMode: 'release', sourceVersion: '1.0.0', sourceBootId: 'boot', serverPort: 3000,
+    release: { repository: 'devswha/chatmux', tag: `v${version}`, version, archiveName, checksumName: `${archiveName}.sha256`, bootstrapName: 'install.sh', archiveSha256: 'a'.repeat(64), publishedAt: '2026-01-01T00:00:00.000Z' },
+    compatibility: { database: { rollbackCompatibleFrom: [] } },
+  };
 }
 
 test('detectInstallMode: git checkout with deploy tooling is source', () => {
@@ -92,7 +112,324 @@ test('buildSystemdRunArgs: detached transient unit with the caller PATH', () => 
   assert.ok(args.includes('--setenv=PATH=/usr/bin:/bin'), 'nvm-provided node must be reachable in the unit');
   assert.deepEqual(args.slice(-3), ['bash', '-c', 'echo hi']);
 });
+test('systemctl is-active mapping proves only statuses 3 and 4 inactive', () => {
+  assert.equal(mapSystemctlIsActiveResult({ status: 0 }), 'live');
+  assert.equal(mapSystemctlIsActiveResult({ status: 3 }), 'inactive');
+  assert.equal(mapSystemctlIsActiveResult({ status: 4 }), 'inactive');
+  assert.equal(mapSystemctlIsActiveResult({ status: 1 }), 'uncertain');
+  assert.equal(mapSystemctlIsActiveResult({ status: null }), 'uncertain');
+  assert.equal(mapSystemctlIsActiveResult({ status: 3, error: new Error('unavailable') }), 'uncertain');
+});
 
+test('owner authority accepts only owners or explicitly local loopback identities in Tailscale mode', () => {
+  const request = (user: unknown, address: string) => ({
+    user, socket: { remoteAddress: address }, headers: { 'x-forwarded-for': '127.0.0.1' }
+  }) as any;
+  assert.equal(canUpdate(request({ tailscaleRole: 'owner' }, '100.64.0.1'), 'tailscale'), true);
+  assert.equal(canUpdate(request({ tailscaleRole: 'user' }, '100.64.0.1'), 'tailscale'), false);
+  assert.equal(canUpdate(request({ tailscaleRole: 'user' }, '127.0.0.1'), 'tailscale'), false);
+  assert.equal(canUpdate(request({ authSource: 'local' }, '127.0.0.1'), 'tailscale'), true);
+  assert.equal(canUpdate(request({ authSource: 'local' }, '100.64.0.1'), 'tailscale'), false);
+  assert.equal(canUpdate(request({}, '100.64.0.1'), 'none'), false);
+  assert.equal(canUpdate(request(undefined, '127.0.0.1'), 'none'), true);
+});
+test('update request guard requires same-origin trusted literal hosts and bodyless framing', () => {
+  const guard = (headers: Record<string, string | undefined>, originalUrl = '/') => {
+    let status = 0;
+    let next = false;
+    exactUpdateRequestGuard({
+      method: 'POST', protocol: 'http', originalUrl,
+      get: (name: string) => headers[name.toLowerCase()],
+    } as any, {
+      status: (value: number) => {
+        status = value;
+        return { json: () => undefined };
+      },
+    } as any, () => { next = true; });
+    return { next, status };
+  };
+  assert.deepEqual(guard({ host: '127.0.0.1:3000', origin: 'http://127.0.0.1:3000', 'x-chatmux-update-intent': 'start' }), { next: true, status: 0 });
+  assert.deepEqual(guard({ host: 'device.tailnet.ts.net', origin: 'http://device.tailnet.ts.net', 'x-chatmux-update-intent': 'start' }), { next: true, status: 0 });
+  assert.equal(guard({ host: 'rebind.example', origin: 'http://rebind.example', 'x-chatmux-update-intent': 'start' }).status, 400);
+  assert.equal(guard({ host: 'localhost:3000', origin: 'http://localhost:3000', 'x-chatmux-update-intent': 'start', 'content-length': '1' }).status, 400);
+  assert.equal(guard({ host: 'localhost:3000', origin: 'https://localhost:3000', 'x-chatmux-update-intent': 'start' }).status, 400);
+});
+test('mounted update boundary rejects malformed POSTs before router effects and preserves source contracts', async () => {
+  let launches = 0;
+  let discoveries = 0;
+  const app = express();
+  app.use(exactUpdateRequestGuard);
+  app.use(express.json());
+  app.use(createSystemRouter({
+    appRoot: tempRoot(), home: tempRoot(), serverPort: 3000, bootId: 'boot', mode: 'source',
+    launch: async () => { launches += 1; },
+    discoverRelease: async () => { discoveries += 1; return { release: releaseJob(9).release, compatibility: releaseJob(9).compatibility }; },
+  }));
+  const server = createServer(app);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  assert.ok(address && typeof address !== 'string');
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const updateHeaders = { origin: baseUrl, 'x-chatmux-update-intent': 'start' };
+  try {
+    for (const init of [
+      { headers: { ...updateHeaders, 'content-type': 'application/json' }, body: '{}' },
+      { headers: { ...updateHeaders, 'x-chatmux-update-intent': 'wrong' } },
+      { headers: { ...updateHeaders, origin: 'http://attacker.example' } },
+      { headers: { ...updateHeaders, 'sec-fetch-site': 'cross-site' } },
+    ]) {
+      const response = await fetch(`${baseUrl}/update`, { method: 'POST', ...init });
+      assert.equal(response.status, 400, JSON.stringify(init));
+    }
+    const hostileHostStatus = await new Promise<number>((resolve, reject) => {
+      const request = httpRequest({
+        hostname: '127.0.0.1',
+        port: address.port,
+        path: '/update',
+        method: 'POST',
+        headers: { ...updateHeaders, host: 'attacker.example' },
+      }, (response) => {
+        response.resume();
+        response.once('end', () => resolve(response.statusCode ?? 0));
+      });
+      request.once('error', reject);
+      request.end();
+    });
+    assert.equal(hostileHostStatus, 400);
+    assert.equal((await fetch(`${baseUrl}/update?ignored=1`, { method: 'POST', headers: updateHeaders })).status, 400);
+    assert.equal(launches, 0);
+    assert.equal(discoveries, 0);
+    const started = await fetch(`${baseUrl}/update`, { method: 'POST', headers: updateHeaders });
+    assert.equal(started.status, 200);
+    const start = await started.json() as { operationId: string; initialBootId: string };
+    assert.match(start.operationId, /^[A-Za-z0-9_-]{22}$/);
+    assert.equal(start.initialBootId, 'boot');
+    assert.equal(launches, 1);
+    assert.equal(discoveries, 0);
+    assert.equal((await fetch(`${baseUrl}/update`, { method: 'POST', headers: updateHeaders })).status, 429);
+    const status = await (await fetch(`${baseUrl}/update/status`)).json() as { source: { operationId: string; initialBootId: string } };
+    assert.equal(status.source.operationId, start.operationId);
+    assert.equal(status.source.initialBootId, 'boot');
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
+test('mounted release job route denies non-owners', async () => {
+  const home = tempRoot();
+  const state = new ReleaseUpdateStateStore(path.join(home, '.chatmux', 'update'));
+  const app = express();
+  app.use(exactUpdateRequestGuard);
+  app.use(createSystemRouter({ appRoot: home, home, serverPort: 3000, bootId: 'boot', runningVersion: '1.0.0', mode: 'release', authMode: 'password', state }));
+  const server = createServer(app);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  assert.ok(address && typeof address !== 'string');
+  try {
+    const response = await fetch(`http://127.0.0.1:${address.port}/update/jobs/not-a-job`);
+    assert.equal(response.status, 403);
+    assert.deepEqual(await response.json(), { error: 'Update access denied.' });
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
+test('mounted release update exposes only sanitized job state and fixed launcher inputs', async () => {
+  const home = tempRoot();
+  const workerPath = path.join(home, 'dist-server', 'server', 'release-update-worker.js');
+  mkdirSync(path.dirname(workerPath), { recursive: true });
+  writeFileSync(workerPath, '');
+  const state = new ReleaseUpdateStateStore(path.join(home, '.chatmux', 'update'), { now: () => 1 });
+  const launches: Array<[string, string, string]> = [];
+  const app = express();
+  app.use((req, _res, next) => { (req as any).user = {}; next(); });
+  app.use(exactUpdateRequestGuard);
+  app.use(createSystemRouter({
+    appRoot: home, home, serverPort: 3000, bootId: 'boot', runningVersion: '1.0.0', mode: 'release', authMode: 'password', state, now: () => 1,
+    discoverRelease: async () => ({ release: releaseJob(9).release, compatibility: releaseJob(9).compatibility }),
+    launchRelease: async (unit, receivedWorkerPath, id) => { launches.push([unit, receivedWorkerPath, id]); },
+  }));
+  const server = createServer(app);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  assert.ok(address && typeof address !== 'string');
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const updateHeaders = { origin: baseUrl, 'x-chatmux-update-intent': 'start' };
+  try {
+    const started = await fetch(`${baseUrl}/update`, { method: 'POST', headers: updateHeaders });
+    assert.equal(started.status, 202);
+    const start = await started.json() as { jobId: string };
+    assert.match(start.jobId, /^[A-Za-z0-9_-]{22}$/);
+    assert.deepEqual(launches, [[`chatmux-release-update-${start.jobId}`, workerPath, start.jobId]]);
+
+    const known = await fetch(`${baseUrl}/update/jobs/${start.jobId}`);
+    assert.equal(known.status, 200);
+    assert.deepEqual(await known.json(), {
+      id: start.jobId, phase: 'queued', createdAt: 1, updatedAt: 1, targetVersion: '1.0.9',
+    });
+
+    const unknown = await fetch(`${baseUrl}/update/jobs/${'x'.repeat(22)}`);
+    const expired = await fetch(`${baseUrl}/update/jobs/${'y'.repeat(22)}`);
+    assert.equal(unknown.status, 404);
+    assert.equal(expired.status, 404);
+    assert.deepEqual(await unknown.json(), await expired.json());
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
+test('release updates fail closed without a strict installed version before state, discovery, or launch', async () => {
+  let stateCalls = 0;
+  let discoveries = 0;
+  let launches = 0;
+  const state = {
+    initialize: () => { stateCalls += 1; },
+    createIfNoActive: () => { stateCalls += 1; return null; },
+    publicStatus: () => { stateCalls += 1; return null; },
+    publicActiveStatus: () => { stateCalls += 1; return null; },
+    transition: () => { stateCalls += 1; return undefined as never; },
+    failIfInactive: () => { stateCalls += 1; return null; },
+  };
+  const app = express();
+  app.use(exactUpdateRequestGuard);
+  app.use(createSystemRouter({
+    appRoot: tempRoot(), home: tempRoot(), serverPort: 3000, bootId: 'boot', mode: 'release', state,
+    discoverRelease: async () => { discoveries += 1; return { release: releaseJob(9).release, compatibility: releaseJob(9).compatibility }; },
+    launchRelease: async () => { launches += 1; },
+  }));
+  const server = createServer(app);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  assert.ok(address && typeof address !== 'string');
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+  try {
+    const status = await (await fetch(`${baseUrl}/update/status`)).json() as { release: unknown; updateUnavailable: string };
+    assert.equal(status.release, null);
+    assert.match(status.updateUnavailable, /valid installed version/i);
+    const started = await fetch(`${baseUrl}/update`, { method: 'POST', headers: { origin: baseUrl, 'x-chatmux-update-intent': 'start' } });
+    assert.equal(started.status, 503);
+    assert.equal(stateCalls, 0);
+    assert.equal(discoveries, 0);
+    assert.equal(launches, 0);
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+test('canonical release discovery accepts only exact three-asset stable contract', async () => {
+  const version = '1.2.3';
+  const archive = `chatmux-server-${version}-linux-x64-node22.tar.gz`;
+  const checksum = 'a'.repeat(64);
+  const fetcher = async (url: string) => ({
+    ok: true,
+    json: async () => url.includes('/releases/latest')
+      ? { tag_name: `v${version}`, published_at: '2026-01-02T03:04:05.000Z', assets: [
+        { name: archive, browser_download_url: `https://github.com/devswha/chatmux/releases/download/v${version}/${archive}` },
+        { name: `${archive}.sha256`, browser_download_url: `https://github.com/devswha/chatmux/releases/download/v${version}/${archive}.sha256` },
+        { name: 'install.sh', browser_download_url: `https://github.com/devswha/chatmux/releases/download/v${version}/install.sh` }
+      ] }
+      : { schema: 1, releases: { [version]: { database: { rollbackCompatibleFrom: ['1.2.2'] } } } },
+    text: async () => `${checksum}  ${archive}\n`,
+    status: 200,
+    headers: new Headers(),
+  }) as any;
+  const release = await discoverCanonicalRelease(fetcher);
+  assert.equal(release.release.archiveName, archive);
+  assert.deepEqual(release.compatibility.database.rollbackCompatibleFrom, ['1.2.2']);
+});
+function canonicalDiscoveryFetcher(checksumResponse: (url: string) => any, checksumUrl?: string) {
+  const version = '1.2.3';
+  const archive = `chatmux-server-${version}-linux-x64-node22.tar.gz`;
+  return async (url: string) => {
+    if (url.includes('/releases/latest')) return {
+      ok: true, status: 200,
+      json: async () => ({ tag_name: `v${version}`, published_at: '2026-01-02T03:04:05.000Z', assets: [
+        { name: archive, browser_download_url: `https://github.com/devswha/chatmux/releases/download/v${version}/${archive}` },
+        { name: `${archive}.sha256`, browser_download_url: checksumUrl ?? `https://github.com/devswha/chatmux/releases/download/v${version}/${archive}.sha256` },
+        { name: 'install.sh', browser_download_url: `https://github.com/devswha/chatmux/releases/download/v${version}/install.sh` },
+      ] }),
+      text: async () => '',
+    };
+    if (url.includes('update-compatibility.json')) return {
+      ok: true, status: 200, json: async () => ({ schema: 1, releases: { [version]: { database: { rollbackCompatibleFrom: [] } } } }), text: async () => '',
+    };
+    return checksumResponse(url);
+  };
+}
+
+test('canonical checksum download follows only documented HTTPS asset redirects', async () => {
+  const version = '1.2.3';
+  const archive = `chatmux-server-${version}-linux-x64-node22.tar.gz`;
+  const canonical = `https://github.com/devswha/chatmux/releases/download/v${version}/${archive}.sha256`;
+  const calls: string[] = [];
+  const release = await discoverCanonicalRelease(canonicalDiscoveryFetcher((url) => {
+    calls.push(url);
+    return url === canonical
+      ? { ok: false, status: 302, headers: new Headers({ location: `https://objects.githubusercontent.com/${archive}.sha256?X-Amz-Signature=example` }), json: async () => ({}), text: async () => '' }
+      : { ok: true, status: 200, json: async () => ({}), text: async () => `${'a'.repeat(64)}  ${archive}\n` };
+  }) as any);
+  assert.equal(release.release.archiveSha256, 'a'.repeat(64));
+  assert.deepEqual(calls, [canonical, `https://objects.githubusercontent.com/${archive}.sha256?X-Amz-Signature=example`], 'the initial canonical zero-selector URL is fetched before its permitted redirect');
+
+  await assert.rejects(discoverCanonicalRelease(canonicalDiscoveryFetcher(() => ({
+    ok: false, status: 302, headers: new Headers({ location: 'https://attacker.example/checksum' }), json: async () => ({}), text: async () => '',
+  })) as any), /redirect is invalid/);
+  for (const location of [undefined, 'http://github.com/checksum', 'https://github.com:443/checksum', 'https://user@github.com/checksum']) {
+    await assert.rejects(discoverCanonicalRelease(canonicalDiscoveryFetcher(() => ({
+      ok: false, status: 302, headers: new Headers(location ? { location } : {}), json: async () => ({}), text: async () => '',
+    })) as any), /redirect is invalid/);
+  }
+  const loop = canonicalDiscoveryFetcher((url) => ({
+    ok: false, status: 302, headers: new Headers({ location: url === canonical ? 'https://github.com/loop' : canonical }), json: async () => ({}), text: async () => '',
+  }));
+  await assert.rejects(discoverCanonicalRelease(loop as any), /redirect loop detected/);
+  let redirects = 0;
+  await assert.rejects(discoverCanonicalRelease(canonicalDiscoveryFetcher(() => ({
+    ok: false, status: 302, headers: new Headers({ location: `https://github.com/redirect-${redirects++}` }), json: async () => ({}), text: async () => '',
+  })) as any), /redirect limit exceeded/);
+  await assert.rejects(discoverCanonicalRelease(canonicalDiscoveryFetcher(() => ({ ok: true, status: 200, json: async () => ({}), text: async () => '' }), `https://github.com:444/devswha/chatmux/releases/download/v${version}/${archive}.sha256`) as any), /checksum asset is invalid/);
+});
+
+test('canonical checksum download rejects declared and streamed oversized bodies', async () => {
+  const declared = canonicalDiscoveryFetcher(() => ({ ok: true, status: 200, headers: new Headers({ 'content-length': '1000001' }), json: async () => ({}), text: async () => '' }));
+  await assert.rejects(discoverCanonicalRelease(declared as any), /too large/);
+
+  const chunked = canonicalDiscoveryFetcher(() => ({
+    ok: true, status: 200, json: async () => ({}), text: async () => '',
+    body: new ReadableStream({ start(controller) { controller.enqueue(new Uint8Array(1_000_001)); controller.close(); } }),
+  }));
+  await assert.rejects(discoverCanonicalRelease(chunked as any), /too large/);
+  const stalled = canonicalDiscoveryFetcher(() => ({
+    ok: true, status: 200, json: async () => ({}), text: async () => '',
+    body: new ReadableStream({ start(controller) { controller.enqueue(new Uint8Array(1)); } }),
+  }));
+  await assert.rejects(discoverCanonicalRelease(stalled as any), /timed out/);
+});
 test('shellQuote survives embedded single quotes', () => {
   assert.equal(shellQuote("a'b"), `'a'\\''b'`);
+});
+test('release router restart preserves active workers and fails only proven inactive workers', () => {
+  const home = tempRoot();
+  const state = new ReleaseUpdateStateStore(path.join(home, '.chatmux', 'update'), { now: () => 10 });
+  const active = releaseJob(1);
+  state.createIfNoActive(active);
+  createSystemRouter({ appRoot: home, home, serverPort: 3000, bootId: 'boot', runningVersion: '1.0.0', mode: 'release', state, isReleaseUpdateUnitLive: (unit) => {
+    assert.equal(unit, `chatmux-release-update-${active.id}`);
+    return true;
+  } });
+  assert.equal(state.publicActiveStatus()?.id, active.id);
+
+  const deadHome = tempRoot();
+  const deadState = new ReleaseUpdateStateStore(path.join(deadHome, '.chatmux', 'update'), { now: () => 10 });
+  const dead = releaseJob(2);
+  deadState.createIfNoActive(dead);
+  createSystemRouter({ appRoot: deadHome, home: deadHome, serverPort: 3000, bootId: 'boot', runningVersion: '1.0.0', mode: 'release', state: deadState, isReleaseUpdateUnitLive: () => mapSystemctlIsActiveResult({ status: 4 }) === 'live' });
+  assert.equal(deadState.publicStatus(dead.id)?.error, 'Updater stopped before completion');
+  assert.ok(deadState.createIfNoActive(releaseJob(3)));
+
+  const uncertainHome = tempRoot();
+  const uncertainState = new ReleaseUpdateStateStore(path.join(uncertainHome, '.chatmux', 'update'));
+  const uncertain = releaseJob(4);
+  uncertainState.createIfNoActive(uncertain);
+  createSystemRouter({ appRoot: uncertainHome, home: uncertainHome, serverPort: 3000, bootId: 'boot', runningVersion: '1.0.0', mode: 'release', state: uncertainState, isReleaseUpdateUnitLive: () => { throw new Error('systemctl unavailable'); } });
+  assert.equal(uncertainState.publicActiveStatus()?.id, uncertain.id);
 });

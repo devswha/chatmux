@@ -31,7 +31,7 @@ import { createWebSocketServer } from '@/modules/websocket/index.js';
 import { getConnectableHost } from '../shared/networkHosts.js';
 
 import { findAppRoot, getModuleDir } from './utils/runtime-paths.js';
-import { createSystemRouter, detectInstallMode } from './self-update.js';
+import { createSystemRouter, detectInstallMode, exactUpdateRequestGuard } from './self-update.js';
 import {
     queryClaudeSDK,
     abortClaudeSDKSession,
@@ -184,6 +184,15 @@ const wss = createWebSocketServer(server, {
 // Make WebSocket server available to routes
 app.locals.wss = wss;
 
+// The update mutation is rejected before CORS/body parsing, so malformed cross-site
+// requests cannot reach authentication, discovery, durable state, or launchers.
+app.use('/api/system/update', exactUpdateRequestGuard);
+app.use((req, res, next) => {
+    if (req.path === '/health' || req.path.startsWith('/api/')) {
+        res.setHeader('Cache-Control', 'no-store');
+    }
+    next();
+});
 app.use(cors());
 
 // Compress API responses (the project index alone is multi-megabyte JSON).
@@ -262,8 +271,21 @@ app.use('/api/system', authenticateToken, createSystemRouter({
     appRoot: APP_ROOT,
     serverPort: Number(process.env.SERVER_PORT || 3001),
     bootId: SERVER_BOOT_ID,
+    runningVersion: RUNNING_VERSION,
+    authMode: AUTH_MODE,
 }));
 
+// The service worker is intentionally dynamic: its running-version revision forces
+// browser update checks across an atomic release cutover.
+app.get('/sw.js', (_req, res) => {
+    const source = fs.readFileSync(path.join(APP_ROOT, 'public', 'sw.js'), 'utf8')
+        .replaceAll('__CHATMUX_RUNNING_VERSION__', String(RUNNING_VERSION || 'unknown'));
+    res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    res.send(source);
+});
 // Serve public files (like api-docs.html)
 app.use(express.static(path.join(APP_ROOT, 'public')));
 

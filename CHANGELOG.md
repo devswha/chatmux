@@ -4,6 +4,18 @@ All notable changes to ChatMux are documented in this file. Current and
 future server artifacts are published only through
 [GitHub Releases](https://github.com/devswha/chatmux/releases).
 
+## 1.4.4 (2026-07-29)
+
+### Added
+
+- Mobile updates distinguish **`새 화면 적용`** (refreshing only a stale PWA
+  screen) from owner-only **`서버 업데이트`**. The latter uses
+  server-authoritative source/release selection, verified canonical release assets,
+  durable user-systemd jobs, and staged atomic cutover; it automatically applies the
+  new screen only after exact health success.
+- Release update recovery retains status and logs, gates automatic rollback on
+  exact-version database compatibility rather than automatic database backup or
+  restore, and reports rollback versus manual-recovery outcomes truthfully.
 ## 1.4.3 (2026-07-29)
 
 ### Fixed

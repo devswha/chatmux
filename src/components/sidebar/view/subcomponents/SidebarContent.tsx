@@ -2,7 +2,6 @@ import type { TFunction } from 'i18next';
 
 import { ScrollArea } from '../../../../shared/view/ui';
 import type { ExternalTerminalTarget, Project, ProjectSession } from '../../../../types/app';
-import type { ReleaseInfo } from '../../../../types/sharedTypes';
 import type { TmuxPaneTarget } from '../../../../../shared/tmux';
 import { useExternalCliSessions, type ExternalCliSession } from '../../hooks/useExternalCliSessions';
 
@@ -31,9 +30,8 @@ type SidebarContentProps = {
   onRefresh: () => void;
   isRefreshing: boolean;
   onCollapseSidebar: () => void;
-  updateAvailable: boolean;
-  restartRequired: boolean;
-  releaseInfo: ReleaseInfo | null;
+  clientRefreshAvailable: boolean;
+  serverUpdateAvailable: boolean;
   latestVersion: string | null;
   currentVersion: string;
   onShowVersionModal: () => void;
@@ -62,9 +60,8 @@ export default function SidebarContent({
   onRefresh,
   isRefreshing,
   onCollapseSidebar,
-  updateAvailable,
-  restartRequired,
-  releaseInfo,
+  clientRefreshAvailable,
+  serverUpdateAvailable,
   latestVersion,
   currentVersion,
   onShowVersionModal,
@@ -131,9 +128,8 @@ export default function SidebarContent({
       </ScrollArea>
 
       <SidebarFooter
-        updateAvailable={updateAvailable}
-        restartRequired={restartRequired}
-        releaseInfo={releaseInfo}
+        clientRefreshAvailable={clientRefreshAvailable}
+        serverUpdateAvailable={serverUpdateAvailable}
         latestVersion={latestVersion}
         currentVersion={currentVersion}
         onShowVersionModal={onShowVersionModal}

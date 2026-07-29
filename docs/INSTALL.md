@@ -1,51 +1,37 @@
 # Install ChatMux
 
-## Quick install
+## Manual bootstrap and recovery
 
-Run one command on a Linux x86_64 server:
+The supported first installation target is Linux x86_64. Run this command from a
+server terminal or SSH session only for the first bootstrap, manual recovery, or
+the first updater-capable release. It is not the ordinary mobile update UX:
 
 ```sh
 curl -fsSL https://github.com/devswha/chatmux/releases/latest/download/install.sh | bash
 ```
 
-The bootstrap:
+After bootstrap, the trusted owner uses **`서버 업데이트`** in the mobile app for
+compatible updates. **`새 화면 적용`** is separate: it only refreshes a stale PWA
+screen and never deploys the server.
 
-1. checks the operating system and architecture;
-2. installs a private Node.js 22 runtime when the host does not have a
-   compatible version;
-3. downloads the latest GitHub Release archive and its SHA-256 checksum;
-4. verifies the archive before extracting it below `~/.chatmux/releases`;
-5. detects whether Tailscale is running and logged in;
-6. installs and starts `chatmux.service` using Tailscale Serve identity when
-   available, otherwise password-protected LAN access;
-7. verifies the running ChatMux version through `/health`.
+The root `install.sh` is a separate published GitHub Release asset. It downloads
+the canonical Linux x64/Node 22 archive
+`chatmux-server-<version>-linux-x64-node22.tar.gz` and the artifact with the same
+basename plus `.sha256`, verifies the archive, then starts the per-user service.
+It does not use a package registry, container image, or source checkout as a
+release payload. A release updater also never downloads or executes `install.sh`.
 
-There are no access-mode flags or interactive prompts. A logged-in Tailscale
-daemon produces private HTTPS access with no ChatMux username or password.
-Without Tailscale, the installer creates the owner account, prints its one-time
-password, and binds to the LAN. No root-owned ChatMux service or
-package-registry install is used.
+The bootstrap installs a private Node.js 22 runtime when needed, extracts verified
+releases below `~/.chatmux/releases`, and verifies the running service’s exact
+version through `/health`. It selects Tailscale Serve when Tailscale is running
+and logged in; otherwise it creates the password-protected LAN fallback and
+one-time owner password. No root-owned ChatMux service is used.
 
-A Tailscale-backed install ends with a block like this:
+On a Tailscale-backed install, the phone’s Tailscale account must be the owner or
+be explicitly allowed for ordinary access. Turn Tailscale on before scanning the
+QR and keep it connected while using ChatMux. Non-owner allowed users can use the
+app but cannot run `서버 업데이트`; the owner alone can do so.
 
-```text
-ChatMux installation complete
-  Local:  http://127.0.0.1:3001
-  Phone:  https://server.example.ts.net:8443
-          Turn on Tailscale on your phone before scanning the QR, and keep it connected while using ChatMux.
-  Login:  Tailscale account owner@example.com — no ChatMux username or password
-  Access: Tailscale HTTPS — only allowed Tailscale accounts can connect
-```
-
-When `qrencode` is installed, the private HTTPS address is printed as a
-terminal QR code. Tailscale must be installed, signed in, and connected on the
-phone before scanning; it must remain connected while ChatMux is in use. The
-phone's Tailscale account must be the owner or be added with
-`chatmux access allow <login>`.
-
-If Tailscale is unavailable or not logged in, the same install command instead
-prints the LAN URL, a one-time owner password, and a QR for that LAN URL.
-Reinstalling preserves an existing local owner account.
 
 ## Requirements
 
@@ -61,7 +47,8 @@ the official Node.js `22.22.2` Linux binary, verifies it against the official
 `SHASUMS256.txt`, and installs it below `~/.chatmux/runtime`. It does not modify
 the system Node.js installation.
 
-The only install option is the backend port:
+The terminal bootstrap also accepts only the backend-port option for manual
+bootstrap or recovery:
 
 ```sh
 curl -fsSL https://github.com/devswha/chatmux/releases/latest/download/install.sh \
@@ -180,8 +167,8 @@ use the Tailscale mode instead, which traverses NAT automatically.
 
 ## Pin and inspect the installer
 
-The quick command follows GitHub's `latest` release redirect and trusts the
-attached `install.sh` over HTTPS. The downloaded ChatMux and Node.js payloads
+The manual bootstrap command follows GitHub's `latest` release redirect and trusts
+the attached `install.sh` over HTTPS. The downloaded ChatMux and Node.js payloads
 are checksum-verified.
 
 For a fully reviewable installation, pin and inspect one release:
@@ -239,6 +226,31 @@ identity checks.
 The Settings **Access** tab shows the private HTTPS address, current identity,
 owner, and allowed accounts.
 
+## Owner update operation
+
+`GET /api/system/update/status` exposes whether the current user can update and
+the server-authoritative availability state. Only an owner can start the bodyless
+`POST /api/system/update`; the server selects the source deployment or canonical
+release itself. The opaque job ID is read at
+`GET /api/system/update/jobs/:jobId`. Jobs persist their phases across restarts
+and finish as `succeeded`, `failed`, `failed_rolled_back`, `failed_rollback`, or
+`manual_required`.
+
+For release installs, the unprivileged detached user-systemd worker verifies the
+checksum, archive layout, embedded version, and staged health before atomic
+`current`-link cutover. It then requires HTTP 200, the expected ChatMux
+product/status health fields, a
+changed boot ID, and the exact target version. The previous release remains
+available. Automatic rollback is only for a target whose
+`database.rollbackCompatibleFrom` explicitly names the exact prior version and
+whose release CI proves rollback compatibility; ChatMux does not create or restore
+database backups. `manual_required` means do not retry from the phone: inspect the
+job and service logs and recover manually.
+
+Before any manual bootstrap or recovery, ensure `~/.chatmux` is an owner-owned,
+non-symlink directory with mode `0700`. A wrong owner, symlink, non-directory, or
+replaced path is a hard stop; inspect and correct it as the intended server user,
+rather than following the link or running the installer as another user.
 ## Managed paths
 
 | Path | Purpose |

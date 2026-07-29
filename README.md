@@ -39,29 +39,26 @@ CLI as the same OS user that runs ChatMux.
 <a id="install"></a>
 ## Install
 
-One command on a Linux x86_64 server:
+The supported server artifact is Linux x64 with Node 22. Bootstrap from a server
+terminal or SSH session only for the first install, manual recovery, or the first
+updater-capable release:
 
 ```bash
 curl -fsSL https://github.com/devswha/chatmux/releases/latest/download/install.sh | bash
 ```
 
-It downloads the latest release, verifies its checksum, installs a private
-Node.js 22 runtime only if the machine needs one, and starts a user-level
-service. When the server is already logged into Tailscale, installation
-automatically configures private HTTPS access and uses the Tailscale identity
-instead of creating a ChatMux password:
+That root `install.sh` downloads the canonical
+`chatmux-server-<version>-linux-x64-node22.tar.gz` and its same-basename `.sha256`,
+verifies it, and starts a user-level service. It is not the routine phone update
+path. After bootstrap, the trusted owner uses **`서버 업데이트`** in the app for
+compatible server deployments; **`새 화면 적용`** only refreshes a stale PWA screen
+and never changes the server.
 
-```text
-ChatMux installation complete
-  Local:  http://127.0.0.1:3001
-  Phone:  https://server.example.ts.net:8443
-          Turn on Tailscale on your phone before scanning the QR, and keep it connected while using ChatMux.
-  Login:  Tailscale account owner@example.com — no ChatMux username or password
-  Access: Tailscale HTTPS — only allowed Tailscale accounts can connect
-```
-
-Without a logged-in Tailscale daemon, installation falls back to a
-password-protected LAN address, one-time owner password, and LAN QR code.
+A logged-in Tailscale host provides private HTTPS using the Tailscale identity.
+Turn Tailscale on before scanning the QR and keep it connected while using
+ChatMux. Allowed non-owner Tailscale users can use ChatMux but cannot deploy; the
+Tailscale owner can. Without Tailscale, the password-protected LAN fallback creates
+a one-time owner password and QR code.
 
 Then:
 

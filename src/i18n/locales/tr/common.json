@@ -134,15 +134,51 @@
     "updateCompleted": "Güncelleme başarıyla tamamlandı!",
     "restartServer": "Değişikliklerin uygulanması için sunucuyu yeniden başlat.",
     "updateFailed": "Güncelleme başarısız",
+    "versionSummary": "Sunucu {{runningVersion}} · istemci {{currentVersion}}",
+    "unknownVersion": "bilinmiyor",
+    "clientRefresh": {
+      "message": "Yeni bir sunucu ön yüzü hazır. Bu ekranı yenilemek sunucuyu güncellemez.",
+      "action": "Ekranı yenile"
+    },
+    "serverUpdate": {
+      "sourceAvailable": "moving-main kaynak güncellemesi{{version}} kullanılabilir.",
+      "releaseAvailable": "Tam sürüm hedefi{{version}} kullanılabilir."
+    },
+    "confirm": {
+      "message": "Sunucu güncellenecek ve yeniden başlatılacak. Devam eden web çalışmaları kesintiye uğrayabilir."
+    },
+    "progress": {
+      "message": "Sunucu güncelleniyor. İndirme, doğrulama, hazırlama, yeniden başlatma ve sistem durumu denetimi ilerlemesi, bu ekran kapatılsa veya sunucu yeniden başlatılsa da korunur."
+    },
+    "success": {
+      "message": "Güncelleme doğrulandı. Ekran yenileniyor."
+    },
+    "errors": {
+      "progress": "Güncelleme ilerlemesi alınamadı. Yeniden deneyin veya kurtarma günlüklerini inceleyin.",
+      "start": "Sunucu güncellemesi başlatılamadı. Güncellemeyi yalnızca sahip çalıştırabilir.",
+      "unverified": "Güncellemeden sonra sunucu doğrulanamadı. Geri alma yapılmış olabilir; günlükleri inceleyin.",
+      "failedRolledBack": "Güncelleme başarısız oldu, ancak geri almanın önceki sürümü geri yüklediği doğrulandı.",
+      "failedRollback": "Güncelleme ve geri alma başarısız oldu. Elle kurtarma gerekiyor.",
+      "manualRequired": "Uyumluluk için elle güncelleme veya kurtarma gerekiyor.",
+      "generic": "Güncelleme başarısız oldu. Geri alma, süre aşımı veya kurtarma ayrıntıları için günlükleri inceleyin."
+    },
+    "manual": {
+      "title": "Elle güncelleme gerekli",
+      "release": "Sürüm paketi kurulumları için docs/SELF-HOST.md dosyasındaki sağlama toplamı doğrulanmış tam hedefe geçiş gerekir.",
+      "unknown": "Kurulum modu bilinmiyor. Güncelleme veya kurtarma için belgelere ve duruma bakın.",
+      "copyCommand": "Kaynak güncelleme komutunu kopyala"
+    },
     "buttons": {
       "close": "Kapat",
       "later": "Daha Sonra",
       "copyCommand": "Komutu Kopyala",
       "updateNow": "Şimdi Güncelle",
+      "confirmUpdate": "Güncelle ve yeniden başlat",
       "updating": "Güncelleniyor..."
     },
     "ariaLabels": {
       "closeModal": "Sürüm yükseltme modalını kapat",
+      "closeButton": "Güncelleme iletişim kutusunu kapat",
       "showSidebar": "Kenar çubuğunu göster",
       "settings": "Ayarlar",
       "updateAvailable": "Güncelleme mevcut",

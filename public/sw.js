@@ -4,10 +4,12 @@
 // v2: purges v1 caches that could hold poisoned asset entries (404/HTML bodies
 // cached under hashed asset URLs during a release swap → permanent white
 // screen on installed PWAs, because /assets/ is served cache-first forever).
-const CACHE_NAME = 'chatmux-v2';
+const CACHE_NAME = 'chatmux-v2-__CHATMUX_RUNNING_VERSION__';
 const urlsToCache = [
   '/manifest.json'
 ];
+
+const ACTIVATE_MESSAGE = 'chatmux:activate';
 
 // Install event
 self.addEventListener('install', event => {
@@ -15,7 +17,6 @@ self.addEventListener('install', event => {
     caches.open(CACHE_NAME)
       .then(cache => cache.addAll(urlsToCache))
   );
-  self.skipWaiting();
 });
 
 // Fetch event — network-first for everything except hashed assets
@@ -69,6 +70,12 @@ self.addEventListener('fetch', event => {
   );
 });
 
+self.addEventListener('message', event => {
+  if (event.data === ACTIVATE_MESSAGE) {
+    event.waitUntil(self.skipWaiting());
+  }
+});
+
 // Activate event — purge old caches
 self.addEventListener('activate', event => {
   event.waitUntil(
@@ -78,9 +85,8 @@ self.addEventListener('activate', event => {
           .filter(name => name !== CACHE_NAME)
           .map(name => caches.delete(name))
       )
-    )
+    ).then(() => self.clients.claim())
   );
-  self.clients.claim();
 });
 
 const MAX_NOTIFICATION_TITLE_LENGTH = 256;

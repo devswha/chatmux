@@ -71,18 +71,57 @@ test('one-line bootstrap verifies, installs, and reuses a pinned release', async
     CHATMUX_TEST_CAPTURE: capture,
   };
 
-  const first = spawnSync('bash', [installerPath, '--local'], { encoding: 'utf8', env });
+  const first = spawnSync('bash', ['-c', 'umask 022; exec bash "$@"', 'bash', installerPath, '--local'], { encoding: 'utf8', env });
   assert.equal(first.status, 0, first.stderr);
   assert.deepEqual(JSON.parse(await fs.readFile(capture, 'utf8')), ['install', '--yes', '--local']);
   assert.equal(
     await fs.realpath(path.join(home, '.chatmux', 'releases', version, 'scripts', 'chatmux-runtime.mjs')),
     path.join(home, '.chatmux', 'releases', version, 'scripts', 'chatmux-runtime.mjs'),
   );
+  assert.equal((await fs.stat(path.join(home, '.chatmux'))).mode & 0o777, 0o700);
 
   await fs.rm(releaseBase, { recursive: true, force: true });
   const second = spawnSync('bash', [installerPath, '--local'], { encoding: 'utf8', env });
   assert.equal(second.status, 0, second.stderr);
   assert.match(second.stderr, /Reusing verified ChatMux 9\.9\.9 payload/);
+  assert.equal((await fs.stat(path.join(home, '.chatmux'))).mode & 0o777, 0o700);
+});
+test('one-line bootstrap tightens an existing owner-managed root and rejects unsafe roots before download', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'chatmux-bootstrap-root-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const managedRoot = path.join(root, 'managed');
+  const releaseBase = await createReleaseFixture(root, '9.9.6');
+  const commonEnv = {
+    ...process.env,
+    CHATMUX_VERSION: '9.9.6',
+    CHATMUX_RELEASE_BASE_URL: `file://${releaseBase}`,
+    CHATMUX_NODE: process.execPath,
+    CHATMUX_TEST_CAPTURE: path.join(root, 'args.json'),
+  };
+
+  await fs.mkdir(managedRoot, { mode: 0o755 });
+  await fs.chmod(managedRoot, 0o755);
+  const migrated = spawnSync('bash', [installerPath, '--local'], {
+    encoding: 'utf8',
+    env: { ...commonEnv, CHATMUX_INSTALL_ROOT: managedRoot },
+  });
+  assert.equal(migrated.status, 0, migrated.stderr);
+  assert.equal((await fs.stat(managedRoot)).mode & 0o777, 0o700);
+
+  for (const [name, setup, expected] of [
+    ['symlink', async (target: string) => fs.symlink(path.join(root, 'missing'), target), /ordinary directory/],
+    ['non-directory', async (target: string) => fs.writeFile(target, 'not a directory'), /ordinary directory/],
+  ] as const) {
+    const unsafeRoot = path.join(root, name);
+    await setup(unsafeRoot);
+    const result = spawnSync('bash', [installerPath, '--local'], {
+      encoding: 'utf8',
+      env: { ...commonEnv, CHATMUX_INSTALL_ROOT: unsafeRoot },
+    });
+    assert.notEqual(result.status, 0, name);
+    assert.match(result.stderr, expected);
+    await assert.rejects(fs.access(path.join(unsafeRoot, 'releases')));
+  }
 });
 
 test('one-line bootstrap installs a private Node 22 runtime when the host Node is unsupported', async (t) => {

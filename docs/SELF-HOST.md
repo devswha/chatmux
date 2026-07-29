@@ -38,6 +38,70 @@ Use the release-install procedure in [INSTALL.md](INSTALL.md) to verify the
 checksum, unpack a versioned release, install `chatmux.service`, and activate
 the initial `current` link.
 
+## Mobile screen refresh and owner updates
+
+The mobile UI deliberately separates two actions:
+
+- **`새 화면 적용`** means the installed PWA has an older frontend than
+  `/health.version`. It activates the already-downloaded service worker and reloads
+  the screen once. It never deploys, restarts, or changes the server.
+- **`서버 업데이트`** means the server has discovered a newer canonical release
+  (or, for a source install, that its configured `origin/main` deployment can
+  advance). It is shown only to the trusted owner. The browser cannot choose a
+  version, URL, asset, command, path, or rollback target.
+
+A server update is started by a bodyless `POST /api/system/update` and its current
+capability/state is available from `GET /api/system/update/status`. The returned
+opaque job ID can be read by its owner at `GET /api/system/update/jobs/:jobId`.
+Jobs report durable phases and terminal `succeeded`, `failed`,
+`failed_rolled_back`, `failed_rollback`, or `manual_required` states. Terminal
+unlocked jobs are retained for 30 days, up to 32 records; active, locked, and
+manual-recovery records are retained for operator recovery.
+
+Every update path is owner-only: the Tailscale owner, the authenticated
+password-mode installation account, or a verified immediate-loopback local owner.
+Allowed Tailscale users are not update owners, and remote auth-none/VPN callers
+cannot update. Tailscale users can use the app but must ask the owner to deploy.
+On success, the server proves the new boot and exact target version through its
+health response, then automatically applies the new screen. A server updated by
+another operator instead leaves `새 화면 적용` available to a stale PWA.
+
+For a release installation, the router—not the phone—resolves the sole canonical
+GitHub Release assets: `chatmux-server-<version>-linux-x64-node22.tar.gz`, its
+same-basename `.sha256`, and the separately published root `install.sh`. The
+detached worker downloads and validates only the archive and checksum; it never
+downloads or executes `install.sh`. It runs as the installing user's transient
+user-systemd worker from the immutable old release, stages and verifies the new
+payload outside live releases, then atomically changes `~/.chatmux/current` and
+restarts the fixed `chatmux.service`.
+
+Before cutover the worker requires the exact release version and database
+compatibility metadata. Automatic rollback is allowed only when the target's
+`database.rollbackCompatibleFrom` names the exact running version and release CI
+has proven the migration, old-version health, and representative I/O. There is no
+automatic database backup or restore. An ineligible database jump is
+`manual_required` before cutover. For an eligible post-cutover failure, the worker
+atomically restores the prior link and verifies its health (`failed_rolled_back`);
+a failed restoration is `failed_rollback` and requires manual recovery. Inspect
+the job status and `journalctl --user -u chatmux.service` before acting; preserve
+both release directories and the durable job record.
+
+Source and release semantics remain distinct. A source installation continues its
+configured moving `origin/main` plus `deploy.sh` flow and never claims an exact
+release target. The first updater-capable release still needs the manual bootstrap
+below; later compatible releases can be updated from the owner’s mobile UI.
+Terminal/SSH use of `install.sh` is a manual bootstrap or recovery fallback, not
+the ordinary mobile update experience.
+
+## Managed-root safety
+
+`~/.chatmux` is a security boundary. It must be a real directory owned by the
+installing user with mode `0700`; the installer and updater refuse a symlink,
+non-directory, wrong owner, unsafe mode, or identity replacement before network,
+database, service, or link effects. Do not “fix” this through the mobile UI.
+An operator must stop, inspect the path and ownership, remove or relocate an
+unexpected symlink only after confirming its target is safe, then recreate or
+repair the managed root as the intended user with `0700` before manual recovery.
 ## Service operations
 
 ChatMux runs as the per-user `chatmux.service`; root privileges and a
@@ -88,11 +152,14 @@ An SSH tunnel remains the local-only fallback when Tailscale is unavailable:
 ```sh
 ssh -N -L 3001:127.0.0.1:3001 user@server
 ```
-## Cutover to a verified release
+## Manual recovery cutover
 
-A cutover changes only the `current` symlink and then restarts the service.
-Download and checksum-verify the next artifact exactly as described in
-[INSTALL.md](INSTALL.md); do not use a moving `latest` URL.
+Use this terminal procedure only after a bootstrap/recovery decision or a durable
+`manual_required`/`failed_rollback` job. Ordinary compatible release updates use
+the owner-only mobile action; do not turn this into a parallel routine deployment
+path. A recovery cutover changes only the `current` symlink and then restarts the
+service. Download and checksum-verify the approved artifact exactly as described
+in [INSTALL.md](INSTALL.md); do not use a moving `latest` URL.
 
 1. Record the active release before touching `current`.
 2. Unpack the verified artifact into its new

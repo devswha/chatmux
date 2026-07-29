@@ -15,6 +15,12 @@ const NATIVE_MODULES = ['better-sqlite3', 'bcrypt', 'node-pty'];
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, '..', '..');
+const RELEASE_METADATA_SCHEMA = 1;
+const UPDATER_PROTOCOL = 1;
+const WORKER_PATH = 'dist-server/server/release-update-worker.js';
+const METADATA_PATH = 'release-update-metadata.json';
+const COMPATIBILITY_DECLARATION_PATH = 'packaging/release/update-compatibility.json';
+const STRICT_SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u;
 
 function parseVersion(value) {
   const match = /^(\d+)\.(\d+)(?:\.(\d+))?/u.exec(value || '');
@@ -157,6 +163,93 @@ async function pathExists(filePath) {
     return true;
   } catch {
     return false;
+  }
+}
+
+async function assertNoImagePng(directory, label) {
+  const entries = await fs.readdir(directory, { recursive: true, withFileTypes: true });
+  if (entries.some((entry) => entry.name === 'image.png')) {
+    throw new Error(`image.png must not appear in ${label}.`);
+  }
+}
+
+async function readCompatibilityDeclaration(version) {
+  const declarationPath = path.join(rootDir, COMPATIBILITY_DECLARATION_PATH);
+  const declaration = JSON.parse(await fs.readFile(declarationPath, 'utf8'));
+  if (
+    !declaration ||
+    typeof declaration !== 'object' ||
+    Array.isArray(declaration) ||
+    declaration.schema !== 1 ||
+    !declaration.releases ||
+    typeof declaration.releases !== 'object' ||
+    Array.isArray(declaration.releases)
+  ) {
+    throw new Error('Release compatibility declaration has an invalid schema.');
+  }
+
+  const entry = declaration.releases[version];
+  const versions = entry?.database?.rollbackCompatibleFrom;
+  if (
+    !entry ||
+    typeof entry !== 'object' ||
+    Object.keys(entry).length !== 1 ||
+    !entry.database ||
+    typeof entry.database !== 'object' ||
+    Array.isArray(entry.database) ||
+    Object.keys(entry.database).length !== 1 ||
+    !Array.isArray(versions) ||
+    versions.some((candidate) => typeof candidate !== 'string' || !STRICT_SEMVER.test(candidate)) ||
+    new Set(versions).size !== versions.length
+  ) {
+    throw new Error(`Release compatibility declaration is missing an exact entry for ${version}.`);
+  }
+  return { database: { rollbackCompatibleFrom: [...versions] } };
+}
+
+async function writeReleaseMetadata(stageDir, version) {
+  const compatibility = await readCompatibilityDeclaration(version);
+  const metadata = {
+    schema: RELEASE_METADATA_SCHEMA,
+    updaterProtocol: UPDATER_PROTOCOL,
+    version,
+    compatibility,
+  };
+  await fs.writeFile(
+    path.join(stageDir, METADATA_PATH),
+    `${JSON.stringify(metadata, null, 2)}\n`,
+    'utf8',
+  );
+}
+
+async function assertArchiveLayout(archivePath, bundleName) {
+  const [stdout, verbose] = await Promise.all([
+    capture('tar', ['-tzf', archivePath]),
+    capture('tar', ['-tvzf', archivePath]),
+  ]);
+  const entries = stdout.trim().split('\n').filter(Boolean);
+  const required = [
+    './package.json',
+    `./${WORKER_PATH}`,
+    `./${METADATA_PATH}`,
+  ];
+  const unsafeEntry = entries.some((entry) => (
+    entry.includes('image.png') ||
+    entry.startsWith('/') ||
+    entry.split('/').includes('..') ||
+    !entry.startsWith('./')
+  ));
+  const unsafeMetadata = verbose.trim().split('\n').filter(Boolean).some((line) => {
+    const mode = line.split(/\s+/u, 1)[0] || '';
+    return !['-', 'd', 'l', 'h'].includes(mode[0]) || mode[5] === 'w' || mode[8] === 'w';
+  });
+  if (unsafeEntry || unsafeMetadata || required.some((entry) => !entries.includes(entry))) {
+    throw new Error('Server archive has an unsafe or incomplete updater layout.');
+  }
+
+  const checksum = await fs.readFile(`${archivePath}.sha256`, 'utf8');
+  if (!new RegExp(`^[a-f0-9]{64}  ${bundleName.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}\\n$`, 'u').test(checksum)) {
+    throw new Error('Server archive checksum has an invalid canonical shape.');
   }
 }
 
@@ -343,6 +436,9 @@ const buildInputs = [
 ];
 
 await validateRequiredInputs(buildInputs);
+if (buildInputs.includes('image.png')) {
+  throw new Error('image.png must not be a server bundle input.');
+}
 await fs.mkdir(bundleRoot, { recursive: true });
 await fs.rm(stageDir, { recursive: true, force: true });
 await fs.rm(archivePath, { force: true });
@@ -353,6 +449,9 @@ try {
   for (const relativePath of buildInputs) {
     await copyRequired(stageDir, relativePath);
   }
+  await assertNoImagePng(stageDir, 'the server bundle stage');
+  await fs.access(path.join(stageDir, WORKER_PATH));
+  await writeReleaseMetadata(stageDir, version);
   await writeInstallPackageJson(stageDir, packageJson);
 
 
@@ -392,6 +491,7 @@ try {
   await createDeterministicArchive(stageDir, archivePath, sourceDateEpoch());
   const digest = await sha256(archivePath);
   await fs.writeFile(checksumPath, `${digest}  ${bundleName}\n`, 'utf8');
+  await assertArchiveLayout(archivePath, bundleName);
 } catch (error) {
   await fs.rm(archivePath, { force: true });
   await fs.rm(checksumPath, { force: true });

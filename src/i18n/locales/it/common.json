@@ -134,15 +134,52 @@
     "updateCompleted": "Aggiornamento completato con successo!",
     "restartServer": "Riavvia il server per applicare le modifiche.",
     "updateFailed": "Aggiornamento fallito",
+    "versionSummary": "Server {{server}} · client {{client}}",
+    "unknownVersion": "sconosciuta",
+    "clientRefresh": {
+      "message": "È pronta una nuova interfaccia del server. L'aggiornamento di questa schermata non aggiorna il server.",
+      "action": "Applica nuova schermata"
+    },
+    "serverUpdate": {
+      "sourceAvailable": "È disponibile un aggiornamento del codice sorgente dal ramo principale in evoluzione{{version}}.",
+      "releaseAvailable": "È disponibile una destinazione di release esatta{{version}}."
+    },
+    "confirm": {
+      "message": "Il server verrà aggiornato e riavviato. Il lavoro web attivo potrebbe essere disconnesso."
+    },
+    "progress": {
+      "message": "Aggiornamento del server. L'avanzamento viene conservato se questa schermata si chiude o il server si riavvia."
+    },
+    "success": {
+      "message": "Aggiornamento verificato. Applicazione della nuova schermata."
+    },
+    "errors": {
+      "progress": "Impossibile leggere l'avanzamento dell'aggiornamento (HTTP {{status}})",
+      "start": "Impossibile avviare l'aggiornamento (HTTP {{status}})",
+      "unverified": "L'aggiornamento è stato completato, ma non è stato possibile verificare il riavvio previsto del server. Usa il comando manuale seguente.",
+      "generic": "Impossibile leggere l'avanzamento dell'aggiornamento",
+      "failedRolledBack": "L'aggiornamento non è riuscito, ma il rollback verificato ha ripristinato la release precedente.",
+      "failedRollback": "L'aggiornamento e il rollback non sono riusciti. È necessario un ripristino manuale.",
+      "manualRequired": "Un problema di compatibilità richiede un aggiornamento o un ripristino manuale."
+    },
+    "manual": {
+      "title": "Aggiornamento manuale",
+      "release": "Le installazioni di release richiedono il passaggio alla destinazione esatta verificata tramite checksum in docs/SELF-HOST.md.",
+      "copyCommand": "Copia comando",
+      "unknown": "La modalità di installazione è sconosciuta. Consulta la documentazione o lo stato per istruzioni sul ripristino."
+    },
     "buttons": {
       "close": "Chiudi",
       "later": "Più tardi",
       "copyCommand": "Copia comando",
-      "updateNow": "Aggiorna ora",
+      "updateNow": "Aggiorna server",
+      "confirmUpdate": "Aggiorna e riavvia",
       "updating": "Aggiornamento..."
     },
     "ariaLabels": {
       "closeModal": "Chiudi finestra aggiornamento versione",
+      "closeButton": "Chiudi finestra di aggiornamento",
+      "progress": "Avanzamento dell'aggiornamento",
       "showSidebar": "Mostra barra laterale",
       "settings": "Impostazioni",
       "updateAvailable": "Aggiornamento disponibile",

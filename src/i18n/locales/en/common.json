@@ -139,16 +139,52 @@
     "updateSucceeded": "Updated — the new server is answering. Reloading…",
     "updateTimedOut": "The update did not come back in time — deploy.sh may have rolled back to the previous version. Check the log:",
     "releaseModeManual": "Release-artifact installs update via the checksum-verified cutover in docs/SELF-HOST.md — one-click update is intentionally not offered.",
+    "versionSummary": "Server {{server}} · client {{client}}",
+    "unknownVersion": "unknown",
+    "clientRefresh": {
+      "message": "A newer server frontend is ready. Refreshing this screen does not update the server.",
+      "action": "Apply new screen"
+    },
+    "serverUpdate": {
+      "sourceAvailable": "A moving-main source update is available{{version}}.",
+      "releaseAvailable": "An exact release target is available{{version}}."
+    },
+    "confirm": {
+      "message": "The server will update and restart. Active web work may disconnect."
+    },
+    "progress": {
+      "message": "Updating server. Progress is retained if this screen closes or the server restarts."
+    },
+    "success": {
+      "message": "Update verified. Applying the new screen."
+    },
+    "errors": {
+      "progress": "Unable to read update progress (HTTP {{status}})",
+      "start": "Update failed to start (HTTP {{status}})",
+      "unverified": "The update completed but the expected restarted server was not verified. Use the manual command below.",
+      "generic": "Unable to read update progress",
+      "failedRolledBack": "The update failed, but the verified rollback restored the previous release.",
+      "failedRollback": "The update and rollback failed. Manual recovery is required.",
+      "manualRequired": "A compatibility issue requires a manual update or recovery."
+    },
+    "manual": {
+      "title": "Manual update",
+      "release": "Release installs require the checksum-verified exact-target cutover in docs/SELF-HOST.md.",
+      "copyCommand": "Copy command",
+      "unknown": "Install mode is unknown. Consult the documentation or status for recovery guidance."
+    },
     "buttons": {
       "close": "Close",
       "later": "Later",
       "copyCommand": "Copy Command",
-      "updateNow": "Update Now",
+      "updateNow": "Update server",
       "confirmUpdate": "Update and restart",
       "updating": "Updating..."
     },
     "ariaLabels": {
       "closeModal": "Close version upgrade modal",
+      "closeButton": "Close update dialog",
+      "progress": "Update progress",
       "showSidebar": "Show sidebar",
       "settings": "Settings",
       "updateAvailable": "Update available",

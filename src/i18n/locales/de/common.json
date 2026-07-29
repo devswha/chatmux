@@ -104,15 +104,52 @@
     "updateCompleted": "Update erfolgreich abgeschlossen!",
     "restartServer": "Bitte starte den Server neu, um die Änderungen anzuwenden.",
     "updateFailed": "Update fehlgeschlagen",
+    "versionSummary": "Server {{server}} · Client {{client}}",
+    "unknownVersion": "unbekannt",
+    "clientRefresh": {
+      "message": "Ein neueres Server-Frontend ist bereit. Das Aktualisieren dieses Bildschirms aktualisiert den Server nicht.",
+      "action": "Neuen Bildschirm anwenden"
+    },
+    "serverUpdate": {
+      "sourceAvailable": "Ein Quell-Update vom fortlaufenden Hauptzweig ist verfügbar{{version}}.",
+      "releaseAvailable": "Ein exaktes Release-Ziel ist verfügbar{{version}}."
+    },
+    "confirm": {
+      "message": "Der Server wird aktualisiert und neu gestartet. Aktive Web-Arbeit kann unterbrochen werden."
+    },
+    "progress": {
+      "message": "Server wird aktualisiert. Der Fortschritt bleibt erhalten, wenn dieser Bildschirm geschlossen wird oder der Server neu startet."
+    },
+    "success": {
+      "message": "Update überprüft. Der neue Bildschirm wird angewendet."
+    },
+    "errors": {
+      "progress": "Update-Fortschritt kann nicht gelesen werden (HTTP {{status}})",
+      "start": "Update konnte nicht gestartet werden (HTTP {{status}})",
+      "unverified": "Das Update wurde abgeschlossen, aber der erwartete neu gestartete Server konnte nicht überprüft werden. Verwende den manuellen Befehl unten.",
+      "generic": "Update-Fortschritt kann nicht gelesen werden",
+      "failedRolledBack": "Das Update ist fehlgeschlagen, aber der überprüfte Rollback hat die vorherige Version wiederhergestellt.",
+      "failedRollback": "Das Update und der Rollback sind fehlgeschlagen. Eine manuelle Wiederherstellung ist erforderlich.",
+      "manualRequired": "Aufgrund eines Kompatibilitätsproblems ist ein manuelles Update oder eine manuelle Wiederherstellung erforderlich."
+    },
+    "manual": {
+      "title": "Manuelles Update",
+      "release": "Release-Installationen erfordern den checksumverifizierten Cutover auf das exakte Ziel in docs/SELF-HOST.md.",
+      "copyCommand": "Befehl kopieren",
+      "unknown": "Der Installationsmodus ist unbekannt. Informationen zur Wiederherstellung finden Sie in der Dokumentation oder im Status."
+    },
     "buttons": {
       "close": "Schließen",
       "later": "Später",
       "copyCommand": "Befehl kopieren",
-      "updateNow": "Jetzt aktualisieren",
+      "updateNow": "Server aktualisieren",
+      "confirmUpdate": "Aktualisieren und neu starten",
       "updating": "Wird aktualisiert..."
     },
     "ariaLabels": {
       "closeModal": "Versions-Update-Modal schließen",
+      "closeButton": "Update-Dialog schließen",
+      "progress": "Update-Fortschritt",
       "showSidebar": "Seitenleiste anzeigen",
       "settings": "Einstellungen",
       "updateAvailable": "Update verfügbar",

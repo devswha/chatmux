@@ -34,8 +34,8 @@ export const authenticatedFetch = (url, options = {}) => {
 
   const defaultHeaders = {};
 
-  // Only set Content-Type for non-FormData requests
-  if (!(options.body instanceof FormData)) {
+  // Add JSON content type only when a JSON-compatible body is actually present.
+  if (options.body !== undefined && !(options.body instanceof FormData)) {
     defaultHeaders['Content-Type'] = 'application/json';
   }
 

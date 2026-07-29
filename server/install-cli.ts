@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import { createServer } from 'node:net';
 import path from 'node:path';
+import type { Stats } from 'node:fs';
 
 import bcrypt from 'bcrypt';
 
@@ -39,6 +40,18 @@ type InstallOptions = {
   serverPortExplicit: boolean;
 };
 
+type ManagedRootStat = Pick<Stats, 'dev' | 'ino' | 'mode' | 'uid' | 'isDirectory' | 'isSymbolicLink'>;
+type ManagedRootFilesystem = {
+  chmod(path: string, mode: number): Promise<void>;
+  lstat(path: string): Promise<ManagedRootStat>;
+  mkdir(path: string, options: { recursive: true; mode: number }): Promise<unknown>;
+};
+
+type ManagedRootIdentity = {
+  dev: number;
+  ino: number;
+};
+
 type InstallContext = {
   appRoot: string;
   version: string;
@@ -51,6 +64,8 @@ type InstallContext = {
   healthCheck?: (serverPort: number, version: string) => Promise<void>;
   portAvailable?: (port: number) => Promise<boolean>;
   interfaces?: () => NodeJS.Dict<os.NetworkInterfaceInfo[]>;
+  managedRootFs?: Partial<ManagedRootFilesystem>;
+  effectiveUid?: () => number;
 };
 
 function runCommand(command: string, args: string[]): Promise<CommandResult> {
@@ -386,6 +401,101 @@ async function configureTailscaleServe(
   if (!url) throw new Error('Tailscale Serve was configured but no matching HTTPS endpoint was found');
   return { url, httpsPort: preferred, changed: true };
 }
+function requireManagedRootFilesystem(
+  filesystem: Partial<ManagedRootFilesystem> | undefined,
+): ManagedRootFilesystem {
+  const candidate = filesystem ?? fs;
+  const lstat = candidate.lstat;
+  const chmod = candidate.chmod;
+  const mkdir = candidate.mkdir;
+  if (
+    typeof lstat !== 'function'
+    || typeof chmod !== 'function'
+    || typeof mkdir !== 'function'
+  ) {
+    throw new Error('Managed root filesystem is missing required safety capability');
+  }
+  return { lstat, chmod, mkdir };
+}
+
+function getEffectiveUid(): number {
+  if (typeof process.geteuid !== 'function') {
+    throw new Error('Managed install requires an effective user ID');
+  }
+  return process.geteuid();
+}
+
+function managedRootIdentity(stat: ManagedRootStat): ManagedRootIdentity {
+  return { dev: stat.dev, ino: stat.ino };
+}
+
+function sameManagedRootIdentity(left: ManagedRootIdentity, right: ManagedRootIdentity): boolean {
+  return left.dev === right.dev && left.ino === right.ino;
+}
+
+async function readManagedRoot(
+  managedRoot: string,
+  filesystem: ManagedRootFilesystem,
+  effectiveUid: number,
+): Promise<{ stat: ManagedRootStat; identity: ManagedRootIdentity }> {
+  let stat: ManagedRootStat;
+  try {
+    stat = await filesystem.lstat(managedRoot);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw error;
+    throw new Error(`Unable to inspect managed root: ${(error as NodeJS.ErrnoException).code ?? 'unknown error'}`);
+  }
+
+  if (stat.isSymbolicLink()) throw new Error('Managed root must not be a symbolic link');
+  if (!stat.isDirectory()) throw new Error('Managed root must be a directory');
+  if (stat.uid !== effectiveUid) throw new Error('Managed root must be owned by the effective user');
+
+  return { stat, identity: managedRootIdentity(stat) };
+}
+
+export async function ensureManagedRoot(
+  managedRoot: string,
+  options: {
+    dryRun?: boolean;
+    filesystem?: Partial<ManagedRootFilesystem>;
+    effectiveUid?: number;
+  } = {},
+): Promise<void> {
+  const filesystem = requireManagedRootFilesystem(options.filesystem);
+  const effectiveUid = options.effectiveUid ?? getEffectiveUid();
+  let root: { stat: ManagedRootStat; identity: ManagedRootIdentity };
+
+  try {
+    root = await readManagedRoot(managedRoot, filesystem, effectiveUid);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    if (options.dryRun) return;
+    await filesystem.mkdir(managedRoot, { recursive: true, mode: 0o700 });
+    root = await readManagedRoot(managedRoot, filesystem, effectiveUid);
+  }
+
+  if (options.dryRun) {
+    const verified = await readManagedRoot(managedRoot, filesystem, effectiveUid);
+    if (!sameManagedRootIdentity(root.identity, verified.identity)) {
+      throw new Error('Managed root was replaced while inspecting it');
+    }
+    return;
+  }
+
+  try {
+    await filesystem.chmod(managedRoot, 0o700);
+  } catch {
+    throw new Error('Unable to secure managed root permissions');
+  }
+
+  const verified = await readManagedRoot(managedRoot, filesystem, effectiveUid);
+  if (!sameManagedRootIdentity(root.identity, verified.identity)) {
+    throw new Error('Managed root was replaced while securing it');
+  }
+  if ((verified.stat.mode & 0o777) !== 0o700) {
+    throw new Error('Managed root permissions are not 0700');
+  }
+}
 
 export async function runInstallCli(args: string[], context: InstallContext): Promise<void> {
   const options = parseInstallOptions(args);
@@ -398,6 +508,12 @@ export async function runInstallCli(args: string[], context: InstallContext): Pr
   });
 
   const managedRoot = path.join(home, '.chatmux');
+  await ensureManagedRoot(managedRoot, {
+    dryRun: options.dryRun,
+    filesystem: context.managedRootFs,
+    effectiveUid: (context.effectiveUid ?? getEffectiveUid)(),
+  });
+
   const currentPath = path.join(managedRoot, 'current');
   const dataPath = path.join(managedRoot, 'data');
   const sourceRoot = await fs.realpath(context.appRoot);

@@ -134,14 +134,48 @@ CGNAT 환경에서는 포트포워딩이 불가능하므로 Tailscale 또는 도
       tailscale 모드는 Serve 주소를, vpn 모드는 unit의 바인딩 주소를, password
       모드는 loopback과 LAN 주소를 보여준다.
 
-## 6. 세션 완료 벨 (per-session push)
+## 6. 모바일 화면과 서버 업데이트는 별개다
+
+**`새 화면 적용`**은 설치된 PWA의 화면 버전이 서버 `/health.version`보다 오래된
+경우에만 서비스 워커를 활성화하고 한 번 새로고침한다. 서버 파일·서비스·릴리스에는
+전혀 영향을 주지 않는다. 반대로 **`서버 업데이트`**는 서버가 확인한 업데이트를
+배포하는 동작이며, Tailscale owner, password 모드의 설치 계정, 또는 즉시 loopback에서
+검증된 로컬 owner만 실행할 수 있다. allowlist에 든 일반 Tailscale 사용자는 접속은
+가능하지만 배포 권한은 없다.
+
+Tailscale 경로에서는 폰에서 Tailscale을 켠 뒤 QR을 스캔하고 ChatMux를 사용하는 동안
+계속 연결해야 한다. Tailscale이 없으면 password/LAN 또는 loopback+SSH 터널을
+사용한다. SSH와 터미널의 `install.sh`은 최초 bootstrap·수동 복구용일 뿐, 일반적인
+모바일 업데이트 경로가 아니다.
+
+릴리스 설치에서 서버만 GitHub Release의
+`chatmux-server-<version>-linux-x64-node22.tar.gz`, 같은 basename의 `.sha256`, 그리고
+별도 root `install.sh`이라는 정본 계약을 해석한다. 업데이트 worker는 archive와
+checksum만 받아 검증하며 `install.sh`을 내려받거나 실행하지 않는다. source 설치는
+`origin/main`과 `deploy.sh`의 moving-main 의미를 유지하므로 정확한 release 버전을
+주장하지 않는다.
+
+worker는 user-systemd에서 분리되어 staged 검증 후 `current` 심볼릭 링크를 원자적으로
+교체하고, HTTP 200·예상된 ChatMux product/status health field·새 boot ID·정확한 target version을 확인한다. DB
+자동 백업/복원은 없다. target의 `database.rollbackCompatibleFrom`이 실행 중인 정확한
+버전을 명시하고 CI가 호환성을 증명한 경우만 자동 rollback하며, 그 외는
+`manual_required`다. 상태와 보존된 job은 owner의 status/job API 및
+`journalctl --user -u chatmux.service`에서 확인한다. `failed_rolled_back`은 이전
+릴리스 health까지 복구된 경우이고, `failed_rollback`은 수동 복구가 필요함을 뜻한다.
+
+`~/.chatmux`는 owner 소유 mode `0700`의 실제 디렉터리여야 한다. symlink, 다른 owner,
+비디렉터리, 경로 교체는 업데이트 전 hard stop이다. 운영자는 링크를 따라가거나 모바일
+재시도를 하지 말고, 의도한 사용자로 경로와 소유권을 조사·복구한 뒤 수동 절차를
+사용한다. 첫 updater-capable release는 이 수동 bootstrap이 필요하며 이후 호환
+릴리스만 모바일에서 업데이트할 수 있다.
+## 7. 세션 완료 벨 (per-session push)
 
 세션 행의 벨은 tmux pane이나 에이전트 프로세스가 끝났다는 알림이 아니다. 감시를
 켜 둔 세션에서 에이전트의 **응답/턴이 준비되어 다음 사용자 입력을 기다릴 때**만
 `reply_ready` 알림을 보낸다. 도구 호출 중, 실패, pane 종료, 프로세스 종료는 완료
 벨의 조건이 아니다.
 
-### 6.1 먼저 필요한 접속 조건
+### 7.1 먼저 필요한 접속 조건
 
 Push와 Service Worker는 secure context에서만 동작한다. HTTP LAN 주소, IP 주소의
 평문 HTTP, 그리고 HTTP 포트포워딩으로 연 화면에서는 벨을 설정할 수 없다. 다음 중
@@ -164,7 +198,7 @@ iOS/iPadOS에서는 Safari 등의 일반 브라우저 탭에서 ChatMux HTTPS �
 공유 메뉴의 **홈 화면에 추가**로 설치하고, 이후 홈 화면 아이콘으로 열어 설정한다.
 브라우저 탭만 열어 둔 상태를 설치된 PWA로 간주하지 않는다.
 
-### 6.2 설정과 벨의 의미
+### 7.2 설정과 벨의 의미
 
 1. 위 HTTPS 주소에서 설치된 PWA를 열고, 알림을 받을 **해당 세션 행의 벨을
    직접 클릭**한다.
@@ -186,7 +220,7 @@ iOS/iPadOS에서는 Safari 등의 일반 브라우저 탭에서 ChatMux HTTPS �
   기기 복구도 이를 해제하지 않는다. 전역 일시를 해제한 뒤 기존 감시는 그대로
   다시 전달 대상이 된다.
 
-### 6.3 보이는 행과 범위
+### 7.3 보이는 행과 범위
 
 - 일반 대화 행은 OMP를 제외한 지원 provider에서 벨을 표시한다. **일반 OMP
   대화에는 벨이 없다.**
@@ -195,7 +229,7 @@ iOS/iPadOS에서는 Safari 등의 일반 브라우저 탭에서 ChatMux HTTPS �
 - archived 목록과 restore 흐름은 완료 벨의 범위 밖이다. 아카이브/복원이 감시를
   만들거나 자동으로 켜지지 않으며, 복원한 활성 행에서 필요하면 다시 설정한다.
 
-### 6.4 막힘과 복구
+### 7.4 막힘과 복구
 
 - **권한 거부**: 운영체제 또는 브라우저 사이트 설정에서 이 HTTPS origin의 알림
   권한을 허용한 뒤 PWA를 다시 연다. 감시가 꺼져 있으면 소유자 벨로 감시를 켜고,

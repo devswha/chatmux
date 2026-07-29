@@ -134,15 +134,51 @@
     "updateCompleted": "アップデートが完了しました！",
     "restartServer": "更新を適用するには ChatMux を再起動してください。",
     "updateFailed": "アップデートに失敗しました",
+    "versionSummary": "サーバー {{runningVersion}} · クライアント {{currentVersion}}",
+    "unknownVersion": "不明",
+    "clientRefresh": {
+      "message": "新しいサーバーフロントエンドが準備できました。この画面を再読み込みしてもサーバーは更新されません。",
+      "action": "画面を再読み込み"
+    },
+    "serverUpdate": {
+      "sourceAvailable": "moving-main のソース更新{{version}}が利用可能です。",
+      "releaseAvailable": "正確なリリース対象{{version}}が利用可能です。"
+    },
+    "confirm": {
+      "message": "サーバーが更新・再起動されます。進行中の Web 作業が切断される場合があります。"
+    },
+    "progress": {
+      "message": "サーバーを更新中です。ダウンロード、検証、ステージング、再起動、ヘルスチェックの進捗は、画面を閉じてもサーバーを再起動しても保持されます。"
+    },
+    "success": {
+      "message": "更新が検証されました。画面を再読み込みしています。"
+    },
+    "errors": {
+      "progress": "更新の進捗を取得できません。再試行するか、復旧ログを確認してください。",
+      "start": "サーバー更新を開始できませんでした。更新を実行できるのは所有者のみです。",
+    "unverified": "更新後のサーバーを確認できませんでした。ロールバックされた可能性があります。ログを確認してください。",
+    "failedRolledBack": "更新に失敗しましたが、ロールバックにより以前のリリースが復元されたことを確認しました。",
+    "failedRollback": "更新とロールバックに失敗しました。手動での復旧が必要です。",
+    "manualRequired": "互換性のため、手動での更新または復旧が必要です。",
+    "generic": "更新に失敗しました。ロールバック、期限切れ、または復旧に関する詳細はログを確認してください。"
+    },
+    "manual": {
+      "title": "手動更新が必要です",
+      "release": "リリース版のインストールでは、docs/SELF-HOST.md のチェックサムで検証された正確な対象への切り替えが必要です。",
+      "unknown": "インストール方法を特定できません。更新または復旧の手順については、ドキュメントとステータスを確認してください。",
+      "copyCommand": "ソース更新コマンドをコピー"
+    },
     "buttons": {
       "close": "閉じる",
       "later": "後で",
       "copyCommand": "コマンドをコピー",
       "updateNow": "今すぐ更新",
+      "confirmUpdate": "更新して再起動",
       "updating": "更新中..."
     },
     "ariaLabels": {
       "closeModal": "バージョンアップグレードモーダルを閉じる",
+      "closeButton": "更新ダイアログを閉じる",
       "showSidebar": "サイドバーを表示",
       "settings": "設定",
       "updateAvailable": "アップデートあり",

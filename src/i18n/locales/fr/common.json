@@ -134,15 +134,52 @@
     "updateCompleted": "Mise à jour effectuée avec succès !",
     "restartServer": "Veuillez redémarrer le serveur pour appliquer les modifications.",
     "updateFailed": "Échec de la mise à jour",
+    "versionSummary": "Serveur {{server}} · client {{client}}",
+    "unknownVersion": "inconnue",
+    "clientRefresh": {
+      "message": "Une interface serveur plus récente est prête. Actualiser cet écran ne met pas à jour le serveur.",
+      "action": "Appliquer le nouvel écran"
+    },
+    "serverUpdate": {
+      "sourceAvailable": "Une mise à jour source de la branche principale en évolution est disponible{{version}}.",
+      "releaseAvailable": "Une cible de version exacte est disponible{{version}}."
+    },
+    "confirm": {
+      "message": "Le serveur sera mis à jour et redémarré. Le travail web en cours peut être interrompu."
+    },
+    "progress": {
+      "message": "Mise à jour du serveur. La progression est conservée si cet écran se ferme ou si le serveur redémarre."
+    },
+    "success": {
+      "message": "Mise à jour vérifiée. Application du nouvel écran."
+    },
+    "errors": {
+      "progress": "Impossible de lire la progression de la mise à jour (HTTP {{status}})",
+      "start": "Impossible de démarrer la mise à jour (HTTP {{status}})",
+      "unverified": "La mise à jour est terminée, mais le redémarrage attendu du serveur n'a pas pu être vérifié. Utilisez la commande manuelle ci-dessous.",
+      "generic": "Impossible de lire la progression de la mise à jour",
+      "failedRolledBack": "La mise à jour a échoué, mais le retour arrière vérifié a restauré la version précédente.",
+      "failedRollback": "La mise à jour et le retour arrière ont échoué. Une récupération manuelle est requise.",
+      "manualRequired": "Un problème de compatibilité exige une mise à jour ou une récupération manuelle."
+    },
+    "manual": {
+      "title": "Mise à jour manuelle",
+      "release": "Les installations par version nécessitent le basculement vers la cible exacte, vérifié par somme de contrôle, décrit dans docs/SELF-HOST.md.",
+      "copyCommand": "Copier la commande",
+      "unknown": "Le mode d’installation est inconnu. Consultez la documentation ou l’état pour obtenir des instructions de récupération."
+    },
     "buttons": {
       "close": "Fermer",
       "later": "Plus tard",
       "copyCommand": "Copier la commande",
-      "updateNow": "Mettre à jour maintenant",
+      "updateNow": "Mettre à jour le serveur",
+      "confirmUpdate": "Mettre à jour et redémarrer",
       "updating": "Mise à jour..."
     },
     "ariaLabels": {
       "closeModal": "Fermer la fenêtre de mise à jour",
+      "closeButton": "Fermer la boîte de dialogue de mise à jour",
+      "progress": "Progression de la mise à jour",
       "showSidebar": "Afficher la barre latérale",
       "settings": "Paramètres",
       "updateAvailable": "Mise à jour disponible",

@@ -35,7 +35,19 @@ function Sidebar({
 }: SidebarProps) {
   const { t } = useTranslation(['sidebar', 'common']);
   const { isPWA } = useDeviceSettings({ trackMobile: false });
-  const { updateAvailable, restartRequired, latestVersion, currentVersion, releaseInfo, installMode } = useVersionCheck(
+  const {
+    activeJob,
+    bootId,
+    canUpdate,
+    clientRefreshAvailable,
+    installMode,
+    latestVersion,
+    currentVersion,
+    runningVersion,
+    serverUpdateAvailable,
+    sourceUpdate,
+    sourceUpdateInFlight,
+  } = useVersionCheck(
     'devswha',
     'chatmux',
   );
@@ -82,18 +94,25 @@ function Sidebar({
         onCloseSettings={onCloseSettings}
         showVersionModal={showVersionModal}
         onCloseVersionModal={() => setShowVersionModal(false)}
-        releaseInfo={releaseInfo}
         currentVersion={currentVersion}
+        runningVersion={runningVersion}
         latestVersion={latestVersion}
         installMode={installMode}
+        clientRefreshAvailable={clientRefreshAvailable}
+        serverUpdateAvailable={serverUpdateAvailable}
+        canUpdate={canUpdate}
+        bootId={bootId}
+        activeJob={activeJob}
+        sourceUpdateInFlight={sourceUpdateInFlight}
+        sourceUpdate={sourceUpdate}
       />
 
       {!preferences.sidebarVisible ? (
         <SidebarCollapsed
           onExpand={expandSidebar}
           onShowSettings={onShowSettings}
-          updateAvailable={updateAvailable}
-          restartRequired={restartRequired}
+          clientRefreshAvailable={clientRefreshAvailable}
+          serverUpdateAvailable={serverUpdateAvailable}
           onShowVersionModal={() => setShowVersionModal(true)}
           t={t}
         />
@@ -119,9 +138,8 @@ function Sidebar({
           }}
           isRefreshing={isRefreshing}
           onCollapseSidebar={collapseSidebar}
-          updateAvailable={updateAvailable}
-          restartRequired={restartRequired}
-          releaseInfo={releaseInfo}
+          clientRefreshAvailable={clientRefreshAvailable}
+          serverUpdateAvailable={serverUpdateAvailable}
           latestVersion={latestVersion}
           currentVersion={currentVersion}
           onShowVersionModal={() => setShowVersionModal(true)}

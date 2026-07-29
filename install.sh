@@ -1,5 +1,6 @@
 #!/bin/sh
 set -eu
+umask 077
 
 REPOSITORY="${CHATMUX_REPOSITORY:-https://github.com/devswha/chatmux}"
 INSTALL_ROOT="${CHATMUX_INSTALL_ROOT:-$HOME/.chatmux}"
@@ -60,6 +61,34 @@ verify_checksum() {
   actual=${actual%% *}
   [ "$actual" = "$expected" ] || fail "checksum verification failed for $(basename "$payload")"
 }
+read_managed_root_metadata() {
+  metadata=$(stat -c '%F|%u|%d|%i|%a' -- "$INSTALL_ROOT") || fail "could not inspect managed root"
+  old_ifs=$IFS
+  IFS='|'
+  read root_type root_uid root_device root_inode root_mode <<EOF
+$metadata
+EOF
+  IFS=$old_ifs
+  [ "$root_type" = directory ] || fail "managed root must be an ordinary directory"
+  [ "$root_uid" = "$(id -u)" ] || fail "managed root must be owned by the effective user"
+}
+
+ensure_managed_root() {
+  if [ -e "$INSTALL_ROOT" ] || [ -L "$INSTALL_ROOT" ]; then
+    read_managed_root_metadata
+  else
+    mkdir -p -m 700 "$INSTALL_ROOT" || fail "could not create managed root"
+    read_managed_root_metadata
+  fi
+
+  expected_device=$root_device
+  expected_inode=$root_inode
+  chmod 700 "$INSTALL_ROOT" || fail "could not secure managed root permissions"
+  read_managed_root_metadata
+  [ "$root_device" = "$expected_device" ] && [ "$root_inode" = "$expected_inode" ] ||
+    fail "managed root was replaced while securing it"
+  [ "$root_mode" = 700 ] || fail "managed root permissions are not 0700"
+}
 
 install_node() {
   node_root="$INSTALL_ROOT/runtime/node-v$NODE_VERSION"
@@ -85,9 +114,13 @@ install_node() {
 require_command curl
 require_command tar
 require_command sha256sum
+require_command stat
+require_command id
+require_command chmod
 
 [ "$(uname -s)" = Linux ] || fail "only Linux is supported"
 [ "$(uname -m)" = x86_64 ] || fail "only Linux x86_64 is supported"
+ensure_managed_root
 
 TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/chatmux-install.XXXXXX")
 trap 'rm -rf "$TEMP_DIR"' EXIT HUP INT TERM

@@ -82,6 +82,21 @@ jobs:
 
       - name: Build server artifact
         run: npm run server:bundle
+      - name: Require updater worker and exact release metadata
+        run: |
+          set -euo pipefail
+          test -f dist-server/server/release-update-worker.js
+          test -f packaging/release/update-compatibility.json
+          node --input-type=module <<'EOF'
+          import fs from 'node:fs/promises';
+          const version = JSON.parse(await fs.readFile('package.json', 'utf8')).version;
+          const declaration = JSON.parse(await fs.readFile('packaging/release/update-compatibility.json', 'utf8'));
+          const values = declaration?.schema === 1 && declaration?.releases?.[version]?.database?.rollbackCompatibleFrom;
+          if (!Array.isArray(values) || values.some((value) => !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u.test(value)) || new Set(values).size !== values.length) {
+            throw new Error(`No exact compatibility declaration exists for ${version}.`);
+          }
+          EOF
+          test ! -e release/server/image.png
 
       - name: Stage and verify canonical release assets
         env:
@@ -117,10 +132,19 @@ jobs:
           assets=(release-assets/*)
           if [ "${#assets[@]}" -ne 2 ] ||
              [ ! -f "release-assets/$ASSET_NAME" ] ||
-             [ ! -f "release-assets/$ASSET_NAME.sha256" ]; then
-            echo "Release staging must contain only the canonical archive and checksum." >&2
+             [ ! -f "release-assets/$ASSET_NAME.sha256" ] ||
+             [ -e release-assets/image.png ]; then
+            echo "Release staging must contain only the canonical archive and checksum, never image.png." >&2
             exit 1
           fi
+          tar -tzf "release-assets/$ASSET_NAME" | node --input-type=module -e "
+            import fs from 'node:fs';
+            const entries = fs.readFileSync(0, 'utf8').trim().split('\n').filter(Boolean);
+            const required = ['./dist-server/server/release-update-worker.js', './release-update-metadata.json'];
+            if (entries.some((entry) => entry.includes('image.png') || entry.startsWith('/') || entry.split('/').includes('..') || !entry.startsWith('./')) || required.some((entry) => !entries.includes(entry))) {
+              throw new Error('Archive updater layout is unsafe or incomplete.');
+            }
+          "
 
       - name: Smoke extracted server artifact
         env:
@@ -171,7 +195,8 @@ jobs:
           assets=(release-assets/*)
           if [ "${#assets[@]}" -ne 2 ] ||
              [ ! -f "release-assets/$ASSET_NAME" ] ||
-             [ ! -f "release-assets/$ASSET_NAME.sha256" ]; then
+             [ ! -f "release-assets/$ASSET_NAME.sha256" ] ||
+             [ -e release-assets/image.png ]; then
             echo "Compatibility job received non-canonical release assets." >&2
             exit 1
           fi
@@ -208,11 +233,57 @@ jobs:
           wait "$server_pid" || true
           trap - EXIT
 
+  rollback-compatibility:
+    name: Prove declared database rollback compatibility
+    needs: build
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 22
+          architecture: x64
+      - name: Download just-built canonical server release assets
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: chatmux-server-release
+          path: target-assets
+      - name: Prove target migration and exact old-runtime rollback
+        env:
+          ASSET_NAME: ${{ needs.build.outputs.artifact_name }}
+          GH_TOKEN: ${{ github.token }}
+          CHATMUX_UPDATE_COMPATIBILITY_DECLARATION: packaging/release/update-compatibility.json
+          CHATMUX_RELEASE_REPOSITORY: ${{ github.repository }}
+          CHATMUX_COMPATIBILITY_EVIDENCE_DIR: rollback-compatibility-evidence
+        run: |
+          set -euo pipefail
+          target_version="${ASSET_NAME#chatmux-server-}"
+          target_version="${target_version%-linux-x64-node22.tar.gz}"
+          CHATMUX_TARGET_VERSION="$target_version" \
+          CHATMUX_TARGET_ARCHIVE="target-assets/$ASSET_NAME" \
+          CHATMUX_TARGET_CHECKSUM="target-assets/$ASSET_NAME.sha256" \
+          node scripts/release/verify-db-rollback-compatibility.mjs
+      - name: Upload rollback compatibility evidence
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: rollback-compatibility-evidence
+          path: rollback-compatibility-evidence
+          if-no-files-found: warn
+
   publish:
     name: Publish GitHub Release
     needs:
       - build
       - ubuntu-24-compatibility
+      - rollback-compatibility
     runs-on: ubuntu-22.04
     environment: release
     timeout-minutes: 15
@@ -239,8 +310,9 @@ jobs:
           assets=(release-assets/*)
           if [ "${#assets[@]}" -ne 2 ] ||
              [ ! -f "release-assets/$ASSET_NAME" ] ||
-             [ ! -f "release-assets/$ASSET_NAME.sha256" ]; then
-            echo "Refusing to publish non-canonical release assets." >&2
+             [ ! -f "release-assets/$ASSET_NAME.sha256" ] ||
+             [ -e release-assets/image.png ]; then
+            echo "Refusing to publish non-canonical release assets or image.png." >&2
             exit 1
           fi
           if [ ! -f install.sh ]; then
@@ -251,6 +323,11 @@ jobs:
             cd release-assets
             sha256sum --check "$ASSET_NAME.sha256"
           )
+          tar -tzf "release-assets/$ASSET_NAME" | node --input-type=module -e "
+            import fs from 'node:fs';
+            const entries = fs.readFileSync(0, 'utf8').trim().split('\n').filter(Boolean);
+            if (entries.some((entry) => entry.includes('image.png'))) throw new Error('image.png is forbidden from release publication.');
+          "
 
       - name: Create GitHub Release
         env:

@@ -1,16 +1,14 @@
-import { Settings, ArrowUpCircle, AlertTriangle } from 'lucide-react';
+import { Settings, ArrowUpCircle } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
-import type { ReleaseInfo } from '../../../../types/sharedTypes';
 
 import SidebarInstallButton from './SidebarInstallButton';
 
 const GITHUB_REPO_URL = 'https://github.com/devswha/chatmux';
 
 type SidebarFooterProps = {
-  updateAvailable: boolean;
-  restartRequired: boolean;
-  releaseInfo: ReleaseInfo | null;
+  clientRefreshAvailable: boolean;
+  serverUpdateAvailable: boolean;
   latestVersion: string | null;
   currentVersion: string;
   onShowVersionModal: () => void;
@@ -19,9 +17,8 @@ type SidebarFooterProps = {
 };
 
 export default function SidebarFooter({
-  updateAvailable,
-  restartRequired,
-  releaseInfo,
+  clientRefreshAvailable,
+  serverUpdateAvailable,
   latestVersion,
   currentVersion,
   onShowVersionModal,
@@ -30,31 +27,15 @@ export default function SidebarFooter({
 }: SidebarFooterProps) {
   return (
     <div className="flex-shrink-0" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0)' }}>
-      {/* Restart-required banner: the running server version differs from the
-          installed/frontend version (updated but not restarted). */}
-      {restartRequired && (
+      {(clientRefreshAvailable || serverUpdateAvailable) && (
         <>
           <div className="nav-divider" />
-          <div className="px-2 py-1.5 md:px-2 md:py-1.5">
-            <div className="flex items-center gap-2.5 rounded-lg border border-amber-300/60 bg-amber-50/80 px-2.5 py-2 dark:border-amber-700/40 dark:bg-amber-900/15">
-              <AlertTriangle className="h-4 w-4 flex-shrink-0 text-amber-500 dark:text-amber-400" />
-              <span className="min-w-0 flex-1 text-xs font-medium text-amber-700 dark:text-amber-300">
-                {t('version.restartRequired')}
-              </span>
-            </div>
-          </div>
-        </>
-      )}
-
-      {/* Update banner */}
-      {updateAvailable && (
-        <>
-          <div className="nav-divider" />
-          {/* Desktop update */}
           <div className="hidden px-2 py-1.5 md:block">
             <button
               className="group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-blue-50/80 dark:hover:bg-blue-900/15"
               onClick={onShowVersionModal}
+              aria-label={t('common:versionUpdate.ariaLabels.updateAvailable')}
+              title={t('common:versionUpdate.ariaLabels.updateAvailable')}
             >
               <div className="relative flex-shrink-0">
                 <ArrowUpCircle className="h-4 w-4 text-blue-500 dark:text-blue-400" />
@@ -62,7 +43,7 @@ export default function SidebarFooter({
               </div>
               <div className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-normal text-blue-600 dark:text-blue-300">
-                  {releaseInfo?.title || `v${latestVersion}`}
+                  {serverUpdateAvailable && latestVersion ? `v${latestVersion}` : t('common:versionUpdate.newVersionReady')}
                 </span>
                 <span className="text-[10px] text-blue-500/70 dark:text-blue-400/60">
                   {t('version.updateAvailable')}
@@ -71,11 +52,12 @@ export default function SidebarFooter({
             </button>
           </div>
 
-          {/* Mobile update */}
           <div className="px-3 py-2 md:hidden">
             <button
               className="flex h-11 w-full items-center gap-3 rounded-xl border border-blue-200/60 bg-blue-50/80 px-3.5 transition-all active:scale-[0.98] dark:border-blue-700/40 dark:bg-blue-900/15"
               onClick={onShowVersionModal}
+              aria-label={t('common:versionUpdate.ariaLabels.updateAvailable')}
+              title={t('common:versionUpdate.ariaLabels.updateAvailable')}
             >
               <div className="relative flex-shrink-0">
                 <ArrowUpCircle className="h-4 w-4 text-blue-500 dark:text-blue-400" />
@@ -83,7 +65,7 @@ export default function SidebarFooter({
               </div>
               <div className="min-w-0 flex-1 text-left">
                 <span className="block truncate text-sm font-normal text-blue-600 dark:text-blue-300">
-                  {releaseInfo?.title || `v${latestVersion}`}
+                  {serverUpdateAvailable && latestVersion ? `v${latestVersion}` : t('common:versionUpdate.newVersionReady')}
                 </span>
                 <span className="text-xs text-blue-500/70 dark:text-blue-400/60">
                   {t('version.updateAvailable')}

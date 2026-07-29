@@ -8,6 +8,7 @@ import bcrypt from 'bcrypt';
 
 import {
   assertVpnBindHost,
+  ensureManagedRoot,
   listLanAddresses,
   isUfwEnabled,
   buildManagedEnvironment,
@@ -149,6 +150,95 @@ test('install dry-run computes an automatic plan without writing or invoking sys
   });
   // Access detection is the single command a dry run may issue.
   assert.deepEqual(commands, ['tailscale status --json']);
+});
+function currentEffectiveUid(): number {
+  if (typeof process.geteuid !== 'function') throw new Error('Managed root tests require an effective user ID');
+  return process.geteuid();
+}
+
+test('managed root validation fails before install side effects and detects unstable metadata', async () => {
+  const root = '/tmp/chatmux-managed-root';
+  const stat = (overrides: Partial<{
+    uid: number;
+    dev: number;
+    ino: number;
+    mode: number;
+    symbolicLink: boolean;
+    directory: boolean;
+  }> = {}) => ({
+    uid: currentEffectiveUid(),
+    dev: 1,
+    ino: 2,
+    mode: 0o40700,
+    isSymbolicLink: () => overrides.symbolicLink ?? false,
+    isDirectory: () => overrides.directory ?? true,
+    ...overrides,
+  });
+
+  for (const [name, filesystem, expected] of [
+    ['wrong owner', { lstat: async () => stat({ uid: currentEffectiveUid() + 1 }), chmod: async () => {}, mkdir: async () => {} }, /owned by the effective user/],
+    ['symlink', { lstat: async () => stat({ symbolicLink: true }), chmod: async () => {}, mkdir: async () => {} }, /symbolic link/],
+    ['non-directory', { lstat: async () => stat({ directory: false }), chmod: async () => {}, mkdir: async () => {} }, /must be a directory/],
+    ['lstat failure', { lstat: async () => { throw Object.assign(new Error('failed'), { code: 'EIO' }); }, chmod: async () => {}, mkdir: async () => {} }, /Unable to inspect managed root/],
+    ['chmod failure', { lstat: async () => stat(), chmod: async () => { throw new Error('denied'); }, mkdir: async () => {} }, /Unable to secure managed root permissions/],
+    ['replacement', {
+      lstat: (() => {
+        let calls = 0;
+        return async () => stat({ ino: calls++ === 0 ? 2 : 3 });
+      })(),
+      chmod: async () => {},
+      mkdir: async () => {},
+    }, /was replaced/],
+  ] as const) {
+    await assert.rejects(
+      ensureManagedRoot(root, { filesystem }),
+      expected,
+      name,
+    );
+  }
+});
+test('managed root fails closed when an injected filesystem lacks safety operations', async () => {
+  await assert.rejects(
+    ensureManagedRoot('/tmp/chatmux-managed-root', {
+      effectiveUid: 1,
+      filesystem: {},
+    }),
+    /missing required safety capability/,
+  );
+});
+test('unsafe managed roots stop installation before external commands or managed writes', async () => {
+  const commands: string[] = [];
+  let writes = 0;
+  await assert.rejects(
+    runInstallCli(['--yes'], {
+      appRoot: process.cwd(),
+      version: 'test',
+      home: '/tmp/chatmux-unsafe-managed-root',
+      platform: 'linux',
+      arch: 'x64',
+      nodeVersion: '22.22.2',
+      effectiveUid: () => 1000,
+      managedRootFs: {
+        lstat: async () => ({
+          uid: 2000,
+          dev: 1,
+          ino: 1,
+          mode: 0o40700,
+          isDirectory: () => true,
+          isSymbolicLink: () => false,
+        }),
+        chmod: async () => { writes += 1; },
+        mkdir: async () => { writes += 1; },
+      },
+      run: async (command) => {
+        commands.push(command);
+        return { stdout: '', stderr: '' };
+      },
+    }),
+    /owned by the effective user/,
+  );
+  assert.deepEqual(commands, []);
+  assert.equal(writes, 0);
 });
 
 test('managed install writes a complete isolated service layout before enabling it', async (t) => {

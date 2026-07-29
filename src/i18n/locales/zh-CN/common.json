@@ -134,15 +134,51 @@
     "updateCompleted": "更新成功完成！",
     "restartServer": "请重启 ChatMux 以应用更新。",
     "updateFailed": "更新失败",
+    "versionSummary": "服务器 {{runningVersion}} · 客户端 {{currentVersion}}",
+    "unknownVersion": "未知",
+    "clientRefresh": {
+      "message": "新版服务器前端已准备就绪。刷新此页面不会更新服务器。",
+      "action": "刷新页面"
+    },
+    "serverUpdate": {
+      "sourceAvailable": "可使用 moving-main 源码更新{{version}}。",
+      "releaseAvailable": "可使用精确的发行目标{{version}}。"
+    },
+    "confirm": {
+      "message": "服务器将更新并重启。进行中的网页工作可能会中断。"
+    },
+    "progress": {
+      "message": "正在更新服务器。下载、验证、暂存、重启和运行状况检查的进度会被保留，即使关闭此页面或服务器重启也是如此。"
+    },
+    "success": {
+      "message": "更新已验证。正在刷新页面。"
+    },
+    "errors": {
+      "progress": "无法获取更新进度。请重试或查看恢复日志。",
+      "start": "无法启动服务器更新。只有所有者可以执行更新。",
+      "unverified": "更新后无法验证服务器。可能已回滚；请查看日志。",
+      "failedRolledBack": "更新失败，但已确认回滚恢复了之前的版本。",
+      "failedRollback": "更新和回滚均失败，需要手动恢复。",
+      "manualRequired": "为保持兼容性，需要手动更新或恢复。",
+      "generic": "更新失败。请查看日志以了解回滚、过期或恢复详情。"
+    },
+    "manual": {
+      "title": "需要手动更新",
+      "release": "发行版安装需要按照 docs/SELF-HOST.md 执行经校验和验证的精确目标切换。",
+      "unknown": "安装模式未知。请查阅文档和状态信息以进行更新或恢复。",
+      "copyCommand": "复制源码更新命令"
+    },
     "buttons": {
       "close": "关闭",
       "later": "稍后",
       "copyCommand": "复制命令",
       "updateNow": "立即更新",
+      "confirmUpdate": "更新并重启",
       "updating": "更新中..."
     },
     "ariaLabels": {
       "closeModal": "关闭版本升级模态框",
+      "closeButton": "关闭更新对话框",
       "showSidebar": "显示侧边栏",
       "settings": "设置",
       "updateAvailable": "有可用更新",
