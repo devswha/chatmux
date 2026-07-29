@@ -9,6 +9,7 @@ const GITHUB_REPO_URL = 'https://github.com/devswha/chatmux';
 type SidebarFooterProps = {
   clientRefreshAvailable: boolean;
   serverUpdateAvailable: boolean;
+  installMode: 'source' | 'release' | 'unknown';
   latestVersion: string | null;
   currentVersion: string;
   onShowVersionModal: () => void;
@@ -19,12 +20,20 @@ type SidebarFooterProps = {
 export default function SidebarFooter({
   clientRefreshAvailable,
   serverUpdateAvailable,
+  installMode,
   latestVersion,
   currentVersion,
   onShowVersionModal,
   onShowSettings,
   t,
 }: SidebarFooterProps) {
+  const updateHeadline = serverUpdateAvailable
+    ? installMode === 'source'
+      ? latestVersion ?? t('common:versionUpdate.serverUpdate.sourceAvailable', { version: 'main' })
+      : latestVersion
+        ? `v${latestVersion}`
+        : t('common:versionUpdate.newVersionReady')
+    : t('common:versionUpdate.newVersionReady');
   return (
     <div className="flex-shrink-0" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0)' }}>
       {(clientRefreshAvailable || serverUpdateAvailable) && (
@@ -43,7 +52,7 @@ export default function SidebarFooter({
               </div>
               <div className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-normal text-blue-600 dark:text-blue-300">
-                  {serverUpdateAvailable && latestVersion ? `v${latestVersion}` : t('common:versionUpdate.newVersionReady')}
+                  {updateHeadline}
                 </span>
                 <span className="text-[10px] text-blue-500/70 dark:text-blue-400/60">
                   {t('version.updateAvailable')}
@@ -65,7 +74,7 @@ export default function SidebarFooter({
               </div>
               <div className="min-w-0 flex-1 text-left">
                 <span className="block truncate text-sm font-normal text-blue-600 dark:text-blue-300">
-                  {serverUpdateAvailable && latestVersion ? `v${latestVersion}` : t('common:versionUpdate.newVersionReady')}
+                  {updateHeadline}
                 </span>
                 <span className="text-xs text-blue-500/70 dark:text-blue-400/60">
                   {t('version.updateAvailable')}

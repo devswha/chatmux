@@ -207,13 +207,18 @@ test('a stale client exposes only the standalone localized screen refresh', () =
   assert.ok(!html.includes('versionUpdate.buttons.updateNow'));
 });
 
-test('all update locales use the version suffix interpolation contract', () => {
+test('all update locales interpolate an explicit source or release target version', () => {
   for (const locale of ['de', 'en', 'fr', 'it', 'ja', 'ko', 'ru', 'tr', 'zh-CN', 'zh-TW']) {
     const messages = JSON.parse(
       readFileSync(new URL(`../../../i18n/locales/${locale}/common.json`, import.meta.url), 'utf8'),
     ) as { versionUpdate: { serverUpdate: { sourceAvailable: string; releaseAvailable: string } } };
+    assert.match(messages.versionUpdate.serverUpdate.sourceAvailable, /main/i);
     assert.ok(!messages.versionUpdate.serverUpdate.sourceAvailable.includes('{{latestVersion}}'));
+    assert.ok(messages.versionUpdate.serverUpdate.sourceAvailable.includes('{{version}}'));
     assert.ok(!messages.versionUpdate.serverUpdate.releaseAvailable.includes('{{latestVersion}}'));
     assert.ok(messages.versionUpdate.serverUpdate.releaseAvailable.includes('{{version}}'));
   }
+
+  const modal = readFileSync(new URL('./VersionUpgradeModal.tsx', import.meta.url), 'utf8');
+  assert.match(modal, /sourceAvailable', \{ version: latestVersion \?\? 'main' \}/);
 });

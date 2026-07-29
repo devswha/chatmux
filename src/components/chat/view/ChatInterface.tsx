@@ -218,6 +218,8 @@ function ChatInterface({
     handleInputFocusChange,
     isInputFocused,
     commandModalPayload,
+    commandError,
+    clearCommandError,
     closeCommandModal,
     showCostModal,
   } = useChatComposerState({
@@ -481,6 +483,8 @@ function ChatInterface({
           hasInput={Boolean(input.trim())}
           onClearInput={handleClearInput}
           onSubmit={handleSubmit}
+          commandError={commandError}
+          onClearCommandError={clearCommandError}
           isDragActive={isDragActive}
           queuedDraft={queuedDraft}
           onEditQueuedDraft={editQueuedDraft}

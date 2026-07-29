@@ -2,6 +2,10 @@ import spawn from 'cross-spawn';
 
 import type { IProviderAuth } from '@/shared/interfaces.js';
 import type { ProviderAuthStatus } from '@/shared/types.js';
+import {
+  resolveCursorCliCommand,
+  type CursorCliCommand,
+} from '@/modules/providers/list/cursor/cursor-cli-command.js';
 
 type CursorLoginStatus = {
   authenticated: boolean;
@@ -14,37 +18,20 @@ type CursorVersionProbe = typeof spawn.sync;
 
 export const isCursorAgentInstalled = (
   runVersionProbe: CursorVersionProbe = spawn.sync,
-): boolean => {
-  try {
-    const result = runVersionProbe('cursor-agent', ['--version'], {
-      stdio: 'ignore',
-      timeout: 5000,
-    });
-    return !result.error && result.status === 0;
-  } catch {
-    return false;
-  }
-};
+): boolean => resolveCursorCliCommand(runVersionProbe) !== null;
 
 export class CursorProviderAuth implements IProviderAuth {
   constructor(private readonly runVersionProbe: CursorVersionProbe = spawn.sync) {}
 
   /**
-   * Checks whether the cursor-agent CLI is available on this host.
-   */
-  private checkInstalled(): boolean {
-    return isCursorAgentInstalled(this.runVersionProbe);
-  }
-
-  /**
    * Returns Cursor CLI installation and login status.
    */
   async getStatus(): Promise<ProviderAuthStatus> {
-    const installed = this.checkInstalled();
+    const command = resolveCursorCliCommand(this.runVersionProbe);
 
-    if (!installed) {
+    if (!command) {
       return {
-        installed,
+        installed: false,
         provider: 'cursor',
         authenticated: false,
         email: null,
@@ -53,10 +40,10 @@ export class CursorProviderAuth implements IProviderAuth {
       };
     }
 
-    const login = await this.checkCursorLogin();
+    const login = await this.checkCursorLogin(command);
 
     return {
-      installed,
+      installed: true,
       provider: 'cursor',
       authenticated: login.authenticated,
       email: login.email,
@@ -66,9 +53,9 @@ export class CursorProviderAuth implements IProviderAuth {
   }
 
   /**
-   * Runs cursor-agent status and parses the login marker from stdout.
+   * Runs the resolved Cursor CLI status command and parses the login marker.
    */
-  private checkCursorLogin(): Promise<CursorLoginStatus> {
+  private checkCursorLogin(command: CursorCliCommand): Promise<CursorLoginStatus> {
     return new Promise((resolve) => {
       let processCompleted = false;
       let childProcess: ReturnType<typeof spawn> | undefined;
@@ -87,7 +74,7 @@ export class CursorProviderAuth implements IProviderAuth {
       }, 5000);
 
       try {
-        childProcess = spawn('cursor-agent', ['status']);
+        childProcess = spawn(command, ['status']);
       } catch {
         clearTimeout(timeout);
         processCompleted = true;

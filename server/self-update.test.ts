@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { createServer, request as httpRequest } from 'node:http';
 import { tmpdir } from 'node:os';
@@ -16,6 +17,7 @@ import {
   shellQuote,
   canUpdate,
   discoverCanonicalRelease,
+  discoverSourceUpdate,
   createSystemRouter,
   exactUpdateRequestGuard,
   mapSystemctlIsActiveResult,
@@ -25,6 +27,19 @@ import type { ImmutableUpdateJobDescriptor } from './release-update-contract.js'
 
 function tempRoot(): string {
   return mkdtempSync(path.join(tmpdir(), 'self-update-'));
+}
+function git(cwd: string, args: string[]): string {
+  return execFileSync('git', args, {
+    cwd,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      GIT_AUTHOR_EMAIL: 'test@example.com',
+      GIT_AUTHOR_NAME: 'ChatMux Test',
+      GIT_COMMITTER_EMAIL: 'test@example.com',
+      GIT_COMMITTER_NAME: 'ChatMux Test',
+    },
+  }).trim();
 }
 function releaseJob(index: number): ImmutableUpdateJobDescriptor {
   const id = index.toString(36).padStart(22, '0');
@@ -43,6 +58,40 @@ test('detectInstallMode: git checkout with deploy tooling is source', () => {
   mkdirSync(path.join(root, 'scripts'));
   writeFileSync(path.join(root, 'scripts', 'deploy.sh'), '#!/usr/bin/env bash\n');
   assert.equal(detectInstallMode(root, tempRoot()), 'source');
+});
+
+test('source discovery reports only a different origin/main revision without mutating the checkout', async () => {
+  const root = tempRoot();
+  const remote = path.join(root, 'remote.git');
+  const seed = path.join(root, 'seed');
+  const checkout = path.join(root, 'checkout');
+  mkdirSync(seed);
+  git(root, ['init', '--bare', remote]);
+  git(seed, ['init', '--initial-branch=main']);
+  writeFileSync(path.join(seed, 'package.json'), '{"version":"1.0.0"}\n');
+  git(seed, ['add', 'package.json']);
+  git(seed, ['commit', '-m', 'initial']);
+  git(seed, ['remote', 'add', 'origin', remote]);
+  git(seed, ['push', '-u', 'origin', 'main']);
+  git(root, ['clone', '--branch', 'main', remote, checkout]);
+
+  const current = await discoverSourceUpdate(checkout);
+  assert.equal(current.available, false);
+  assert.equal(current.currentRevision, current.targetRevision);
+
+  const checkoutHead = git(checkout, ['rev-parse', 'HEAD']);
+  writeFileSync(path.join(seed, 'package.json'), '{"version":"1.1.0"}\n');
+  git(seed, ['add', 'package.json']);
+  git(seed, ['commit', '-m', 'next']);
+  git(seed, ['push', 'origin', 'main']);
+
+  const update = await discoverSourceUpdate(checkout);
+  assert.equal(update.available, true);
+  assert.equal(update.currentRevision, checkoutHead);
+  assert.notEqual(update.targetRevision, checkoutHead);
+  assert.equal(update.targetVersion, `main@${update.targetRevision.slice(0, 12)}`);
+  assert.equal(git(checkout, ['rev-parse', 'HEAD']), checkoutHead);
+  assert.equal(git(checkout, ['status', '--porcelain']), '');
 });
 
 test('detectInstallMode: an unpacked release under ~/.chatmux/releases is release', () => {
@@ -157,6 +206,13 @@ test('update request guard requires same-origin trusted literal hosts and bodyle
 test('mounted update boundary rejects malformed POSTs before router effects and preserves source contracts', async () => {
   let launches = 0;
   let discoveries = 0;
+  let sourceDiscoveries = 0;
+  const sourceTarget = {
+    available: true,
+    currentRevision: '1'.repeat(40),
+    targetRevision: '2'.repeat(40),
+    targetVersion: `main@${'2'.repeat(12)}`,
+  };
   const app = express();
   app.use(exactUpdateRequestGuard);
   app.use(express.json());
@@ -164,6 +220,7 @@ test('mounted update boundary rejects malformed POSTs before router effects and 
     appRoot: tempRoot(), home: tempRoot(), serverPort: 3000, bootId: 'boot', mode: 'source',
     launch: async () => { launches += 1; },
     discoverRelease: async () => { discoveries += 1; return { release: releaseJob(9).release, compatibility: releaseJob(9).compatibility }; },
+    discoverSource: async () => { sourceDiscoveries += 1; return sourceTarget; },
   }));
   const server = createServer(app);
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -199,17 +256,63 @@ test('mounted update boundary rejects malformed POSTs before router effects and 
     assert.equal((await fetch(`${baseUrl}/update?ignored=1`, { method: 'POST', headers: updateHeaders })).status, 400);
     assert.equal(launches, 0);
     assert.equal(discoveries, 0);
+    assert.equal(sourceDiscoveries, 0);
     const started = await fetch(`${baseUrl}/update`, { method: 'POST', headers: updateHeaders });
     assert.equal(started.status, 200);
-    const start = await started.json() as { operationId: string; initialBootId: string };
+    const start = await started.json() as { operationId: string; initialBootId: string; targetVersion: string };
     assert.match(start.operationId, /^[A-Za-z0-9_-]{22}$/);
     assert.equal(start.initialBootId, 'boot');
+    assert.equal(start.targetVersion, sourceTarget.targetVersion);
     assert.equal(launches, 1);
     assert.equal(discoveries, 0);
+    assert.equal(sourceDiscoveries, 1);
     assert.equal((await fetch(`${baseUrl}/update`, { method: 'POST', headers: updateHeaders })).status, 429);
-    const status = await (await fetch(`${baseUrl}/update/status`)).json() as { source: { operationId: string; initialBootId: string } };
+    const status = await (await fetch(`${baseUrl}/update/status`)).json() as { source: { operationId: string; initialBootId: string; available: boolean; targetVersion: string } };
     assert.equal(status.source.operationId, start.operationId);
     assert.equal(status.source.initialBootId, 'boot');
+    assert.equal(status.source.available, true);
+    assert.equal(status.source.targetVersion, sourceTarget.targetVersion);
+    assert.equal(sourceDiscoveries, 2);
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
+test('source status and launch reject an unchanged origin/main revision', async () => {
+  let launches = 0;
+  const revision = '3'.repeat(40);
+  const sourceTarget = {
+    available: false,
+    currentRevision: revision,
+    targetRevision: revision,
+    targetVersion: `main@${revision.slice(0, 12)}`,
+  };
+  const app = express();
+  app.use(exactUpdateRequestGuard);
+  app.use(createSystemRouter({
+    appRoot: tempRoot(),
+    home: tempRoot(),
+    serverPort: 3000,
+    bootId: 'boot',
+    mode: 'source',
+    launch: async () => { launches += 1; },
+    discoverSource: async () => sourceTarget,
+  }));
+  const server = createServer(app);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  assert.ok(address && typeof address !== 'string');
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+  try {
+    const status = await (await fetch(`${baseUrl}/update/status`)).json() as { source: typeof sourceTarget };
+    assert.deepEqual(status.source, { ...sourceTarget, inFlight: false });
+
+    const response = await fetch(`${baseUrl}/update`, {
+      method: 'POST',
+      headers: { origin: baseUrl, 'x-chatmux-update-intent': 'start' },
+    });
+    assert.equal(response.status, 409);
+    assert.equal(launches, 0);
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   }

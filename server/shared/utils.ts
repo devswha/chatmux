@@ -1030,7 +1030,7 @@ export async function extractFirstValidJsonlData<T>(
 //----------------- CLI PROMPT ARGUMENT UTILITIES ------------
 /**
  * Makes a prompt safe to pass as one CLI argument to `.cmd`-shimmed tools on
- * Windows (cursor-agent and opencode installed via npm-style shims).
+ * Windows (Cursor CLI `agent` and opencode shims).
  *
  * cmd.exe cannot carry newlines inside an argument: everything after the
  * first newline is silently dropped before the target CLI ever sees it, which

@@ -151,3 +151,17 @@ test('CLI output tab upgrades to an exact-4-tuple interactive attach only with a
   assert.equal(buildTranscriptCliAttachTarget({ tmux: tmuxTarget }), null);
   assert.equal(buildTranscriptCliAttachTarget(null), null);
 });
+
+test('pending CLI output hides the duplicate chat composer while terminal input is active', async () => {
+  const source = await readFile(new URL('./MainContent.tsx', import.meta.url), 'utf8');
+  const branchStart = source.indexOf('&& shouldShowPendingRelay(externalTerminal)');
+  const branchEnd = source.indexOf('// Targets without a locally observable process remain terminal-only.');
+  assert.notEqual(branchStart, -1);
+  assert.ok(branchEnd > branchStart);
+
+  const pendingBranch = source.slice(branchStart, branchEnd);
+  assert.match(
+    pendingBranch,
+    /\{externalTranscriptView === 'conversation' && \(\s*<LiveRelayComposer/,
+  );
+});

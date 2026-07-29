@@ -69,7 +69,6 @@
     "label": "設定",
     "agents": "エージェント",
     "appearance": "外観",
-    "apiTokens": "API & トークン",
     "access": "アクセス"
   },
   "appearanceSettings": {
@@ -124,58 +123,6 @@
   "footerActions": {
     "save": "設定を保存",
     "cancel": "キャンセル"
-  },
-  "apiKeys": {
-    "title": "APIキー",
-    "description": "外部APIにアクセスするためのAPIキーを生成します。",
-    "newKey": {
-      "alertTitle": "⚠️ APIキーを保存してください",
-      "alertMessage": "このキーが表示されるのは今回限りです。安全な場所に保管してください。",
-      "iveSavedIt": "保存しました"
-    },
-    "form": {
-      "placeholder": "APIキーの名前（例: 本番サーバー）",
-      "createButton": "作成",
-      "cancelButton": "キャンセル"
-    },
-    "newButton": "新しいAPIキー",
-    "empty": "APIキーはまだ作成されていません。",
-    "list": {
-      "created": "作成日:",
-      "lastUsed": "最終使用日:"
-    },
-    "confirmDelete": "このAPIキーを削除してもよろしいですか？",
-    "status": {
-      "active": "有効",
-      "inactive": "無効"
-    },
-    "github": {
-      "title": "GitHubトークン",
-      "description": "外部APIからプライベートリポジトリをクローンするためのGitHubパーソナルアクセストークンを追加します。",
-      "descriptionAlt": "プライベートリポジトリをクローンするためのGitHubパーソナルアクセストークンを追加します。保存せずにAPIリクエストで直接トークンを渡すこともできます。",
-      "addButton": "トークンを追加",
-      "form": {
-        "namePlaceholder": "トークンの名前（例: 個人リポジトリ）",
-        "tokenPlaceholder": "GitHubパーソナルアクセストークン（ghp_...）",
-        "descriptionPlaceholder": "説明（任意）",
-        "addButton": "トークンを追加",
-        "cancelButton": "キャンセル",
-        "howToCreate": "GitHubパーソナルアクセストークンの作成方法 →"
-      },
-      "empty": "GitHubトークンはまだ追加されていません。",
-      "added": "追加日:",
-      "confirmDelete": "このGitHubトークンを削除してもよろしいですか？"
-    },
-    "apiDocsLink": "APIドキュメント",
-    "documentation": {
-      "title": "外部APIドキュメント",
-      "description": "外部APIを使用してアプリケーションからClaude/Cursorセッションを起動する方法を学びます。",
-      "viewLink": "APIドキュメントを見る →"
-    },
-    "loading": "読み込み中...",
-    "version": {
-      "updateAvailable": "アップデートあり: v{{version}}"
-    }
   },
   "agents": {
     "authStatus": {

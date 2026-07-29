@@ -27,7 +27,10 @@ import {
   type DiscoveryLane,
   type DiscoveryRow,
 } from '@/modules/providers/services/discovery-collector.service.js';
-import { resolveExternalSessionActivity } from '@/modules/providers/services/external-session-activity.service.js';
+import {
+  resolveExternalSessionActivity,
+  toExternalSessionDisplayActivity,
+} from '@/modules/providers/services/external-session-activity.service.js';
 import { getHomeDir, getHomeDirSuggestions } from '@/modules/providers/services/home-dirs.service.js';
 import { isValidSpawnName, spawnLiveSession } from '@/modules/providers/services/live-send.service.js';
 import { listLiveGjcCommands } from '@/modules/providers/services/live-commands.service.js';
@@ -762,7 +765,7 @@ router.get(
           : {}),
         model: activeModel?.model ?? null,
         effort: activeModel?.effort ?? null,
-        activity: resolution.activity,
+        activity: toExternalSessionDisplayActivity(resolution),
         ...(appSession ? { transcriptEnded: resolution.transcriptEnded } : {}),
       };
     }));

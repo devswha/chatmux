@@ -146,7 +146,7 @@
       "action": "Apply new screen"
     },
     "serverUpdate": {
-      "sourceAvailable": "A moving-main source update is available{{version}}.",
+      "sourceAvailable": "Target: {{version}} (latest main commit). Source updates do not have a fixed release version.",
       "releaseAvailable": "An exact release target is available{{version}}."
     },
     "confirm": {

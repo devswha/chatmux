@@ -141,7 +141,7 @@
       "action": "画面を再読み込み"
     },
     "serverUpdate": {
-      "sourceAvailable": "moving-main のソース更新{{version}}が利用可能です。",
+      "sourceAvailable": "対象: {{version}}（main の最新コミット）。ソース更新には固定のリリースバージョンがありません。",
       "releaseAvailable": "正確なリリース対象{{version}}が利用可能です。"
     },
     "confirm": {

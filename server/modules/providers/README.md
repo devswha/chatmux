@@ -80,9 +80,7 @@ The existing provider folders are `claude`, `codex`, `cursor`, `gjc`, `omp`, and
 - Update `server/shared/types.ts` `LLMProvider`.
 - Update `src/types/app.ts` `LLMProvider` if the frontend should know about it.
 - Update `server/modules/providers/provider.routes.ts`.
-- Update `server/routes/agent.js` if the provider is launchable from the agent runtime.
 - Update `server/index.js` if the provider needs runtime boot or shutdown wiring.
-- Update the `PROVIDER_ORDER` list in `public/api-docs.html` if the provider should appear in the public API docs.
 - Update `src/components/chat/hooks/useChatProviderState.ts` and
   `src/components/chat/view/subcomponents/ProviderSelectionEmptyState.tsx` if
   the provider should be selectable in chat.
@@ -189,6 +187,11 @@ Current session sync roots are:
 | Cursor | `~/.cursor/projects/**/*.jsonl` | Uses sibling `worker.log` to recover `workspacePath`, then derives the session title from the first user prompt. |
 | OpenCode | `~/.local/share/opencode/opencode.db` | Reads active sessions/messages/parts from OpenCode's shared SQLite database and stores `jsonl_path` as `null` so deleting one app session cannot remove the shared DB. |
 
+Cursor runtime commands use the documented `agent` executable and fall back to
+the legacy `cursor-agent` alias. Process discovery accepts the official launcher
+only when its Cursor installation path proves the otherwise generic `agent`
+name.
+
 8. Register the provider.
 
 - Add the new provider class to `server/modules/providers/provider.registry.ts`.
@@ -199,7 +202,6 @@ Current session sync roots are:
 
 If the provider can run live chat sessions, update the runtime entrypoints too:
 
-- `server/routes/agent.js`
 - `server/index.js`
 
 If the provider is visible in the UI, update:

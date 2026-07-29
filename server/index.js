@@ -72,7 +72,6 @@ import authRoutes from './routes/auth.js';
 import cursorRoutes from './routes/cursor.js';
 import commandsRoutes from './routes/commands.js';
 import settingsRoutes from './routes/settings.js';
-import agentRoutes from './routes/agent.js';
 import projectModuleRoutes from './modules/projects/projects.routes.js';
 import userRoutes from './routes/user.js';
 import providerRoutes from './modules/providers/provider.routes.js';
@@ -81,7 +80,7 @@ import { initializeDatabase, projectsDb, sessionsDb, userDb } from './modules/da
 import { startCompletionOutboxDispatcher, startExternalTurnMonitor, startLiveTurnMonitor } from './modules/notifications/index.js';
 import { filesRoutes } from './modules/files/index.js';
 import { configureWebPush } from './services/vapid-keys.js';
-import { validateApiKey, authenticateToken, authenticateWebSocket, AUTH_MODE } from './middleware/auth.js';
+import { authenticateToken, authenticateWebSocket, AUTH_MODE } from './middleware/auth.js';
 import { c } from './utils/colors.js';
 import { evaluateExposure } from './utils/exposure-guard.js';
 
@@ -233,9 +232,6 @@ app.get('/health', (req, res) => {
     });
 });
 
-// Optional API key validation (if configured)
-app.use('/api', validateApiKey);
-
 // Authentication routes (public)
 app.use('/api/auth', authRoutes);
 
@@ -263,9 +259,6 @@ app.use('/api/user', authenticateToken, userRoutes);
 // Unified provider MCP routes (protected)
 app.use('/api/providers', authenticateToken, providerRoutes);
 
-// Agent API Routes (uses API key authentication)
-app.use('/api/agent', agentRoutes);
-
 // System routes (self-update trigger + status, protected)
 app.use('/api/system', authenticateToken, createSystemRouter({
     appRoot: APP_ROOT,
@@ -286,7 +279,7 @@ app.get('/sw.js', (_req, res) => {
     res.setHeader('Expires', '0');
     res.send(source);
 });
-// Serve public files (like api-docs.html)
+// Serve public files
 app.use(express.static(path.join(APP_ROOT, 'public')));
 
 // Static files served after API routes

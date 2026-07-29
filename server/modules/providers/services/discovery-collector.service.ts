@@ -11,7 +11,11 @@ import {
   type ExternalCliSession,
   type ExternalCliSessionsDetailedResult,
 } from './external-cli-sessions.service.js';
-import { resolveExternalSessionActivity } from './external-session-activity.service.js';
+import {
+  resolveExternalSessionActivity,
+  toExternalSessionDisplayActivity,
+  type ExternalSessionDisplayActivity,
+} from './external-session-activity.service.js';
 import {
   getLiveGjcSessionsDetailed,
   type LiveGjcSession,
@@ -37,7 +41,9 @@ export type DiscoveryRow = Readonly<{
   process: TmuxProcessGeneration | null;
   kind: string;
   providerSessionId: string | null;
-  activity: 'running' | 'waiting_user' | 'asking_user' | 'unknown';
+  activity: ExternalSessionDisplayActivity;
+  /** Server-authoritative proof that tmux actions may target this live row. */
+  tmuxActionable?: boolean;
   cwd: string | null;
   lastSeenRevision: number;
   presence: 'present' | 'stale';
@@ -101,6 +107,7 @@ function sameRow(a: DiscoveryRow, b: DiscoveryRow): boolean {
     && a.kind === b.kind
     && a.providerSessionId === b.providerSessionId
     && a.activity === b.activity
+    && a.tmuxActionable === b.tmuxActionable
     && a.cwd === b.cwd
     && a.presence === b.presence
     && a.staleSinceRevision === b.staleSinceRevision;
@@ -163,7 +170,7 @@ export function createDiscoveryCollector(options: DiscoveryCollectorOptions = {}
         : { pid: session.agentPid, startedAtMs: session.startedAtMs },
       kind: session.kind,
       providerSessionId: session.providerSessionId ?? null,
-      activity: (await resolveExternalSessionActivity(session)).activity,
+      activity: toExternalSessionDisplayActivity(await resolveExternalSessionActivity(session)),
       cwd: session.cwd ?? null,
       lastSeenRevision: revision,
       presence: 'present' as const,
@@ -183,6 +190,7 @@ export function createDiscoveryCollector(options: DiscoveryCollectorOptions = {}
         kind: 'gjc',
         providerSessionId: session.id,
         activity: session.running === true ? 'running' : 'unknown',
+        tmuxActionable: session.claim === 'lineage' && session.process !== null,
         cwd: null,
         lastSeenRevision: revision,
         presence: 'present',

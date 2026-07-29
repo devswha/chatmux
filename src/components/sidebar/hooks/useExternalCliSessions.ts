@@ -6,7 +6,7 @@ import { readDiscoveryOk } from '../../../utils/liveSessions';
 import { useWebSocket } from '../../../contexts/WebSocketContext';
 import { useDiscoveryStream, type DiscoveryRow } from '../../../hooks/useDiscoveryStream';
 
-export type ExternalSessionActivity = 'running' | 'waiting_user' | 'asking_user' | 'unknown';
+export type ExternalSessionActivity = 'running' | 'waiting_user' | 'asking_user' | 'error' | 'unknown';
 
 export type ExternalCliSession = {
   tmuxName: string;

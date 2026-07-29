@@ -6,6 +6,7 @@ import type { TmuxPaneIdentity, TmuxProcessGeneration } from '../../shared/tmux'
 import {
   findGjcPromotionCandidate,
   GJC_IDLE_SESSION_PREFIX,
+  isLiveTmuxActionable,
   readDiscoveryOk,
 } from './liveSessions';
 
@@ -56,4 +57,11 @@ test('readDiscoveryOk treats missing discovery metadata as a legacy available re
   assert.equal(readDiscoveryOk({ externalSessions: [] }), true);
   assert.equal(readDiscoveryOk({ discovery: {} }), true);
   assert.equal(readDiscoveryOk({ discovery: { ok: false } }), false);
+});
+
+test('isLiveTmuxActionable accepts fresh stream proof and legacy REST lineage only', () => {
+  assert.equal(isLiveTmuxActionable({ tmuxActionable: true }), true);
+  assert.equal(isLiveTmuxActionable({}, 'lineage'), true);
+  assert.equal(isLiveTmuxActionable({ tmuxActionable: false }, 'cwd'), false);
+  assert.equal(isLiveTmuxActionable({}, undefined), false);
 });

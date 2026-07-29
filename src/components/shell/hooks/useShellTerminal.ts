@@ -9,6 +9,7 @@ import { Terminal } from '@xterm/xterm';
 import type { Project } from '../../../types/app';
 import { copyTextToClipboard } from '../../../utils/clipboard';
 import {
+  TERMINAL_FONT_FAMILY,
   TERMINAL_INIT_DELAY_MS,
   TERMINAL_OPTIONS,
   TERMINAL_RESIZE_DELAY_MS,
@@ -124,6 +125,8 @@ export function useShellTerminal({
       return;
     }
 
+    terminalContainer.style.setProperty('--shell-terminal-font-size', `${TERMINAL_OPTIONS.fontSize ?? 14}px`);
+    terminalContainer.style.fontFamily = TERMINAL_FONT_FAMILY;
     const nextTerminal = new Terminal(TERMINAL_OPTIONS);
     terminalRef.current = nextTerminal;
 
@@ -151,6 +154,7 @@ export function useShellTerminal({
       {
         onFontSizeChange: (fontSize) => {
           nextTerminal.options.fontSize = fontSize;
+          terminalContainer.style.setProperty('--shell-terminal-font-size', `${fontSize}px`);
 
           const currentFitAddon = fitAddonRef.current;
           if (currentFitAddon) {
@@ -286,6 +290,8 @@ export function useShellTerminal({
     resizeObserver.observe(terminalContainer);
 
     return () => {
+      terminalContainer.style.removeProperty('--shell-terminal-font-size');
+      terminalContainer.style.removeProperty('font-family');
       terminalContainer.removeEventListener('copy', handleTerminalCopy);
       resizeObserver.disconnect();
       if (resizeTimeoutRef.current !== null) {

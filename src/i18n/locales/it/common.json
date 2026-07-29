@@ -141,7 +141,7 @@
       "action": "Applica nuova schermata"
     },
     "serverUpdate": {
-      "sourceAvailable": "È disponibile un aggiornamento del codice sorgente dal ramo principale in evoluzione{{version}}.",
+      "sourceAvailable": "Destinazione: {{version}} (ultimo commit su main). Gli aggiornamenti del codice sorgente non hanno una versione di rilascio fissa.",
       "releaseAvailable": "È disponibile una destinazione di release esatta{{version}}."
     },
     "confirm": {

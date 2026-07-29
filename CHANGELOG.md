@@ -4,6 +4,44 @@ All notable changes to ChatMux are documented in this file. Current and
 future server artifacts are published only through
 [GitHub Releases](https://github.com/devswha/chatmux/releases).
 
+## Unreleased
+
+### Changed
+
+- Cursor CLI integration now uses the documented `agent` command for chat,
+  authentication, model discovery, tmux spawning, resume terminals, and live
+  process discovery while retaining the legacy `cursor-agent` fallback.
+- External CLI output mode now dedicates the mobile viewport to the terminal
+  instead of leaving a duplicate chat composer underneath, and xterm uses a
+  modern cross-platform monospace stack for canvas, helper, and IME text.
+  Full redraws also discard stale terminal capability queries so reconnecting
+  cannot inject a terminal response into the active CLI prompt.
+- External Claude, Codex, Cursor, OpenCode, and Oh My Pi panes now resolve their
+  indexed transcript through an unambiguous joined-session lookup, so relayed
+  turns promote from the pending tmux surface into Chat. Detached Codex and OMP
+  spawns also receive a usable terminal grid and the user Node/Bun runtime path.
+- Long-running OpenCode TUIs with multiple standalone sessions in one project now
+  resolve the uniquely most recently updated transcript; concurrent panes and tied
+  update evidence still fail closed instead of guessing.
+- Source-checkout updates now appear only when `origin/main` differs from the
+  running commit, identify the target as `main@<revision>`, and reject no-op
+  update launches.
+- Conversation timelines now suppress recovered or aborted runtime errors, collapse
+  unresolved tool and provider diagnostics behind concise disclosures, avoid duplicate
+  background-task completion rows, and keep slash-command failures beside the composer
+  instead of recording them as assistant messages.
+- Sidebar activity badges now use one provider-independent English vocabulary:
+  `RUN`, `READY`, `INPUT`, and `ERROR`. Confirmed failed turns surface as
+  `ERROR`, while indeterminate indexed sessions remain unlabeled instead of
+  being misreported as failures.
+- Sidebar close controls now offer one explicit whole-tmux-session action instead
+  of exposing separate agent, pane, and session termination scopes. Newly spawned
+  GJC rows receive their server-authoritative close permission through discovery,
+  so the close control appears without a browser refresh.
+- Removed the unused external `/api/agent` automation endpoint, its API-key and
+  GitHub-token settings, the legacy global `API_KEY` gate, and their stored
+  credential tables.
+
 ## 1.4.6 (2026-07-29)
 
 ### Fixed

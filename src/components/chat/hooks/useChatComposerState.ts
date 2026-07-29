@@ -192,6 +192,11 @@ const getNotificationSessionSummary = (
 
   return normalizedFallback.length > 80 ? `${normalizedFallback.slice(0, 77)}...` : normalizedFallback;
 };
+const getCommandErrorMessage = (error: unknown): string => {
+  const message = error instanceof Error ? error.message : '';
+  const normalized = message.replace(/\s+/g, ' ').trim();
+  return normalized.length > 160 ? `${normalized.slice(0, 157)}...` : normalized || 'Unable to execute this command';
+};
 
 export function useChatComposerState({
   selectedProject,
@@ -236,6 +241,10 @@ export function useChatComposerState({
   const [imageErrors, setImageErrors] = useState<Map<string, string>>(new Map());
   const [isTextareaExpanded, setIsTextareaExpanded] = useState(false);
   const [commandModalPayload, setCommandModalPayload] = useState<CommandModalPayload | null>(null);
+  const [commandError, setCommandError] = useState<string | null>(null);
+  const clearCommandError = useCallback(() => {
+    setCommandError(null);
+  }, []);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const inputHighlightRef = useRef<HTMLDivElement>(null);
@@ -262,6 +271,15 @@ export function useChatComposerState({
   // while `queuedDraft` still holds the old session's draft; the persistence
   // effect must not write across that gap.
   const queuedDraftSessionRef = useRef<string | null>(sessionKey);
+
+  useEffect(() => {
+    if (!commandError) {
+      return;
+    }
+
+    const timeout = window.setTimeout(clearCommandError, 8_000);
+    return () => window.clearTimeout(timeout);
+  }, [clearCommandError, commandError]);
 
   const handleBuiltInCommand = useCallback(
     (result: CommandExecutionResult) => {
@@ -339,11 +357,6 @@ export function useChatComposerState({
         'This command contains bash commands that will be executed. Do you want to proceed?',
       );
       if (!confirmed) {
-        addMessage({
-          type: 'assistant',
-          content: 'Command execution cancelled',
-          timestamp: Date.now(),
-        });
         return;
       }
     }
@@ -358,10 +371,13 @@ export function useChatComposerState({
         handleSubmitRef.current(createFakeSubmitEvent());
       }
     }, 0);
-  }, [addMessage]);
+  }, []);
+
 
   const executeCommand = useCallback(
     async (command: SlashCommand, rawInput?: string, options?: { preserveInput?: boolean }) => {
+      clearCommandError();
+
       if (!command || !selectedProject) {
         return;
       }
@@ -425,13 +441,8 @@ export function useChatComposerState({
           await handleCustomCommand(result);
         }
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Unknown error';
         console.error('Error executing command:', error);
-        addMessage({
-          type: 'assistant',
-          content: `Error executing command: ${message}`,
-          timestamp: Date.now(),
-        });
+        setCommandError(getCommandErrorMessage(error));
       }
     },
     [
@@ -441,12 +452,12 @@ export function useChatComposerState({
       cursorModel,
       opencodeModel,
       ompModel,
+      clearCommandError,
       handleBuiltInCommand,
       handleCustomCommand,
       input,
       provider,
       selectedProject,
-      addMessage,
       tokenBudget,
     ],
   );
@@ -1223,6 +1234,8 @@ export function useChatComposerState({
     handleInputFocusChange,
     isInputFocused,
     commandModalPayload,
+    commandError,
+    clearCommandError,
     closeCommandModal,
     showCostModal,
   };

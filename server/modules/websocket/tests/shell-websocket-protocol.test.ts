@@ -11,6 +11,7 @@ import { createVerifiedTmuxActionTarget } from '@/modules/providers/services/tmu
 import {
   handleShellConnection,
   SHELL_PROTOCOL_VERSION,
+  stripTerminalQueriesForRedraw,
   type ShellWebSocketDependencies,
 } from '../services/shell-websocket.service.js';
 
@@ -528,6 +529,13 @@ test('overlapping forceRestart requests replace the current PTY without orphanin
   assert.equal(alive.size, 1);
 });
 
+test('full redraw strips stale terminal queries without altering visible ANSI output', () => {
+  assert.equal(
+    stripTerminalQueriesForRedraw('before\x1b[>c\x1b[6nafter\x1b[31mred\x1b[0m'),
+    'beforeafter\x1b[31mred\x1b[0m',
+  );
+});
+
 test('reconnect with an acknowledged seq resumes seamlessly; legacy and gapped clients redraw', async () => {
   let output: ((chunk: string) => void) | undefined;
   const spawn = (() => ({
@@ -546,7 +554,7 @@ test('reconnect with an acknowledged seq resumes seamlessly; legacy and gapped c
   const first = new FakeWebSocket();
   handleShellConnection(first as never, base);
   await sendInit(first, init);
-  output?.('one');
+  output?.('one\x1b[>c');
   output?.('two');
   output?.('three');
   // Live frames carry the sequence the client will acknowledge later.
@@ -555,6 +563,10 @@ test('reconnect with an acknowledged seq resumes seamlessly; legacy and gapped c
     .filter((frame) => frame.type === 'output' && typeof frame.seq === 'number')
     .map((frame) => frame.seq);
   assert.deepEqual(liveSeqs, [1, 2, 3]);
+  const liveFirst = first.sent
+    .map((frame) => JSON.parse(frame) as { type: string; data?: string; seq?: number })
+    .find((frame) => frame.type === 'output' && frame.seq === 1);
+  assert.equal(liveFirst?.data, 'one\x1b[>c');
   first.emit('close');
 
   // Seamless resume: the client saw seq 2, so only chunk 3 replays — no
@@ -581,6 +593,8 @@ test('reconnect with an acknowledged seq resumes seamlessly; legacy and gapped c
     legacyFrames.filter((frame) => frame.type === 'output' && typeof frame.seq === 'number').map((frame) => frame.seq),
     [1, 2, 3],
   );
+  const legacyFirst = legacyFrames.find((frame) => frame.type === 'output' && frame.seq === 1);
+  assert.equal(legacyFirst?.data, 'one');
   legacy.emit('close');
 
   // A claimed seq the session never produced cannot resume: full redraw.

@@ -5,6 +5,11 @@ import { join } from 'node:path';
 import test from 'node:test';
 
 import {
+  closeConnection,
+  initializeDatabase,
+  sessionsDb,
+} from '@/modules/database/index.js';
+import {
   parseExternalJsonlActivity,
   parseExternalJsonlActivityEvidence,
   parseOmpTranscriptEnded,
@@ -13,9 +18,26 @@ import {
   readExternalSessionActivityDetailed,
   readExternalTranscriptEndedDetailed,
   resolveExternalSessionActivity,
+  toExternalSessionDisplayActivity,
 } from '@/modules/providers/services/external-session-activity.service.js';
 
 const line = (value: unknown) => JSON.stringify(value);
+
+async function withIsolatedDatabase(runTest: () => void | Promise<void>): Promise<void> {
+  const previousDatabasePath = process.env.DATABASE_PATH;
+  const tempDirectory = await mkdtemp(join(tmpdir(), 'external-activity-db-'));
+  closeConnection();
+  process.env.DATABASE_PATH = join(tempDirectory, 'auth.db');
+  await initializeDatabase();
+  try {
+    await runTest();
+  } finally {
+    closeConnection();
+    if (previousDatabasePath === undefined) delete process.env.DATABASE_PATH;
+    else process.env.DATABASE_PATH = previousDatabasePath;
+    await rm(tempDirectory, { recursive: true, force: true });
+  }
+}
 
 test('Oh My Pi activity follows the final turn-relevant JSONL message', () => {
   assert.equal(parseExternalJsonlActivity('omp', [
@@ -201,6 +223,40 @@ test('all external provider parsers classify running, waiting, asking, and unkno
   }
 });
 
+test('default app-session lookup resolves qualified session metadata through the project join', async () => {
+  await withIsolatedDatabase(async () => {
+    sessionsDb.createSession(
+      'native-session',
+      'claude',
+      '/workspace/project',
+      'External session',
+      '2026-01-01T00:00:00.000Z',
+      '2026-01-01T00:00:00.000Z',
+      '/tmp/transcript.jsonl',
+    );
+    const resolved = await resolveExternalSessionActivity(
+      { kind: 'claude', providerSessionId: 'native-session' },
+      {
+        readActivityEvidence: async () => ({
+          status: 'resolved',
+          evidence: {
+            activity: 'waiting_user',
+            terminalOutcome: 'reply_ready',
+            evidenceCursor: 'cursor',
+            evidenceDigest: 'digest',
+          },
+        }),
+        readTranscriptEnded: async () => ({ status: 'resolved', transcriptEnded: false }),
+      },
+    );
+    assert.equal(resolved.status, 'resolved');
+    assert.deepEqual(resolved.appSession, {
+      session_id: 'native-session',
+      project_path: '/workspace/project',
+      custom_name: 'External session',
+    });
+  });
+});
 test('resolver returns app metadata for readable evidence and fails closed for unavailable sources', async () => {
   const appSession = {
     session_id: 'app-session',
@@ -454,6 +510,29 @@ test('OpenCode only treats a completed stop as reply-ready and gives errors prec
     ),
     { activity: 'waiting_user', terminalOutcome: 'failed' },
   );
+});
+test('display activity promotes only confirmed terminal failures to error', () => {
+  assert.equal(toExternalSessionDisplayActivity({
+    status: 'resolved',
+    activity: 'waiting_user',
+    terminalOutcome: 'failed',
+    appSession: null,
+    transcriptEnded: false,
+  }), 'error');
+  assert.equal(toExternalSessionDisplayActivity({
+    status: 'resolved',
+    activity: 'waiting_user',
+    terminalOutcome: 'reply_ready',
+    appSession: null,
+    transcriptEnded: false,
+  }), 'waiting_user');
+  assert.equal(toExternalSessionDisplayActivity({
+    status: 'unavailable',
+    activity: 'unknown',
+    reasonCode: 'transcript_read_unavailable',
+    appSession: null,
+    transcriptEnded: false,
+  }), 'unknown');
 });
 
 test('OMP error records take precedence over nearby asks and completed assistant stops are reply-ready', () => {

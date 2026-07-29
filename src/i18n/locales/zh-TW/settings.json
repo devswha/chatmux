@@ -69,7 +69,6 @@
     "label": "設定",
     "agents": "智慧代理",
     "appearance": "外觀",
-    "apiTokens": "API 和權杖",
     "access": "存取",
     "computer": "電腦使用"
   },
@@ -125,58 +124,6 @@
   "footerActions": {
     "save": "儲存設定",
     "cancel": "取消"
-  },
-  "apiKeys": {
-    "title": "API 金鑰",
-    "description": "產生 API 金鑰以從其他應用程式存取外部 API。",
-    "newKey": {
-      "alertTitle": "⚠️ 儲存您的 API 金鑰",
-      "alertMessage": "這是您唯一一次看到此金鑰。請妥善保存。",
-      "iveSavedIt": "我已儲存"
-    },
-    "form": {
-      "placeholder": "API 金鑰名稱（例如：正式伺服器）",
-      "createButton": "建立",
-      "cancelButton": "取消"
-    },
-    "newButton": "新增 API 金鑰",
-    "empty": "尚未建立 API 金鑰。",
-    "list": {
-      "created": "建立時間：",
-      "lastUsed": "最後使用："
-    },
-    "confirmDelete": "確定要刪除此 API 金鑰嗎？",
-    "status": {
-      "active": "啟用",
-      "inactive": "未啟用"
-    },
-    "github": {
-      "title": "GitHub 權杖",
-      "description": "新增 GitHub 個人存取權杖以透過外部 API 複製私有儲存庫。",
-      "descriptionAlt": "新增 GitHub 個人存取權杖以複製私有儲存庫。您也可以直接在 API 請求中傳遞權杖而無需儲存。",
-      "addButton": "新增權杖",
-      "form": {
-        "namePlaceholder": "權杖名稱（例如：個人儲存庫）",
-        "tokenPlaceholder": "GitHub 個人存取權杖（ghp_...）",
-        "descriptionPlaceholder": "描述（選填）",
-        "addButton": "新增權杖",
-        "cancelButton": "取消",
-        "howToCreate": "如何建立 GitHub 個人存取權杖 →"
-      },
-      "empty": "尚未新增 GitHub 權杖。",
-      "added": "新增時間：",
-      "confirmDelete": "確定要刪除此 GitHub 權杖嗎？"
-    },
-    "apiDocsLink": "API 文件",
-    "documentation": {
-      "title": "外部 API 文件",
-      "description": "了解如何使用外部 API 從您的應用程式觸發 Claude/Cursor 工作階段。",
-      "viewLink": "查看 API 文件 →"
-    },
-    "loading": "載入中...",
-    "version": {
-      "updateAvailable": "有可用更新：v{{version}}"
-    }
   },
   "agents": {
     "authStatus": {

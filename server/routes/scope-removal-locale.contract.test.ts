@@ -45,6 +45,8 @@ test('all exact candidate locale paths are absent after their originating cuts',
     }
     assert.equal(has(chat, 'tasks.nextTaskPrompt'), false, `${language}:chat.tasks.nextTaskPrompt`);
     assert.equal(has(settings, 'mcp'), false, `${language}:settings.mcp`);
+    assert.equal(has(settings, 'apiKeys'), false, `${language}:settings.apiKeys`);
+    assert.equal(has(settings, 'mainTabs.apiTokens'), false, `${language}:settings.mainTabs.apiTokens`);
   }
 });
 

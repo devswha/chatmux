@@ -69,7 +69,6 @@
     "label": "设置",
     "agents": "智能体",
     "appearance": "外观",
-    "apiTokens": "API 和令牌",
     "access": "访问",
     "computer": "计算机使用"
   },
@@ -125,58 +124,6 @@
   "footerActions": {
     "save": "保存设置",
     "cancel": "取消"
-  },
-  "apiKeys": {
-    "title": "API 密钥",
-    "description": "生成 API 密钥以从其他应用访问外部 API。",
-    "newKey": {
-      "alertTitle": "⚠️ 保存您的 API 密钥",
-      "alertMessage": "这是您唯一一次看到此密钥。请妥善保存。",
-      "iveSavedIt": "我已保存"
-    },
-    "form": {
-      "placeholder": "API 密钥名称（例如：生产服务器）",
-      "createButton": "创建",
-      "cancelButton": "取消"
-    },
-    "newButton": "新建 API 密钥",
-    "empty": "尚未创建 API 密钥。",
-    "list": {
-      "created": "创建时间：",
-      "lastUsed": "最后使用："
-    },
-    "confirmDelete": "确定要删除此 API 密钥吗？",
-    "status": {
-      "active": "激活",
-      "inactive": "未激活"
-    },
-    "github": {
-      "title": "GitHub 令牌",
-      "description": "添加 GitHub 个人访问令牌以通过外部 API 克隆私有仓库。",
-      "descriptionAlt": "添加 GitHub 个人访问令牌以克隆私有仓库。您也可以直接在 API 请求中传递令牌而无需存储。",
-      "addButton": "添加令牌",
-      "form": {
-        "namePlaceholder": "令牌名称（例如：个人仓库）",
-        "tokenPlaceholder": "GitHub 个人访问令牌（ghp_...）",
-        "descriptionPlaceholder": "描述（可选）",
-        "addButton": "添加令牌",
-        "cancelButton": "取消",
-        "howToCreate": "如何创建 GitHub 个人访问令牌 →"
-      },
-      "empty": "尚未添加 GitHub 令牌。",
-      "added": "添加时间：",
-      "confirmDelete": "确定要删除此 GitHub 令牌吗？"
-    },
-    "apiDocsLink": "API 文档",
-    "documentation": {
-      "title": "外部 API 文档",
-      "description": "了解如何使用外部 API 从您的应用程序触发 Claude/Cursor 会话。",
-      "viewLink": "查看 API 文档 →"
-    },
-    "loading": "加载中...",
-    "version": {
-      "updateAvailable": "有可用更新：v{{version}}"
-    }
   },
   "agents": {
     "authStatus": {

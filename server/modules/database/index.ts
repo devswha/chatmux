@@ -12,10 +12,7 @@ export {
   type CompletionExternalGenerationIdentity,
   type CompletionPaneEvidenceIdentity,
 } from '@/modules/database/services/completion-target-identity.service.js';
-export { apiKeysDb } from '@/modules/database/repositories/api-keys.js';
 export { appConfigDb } from '@/modules/database/repositories/app-config.js';
-export { credentialsDb } from '@/modules/database/repositories/credentials.js';
-export { githubTokensDb } from '@/modules/database/repositories/github-tokens.js';
 export { notificationPreferencesDb } from '@/modules/database/repositories/notification-preferences.js';
 export {
   completionNotificationOutboxDb,

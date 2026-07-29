@@ -32,6 +32,7 @@ type SidebarContentProps = {
   onCollapseSidebar: () => void;
   clientRefreshAvailable: boolean;
   serverUpdateAvailable: boolean;
+  installMode: 'source' | 'release' | 'unknown';
   latestVersion: string | null;
   currentVersion: string;
   onShowVersionModal: () => void;
@@ -62,6 +63,7 @@ export default function SidebarContent({
   onCollapseSidebar,
   clientRefreshAvailable,
   serverUpdateAvailable,
+  installMode,
   latestVersion,
   currentVersion,
   onShowVersionModal,
@@ -130,6 +132,7 @@ export default function SidebarContent({
       <SidebarFooter
         clientRefreshAvailable={clientRefreshAvailable}
         serverUpdateAvailable={serverUpdateAvailable}
+        installMode={installMode}
         latestVersion={latestVersion}
         currentVersion={currentVersion}
         onShowVersionModal={onShowVersionModal}

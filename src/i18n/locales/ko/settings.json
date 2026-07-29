@@ -69,7 +69,6 @@
     "label": "설정",
     "agents": "에이전트",
     "appearance": "외관",
-    "apiTokens": "API & 토큰",
     "access": "접근 관리"
   },
   "appearanceSettings": {
@@ -124,58 +123,6 @@
   "footerActions": {
     "save": "설정 저장",
     "cancel": "취소"
-  },
-  "apiKeys": {
-    "title": "API 키",
-    "description": "다른 애플리케이션에서 외부 API에 접근하기 위한 API 키를 생성합니다.",
-    "newKey": {
-      "alertTitle": "⚠️ API 키를 저장하세요",
-      "alertMessage": "이 키는 지금만 볼 수 있습니다. 안전하게 보관하세요.",
-      "iveSavedIt": "저장했습니다"
-    },
-    "form": {
-      "placeholder": "API 키 이름 (예: Production Server)",
-      "createButton": "생성",
-      "cancelButton": "취소"
-    },
-    "newButton": "새 API 키",
-    "empty": "생성된 API 키가 없습니다.",
-    "list": {
-      "created": "생성일:",
-      "lastUsed": "마지막 사용:"
-    },
-    "confirmDelete": "이 API 키를 삭제하시겠습니까?",
-    "status": {
-      "active": "활성",
-      "inactive": "비활성"
-    },
-    "github": {
-      "title": "GitHub 토큰",
-      "description": "외부 API를 통해 비공개 저장소를 clone하기 위한 GitHub Personal Access Token을 추가합니다.",
-      "descriptionAlt": "비공개 저장소를 clone하기 위한 GitHub Personal Access Token을 추가합니다. 저장하지 않고 API 요청에 직접 토큰을 전달할 수도 있습니다.",
-      "addButton": "토큰 추가",
-      "form": {
-        "namePlaceholder": "토큰 이름 (예: Personal Repos)",
-        "tokenPlaceholder": "GitHub Personal Access Token (ghp_...)",
-        "descriptionPlaceholder": "설명 (선택사항)",
-        "addButton": "토큰 추가",
-        "cancelButton": "취소",
-        "howToCreate": "GitHub Personal Access Token 생성 방법 →"
-      },
-      "empty": "추가된 GitHub 토큰이 없습니다.",
-      "added": "추가일:",
-      "confirmDelete": "이 GitHub 토큰을 삭제하시겠습니까?"
-    },
-    "apiDocsLink": "API 문서",
-    "documentation": {
-      "title": "외부 API 문서",
-      "description": "외부 API를 사용하여 애플리케이션에서 Claude/Cursor 세션을 트리거하는 방법을 알아보세요.",
-      "viewLink": "API 문서 보기 →"
-    },
-    "loading": "로딩 중...",
-    "version": {
-      "updateAvailable": "업데이트 가능: v{{version}}"
-    }
   },
   "agents": {
     "authStatus": {

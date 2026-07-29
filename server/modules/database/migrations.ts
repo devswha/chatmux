@@ -598,6 +598,13 @@ const MIGRATIONS: Migration[] = [
       removeArchiveColumn(db, 'projects');
     },
   },
+  {
+    version: 15,
+    migrate: (db) => {
+      db.exec('DROP TABLE IF EXISTS api_keys');
+      db.exec('DROP TABLE IF EXISTS user_credentials');
+    },
+  },
 ];
 
 export const runMigrations = (db: Database) => {

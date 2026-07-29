@@ -4,6 +4,7 @@ import { appendImagesInputTag } from './shared/image-attachments.js';
 import { sessionsService } from './modules/providers/services/sessions.service.js';
 import { providerAuthService } from './modules/providers/services/provider-auth.service.js';
 import { providerModelsService } from './modules/providers/services/provider-models.service.js';
+import { cursorCliCommandOrDefault } from './modules/providers/list/cursor/cursor-cli-command.js';
 import { createCompleteMessage, createNormalizedMessage, flattenPromptForWindowsShell } from './shared/utils.js';
 
 // cross-spawn resolves .cmd shims/PATHEXT on Windows and delegates to
@@ -30,6 +31,7 @@ function isWorkspaceTrustPrompt(text = '') {
 async function spawnCursor(command, options = {}, ws) {
   const { sessionId, projectPath, cwd, toolsSettings, skipPermissions, model, images } = options;
   const resolvedModel = await providerModelsService.resolveResumeModel('cursor', sessionId, model);
+  const cursorCommand = cursorCliCommandOrDefault();
 
   return new Promise((resolve, reject) => {
     let capturedSessionId = sessionId; // Track session ID throughout the process
@@ -60,7 +62,7 @@ async function spawnCursor(command, options = {}, ws) {
       // Provide a prompt (works for both new and resumed sessions). Image
       // attachments ride along as an <images_input> path list appended to the
       // prompt; the session history reader strips the tag back out for display.
-      // cursor-agent is a .cmd shim on Windows, so the whole argument must be
+      // Cursor CLI is shimmed on Windows, so the whole argument must be
       // newline-free or cmd.exe silently truncates it at the first newline.
       baseArgs.push('-p', flattenPromptForWindowsShell(appendImagesInputTag(command, images)));
 
@@ -102,7 +104,7 @@ async function spawnCursor(command, options = {}, ws) {
         console.log('Retrying Cursor CLI with --trust after workspace trust prompt');
       }
 
-      const cursorProcess = spawnFunction('cursor-agent', args, {
+      const cursorProcess = spawnFunction(cursorCommand, args, {
         cwd: workingDir,
         stdio: ['pipe', 'pipe', 'pipe'],
         env: { ...process.env } // Inherit all environment variables

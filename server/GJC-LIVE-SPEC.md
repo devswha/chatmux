@@ -32,7 +32,7 @@ gjc -p --mode json --session-dir <dir> [-r <providerSessionId>] [--model <model>
 ### Application process
 
 `server/gjc-worker-client.ts` is the only production GJC execution facade used
-by `server/index.js` and `server/routes/agent.js`. It owns:
+by `server/index.js`. It owns:
 
 - one lazily started, long-lived native-core and worker generation;
 - application session scope and immutable run IDs;

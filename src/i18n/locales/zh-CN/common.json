@@ -141,7 +141,7 @@
       "action": "刷新页面"
     },
     "serverUpdate": {
-      "sourceAvailable": "可使用 moving-main 源码更新{{version}}。",
+      "sourceAvailable": "目标：{{version}}（main 分支的最新提交）。源码更新没有固定的发行版本。",
       "releaseAvailable": "可使用精确的发行目标{{version}}。"
     },
     "confirm": {

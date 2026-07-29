@@ -242,7 +242,15 @@ const fxFixtures: Array<{ id: string; seed: (db: Database.Database) => void; ver
       runMigrations(db);
     },
     verify: (db) => {
-      assert.deepEqual(migrationVersions(db), Array.from({ length: 14 }, (_, index) => index + 1));
+      assert.deepEqual(migrationVersions(db), Array.from({ length: 15 }, (_, index) => index + 1));
+      assert.equal(
+        get<Row>(db, "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'api_keys'"),
+        undefined,
+      );
+      assert.equal(
+        get<Row>(db, "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'user_credentials'"),
+        undefined,
+      );
       assert.ok(get<Row>(db, "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_sessions_provider_session_id'"));
       assert.deepEqual(
         all<TableInfoRow>(
@@ -457,12 +465,12 @@ test('replays a complete pre-journal database without changing data, schema, or 
 
     runMigrations(db);
     assert.deepEqual(snapshot(), beforeReplay);
-    assert.deepEqual(migrationVersions(db), Array.from({ length: 14 }, (_, index) => index + 1));
+    assert.deepEqual(migrationVersions(db), Array.from({ length: 15 }, (_, index) => index + 1));
 
     const afterReplay = snapshot();
     runMigrations(db);
     assert.deepEqual(snapshot(), afterReplay);
-    assert.deepEqual(migrationVersions(db), Array.from({ length: 14 }, (_, index) => index + 1));
+    assert.deepEqual(migrationVersions(db), Array.from({ length: 15 }, (_, index) => index + 1));
     assertForeignKeysValid(db);
   } finally {
     db.close();
@@ -476,6 +484,31 @@ type DestructiveFixture = {
   seed: (db: Database.Database) => void;
   assertSourcePreserved: (db: Database.Database) => void;
   assertRecovered: (db: Database.Database) => void;
+};
+
+const seedRetiredCredentialTables = (db: Database.Database): void => {
+  db.exec(`
+    CREATE TABLE api_keys (api_key TEXT);
+    INSERT INTO api_keys VALUES ('ck_secret');
+    CREATE TABLE user_credentials (credential_value TEXT);
+    INSERT INTO user_credentials VALUES ('github-secret');
+  `);
+};
+
+const assertRetiredCredentialTablesPreserved = (db: Database.Database): void => {
+  assert.deepEqual(get<Row>(db, 'SELECT * FROM api_keys'), { api_key: 'ck_secret' });
+  assert.deepEqual(get<Row>(db, 'SELECT * FROM user_credentials'), { credential_value: 'github-secret' });
+};
+
+const assertRetiredCredentialTablesRemoved = (db: Database.Database): void => {
+  assert.equal(
+    get<Row>(db, "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'api_keys'"),
+    undefined,
+  );
+  assert.equal(
+    get<Row>(db, "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'user_credentials'"),
+    undefined,
+  );
 };
 
 const destructiveFixtures: DestructiveFixture[] = [
@@ -587,6 +620,28 @@ const destructiveFixtures: DestructiveFixture[] = [
       get<Row>(db, "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'workspace_original_paths'"),
       undefined
     ),
+  },
+  {
+    name: 'retired api_keys DROP',
+    version: 15,
+    dropSql: 'DROP TABLE IF EXISTS api_keys',
+    seed: (db) => {
+      seedRetiredCredentialTables(db);
+      seedJournalThrough(db, 14);
+    },
+    assertSourcePreserved: assertRetiredCredentialTablesPreserved,
+    assertRecovered: assertRetiredCredentialTablesRemoved,
+  },
+  {
+    name: 'retired user_credentials DROP',
+    version: 15,
+    dropSql: 'DROP TABLE IF EXISTS user_credentials',
+    seed: (db) => {
+      seedRetiredCredentialTables(db);
+      seedJournalThrough(db, 14);
+    },
+    assertSourcePreserved: assertRetiredCredentialTablesPreserved,
+    assertRecovered: assertRetiredCredentialTablesRemoved,
   },
 ];
 

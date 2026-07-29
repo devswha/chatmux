@@ -12,7 +12,6 @@
   "files": [
     "server/",
     "shared/",
-    "public/api-docs.html",
     "dist/",
     "dist-server/",
     "dist-native/",
@@ -92,7 +91,6 @@
     "@codemirror/merge": "^6.11.1",
     "@codemirror/theme-one-dark": "^6.1.2",
     "@iarna/toml": "^2.2.5",
-    "@octokit/rest": "^22.0.0",
     "@openai/codex-sdk": "0.144.6",
     "@replit/codemirror-minimap": "^0.5.2",
     "@tailwindcss/typography": "^0.5.16",

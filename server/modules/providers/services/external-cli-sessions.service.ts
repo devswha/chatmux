@@ -8,6 +8,10 @@ import Database from 'better-sqlite3';
 
 import { sessionsDb } from '@/modules/database/index.js';
 import { providerRegistry } from '@/modules/providers/provider.registry.js';
+import {
+  CURSOR_CLI_COMMAND_CANDIDATES,
+  isCursorCliProcess,
+} from '@/modules/providers/list/cursor/cursor-cli-command.js';
 
 import {
   tmuxPaneIdentityKey,
@@ -158,6 +162,7 @@ type FreshIndexedProviderSession = {
   kind: ExternalLocalCliKind;
   cwd: string;
   createdAtMs: number;
+  updatedAtMs?: number;
   diskDiscovered: boolean;
 };
 
@@ -253,14 +258,15 @@ export function assignFreshIndexedProviderSessionIds(
 
 /**
  * A long-running TUI can create its first transcript well after the fresh
- * launch window. Bind it only when one unresolved process and one
- * disk-discovered transcript remain for the exact provider + cwd.
+ * launch window. Bind it only when the full live process set has one process
+ * for the exact provider + cwd; direct and fresh peers must still block inference.
  */
 export function assignUniqueIndexedProviderSessionIds(
   processes: ExternalCliSession[],
   sessions: FreshIndexedProviderSession[],
   alreadyAssigned: ReadonlyMap<string, string>,
   nowMs = Date.now(),
+  allProcesses: readonly ExternalCliSession[] = processes,
 ): Map<string, string> {
   const assigned = new Map(alreadyAssigned);
   const claimed = new Set(assigned.values());
@@ -274,9 +280,8 @@ export function assignUniqueIndexedProviderSessionIds(
       continue;
     }
     const startedAtMs = process.startedAtMs;
-    const peers = processes.filter((candidate) => (
-      !assigned.has(tmuxPaneIdentityKey(candidate.tmux))
-      && candidate.kind === process.kind
+    const peers = allProcesses.filter((candidate) => (
+      candidate.kind === process.kind
       && candidate.cwd === process.cwd
     ));
     if (peers.length !== 1) {
@@ -290,11 +295,30 @@ export function assignUniqueIndexedProviderSessionIds(
       && session.createdAtMs >= startedAtMs - 1_000
       && session.createdAtMs <= nowMs + 5_000
     ));
-    if (candidates.length !== 1) {
+    let candidate: FreshIndexedProviderSession | undefined;
+    if (candidates.length === 1) {
+      [candidate] = candidates;
+    } else if (
+      process.kind === 'opencode'
+      && candidates.length > 1
+      && candidates.every((session) => (
+        typeof session.updatedAtMs === 'number'
+        && Number.isFinite(session.updatedAtMs)
+        && session.updatedAtMs >= session.createdAtMs
+        && session.updatedAtMs <= nowMs + 5_000
+      ))
+    ) {
+      const latestUpdatedAtMs = Math.max(...candidates.map((session) => session.updatedAtMs ?? Number.NEGATIVE_INFINITY));
+      const latestCandidates = candidates.filter((session) => session.updatedAtMs === latestUpdatedAtMs);
+      if (latestCandidates.length === 1) {
+        [candidate] = latestCandidates;
+      }
+    }
+    if (!candidate) {
       continue;
     }
-    assigned.set(targetKey, candidates[0].id);
-    claimed.add(candidates[0].id);
+    assigned.set(targetKey, candidate.id);
+    claimed.add(candidate.id);
   }
   return assigned;
 }
@@ -409,7 +433,7 @@ function processCliKind(proc: Pick<ProcessTreeEntry, 'comm' | 'args'>): External
   if (executable('gjc')) return 'gjc';
   if (executable('claude')) return 'claude';
   if (executable('codex')) return 'codex';
-  if (executable('cursor-agent')) return 'cursor';
+  if (isCursorCliProcess(proc)) return 'cursor';
   if (executable('opencode')) return 'opencode';
   if (executable('omp')) return 'omp';
   if (executable('ssh')) return 'ssh';
@@ -486,8 +510,19 @@ export function classifyExternalSessions(args: {
     if (directShellOmp) {
       kinds.add('omp');
     }
+    // The documented Cursor `agent` launcher execs a Node process, so tmux may
+    // report `agent`, `node`, or `MainThread` while the shell-owned child argv
+    // carries the Cursor installation path that proves its identity.
+    const directShellCursor = isInteractiveShellProcess(procByPid.get(pane.pid))
+      && ['agent', 'node', 'mainthread'].includes(pane.command.toLowerCase())
+      && subtreeKinds.some(({ kind, proc }) => kind === 'cursor' && proc.ppid === pane.pid);
+    if (directShellCursor) {
+      kinds.add('cursor');
+    }
 
-    const foregroundKind = processCliKind({ comm: pane.command });
+    const paneRootProcess = procByPid.get(pane.pid);
+    const foregroundKind = processCliKind({ comm: pane.command })
+      ?? (paneRootProcess ? processCliKind(paneRootProcess) : null);
     if (foregroundKind) {
       kinds.add(foregroundKind);
     } else if (
@@ -842,13 +877,14 @@ async function inferIndexedProviderSessionIds(
         kind: session.kind,
         cwd: session.cwd,
         createdAtMs: new Date(row.created_at).getTime(),
+        updatedAtMs: new Date(row.updated_at).getTime(),
         diskDiscovered: true,
       });
     }
   }
   const fresh = assignFreshIndexedProviderSessionIds(unresolved, candidates);
   return new Map(
-    [...assignUniqueIndexedProviderSessionIds(unresolved, candidates, fresh)]
+    [...assignUniqueIndexedProviderSessionIds(unresolved, candidates, fresh, Date.now(), sessions)]
       .filter(([targetKey]) => attemptableTargetKeys.has(targetKey)),
   );
 }
@@ -936,12 +972,12 @@ export async function resolveExternalCliCwd(input: string): Promise<string | nul
 
 export type ExternalSpawnCli = ExternalLocalCliKind;
 
-const EXTERNAL_CLI_COMMAND: Record<ExternalSpawnCli, string> = {
-  claude: 'claude',
-  codex: 'codex',
-  cursor: 'cursor-agent',
-  opencode: 'opencode',
-  omp: 'omp',
+const EXTERNAL_CLI_COMMANDS: Record<ExternalSpawnCli, readonly string[]> = {
+  claude: ['claude'],
+  codex: ['codex'],
+  cursor: CURSOR_CLI_COMMAND_CANDIDATES,
+  opencode: ['opencode'],
+  omp: ['omp'],
 };
 
 type ExternalCliExecutableResolverOptions = {
@@ -958,14 +994,33 @@ export function withoutNodeModulesBins(pathValue: string): string {
     .join(delimiter);
 }
 
+export function buildExternalCliRuntimePath(
+  pathValue = process.env.PATH ?? '',
+  home = homedir(),
+  nodeExecutable = process.execPath,
+  executable?: string,
+): string {
+  const preferred = [
+    executable ? dirname(executable) : null,
+    join(home, '.local', 'bin'),
+    join(home, '.bun', 'bin'),
+    join(home, '.cargo', 'bin'),
+    dirname(nodeExecutable),
+  ].filter((entry): entry is string => Boolean(entry));
+  const inherited = withoutNodeModulesBins(pathValue).split(delimiter).filter(Boolean);
+  return [...new Set([...preferred, ...inherited])].join(delimiter);
+}
+
 /** Resolves user-installed agents without letting ChatMux's npm scripts shadow them. */
 export async function resolveExternalCliExecutable(
   cli: ExternalSpawnCli,
   options: ExternalCliExecutableResolverOptions = {},
 ): Promise<string> {
-  const command = EXTERNAL_CLI_COMMAND[cli];
+  const commands = EXTERNAL_CLI_COMMANDS[cli];
   const platform = options.platform ?? process.platform;
-  const searchPath = withoutNodeModulesBins(options.path ?? process.env.PATH ?? '');
+  const searchPath = options.path === undefined
+    ? buildExternalCliRuntimePath()
+    : withoutNodeModulesBins(options.path);
   const extensions = platform === 'win32'
     ? (options.pathExt ?? process.env.PATHEXT ?? '.EXE;.CMD;.BAT;.COM').split(';')
     : [''];
@@ -979,22 +1034,41 @@ export async function resolveExternalCliExecutable(
   });
 
   for (const directory of searchPath.split(delimiter).filter(Boolean)) {
-    for (const extension of extensions) {
-      const candidate = join(directory, `${command}${extension}`);
-      if (await isExecutable(candidate)) {
-        return candidate;
+    for (const command of commands) {
+      for (const extension of extensions) {
+        const candidate = join(directory, `${command}${extension}`);
+        if (await isExecutable(candidate)) {
+          return candidate;
+        }
       }
     }
   }
-  return command;
+  return commands[0];
+}
+
+export function buildExternalCliTmuxSpawnArgs(
+  executable: string,
+  tmuxName: string,
+  cwd: string,
+  runtimePath = buildExternalCliRuntimePath(process.env.PATH ?? '', homedir(), process.execPath, executable),
+): string[] {
+  // Codex and OMP terminate during detached startup without an initial grid.
+  // The explicit PATH also preserves user-installed Node/Bun launchers when
+  // ChatMux itself runs under systemd's intentionally minimal environment.
+  return [
+    'new-session', '-d',
+    '-x', '120', '-y', '40',
+    '-e', `PATH=${runtimePath}`,
+    '-s', tmuxName,
+    '-c', cwd,
+    '/usr/bin/env', `PATH=${runtimePath}`, executable,
+  ];
 }
 
 /** Boots and tags a native CLI in a fresh detached tmux session. */
 export async function spawnExternalCliSession(cli: ExternalSpawnCli, tmuxName: string, cwd: string): Promise<void> {
   const executable = await resolveExternalCliExecutable(cli);
-  await runCommand('tmux', [
-    'new-session', '-d', '-s', tmuxName, '-c', cwd, executable,
-  ]);
+  await runCommand('tmux', buildExternalCliTmuxSpawnArgs(executable, tmuxName, cwd));
   try {
     await runCommand('tmux', ['set-option', '-t', tmuxName, '@chatmux_cli_kind', cli]);
   } catch (error) {

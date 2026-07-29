@@ -39,16 +39,16 @@ export const BashCommandDisplay: React.FC<BashCommandDisplayProps> = ({
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  // Output (and errors) often arrive after this component first mounts, so apply
-  // the auto-open intent once when there is finally something to show. After that
+  // Output may arrive after this component first mounts, so apply the
+  // default-open intent once when there is finally something to show. After that
   // the user is in control of the toggle.
   const autoAppliedRef = useRef(false);
   useEffect(() => {
-    if (!autoAppliedRef.current && hasOutput && (defaultOpen || isError)) {
+    if (!autoAppliedRef.current && hasOutput && defaultOpen) {
       autoAppliedRef.current = true;
       setOpen(true);
     }
-  }, [hasOutput, defaultOpen, isError]);
+  }, [hasOutput, defaultOpen]);
 
   const toggle = () => {
     if (hasOutput) {

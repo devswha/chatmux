@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import crossSpawn from 'cross-spawn';
 
+import { cursorCliCommandOrDefault } from '@/modules/providers/list/cursor/cursor-cli-command.js';
 import type { IProviderModels } from '@/shared/interfaces.js';
 import type {
   ProviderChangeActiveModelInput,
@@ -631,7 +632,8 @@ const parseModelsOutput = (text: string): CursorModelRow[] => {
 };
 
 const runCursorListModels = (): Promise<string> => new Promise((resolve, reject) => {
-  const cursorProcess = spawnFunction('cursor-agent', ['--list-models'], {
+  const command = cursorCliCommandOrDefault();
+  const cursorProcess = spawnFunction(command, ['--list-models'], {
     env: { ...process.env },
   });
 
@@ -643,7 +645,7 @@ const runCursorListModels = (): Promise<string> => new Promise((resolve, reject)
     cursorProcess.kill('SIGTERM');
     if (!settled) {
       settled = true;
-      reject(new Error('cursor-agent --list-models timed out'));
+      reject(new Error(`${command} --list-models timed out`));
     }
   }, CURSOR_MODELS_TIMEOUT_MS);
 
@@ -677,7 +679,7 @@ const runCursorListModels = (): Promise<string> => new Promise((resolve, reject)
 
   cursorProcess.on('close', (code) => {
     if (code !== 0) {
-      finish(new Error(stderr.trim() || `cursor-agent --list-models exited with code ${code}`), '');
+      finish(new Error(stderr.trim() || `${command} --list-models exited with code ${code}`), '');
       return;
     }
 

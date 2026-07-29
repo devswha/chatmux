@@ -46,12 +46,11 @@
   "externalSessions": {
     "viewInTerminal": "Открыть tmux-сеанс '{{name}}' в терминале",
     "openConversation": "Открыть диалог для {{name}}",
-    "stopOptions": "Параметры остановки {{name}}",
+    "closeSessionTitle": "Закрыть сеанс tmux «{{name}}»",
+    "closeSessionConfirm": "Все панели и процессы в «{{name}}» будут остановлены.",
+    "closeSession": "Закрыть",
     "stopFailed": "Не удалось остановить сеанс",
     "stopping": "Остановка…",
-    "stopScope": "Область остановки",
-    "agent": "Агент",
-    "session": "Сеанс",
     "cancel": "Отмена",
     "activity": {
       "running": "Агент отвечает или запускает инструменты",

@@ -31,12 +31,11 @@
   "externalSessions": {
     "viewInTerminal": "Tmux-Sitzung '{{name}}' im Terminal anzeigen",
     "openConversation": "Unterhaltung für {{name}} öffnen",
-    "stopOptions": "Optionen zum Beenden von {{name}}",
+    "closeSessionTitle": "Tmux-Sitzung '{{name}}' schließen",
+    "closeSessionConfirm": "Alle Bereiche und Prozesse in '{{name}}' werden beendet.",
+    "closeSession": "Schließen",
     "stopFailed": "Sitzung konnte nicht beendet werden",
     "stopping": "Wird beendet…",
-    "stopScope": "Beendigungsbereich",
-    "agent": "Agent",
-    "session": "Sitzung",
     "cancel": "Abbrechen",
     "activity": {
       "running": "Agent antwortet oder führt Tools aus",

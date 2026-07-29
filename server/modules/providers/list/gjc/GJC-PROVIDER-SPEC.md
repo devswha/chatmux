@@ -31,7 +31,7 @@ ChatMux의 provider `gjc`(Gajae Code) 구현 기록. 초기 read-only 세션 목
 - `src/types/app.ts` `LLMProvider`(프론트).
 - `server/modules/providers/provider.registry.ts` — `GjcProvider` 등록.
 - `server/modules/providers/provider.routes.ts` — provider 파싱.
-- 프론트: `src/components/chat/hooks/useChatProviderState.ts`, `ProviderSelectionEmptyState.tsx`, `ProviderLoginModal.tsx`, `public/api-docs.html` PROVIDER_ORDER.
+- 프론트: `src/components/chat/hooks/useChatProviderState.ts`, `ProviderSelectionEmptyState.tsx`, `ProviderLoginModal.tsx`.
 - **live 실행 경로**: `server/gjc-worker-client.ts` → mandatory `chatmux-core` process host → `server/gjc-worker.ts` → GJC SDK/CLI. React·DB·browser replay는 애플리케이션이 계속 소유한다.
 
 ## 테스트

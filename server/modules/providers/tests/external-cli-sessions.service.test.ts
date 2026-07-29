@@ -6,6 +6,8 @@ import {
   assignFreshIndexedProviderSessionIds,
   assignUniqueIndexedProviderSessionIds,
   classifyExternalSessions,
+  buildExternalCliTmuxSpawnArgs,
+  buildExternalCliRuntimePath,
   createExternalCliSessionDiscovery,
   createExternalCliSessionInferenceRetryBackoff,
   extractCodexResumeThreadId,
@@ -174,6 +176,59 @@ test('external CLI resolution excludes app-local npm shims', async () => {
     '/opt/homebrew/bin/codex',
   ]);
 });
+
+test('external CLI runtime PATH restores user Node and Bun launchers under systemd', () => {
+  assert.equal(
+    buildExternalCliRuntimePath(
+      ['/app/node_modules/.bin', '/usr/bin'].join(':'),
+      '/home/test',
+      '/opt/node/bin/node',
+      '/custom/bin/codex',
+    ),
+    [
+      '/custom/bin',
+      '/home/test/.local/bin',
+      '/home/test/.bun/bin',
+      '/home/test/.cargo/bin',
+      '/opt/node/bin',
+      '/usr/bin',
+    ].join(':'),
+  );
+});
+
+test('detached external CLI spawns receive a stable initial terminal grid', () => {
+  assert.deepEqual(
+    buildExternalCliTmuxSpawnArgs(
+      '/home/user/.local/bin/codex',
+      'probe',
+      '/workspace',
+      '/runtime/bin:/usr/bin',
+    ),
+    [
+      'new-session', '-d',
+      '-x', '120', '-y', '40',
+      '-e', 'PATH=/runtime/bin:/usr/bin',
+      '-s', 'probe',
+      '-c', '/workspace',
+      '/usr/bin/env', 'PATH=/runtime/bin:/usr/bin', '/home/user/.local/bin/codex',
+    ],
+  );
+});
+
+test('Cursor external CLI resolution uses the documented agent executable', async () => {
+  const checked: string[] = [];
+  const resolved = await resolveExternalCliExecutable('cursor', {
+    path: ['/app/node_modules/.bin', '/Users/test/.local/bin'].join(':'),
+    platform: 'darwin',
+    isExecutable: async (candidate) => {
+      checked.push(candidate);
+      return candidate === '/Users/test/.local/bin/agent';
+    },
+  });
+
+  assert.equal(resolved, '/Users/test/.local/bin/agent');
+  assert.deepEqual(checked, ['/Users/test/.local/bin/agent']);
+});
 test('normalizeExternalPaneOutput removes control bytes and bounds the pane tail', () => {
   assert.equal(
     normalizeExternalPaneOutput('old\r\n\u0000Trust this folder?\u0007\n1. Yes\n', 24),
@@ -332,7 +387,37 @@ test('assignUniqueIndexedProviderSessionIds binds one late transcript to one lon
   assert.equal(assigned.get(tmuxTargetKey(process[0].tmux)), 'late-session');
 });
 
-test('assignUniqueIndexedProviderSessionIds rejects ambiguous long-running TUI matches', () => {
+test('assignUniqueIndexedProviderSessionIds selects the uniquely most recently updated session for one long-running TUI', () => {
+  const process = [{
+    tmuxName: 'opencode',
+    tmux: tmux('$304', '@304', '%304'),
+    kind: 'opencode' as const,
+    cwd: '/workspace',
+    startedAtMs: 10_000,
+  }];
+  const assigned = assignUniqueIndexedProviderSessionIds(process, [
+    {
+      id: 'inactive-session',
+      kind: 'opencode',
+      cwd: '/workspace',
+      createdAtMs: 80_000,
+      updatedAtMs: 82_000,
+      diskDiscovered: true,
+    },
+    {
+      id: 'active-session',
+      kind: 'opencode',
+      cwd: '/workspace',
+      createdAtMs: 81_000,
+      updatedAtMs: 89_000,
+      diskDiscovered: true,
+    },
+  ], new Map(), 90_000);
+
+  assert.equal(assigned.get(tmuxTargetKey(process[0].tmux)), 'active-session');
+});
+
+test('assignUniqueIndexedProviderSessionIds rejects candidates with missing or tied update evidence', () => {
   const process = [{
     tmuxName: 'opencode',
     tmux: tmux('$303', '@303', '%303'),
@@ -344,6 +429,140 @@ test('assignUniqueIndexedProviderSessionIds rejects ambiguous long-running TUI m
     { id: 'session-a', kind: 'opencode', cwd: '/workspace', createdAtMs: 80_000, diskDiscovered: true },
     { id: 'session-b', kind: 'opencode', cwd: '/workspace', createdAtMs: 81_000, diskDiscovered: true },
   ], new Map(), 90_000).size, 0);
+
+  assert.equal(assignUniqueIndexedProviderSessionIds(process, [
+    {
+      id: 'session-a',
+      kind: 'opencode',
+      cwd: '/workspace',
+      createdAtMs: 80_000,
+      updatedAtMs: 89_000,
+      diskDiscovered: true,
+    },
+    {
+      id: 'session-b',
+      kind: 'opencode',
+      cwd: '/workspace',
+      createdAtMs: 81_000,
+      updatedAtMs: 89_000,
+      diskDiscovered: true,
+    },
+  ], new Map(), 90_000).size, 0);
+});
+
+test('assignUniqueIndexedProviderSessionIds refuses recency inference across concurrent TUIs in one cwd', () => {
+  const processes = [
+    {
+      tmuxName: 'opencode-a',
+      tmux: tmux('$305', '@305', '%305'),
+      kind: 'opencode' as const,
+      cwd: '/workspace',
+      startedAtMs: 10_000,
+    },
+    {
+      tmuxName: 'opencode-b',
+      tmux: tmux('$306', '@306', '%306'),
+      kind: 'opencode' as const,
+      cwd: '/workspace',
+      startedAtMs: 20_000,
+    },
+  ];
+  const sessions = [
+    {
+      id: 'session-a',
+      kind: 'opencode' as const,
+      cwd: '/workspace',
+      createdAtMs: 80_000,
+      updatedAtMs: 88_000,
+      diskDiscovered: true,
+    },
+    {
+      id: 'session-b',
+      kind: 'opencode' as const,
+      cwd: '/workspace',
+      createdAtMs: 81_000,
+      updatedAtMs: 89_000,
+      diskDiscovered: true,
+    },
+  ];
+
+  assert.equal(assignUniqueIndexedProviderSessionIds(processes, sessions, new Map(), 90_000).size, 0);
+});
+
+test('assignUniqueIndexedProviderSessionIds counts fresh and direct peers before late inference', () => {
+  const unresolved = {
+    tmuxName: 'opencode-unresolved',
+    tmux: tmux('$307', '@307', '%307'),
+    kind: 'opencode' as const,
+    cwd: '/workspace',
+    startedAtMs: 10_000,
+  };
+  const freshPeer = {
+    tmuxName: 'opencode-fresh',
+    tmux: tmux('$308', '@308', '%308'),
+    kind: 'opencode' as const,
+    cwd: '/workspace',
+    startedAtMs: 20_000,
+  };
+  const candidate = {
+    id: 'late-session',
+    kind: 'opencode' as const,
+    cwd: '/workspace',
+    createdAtMs: 80_000,
+    updatedAtMs: 89_000,
+    diskDiscovered: true,
+  };
+  const freshTargetKey = tmuxTargetKey(freshPeer.tmux);
+  const withFreshPeer = assignUniqueIndexedProviderSessionIds(
+    [unresolved, freshPeer],
+    [candidate],
+    new Map([[freshTargetKey, 'fresh-session']]),
+    90_000,
+  );
+  assert.equal(withFreshPeer.get(tmuxTargetKey(unresolved.tmux)), undefined);
+  assert.equal(withFreshPeer.get(freshTargetKey), 'fresh-session');
+
+  const directPeer = { ...freshPeer, providerSessionId: 'direct-session' };
+  const withDirectPeer = assignUniqueIndexedProviderSessionIds(
+    [unresolved],
+    [candidate],
+    new Map(),
+    90_000,
+    [unresolved, directPeer],
+  );
+  assert.equal(withDirectPeer.size, 0);
+});
+
+test('assignUniqueIndexedProviderSessionIds limits updated-time tie-breaking to OpenCode', () => {
+  for (const kind of ['cursor', 'omp'] as const) {
+    const process = {
+      tmuxName: kind,
+      tmux: tmux(`$${kind}`, `@${kind}`, `%${kind}`),
+      kind,
+      cwd: '/workspace',
+      startedAtMs: 10_000,
+    };
+    const candidates = [
+      {
+        id: `${kind}-older`,
+        kind,
+        cwd: '/workspace',
+        createdAtMs: 80_000,
+        updatedAtMs: 88_000,
+        diskDiscovered: true,
+      },
+      {
+        id: `${kind}-newer`,
+        kind,
+        cwd: '/workspace',
+        createdAtMs: 81_000,
+        updatedAtMs: 89_000,
+        diskDiscovered: true,
+      },
+    ];
+
+    assert.equal(assignUniqueIndexedProviderSessionIds([process], candidates, new Map(), 90_000).size, 0);
+  }
 });
 
 test('parsePsTree parses pid,ppid,comm rows and tolerates the header', () => {
@@ -379,10 +598,11 @@ test('extractExternalResumeSessionId recognizes every supported native resume fo
     extractExternalResumeSessionId('codex', 'codex resume 019f7b07-3def-7501-a53f-f519c88dd722'),
     '019f7b07-3def-7501-a53f-f519c88dd722',
   );
+  assert.equal(extractExternalResumeSessionId('cursor', 'agent --resume=bc9d14b9-2cb1-410e'), 'bc9d14b9-2cb1-410e');
   assert.equal(extractExternalResumeSessionId('cursor', 'cursor-agent resume bc9d14b9-2cb1-410e'), 'bc9d14b9-2cb1-410e');
   assert.equal(extractExternalResumeSessionId('opencode', 'opencode --session ses_2eaa2026198bxLxI'), 'ses_2eaa2026198bxLxI');
   assert.equal(extractExternalResumeSessionId('omp', 'omp --resume 019f848f_ff71_77f0'), '019f848f_ff71_77f0');
-  assert.equal(extractExternalResumeSessionId('cursor', 'cursor-agent --version'), null);
+  assert.equal(extractExternalResumeSessionId('cursor', 'agent --version'), null);
 });
 
 
@@ -446,6 +666,35 @@ test('classifyExternalSessions recognizes Cursor, OpenCode, and Oh My Pi process
     { tmuxName: 'omp-work', tmux: tmux('$1000', '@1000', '%1000'), kind: 'omp', providerSessionId: 'omp_session_123', cwd: '/omp', agentPid: 1001 },
     { tmuxName: 'opencode-work', tmux: tmux('$900', '@900', '%900'), kind: 'opencode', providerSessionId: 'ses_open_123', cwd: '/opencode', agentPid: 901 },
   ]);
+});
+
+test('classifyExternalSessions recognizes the official Cursor agent launcher shape', () => {
+  const result = classifyExternalSessions({
+    panes: [{
+      name: 'cursor-agent-official',
+      tmux: tmux('$1800', '@1800', '%1800'),
+      pid: 1800,
+      command: 'agent',
+      cwd: '/cursor',
+    }],
+    procs: [
+      { pid: 1800, ppid: 1, comm: 'zsh', args: '-zsh' },
+      {
+        pid: 1801,
+        ppid: 1800,
+        comm: 'MainThread',
+        args: '/home/user/.local/bin/agent --use-system-ca /home/user/.local/share/cursor-agent/versions/current/index.js',
+      },
+    ],
+  });
+
+  assert.deepEqual(result, [{
+    tmuxName: 'cursor-agent-official',
+    tmux: tmux('$1800', '@1800', '%1800'),
+    kind: 'cursor',
+    cwd: '/cursor',
+    agentPid: 1801,
+  }]);
 });
 
 test('classifyExternalSessions trusts a valid ChatMux spawn tag through a node launcher', () => {

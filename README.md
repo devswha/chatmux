@@ -20,7 +20,7 @@
   <a href="docs/SELF-HOST.md">Operations guide</a>
 </p>
 
-You run coding agents — Gajae Code, Claude Code, Codex, Cursor, OpenCode,
+You run coding agents — Gajae Code, Claude Code, Codex, Cursor CLI, OpenCode,
 Oh My Pi — inside tmux, like always. ChatMux finds them by itself and shows
 every session in one browser page, on your desktop or your phone:
 
@@ -96,11 +96,13 @@ type into the real pane.
 | **Gajae Code (GJC)** | Yes | Yes | Prompts and `/` commands | Yes |
 | **Codex CLI** | Yes | After its history is indexed | Prompts and `$` skills | Yes |
 | **Claude Code** | Yes | After its history is indexed | Prompts and `/` skills | Yes |
-| **Cursor** | Yes | After its history is indexed | Prompts and `/` skills | Yes |
+| **Cursor CLI** | Yes | After its history is indexed | Prompts and `/` skills | Yes |
 | **OpenCode** | Yes | After its history is indexed | Prompts and `/` skills | Yes |
 | **Oh My Pi** | Yes | After its history is indexed | Prompts and `/skill:` skills | Yes |
 | **SSH tmux** | Yes | No — terminal only | Terminal keystrokes | No |
 
+Cursor sessions use the documented `agent` command. The legacy `cursor-agent`
+alias remains supported for older installations.
 
 <a id="remote-access"></a>
 ## Remote access
@@ -194,7 +196,6 @@ the tmux session identifier is rechecked before relay or termination.
 |---|---|
 | **Agents** | CLI installation and authentication, and provider permissions |
 | **Appearance** | Theme, language, thinking/raw parameters, send key, project order, and editor behavior |
-| **API & Tokens** | ChatMux API keys and GitHub credentials |
 | **Access** | Tailscale HTTPS address, current identity, owner, and allowed accounts |
 
 ## Development and verification
@@ -222,8 +223,6 @@ npm run verify
   devices and unapproved tailnet users fail closed.
 - Password mode uses `HttpOnly`, `SameSite=Strict` cookies and persistent logout
   revocation.
-- Credentials are not accepted in URL query parameters. External-agent APIs use
-  the `X-API-Key` header.
 - Project file access normalizes paths, checks symlinks, and rejects project-root
   escapes.
 - State and indexes live below `~/.chatmux`. Back up `~/.chatmux/data` before

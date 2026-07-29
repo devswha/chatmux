@@ -111,7 +111,7 @@
       "action": "Neuen Bildschirm anwenden"
     },
     "serverUpdate": {
-      "sourceAvailable": "Ein Quell-Update vom fortlaufenden Hauptzweig ist verfügbar{{version}}.",
+      "sourceAvailable": "Ziel: {{version}} (neuester Commit auf main). Quell-Updates haben keine feste Release-Version.",
       "releaseAvailable": "Ein exaktes Release-Ziel ist verfügbar{{version}}."
     },
     "confirm": {

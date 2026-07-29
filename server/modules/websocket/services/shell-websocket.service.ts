@@ -6,6 +6,7 @@ import path from 'node:path';
 import pty, { type IPty } from 'node-pty';
 import { WebSocket, type RawData } from 'ws';
 
+import { cursorCliCommandOrDefault } from '@/modules/providers/index.js';
 import { parseIncomingJsonObject } from '@/shared/utils.js';
 export const SHELL_PROTOCOL_VERSION = 2;
 
@@ -277,6 +278,18 @@ function readClientLastSeq(value: unknown): number | null {
   return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : null;
 }
 
+const REDRAW_TERMINAL_QUERY_PATTERN = /\x1b\[(?:(?:[=>?])?[0-9;]*c|\??(?:5|6)n|>[0-9;]*q)/g;
+
+/**
+ * A full redraw replays historical PTY output into a new xterm instance.
+ * Terminal capability/status queries in that history are stale: replaying them
+ * makes xterm answer again and the running CLI can mistake the response for
+ * typed input. Live output and seamless gap resumes remain byte-exact.
+ */
+export function stripTerminalQueriesForRedraw(output: string): string {
+  return output.replace(REDRAW_TERMINAL_QUERY_PATTERN, '');
+}
+
 const SAFE_SESSION_ID_PATTERN = /^[a-zA-Z0-9_.\-:]+$/;
 
 function resolveResumeSessionId(
@@ -328,10 +341,11 @@ function buildShellCommand(
   }
 
   if (provider === 'cursor') {
+    const cursorCommand = cursorCliCommandOrDefault();
     if (resumeSessionId) {
-      return `cursor-agent --resume="${resumeSessionId}"`;
+      return `${cursorCommand} --resume="${resumeSessionId}"`;
     }
-    return 'cursor-agent';
+    return cursorCommand;
   }
 
   if (provider === 'codex') {
@@ -484,7 +498,7 @@ export function handleShellConnection(
         const isLoginCommand =
           !!initialCommand &&
           (initialCommand.includes('setup-token') ||
-            initialCommand.includes('cursor-agent login') ||
+            /(?:^|\s)(?:agent|cursor-agent) login(?:\s|$)/.test(initialCommand) ||
             initialCommand.includes('auth login'));
 
         // Key by a hash of the complete server-selected command so reconnects
@@ -550,7 +564,8 @@ export function handleShellConnection(
             if (resume && entry.seq <= (clientLastSeq as number)) {
               continue;
             }
-            ws.send(JSON.stringify({ type: 'output', data: entry.data, seq: entry.seq }));
+            const replayData = resume ? entry.data : stripTerminalQueriesForRedraw(entry.data);
+            ws.send(JSON.stringify({ type: 'output', data: replayData, seq: entry.seq }));
           }
 
           existingSession.ws = ws;

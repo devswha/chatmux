@@ -141,7 +141,7 @@
       "action": "Appliquer le nouvel écran"
     },
     "serverUpdate": {
-      "sourceAvailable": "Une mise à jour source de la branche principale en évolution est disponible{{version}}.",
+      "sourceAvailable": "Cible : {{version}} (dernier commit de main). Les mises à jour source n’ont pas de version de publication fixe.",
       "releaseAvailable": "Une cible de version exacte est disponible{{version}}."
     },
     "confirm": {

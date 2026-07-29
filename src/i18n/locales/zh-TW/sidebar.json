@@ -46,12 +46,11 @@
   "externalSessions": {
     "viewInTerminal": "在終端機中檢視 tmux 工作階段「{{name}}」",
     "openConversation": "開啟 {{name}} 的對話",
-    "stopOptions": "{{name}} 停止選項",
+    "closeSessionTitle": "關閉 tmux 工作階段「{{name}}」",
+    "closeSessionConfirm": "「{{name}}」中的所有窗格與程序都將停止。",
+    "closeSession": "關閉",
     "stopFailed": "無法停止工作階段",
     "stopping": "正在停止…",
-    "stopScope": "停止範圍",
-    "agent": "代理程式",
-    "session": "工作階段",
     "cancel": "取消",
     "activity": {
       "running": "代理程式正在回應或執行工具",

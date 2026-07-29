@@ -146,7 +146,7 @@
       "action": "새 화면 적용"
     },
     "serverUpdate": {
-      "sourceAvailable": "이동하는 main 소스 업데이트를 사용할 수 있습니다{{version}}.",
+      "sourceAvailable": "대상: {{version}} (main 최신 커밋). 소스 업데이트에는 고정된 릴리스 버전이 없습니다.",
       "releaseAvailable": "정확한 릴리스 대상 업데이트를 사용할 수 있습니다{{version}}."
     },
     "confirm": {

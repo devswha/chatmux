@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { NavigateFunction } from 'react-router-dom';
 
 import { api } from '../utils/api';
+import { isLiveTmuxActionable } from '../utils/liveSessions';
 import type { ServerEvent } from '../contexts/WebSocketContext';
 import type {
   AppTab,
@@ -149,7 +150,7 @@ export function useProjectsState({
       if (row.process) targets.set(sessionId, { tmux: row.tmux, process: row.process });
       if (typeof metadata?.model === 'string') models.set(sessionId, metadata.model);
       if (typeof metadata?.effort === 'string') efforts.set(sessionId, metadata.effort);
-      if (metadata?.claim === 'lineage') lineage.add(sessionId);
+      if (isLiveTmuxActionable(row, metadata?.claim)) lineage.add(sessionId);
       if (typeof metadata?.kind === 'string') kinds.set(sessionId, metadata.kind);
       if (row.activity === 'running' || metadata?.running === true) runningIds.add(sessionId);
     }

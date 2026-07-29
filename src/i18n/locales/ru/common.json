@@ -111,7 +111,7 @@
       "action": "Обновить экран"
     },
     "serverUpdate": {
-      "sourceAvailable": "Доступно обновление исходного кода из moving-main{{version}}.",
+      "sourceAvailable": "Цель: {{version}} (последний коммит в main). У обновлений из исходного кода нет фиксированной версии релиза.",
       "releaseAvailable": "Доступна точная целевая версия релиза{{version}}."
     },
     "confirm": {

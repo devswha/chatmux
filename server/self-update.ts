@@ -26,6 +26,72 @@ export function buildSystemdRunArgs(unitName: string, script: string, environmen
   return ['--user', '--collect', `--unit=${unitName}`, `--setenv=PATH=${environmentPath}`, '--setenv=DEPLOY_TRIGGER=self-update', 'bash', '-c', script];
 }
 export const SELF_UPDATE_STALE_MS = 15 * 60 * 1000;
+const SOURCE_DISCOVERY_TIMEOUT_MS = 10_000;
+const SOURCE_DISCOVERY_MAX_BYTES = 4_096;
+const GIT_REVISION_PATTERN = /^[0-9a-f]{40,64}$/;
+
+export type SourceUpdateDescriptor = {
+  available: boolean;
+  currentRevision: string;
+  targetRevision: string;
+  targetVersion: string;
+};
+
+function runReadOnlyGit(appRoot: string, args: string[]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn('git', args, {
+      cwd: appRoot,
+      env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (error) reject(error);
+      else resolve(stdout.trim());
+    };
+    const append = (current: string, chunk: Buffer): string => {
+      const next = current + chunk.toString('utf8');
+      if (Buffer.byteLength(next) > SOURCE_DISCOVERY_MAX_BYTES) {
+        child.kill('SIGKILL');
+        finish(new Error('Git update discovery output is too large.'));
+      }
+      return next;
+    };
+    child.stdout.on('data', (chunk: Buffer) => { stdout = append(stdout, chunk); });
+    child.stderr.on('data', (chunk: Buffer) => { stderr = append(stderr, chunk); });
+    child.on('error', (error) => finish(error));
+    child.on('close', (code) => {
+      if (code === 0) finish();
+      else finish(new Error(stderr.trim() || `git exited with ${code}`));
+    });
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      finish(new Error('Git update discovery timed out.'));
+    }, SOURCE_DISCOVERY_TIMEOUT_MS);
+  });
+}
+
+/** Reads HEAD and origin/main without fetching or changing refs, the index, or the worktree. */
+export async function discoverSourceUpdate(appRoot: string): Promise<SourceUpdateDescriptor> {
+  const currentRevision = await runReadOnlyGit(appRoot, ['rev-parse', '--verify', 'HEAD']);
+  const remoteOutput = await runReadOnlyGit(appRoot, ['ls-remote', '--exit-code', '--heads', 'origin', 'refs/heads/main']);
+  const remoteMatch = /^([0-9a-f]{40,64})\s+refs\/heads\/main$/m.exec(remoteOutput);
+  if (!GIT_REVISION_PATTERN.test(currentRevision) || !remoteMatch) {
+    throw new Error('Git update discovery returned an invalid revision.');
+  }
+  const targetRevision = remoteMatch[1];
+  return {
+    available: currentRevision !== targetRevision,
+    currentRevision,
+    targetRevision,
+    targetVersion: `main@${targetRevision.slice(0, 12)}`,
+  };
+}
 export type SelfUpdateState = { unit: string; startedAt: number; operationId?: string; initialBootId?: string } | null;
 export type SelfUpdatePlan = { action: 'reject'; statusCode: number; error: string } | { action: 'start' };
 export function planSelfUpdate(args: { mode: InstallMode; inFlight: SelfUpdateState; now: number }): SelfUpdatePlan {
@@ -266,7 +332,7 @@ export interface SystemRouterOptions {
   appRoot: string; serverPort: number; bootId: string; runningVersion?: string; mode?: InstallMode; authMode?: 'none' | 'password' | 'tailscale';
   launch?: (unitName: string, script: string) => Promise<void>;
   launchRelease?: (unitName: string, workerPath: string, jobId: string) => Promise<void>;
-  now?: () => number; home?: string; discoverRelease?: () => Promise<Discovery>; isReleaseUpdateUnitLive?: (unitName: string) => boolean; state?: Pick<ReleaseUpdateStateStore, 'initialize' | 'createIfNoActive' | 'publicStatus' | 'publicActiveStatus' | 'transition' | 'failIfInactive'>;
+  now?: () => number; home?: string; discoverRelease?: () => Promise<Discovery>; discoverSource?: () => Promise<SourceUpdateDescriptor>; isReleaseUpdateUnitLive?: (unitName: string) => boolean; state?: Pick<ReleaseUpdateStateStore, 'initialize' | 'createIfNoActive' | 'publicStatus' | 'publicActiveStatus' | 'transition' | 'failIfInactive'>;
 }
 async function launchViaSystemdRun(unitName: string, script: string): Promise<void> { await new Promise<void>((resolve, reject) => { const child = spawn('systemd-run', buildSystemdRunArgs(unitName, script, process.env.PATH ?? ''), { stdio: ['ignore', 'ignore', 'pipe'] }); let stderr = ''; child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString('utf8'); }); child.on('error', (error) => reject(error)); child.on('close', (code) => code === 0 ? resolve() : reject(new Error(stderr.trim() || `systemd-run exited with ${code}`))); }); }
 export function buildReleaseSystemdRunArgs(unitName: string, workerPath: string, jobId: string, home: string, serverPort: number, environmentPath: string): string[] {
@@ -306,16 +372,25 @@ export function createSystemRouter(options: SystemRouterOptions): Router {
       if (makesReleaseStateUnavailable(error)) releaseStateUnavailable = true;
     }
   }
-  const sourceLaunch = options.launch ?? launchViaSystemdRun; const releaseLaunch = options.launchRelease ?? ((unitName, workerPath, jobId) => launchReleaseViaSystemdRun(unitName, workerPath, jobId, home, options.serverPort)); const discover = options.discoverRelease ?? (() => discoverCanonicalRelease());
-  let inFlight: SelfUpdateState = null; let discoveryCache: { at: number; value: Discovery } | null = null; let accessCache: { at: number; info: TailscaleAccessInfo } | null = null;
+  const sourceLaunch = options.launch ?? launchViaSystemdRun; const releaseLaunch = options.launchRelease ?? ((unitName, workerPath, jobId) => launchReleaseViaSystemdRun(unitName, workerPath, jobId, home, options.serverPort)); const discover = options.discoverRelease ?? (() => discoverCanonicalRelease()); const discoverSource = options.discoverSource ?? (() => discoverSourceUpdate(options.appRoot));
+  let inFlight: SelfUpdateState = null; let discoveryCache: { at: number; value: Discovery } | null = null; let sourceDiscoveryCache: { at: number; value: SourceUpdateDescriptor } | null = null; let accessCache: { at: number; info: TailscaleAccessInfo } | null = null;
   const owner = (req: Request) => canUpdate(req, options.authMode);
   const cachedDiscovery = async () => { if (!discoveryCache || now() - discoveryCache.at > DISCOVERY_CACHE_MS) discoveryCache = { at: now(), value: await discover() }; return discoveryCache.value; };
+  const cachedSourceDiscovery = async () => { if (!sourceDiscoveryCache || now() - sourceDiscoveryCache.at > DISCOVERY_CACHE_MS) sourceDiscoveryCache = { at: now(), value: await discoverSource() }; return sourceDiscoveryCache.value; };
   router.get('/access-info', (_req, res) => { void (async () => { if (!accessCache || now() - accessCache.at > 30_000) accessCache = { at: now(), info: await getTailscaleAccessInfo(options.serverPort) }; res.json(accessCache.info); })().catch(() => res.json({ installed: false, running: false, dnsName: null, httpsUrls: [], suggestedCommand: null })); });
   router.get('/update/status', (req, res) => { void (async () => {
     const base = { mode, bootId: options.bootId, canUpdate: owner(req) };
-    const source = mode === 'source' && inFlight && now() - inFlight.startedAt < SELF_UPDATE_STALE_MS
-      ? { available: true, inFlight: true, operationId: inFlight.operationId, initialBootId: inFlight.initialBootId }
-      : mode === 'source' ? { available: true, inFlight: false } : null;
+    let source = null;
+    if (mode === 'source') {
+      try {
+        const target = await cachedSourceDiscovery();
+        source = inFlight && now() - inFlight.startedAt < SELF_UPDATE_STALE_MS
+          ? { ...target, available: true, inFlight: true, operationId: inFlight.operationId, initialBootId: inFlight.initialBootId }
+          : { ...target, inFlight: false };
+      } catch {
+        source = { available: null, inFlight: false };
+      }
+    }
     if (releaseVersionUnavailable) return res.json({ ...base, source, release: null, activeJob: null, updateUnavailable: 'Release updates require a valid installed version.' });
     if (mode !== 'release') return res.json({ ...base, source, release: null, activeJob: null });
     if (releaseStateUnavailable) return res.json({ ...base, source, release: null, activeJob: null, updateUnavailable: 'Release update state is unavailable. Repair the updater state before retrying.' });
@@ -332,7 +407,7 @@ export function createSystemRouter(options: SystemRouterOptions): Router {
     }
   })().catch(() => { if (!res.headersSent) res.status(500).json({ error: 'Update status unavailable.' }); }); });
   router.get('/update/jobs/:jobId', (req, res) => { if (!owner(req)) return res.status(403).json({ error: 'Update access denied.' }); if (mode !== 'release' || releaseVersionUnavailable) return res.status(404).json({ error: 'Update job not found.' }); if (releaseStateUnavailable) return res.status(503).json({ error: 'Release updates are unavailable until updater state is repaired.' }); const job = state.publicStatus(req.params.jobId); return job ? res.json(job) : res.status(404).json({ error: 'Update job not found.' }); });
-  router.post('/update', (req, res) => { void (async () => { if (!owner(req)) return res.status(403).json({ error: 'Update access denied.' }); if (mode === 'source') { const plan = planSelfUpdate({ mode, inFlight, now: now() }); if (plan.action === 'reject') return res.status(plan.statusCode).json({ error: plan.error, mode }); const unit = `chatmux-self-update-${now()}`; const operationId = randomBytes(16).toString('base64url').slice(0, 22); await sourceLaunch(unit, buildSelfUpdateScript(options.appRoot, `http://127.0.0.1:${options.serverPort}/`, path.join(home, '.chatmux', 'self-update.log'))); inFlight = { unit, startedAt: now(), operationId, initialBootId: options.bootId }; return res.json({ started: true, mode, bootId: options.bootId, operationId, initialBootId: options.bootId }); }
+  router.post('/update', (req, res) => { void (async () => { if (!owner(req)) return res.status(403).json({ error: 'Update access denied.' }); if (mode === 'source') { const plan = planSelfUpdate({ mode, inFlight, now: now() }); if (plan.action === 'reject') return res.status(plan.statusCode).json({ error: plan.error, mode }); const sourceTarget = await discoverSource(); if (!sourceTarget.available) return res.status(409).json({ error: 'No newer source revision is available.', mode }); const unit = `chatmux-self-update-${now()}`; const operationId = randomBytes(16).toString('base64url').slice(0, 22); await sourceLaunch(unit, buildSelfUpdateScript(options.appRoot, `http://127.0.0.1:${options.serverPort}/`, path.join(home, '.chatmux', 'self-update.log'))); inFlight = { unit, startedAt: now(), operationId, initialBootId: options.bootId }; return res.json({ started: true, mode, bootId: options.bootId, operationId, initialBootId: options.bootId, targetVersion: sourceTarget.targetVersion }); }
     if (mode !== 'release') return res.status(409).json({ error: 'This install cannot self-update.', mode });
     if (releaseVersionUnavailable) return res.status(503).json({ error: 'Release updates require a valid installed version.', mode });
     if (releaseStateUnavailable) return res.status(503).json({ error: 'Release updates are unavailable until updater state is repaired.', mode });

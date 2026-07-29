@@ -511,35 +511,6 @@ export type ProviderAuthStatus = {
 };
 
 // ---------------------------
-//----------------- SHARED DATABASE CREDENTIAL TYPES ------------
-/**
- * Safe credential view returned by credential listing APIs.
- *
- * This intentionally excludes the raw credential secret while still exposing
- * metadata needed for UI rendering and management operations.
- */
-export type CredentialPublicRow = {
-  id: number;
-  credential_name: string;
-  credential_type: string;
-  description: string | null;
-  created_at: string;
-  is_active: number;
-};
-
-/**
- * Result returned after creating a credential record.
- *
- * Use this return shape when callers need the created id and display metadata,
- * but must never receive the stored secret value.
- */
-export type CreateCredentialResult = {
-  id: number | bigint;
-  credentialName: string;
-  credentialType: string;
-};
-
-// ---------------------------
 //----------------- PROJECT PERSISTENCE TYPES ------------
 /**
  * Canonical project row shape returned by the projects repository.

@@ -141,7 +141,7 @@
       "action": "重新整理畫面"
     },
     "serverUpdate": {
-      "sourceAvailable": "可使用 moving-main 原始碼更新{{version}}。",
+      "sourceAvailable": "目標：{{version}}（main 分支的最新提交）。原始碼更新沒有固定的發行版本。",
       "releaseAvailable": "可使用精確的發行目標{{version}}。"
     },
     "confirm": {

@@ -69,7 +69,6 @@
     "label": "Настройки",
     "agents": "Агенты",
     "appearance": "Внешний вид",
-    "apiTokens": "API и токены",
     "access": "Доступ"
   },
   "appearanceSettings": {
@@ -124,58 +123,6 @@
   "footerActions": {
     "save": "Сохранить настройки",
     "cancel": "Отмена"
-  },
-  "apiKeys": {
-    "title": "API ключи",
-    "description": "Генерируйте API ключи для доступа к внешнему API из других приложений.",
-    "newKey": {
-      "alertTitle": "⚠️ Сохраните ваш API ключ",
-      "alertMessage": "Это единственный раз, когда вы увидите этот ключ. Сохраните его в безопасном месте.",
-      "iveSavedIt": "Я сохранил его"
-    },
-    "form": {
-      "placeholder": "Имя API ключа (например, Продакшн сервер)",
-      "createButton": "Создать",
-      "cancelButton": "Отмена"
-    },
-    "newButton": "Новый API ключ",
-    "empty": "API ключи еще не созданы.",
-    "list": {
-      "created": "Создан:",
-      "lastUsed": "Последнее использование:"
-    },
-    "confirmDelete": "Вы уверены, что хотите удалить этот API ключ?",
-    "status": {
-      "active": "Активен",
-      "inactive": "Неактивен"
-    },
-    "github": {
-      "title": "GitHub токены",
-      "description": "Добавьте персональные токены доступа GitHub для клонирования приватных репозиториев через внешний API.",
-      "descriptionAlt": "Добавьте персональные токены доступа GitHub для клонирования приватных репозиториев. Вы также можете передавать токены напрямую в API запросах без их сохранения.",
-      "addButton": "Добавить токен",
-      "form": {
-        "namePlaceholder": "Имя токена (например, Личные репозитории)",
-        "tokenPlaceholder": "Персональный токен доступа GitHub (ghp_...)",
-        "descriptionPlaceholder": "Описание (необязательно)",
-        "addButton": "Добавить токен",
-        "cancelButton": "Отмена",
-        "howToCreate": "Как создать персональный токен доступа GitHub →"
-      },
-      "empty": "GitHub токены еще не добавлены.",
-      "added": "Добавлен:",
-      "confirmDelete": "Вы уверены, что хотите удалить этот GitHub токен?"
-    },
-    "apiDocsLink": "Документация API",
-    "documentation": {
-      "title": "Документация внешнего API",
-      "description": "Узнайте, как использовать внешний API для запуска сеансов Claude/Cursor из ваших приложений.",
-      "viewLink": "Просмотр документации API →"
-    },
-    "loading": "Загрузка...",
-    "version": {
-      "updateAvailable": "Доступно обновление: v{{version}}"
-    }
   },
   "agents": {
     "authStatus": {

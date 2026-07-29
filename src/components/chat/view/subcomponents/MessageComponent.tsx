@@ -44,6 +44,10 @@ type InteractiveOption = {
 };
 
 const COPY_HIDDEN_TOOL_NAMES = new Set(['Bash', 'Edit', 'Write', 'ApplyPatch']);
+const compactErrorSummary = (content: string, fallback: string): string => {
+  const firstLine = content.split('\n').find((line) => line.trim())?.replace(/\s+/g, ' ').trim() || fallback;
+  return firstLine.length > 160 ? `${firstLine.slice(0, 157)}...` : firstLine;
+};
 
 const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, showRawParameters, showThinking, selectedProject, provider, transcriptView = false }: MessageComponentProps) => {
   const { t } = useTranslation('chat');
@@ -58,6 +62,10 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
     () => formatUsageLimitText(String(message.content || '')),
     [message.content]
   );
+  const errorContent = String(message.content || '');
+  const errorSummary = compactErrorSummary(errorContent, t('messageTypes.error'));
+  const toolResultContent = String(message.toolResult?.content || '');
+  const toolErrorSummary = compactErrorSummary(toolResultContent, t('messageTypes.error'));
   const assistantCopyContent = message.isToolUse
     ? String(message.displayText || message.content || '')
     : formattedMessageContent;
@@ -130,13 +138,9 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
       ) : (
         /* Claude/Error/Tool messages on the left */
         <div className="w-full">
-          {!isGrouped && !(transcriptView && message.type === 'assistant') && (
+          {!isGrouped && message.type !== 'error' && !(transcriptView && message.type === 'assistant') && (
             <div className="mb-2 flex items-center space-x-3">
-              {message.type === 'error' ? (
-                <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-red-600 text-sm text-white">
-                  !
-                </div>
-              ) : message.type === 'tool' ? (
+              {message.type === 'tool' ? (
                 <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-gray-600 text-sm text-white dark:bg-gray-700">
                   🔧
                 </div>
@@ -146,21 +150,19 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
                 </div>
               )}
               <div className="text-sm font-medium text-gray-900 dark:text-white">
-                {message.type === 'error'
-                  ? t('messageTypes.error')
-                  : message.type === 'tool'
-                    ? t('messageTypes.tool')
-                    : (provider === 'cursor'
-                        ? t('messageTypes.cursor')
-                        : provider === 'codex'
-                          ? t('messageTypes.codex')
-                          : provider === 'opencode'
-                            ? t('messageTypes.opencode', { defaultValue: 'OpenCode' })
-                            : provider === 'gjc'
-                              ? t('messageTypes.gjc', { defaultValue: 'Gajae Code' })
-                              : provider === 'omp'
-                                ? t('messageTypes.omp', { defaultValue: 'Oh My Pi' })
-                                : t('messageTypes.claude'))}
+                {message.type === 'tool'
+                  ? t('messageTypes.tool')
+                  : (provider === 'cursor'
+                      ? t('messageTypes.cursor')
+                      : provider === 'codex'
+                        ? t('messageTypes.codex')
+                        : provider === 'opencode'
+                          ? t('messageTypes.opencode', { defaultValue: 'OpenCode' })
+                          : provider === 'gjc'
+                            ? t('messageTypes.gjc', { defaultValue: 'Gajae Code' })
+                            : provider === 'omp'
+                              ? t('messageTypes.omp', { defaultValue: 'Oh My Pi' })
+                              : t('messageTypes.claude'))}
               </div>
             </div>
           )}
@@ -197,23 +199,23 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
                 {/* Tool Result Section — Bash renders its output inside the command row above. */}
                 {message.toolResult && message.toolName !== 'Bash' && !shouldHideToolResult(message.toolName || 'UnknownTool', message.toolResult) && (
                   message.toolResult.isError ? (
-                    // Error results - red error box with content
-                    <div
+                    <details
                       id={`tool-result-${message.toolId}`}
                       className="relative mt-2 scroll-mt-4 rounded border border-red-200/60 bg-red-50/50 p-3 dark:border-red-800/40 dark:bg-red-950/10"
                     >
-                      <div className="relative mb-2 flex items-center gap-1.5">
-                        <svg className="h-4 w-4 text-red-500 dark:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <summary className="flex cursor-pointer items-center gap-1.5 text-xs font-medium text-red-700 dark:text-red-300">
+                        <svg className="h-4 w-4 flex-shrink-0 text-red-500 dark:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                         </svg>
-                        <span className="text-xs font-medium text-red-700 dark:text-red-300">{t('messageTypes.error')}</span>
-                      </div>
-                      <div className="relative text-sm text-red-900 dark:text-red-100">
+                        <span className="flex-shrink-0">{message.toolName || 'UnknownTool'} {t('messageTypes.error')}</span>
+                        <span className="truncate text-red-900 dark:text-red-100">{toolErrorSummary}</span>
+                      </summary>
+                      <div className="relative mt-2 text-sm text-red-900 dark:text-red-100">
                         <Markdown className="prose prose-sm prose-red max-w-none font-serif dark:prose-invert">
-                          {String(message.toolResult.content || '')}
+                          {toolResultContent}
                         </Markdown>
                       </div>
-                    </div>
+                    </details>
                   ) : (
                     // Non-error results - route through ToolRenderer (single source of truth)
                     <div id={`tool-result-${message.toolId}`} className="scroll-mt-4">
@@ -325,6 +327,19 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
                   </div>
                 </ReasoningContent>
               </Reasoning>
+            ) : message.type === 'error' ? (
+              <details className="rounded border border-red-200/60 bg-red-50/50 p-3 text-sm text-red-900 dark:border-red-800/40 dark:bg-red-950/10 dark:text-red-100">
+                <summary className="flex cursor-pointer items-center gap-1.5 font-medium text-red-700 dark:text-red-300">
+                  <svg className="h-4 w-4 flex-shrink-0 text-red-500 dark:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                  <span className="flex-shrink-0">{t('messageTypes.error')}</span>
+                  <span className="truncate text-red-900 dark:text-red-100">{errorSummary}</span>
+                </summary>
+                <div className="mt-2 whitespace-pre-wrap">
+                  {errorContent}
+                </div>
+              </details>
             ) : (
               <div dir="auto" className="text-sm text-gray-700 dark:text-gray-300">
                 {/* Reasoning accordion */}

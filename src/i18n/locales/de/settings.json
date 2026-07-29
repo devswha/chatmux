@@ -69,7 +69,6 @@
     "label": "Einstellungen",
     "agents": "Agenten",
     "appearance": "Darstellung",
-    "apiTokens": "API & Token",
     "access": "Zugriff"
   },
   "appearanceSettings": {
@@ -124,58 +123,6 @@
   "footerActions": {
     "save": "Einstellungen speichern",
     "cancel": "Abbrechen"
-  },
-  "apiKeys": {
-    "title": "API-Schlüssel",
-    "description": "Generiere API-Schlüssel, um von anderen Anwendungen auf die externe API zuzugreifen.",
-    "newKey": {
-      "alertTitle": "⚠️ API-Schlüssel speichern",
-      "alertMessage": "Dies ist das einzige Mal, dass du diesen Schlüssel siehst. Speichere ihn sicher.",
-      "iveSavedIt": "Ich habe ihn gespeichert"
-    },
-    "form": {
-      "placeholder": "API-Schlüsselname (z. B. Produktionsserver)",
-      "createButton": "Erstellen",
-      "cancelButton": "Abbrechen"
-    },
-    "newButton": "Neuer API-Schlüssel",
-    "empty": "Noch keine API-Schlüssel erstellt.",
-    "list": {
-      "created": "Erstellt:",
-      "lastUsed": "Zuletzt verwendet:"
-    },
-    "confirmDelete": "Möchtest du diesen API-Schlüssel wirklich löschen?",
-    "status": {
-      "active": "Aktiv",
-      "inactive": "Inaktiv"
-    },
-    "github": {
-      "title": "GitHub-Token",
-      "description": "Füge GitHub Personal Access Tokens hinzu, um private Repositories über die externe API zu klonen.",
-      "descriptionAlt": "Füge GitHub Personal Access Tokens hinzu, um private Repositories zu klonen. Du kannst Token auch direkt in API-Anfragen übergeben, ohne sie zu speichern.",
-      "addButton": "Token hinzufügen",
-      "form": {
-        "namePlaceholder": "Token-Name (z. B. Persönliche Repos)",
-        "tokenPlaceholder": "GitHub Personal Access Token (ghp_...)",
-        "descriptionPlaceholder": "Beschreibung (optional)",
-        "addButton": "Token hinzufügen",
-        "cancelButton": "Abbrechen",
-        "howToCreate": "Wie man einen GitHub Personal Access Token erstellt →"
-      },
-      "empty": "Noch keine GitHub-Token hinzugefügt.",
-      "added": "Hinzugefügt:",
-      "confirmDelete": "Möchtest du diesen GitHub-Token wirklich löschen?"
-    },
-    "apiDocsLink": "API-Dokumentation",
-    "documentation": {
-      "title": "Externe API-Dokumentation",
-      "description": "Erfahre, wie du die externe API nutzen kannst, um Claude/Cursor-Sitzungen aus deinen Anwendungen heraus zu starten.",
-      "viewLink": "API-Dokumentation anzeigen →"
-    },
-    "loading": "Lädt...",
-    "version": {
-      "updateAvailable": "Update verfügbar: v{{version}}"
-    }
   },
   "agents": {
     "authStatus": {

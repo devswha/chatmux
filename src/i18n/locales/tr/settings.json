@@ -69,7 +69,6 @@
     "label": "Ayarlar",
     "agents": "Ajanlar",
     "appearance": "Görünüm",
-    "apiTokens": "API ve Token'lar",
     "access": "Erişim",
     "computer": "Bilgisayar Kullanımı"
   },
@@ -125,58 +124,6 @@
   "footerActions": {
     "save": "Ayarları Kaydet",
     "cancel": "İptal"
-  },
-  "apiKeys": {
-    "title": "API Anahtarları",
-    "description": "Diğer uygulamalardan harici API'ye erişmek için API anahtarları üret.",
-    "newKey": {
-      "alertTitle": "⚠️ API Anahtarını Kaydet",
-      "alertMessage": "Bu anahtarı yalnızca bu sefer göreceksin. Güvenli bir yerde sakla.",
-      "iveSavedIt": "Kaydettim"
-    },
-    "form": {
-      "placeholder": "API Anahtar Adı (ör. Production Sunucu)",
-      "createButton": "Oluştur",
-      "cancelButton": "İptal"
-    },
-    "newButton": "Yeni API Anahtarı",
-    "empty": "Henüz API anahtarı oluşturulmamış.",
-    "list": {
-      "created": "Oluşturuldu:",
-      "lastUsed": "Son kullanım:"
-    },
-    "confirmDelete": "Bu API anahtarını silmek istediğinden emin misin?",
-    "status": {
-      "active": "Aktif",
-      "inactive": "Pasif"
-    },
-    "github": {
-      "title": "GitHub Token'ları",
-      "description": "Harici API üzerinden özel depoları klonlamak için GitHub Kişisel Erişim Token'ları ekle.",
-      "descriptionAlt": "Özel depoları klonlamak için GitHub Kişisel Erişim Token'ları ekle. Token'ları saklamadan API isteklerinde doğrudan da geçebilirsin.",
-      "addButton": "Token Ekle",
-      "form": {
-        "namePlaceholder": "Token Adı (ör. Kişisel Depolar)",
-        "tokenPlaceholder": "GitHub Kişisel Erişim Token'ı (ghp_...)",
-        "descriptionPlaceholder": "Açıklama (isteğe bağlı)",
-        "addButton": "Token Ekle",
-        "cancelButton": "İptal",
-        "howToCreate": "GitHub Kişisel Erişim Token'ı nasıl oluşturulur →"
-      },
-      "empty": "Henüz GitHub token'ı eklenmemiş.",
-      "added": "Eklendi:",
-      "confirmDelete": "Bu GitHub token'ını silmek istediğinden emin misin?"
-    },
-    "apiDocsLink": "API Dokümantasyonu",
-    "documentation": {
-      "title": "Harici API Dokümantasyonu",
-      "description": "Uygulamalarından Claude/Cursor oturumları tetiklemek için harici API'nin nasıl kullanılacağını öğren.",
-      "viewLink": "API Dokümantasyonunu Görüntüle →"
-    },
-    "loading": "Yükleniyor...",
-    "version": {
-      "updateAvailable": "Güncelleme mevcut: v{{version}}"
-    }
   },
   "agents": {
     "authStatus": {

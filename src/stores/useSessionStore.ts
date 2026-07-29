@@ -79,6 +79,8 @@ export interface NormalizedMessage {
   status?: string;
   summary?: string;
   exitCode?: number;
+  success?: boolean;
+  aborted?: boolean;
   actualSessionId?: string;
   parentToolUseId?: string;
   subagentTools?: unknown[];

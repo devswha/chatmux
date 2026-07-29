@@ -199,20 +199,6 @@ const shouldSlideSession = (expiresAtSeconds, nowMs = Date.now()) => {
   return remainingMs > 0 && remainingMs < TOKEN_MAX_AGE_MS / 2;
 };
 
-// Optional API key middleware
-const validateApiKey = (req, res, next) => {
-  // Skip API key validation if not configured
-  if (!process.env.API_KEY) {
-    return next();
-  }
-
-  const apiKey = req.headers['x-api-key'];
-  if (apiKey !== process.env.API_KEY) {
-    return res.status(401).json({ error: 'Invalid API key' });
-  }
-  next();
-};
-
 // Request authentication middleware
 const authenticateToken = async (req, res, next) => {
   if (isAuthDisabled()) {
@@ -297,7 +283,6 @@ const authenticateWebSocket = (token, request) => {
 };
 
 export {
-  validateApiKey,
   authenticateToken,
   generateToken,
   authenticateWebSocket,

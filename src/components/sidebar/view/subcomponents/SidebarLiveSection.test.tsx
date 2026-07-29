@@ -108,10 +108,11 @@ test('SidebarLiveSection labels rows by tmux session name, title in tooltip', as
   assert.ok(html.includes('gpt-5.6-sol · xhigh effort · Proj One'), 'shows model and reasoning effort');
   assert.ok(html.includes('title="Live conversation title"'), 'conversation title is demoted to the tooltip');
   assert.ok(!html.includes('Idle conversation'), 'omits non-live sessions');
-  assert.ok(!html.includes('배치'), 'an interactive gjc TUI carries no batch badge');
+  assert.ok(!html.includes('>BATCH<'), 'an interactive GJC TUI carries no batch badge');
+  assert.ok(html.includes('>READY<'), 'an idle live transcript uses the unified READY state');
   assert.ok(html.includes('이 세션의 어시스턴트 응답 준비 완료 알림 끄기'), 'matched lineage rows render their completion bell');
   assert.ok(
-    html.indexOf('이 세션의 어시스턴트 응답 준비 완료 알림 끄기') < html.indexOf('title="omg 종료 옵션"'),
+    html.indexOf('이 세션의 어시스턴트 응답 준비 완료 알림 끄기') < html.indexOf(`title="${koSidebar.liveSessions.closeSessionTitle.replace('{{name}}', 'omg').replace(/'/g, '&#x27;')}"`),
     'the completion bell stays left of the matched row stop control',
   );
 });
@@ -145,7 +146,7 @@ test('SidebarLiveSection renders a completion bell for a matched GJC row without
     onSessionSelect,
   }, [completionStatus('s-live')]);
   assert.ok(html.includes('이 세션의 어시스턴트 응답 준비 완료 알림 끄기'));
-  assert.ok(!html.includes('unclaimed 종료 옵션'), 'no-lineage rows remain non-killable');
+  assert.ok(!html.includes(koSidebar.liveSessions.closeSessionTitle.replace('{{name}}', 'unclaimed').replace(/'/g, '&#x27;')), 'no-lineage rows remain non-killable');
 });
 
 
@@ -165,7 +166,7 @@ test('SidebarLiveSection renders nothing when no session is live', async () => {
   assert.equal(html, '');
 });
 
-test('SidebarLiveSection renders idle-gjc rows as 대기 (첫 대화 전 gjc pane)', async () => {
+test('SidebarLiveSection renders first-message GJC panes as READY', async () => {
   const html = await renderSection({
     projects: makeProjects(),
     liveSessionIds: new Set(['idle-gjc:flask']),
@@ -178,13 +179,13 @@ test('SidebarLiveSection renders idle-gjc rows as 대기 (첫 대화 전 gjc pan
     onProjectSelect,
     onSessionSelect,
   }, [completionStatus('idle-gjc:flask')]);
-  assert.ok(html.includes('flask 종료 옵션'), 'lineage-grade idle rows keep the kill control');
-  assert.ok(html.includes('대기'), 'idle rows carry the 대기 badge, not LIVE');
-  assert.ok(!html.includes('LIVE'), 'no LIVE badge for a session with no transcript');
+  assert.ok(html.includes(koSidebar.liveSessions.closeSessionTitle.replace('{{name}}', 'flask').replace(/'/g, '&#x27;')), 'lineage-grade idle rows keep the close control');
+  assert.ok(html.includes('>READY<'), 'first-message rows use the unified READY state');
+  assert.ok(!html.includes('>LIVE<'), 'the obsolete LIVE state is not rendered');
   assert.ok(html.includes('눌러서 첫 대화 시작'), 'opens a full pending transcript view');
   assert.ok(html.includes("tmux 세션 &#x27;flask&#x27;에서 첫 대화 시작"), 'the idle row itself is clickable');
   assert.ok(html.includes('첫 메시지 보내기'), 'idle lineage rows offer the first-message composer');
-  assert.ok(html.includes('flask 종료 옵션'), 'lineage-grade idle rows keep the kill control');
+  assert.ok(html.includes(koSidebar.liveSessions.closeSessionTitle.replace('{{name}}', 'flask').replace(/'/g, '&#x27;')), 'lineage-grade idle rows keep the close control');
   assert.ok(!html.includes('이 세션의 어시스턴트 응답 준비 완료 알림'), 'synthetic idle rows omit completion bells');
 });
 
@@ -201,15 +202,15 @@ test('SidebarLiveSection badges a batch gjc row (foreground command is not gjc)'
     onProjectSelect,
     onSessionSelect,
   });
-  // A batch gjc descendant is still a live, kill-eligible row (LIVE + kill control)
-  // but is visually distinguished from an interactive gjc TUI.
-  assert.ok(html.includes('LIVE'), 'a batch row is still LIVE');
-  assert.ok(html.includes('배치'), 'a batch gjc descendant carries the 배치 badge');
+  // A batch GJC descendant remains ready and kill-eligible, while its execution
+  // shape is visually distinguished from the activity state.
+  assert.ok(html.includes('>READY<'), 'an idle batch row is READY');
+  assert.ok(html.includes('>BATCH<'), 'a batch GJC descendant carries the English BATCH tag');
 });
 
 // Regression: a session whose transcript tail shows a turn in progress must be
-// visually distinct (green RUN) from one waiting for input (blue LIVE).
-test('SidebarLiveSection badges an in-progress turn as RUN, not LIVE', async () => {
+// visually distinct (green RUN) from one ready for input (blue READY).
+test('SidebarLiveSection badges an in-progress turn as RUN, not READY', async () => {
   const html = await renderSection({
     projects: makeProjects(),
     liveSessionIds: new Set(['s-live']),
@@ -223,7 +224,7 @@ test('SidebarLiveSection badges an in-progress turn as RUN, not LIVE', async () 
     onSessionSelect,
   });
   assert.ok(html.includes('>RUN<'), 'an in-progress turn carries the RUN badge');
-  assert.ok(!html.includes('>LIVE<'), 'the same row does not also show LIVE');
+  assert.ok(!html.includes('>READY<'), 'the same row does not also show READY');
   assert.ok(html.includes('emerald'), 'RUN is styled green, not blue');
 });
 

@@ -391,15 +391,17 @@ function MainContent({
             emptyMessage={t('transcript.noConversationYet', { provider: providerLabel })}
           />
         )}
-        <LiveRelayComposer
-          key={`pending-${externalTerminal.cliKind}:${tmuxPaneIdentityKey(externalTerminal.tmux)}:${externalTerminal.process?.startedAtMs ?? 'unknown'}`}
-          target={{ tmux: externalTerminal.tmux, process: externalTerminal.process! }}
-          model={'model' in externalTerminal ? externalTerminal.model : null}
-          effort={'effort' in externalTerminal ? externalTerminal.effort : null}
-          sessionName={externalTerminal.tmuxName}
-          workspacePath={isGjc ? null : (externalTerminal.project.fullPath || externalTerminal.project.path)}
-          relayKind={externalTerminal.cliKind}
-        />
+        {externalTranscriptView === 'conversation' && (
+          <LiveRelayComposer
+            key={`pending-${externalTerminal.cliKind}:${tmuxPaneIdentityKey(externalTerminal.tmux)}:${externalTerminal.process?.startedAtMs ?? 'unknown'}`}
+            target={{ tmux: externalTerminal.tmux, process: externalTerminal.process! }}
+            model={'model' in externalTerminal ? externalTerminal.model : null}
+            effort={'effort' in externalTerminal ? externalTerminal.effort : null}
+            sessionName={externalTerminal.tmuxName}
+            workspacePath={isGjc ? null : (externalTerminal.project.fullPath || externalTerminal.project.path)}
+            relayKind={externalTerminal.cliKind}
+          />
+        )}
       </div>
     );
   }

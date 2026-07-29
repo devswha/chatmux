@@ -141,7 +141,7 @@
       "action": "Ekranı yenile"
     },
     "serverUpdate": {
-      "sourceAvailable": "moving-main kaynak güncellemesi{{version}} kullanılabilir.",
+      "sourceAvailable": "Hedef: {{version}} (main dalındaki en son işleme). Kaynak güncellemelerinin sabit bir sürüm numarası yoktur.",
       "releaseAvailable": "Tam sürüm hedefi{{version}} kullanılabilir."
     },
     "confirm": {

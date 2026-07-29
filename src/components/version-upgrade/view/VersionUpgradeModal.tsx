@@ -347,7 +347,7 @@ export function VersionUpgradeModal({
                 {serverUpdateAvailable && (
                     <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200">
                         {installMode === 'source'
-                            ? t('versionUpdate.serverUpdate.sourceAvailable')
+                            ? t('versionUpdate.serverUpdate.sourceAvailable', { version: latestVersion ?? 'main' })
                             : t('versionUpdate.serverUpdate.releaseAvailable', { version: latestVersion ? ` v${latestVersion}` : '' })}
                     </div>
                 )}

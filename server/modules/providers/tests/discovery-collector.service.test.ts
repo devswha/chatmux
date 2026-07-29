@@ -46,6 +46,11 @@ test('discovery collector only advances revision for a changed snapshot', async 
   const state = scans();
   await state.collector.tick();
   const first = state.collector.currentSnapshot();
+  assert.equal(
+    first.rows.find((row) => row.lane === 'live')?.tmuxActionable,
+    true,
+    'fresh live discovery rows carry their server-authoritative close permission',
+  );
   await state.collector.tick();
   assert.equal(state.collector.currentSnapshot().revision, first.revision);
 

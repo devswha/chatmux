@@ -83,7 +83,7 @@ test('live GJC rows place their bell immediately left of the lineage-authorized 
   const bell = html.indexOf(`aria-label="${disableCompletionLabel}"`);
   const bellButtonEnd = html.indexOf('</button>', bell);
   const bellContainerEnd = html.indexOf('</span>', bellButtonEnd);
-  const stop = html.indexOf('title="liveSessions.stopOptions"');
+  const stop = html.indexOf('title="liveSessions.closeSessionTitle"');
 
   assert.ok(bell >= 0, 'the eligible live GJC row renders a bell');
   const nextButton = html.indexOf('<button', bellContainerEnd);
@@ -121,7 +121,7 @@ test('external agent rows place their bell immediately left of the stop X and om
   const externalBell = html.indexOf('aria-label="Disable completion notifications for this session"');
   const externalBellButtonEnd = html.indexOf('</button>', externalBell);
   const externalBellContainerEnd = html.indexOf('</span>', externalBellButtonEnd);
-  const externalStop = html.indexOf('title="externalSessions.stopOptions"');
+  const externalStop = html.indexOf('title="externalSessions.closeSessionTitle"');
   assert.ok(externalBell >= 0, 'the eligible external agent row renders a bell');
   const externalNextButton = html.indexOf('<button', externalBellContainerEnd);
   assert.equal(

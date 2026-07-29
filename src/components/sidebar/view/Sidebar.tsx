@@ -140,6 +140,7 @@ function Sidebar({
           onCollapseSidebar={collapseSidebar}
           clientRefreshAvailable={clientRefreshAvailable}
           serverUpdateAvailable={serverUpdateAvailable}
+          installMode={installMode}
           latestVersion={latestVersion}
           currentVersion={currentVersion}
           onShowVersionModal={() => setShowVersionModal(true)}

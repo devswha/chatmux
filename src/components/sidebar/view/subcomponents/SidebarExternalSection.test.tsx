@@ -159,12 +159,12 @@ test('SidebarExternalSection opens a fresh local agent in the pending conversati
   });
   assert.ok(html.includes(koSidebar.externalSessions.openConversation.replace('{{name}}', 'omp-fresh')));
   assert.ok(!html.includes('터미널로 보기'));
-  assert.ok(html.includes('>대화 전<'), html);
-  assert.ok(html.includes('아직 첫 메시지를 보내지 않았습니다'), html);
+  assert.ok(html.includes('>READY<'), html);
+  assert.ok(!html.includes('>대화 전<'), html);
   assert.ok(!html.includes('>확인 불가<'), html);
 });
 
-test('SidebarExternalSection renders provider-native activity states without labelling SSH', async () => {
+test('SidebarExternalSection renders the unified English activity states without labelling SSH', async () => {
   const html = await renderSection('ko', {
     sessions: [
       external('claude-run', 'claude', '%5', 105, { activity: 'running' }),
@@ -174,17 +174,21 @@ test('SidebarExternalSection renders provider-native activity states without lab
         activity: 'unknown',
         transcriptSessionId: 'cursor-session',
       }),
+      external('opencode-error', 'opencode', '%10', 110, { activity: 'error' }),
       external('remote', 'ssh', '%9', 109),
     ],
     projects: [project],
     onOpen,
     onChanged: noop,
   });
-  assert.ok(html.includes('RUN'), html);
-  assert.ok(html.includes('>대기<'));
-  assert.ok(html.includes('>승인 대기<'));
-  assert.ok(html.includes('>확인 불가<'));
-  assert.ok(html.includes('다음 사용자 입력을 기다립니다'));
+  assert.ok(html.includes('>RUN<'), html);
+  assert.ok(html.includes('>READY<'), html);
+  assert.ok(html.includes('>INPUT<'), html);
+  assert.ok(html.includes('>ERROR<'), html);
+  assert.ok(!html.includes('>대기<'), html);
+  assert.ok(!html.includes('>승인 대기<'), html);
+  assert.ok(!html.includes('>확인 불가<'), html);
+  assert.ok(!html.includes('>UNKNOWN<'), html);
 });
 
 test('M5b B8: the asking_user badge is a separate clickable attach entry point, distinct from the row open action', async () => {
@@ -200,21 +204,19 @@ test('M5b B8: the asking_user badge is a separate clickable attach entry point, 
     onChanged: noop,
   });
 
-  // The badge itself is a real <button>, not a span nested inside the row's
+  // The INPUT badge is a real <button>, not a span nested inside the row's
   // open button (which would make it non-independently-clickable / invalid
-  // HTML), and it carries a translated attach-specific label consumed here.
+  // HTML), and it retains the translated accessible attach action.
   const approvalButtonMatch = html.match(/<button type="button"[^>]*aria-label="[^"]*claude-ask[^"]*"[^>]*>/);
   assert.ok(approvalButtonMatch, html);
   assert.ok(html.includes('claude-ask') && html.includes('에 연결해 대기 중인 승인에 답하기'));
 
-  // The badge button's own closing tag ends the only place its label ("승인
-  // 대기") may legitimately appear; the row's own open button (which excludes
-  // the badge for asking_user rows via `!isApprovalPending`) must not repeat
-  // it.
-  const approvalIndex = html.indexOf(approvalButtonMatch![0]);
-  const approvalButtonEnd = html.indexOf('</button>', approvalIndex) + '</button>'.length;
-  const duplicateInOpenButton = html.indexOf('승인 대기</span>', approvalButtonEnd);
-  assert.equal(duplicateInOpenButton, -1, 'the badge must not also render inside the row open button for an asking_user row');
+  // The badge button's own closing tag ends the only place its INPUT label may
+  // legitimately appear; the row's own open button must not repeat it.
+  const inputIndex = html.indexOf(approvalButtonMatch![0]);
+  const inputButtonEnd = html.indexOf('</button>', inputIndex) + '</button>'.length;
+  const duplicateInOpenButton = html.indexOf('INPUT</span>', inputButtonEnd);
+  assert.equal(duplicateInOpenButton, -1, 'the INPUT badge must not also render inside the row open button');
 });
 
 test('M5b B8 AC1/AC2: the badge handler passes forceAttach with the exact pane it renders', () => {
@@ -265,4 +267,34 @@ test('SidebarExternalSection renders an unclassified shell pane as attach-only',
   assert.ok(html.includes('terminal'));
   assert.ok(html.includes('터미널로 보기'));
   assert.ok(!html.includes('%10'));
+});
+
+test('sidebar close controls terminate only the whole tmux session', () => {
+  const externalSource = readFileSync(
+    new URL('./SidebarExternalSection.tsx', import.meta.url),
+    'utf8',
+  );
+  const externalCloseFlow = externalSource.slice(
+    externalSource.indexOf('const closeTmuxSession'),
+    externalSource.indexOf('if (sessions.length'),
+  );
+  assert.match(
+    externalCloseFlow,
+    /externalCliSessionKill\(session\.tmux,\s*session\.process,\s*'session'\)/,
+  );
+  assert.doesNotMatch(externalCloseFlow, /'process'|'pane'|mode:/);
+
+  const liveSource = readFileSync(
+    new URL('./SidebarLiveSection.tsx', import.meta.url),
+    'utf8',
+  );
+  const liveCloseFlow = liveSource.slice(
+    liveSource.indexOf('const closeTmuxSession'),
+    liveSource.indexOf('\n  return (', liveSource.indexOf('const closeStrip')),
+  );
+  assert.match(
+    liveCloseFlow,
+    /liveSessionKill\(target\.tmux,\s*target\.process,\s*'session'\)/,
+  );
+  assert.doesNotMatch(liveCloseFlow, /'process'|'pane'|mode:/);
 });

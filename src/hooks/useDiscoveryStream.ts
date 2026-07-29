@@ -12,7 +12,8 @@ export type DiscoveryRow = {
   process: TmuxProcessGeneration | null;
   kind: string;
   providerSessionId: string | null;
-  activity: 'running' | 'waiting_user' | 'asking_user' | 'unknown';
+  activity: 'running' | 'waiting_user' | 'asking_user' | 'error' | 'unknown';
+  tmuxActionable?: boolean;
   cwd: string | null;
   presence: 'present' | 'stale';
   [key: string]: unknown;

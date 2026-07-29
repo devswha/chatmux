@@ -69,7 +69,6 @@
     "label": "Impostazioni",
     "agents": "Agenti",
     "appearance": "Aspetto",
-    "apiTokens": "API e Token",
     "access": "Accesso"
   },
   "appearanceSettings": {
@@ -124,58 +123,6 @@
   "footerActions": {
     "save": "Salva impostazioni",
     "cancel": "Annulla"
-  },
-  "apiKeys": {
-    "title": "Chiavi API",
-    "description": "Genera chiavi API per accedere all'API esterna da altre applicazioni.",
-    "newKey": {
-      "alertTitle": "⚠️ Salva la tua chiave API",
-      "alertMessage": "Questa è l'unica volta che vedrai questa chiave. Conservala in modo sicuro.",
-      "iveSavedIt": "L'ho salvata"
-    },
-    "form": {
-      "placeholder": "Nome chiave API (es. Server produzione)",
-      "createButton": "Crea",
-      "cancelButton": "Annulla"
-    },
-    "newButton": "Nuova chiave API",
-    "empty": "Nessuna chiave API creata.",
-    "list": {
-      "created": "Creata:",
-      "lastUsed": "Ultimo utilizzo:"
-    },
-    "confirmDelete": "Sei sicuro di voler eliminare questa chiave API?",
-    "status": {
-      "active": "Attiva",
-      "inactive": "Inattiva"
-    },
-    "github": {
-      "title": "Token GitHub",
-      "description": "Aggiungi token di accesso personale GitHub per clonare repository privati tramite l'API esterna.",
-      "descriptionAlt": "Aggiungi token di accesso personale GitHub per clonare repository privati. Puoi anche passare i token direttamente nelle richieste API senza salvarli.",
-      "addButton": "Aggiungi token",
-      "form": {
-        "namePlaceholder": "Nome token (es. Repository personali)",
-        "tokenPlaceholder": "Token di accesso personale GitHub (ghp_...)",
-        "descriptionPlaceholder": "Descrizione (opzionale)",
-        "addButton": "Aggiungi token",
-        "cancelButton": "Annulla",
-        "howToCreate": "Come creare un token di accesso personale GitHub →"
-      },
-      "empty": "Nessun token GitHub aggiunto.",
-      "added": "Aggiunto:",
-      "confirmDelete": "Sei sicuro di voler eliminare questo token GitHub?"
-    },
-    "apiDocsLink": "Documentazione API",
-    "documentation": {
-      "title": "Documentazione API esterna",
-      "description": "Scopri come usare l'API esterna per avviare sessioni Claude/Cursor dalle tue applicazioni.",
-      "viewLink": "Vedi documentazione API →"
-    },
-    "loading": "Caricamento...",
-    "version": {
-      "updateAvailable": "Aggiornamento disponibile: v{{version}}"
-    }
   },
   "agents": {
     "authStatus": {

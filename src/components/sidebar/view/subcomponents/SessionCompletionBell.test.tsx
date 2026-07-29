@@ -28,23 +28,6 @@ const item = (watched = false): CompletionNotificationStatusItem => ({
   target: target(watched),
 });
 const noop = async () => {};
-const REPAIRABLE_REASONS = [
-  'invalid_subscription',
-] as const satisfies readonly CompletionNotificationReason[];
-const ENVIRONMENTAL_REASONS = [
-  'permission_denied',
-  'permission_not_granted',
-  'secure_context_required',
-  'ios_install_required',
-  'unsupported',
-] as const satisfies readonly CompletionNotificationReason[];
-const NON_REPAIRABLE_REASONS = [
-  'settings_changed',
-  'target_unavailable',
-  'request_failed',
-  'refresh_failed',
-  'timeout',
-] as const satisfies readonly CompletionNotificationReason[];
 
 async function renderBell(overrides: Partial<CompletionNotificationDescriptorStatus> = {}) {
   const eligibleItem = item();
@@ -83,35 +66,22 @@ test('SessionCompletionBell renders only for authoritative eligible targets', as
   assert.match(eligible, /aria-pressed="false"/);
 });
 
-test('SessionCompletionBell keeps disabling available while repair is offered separately', async () => {
+test('SessionCompletionBell uses only slashed-off and plain-on bell states', async () => {
+  const off = await renderBell();
+  assert.match(off, /lucide-bell-off/);
+  assert.doesNotMatch(off, /lucide-wrench|animate-spin/);
+
   const watchedItem = item(true);
-  const html = await renderBell({
+  const on = await renderBell({
     item: watchedItem,
     target: watchedItem.target,
     device: { ...device, registered: false, reason: 'endpoint_not_registered' },
+    error: 'invalid_subscription',
   });
-  assert.match(html, new RegExp(enSidebar.completionNotifications.repair));
-  assert.match(html, new RegExp(enSidebar.completionNotifications.disable));
-  assert.equal((html.match(/<button/g) ?? []).length, 2, 'repair is a separate action rather than changing owner intent');
-});
-
-test('SessionCompletionBell limits repair to explicit device failures', async () => {
-  const watchedItem = item(true);
-  const watched = { item: watchedItem, target: watchedItem.target };
-
-  const unknownDevice = await renderBell({ ...watched, device: null });
-  assert.equal((unknownDevice.match(/<button/g) ?? []).length, 1, 'an unknown device state is not repairable');
-
-  for (const error of REPAIRABLE_REASONS) {
-    const html = await renderBell({ ...watched, error });
-    assert.equal((html.match(/<button/g) ?? []).length, 2, `${error} exposes device repair`);
-    assert.match(html, new RegExp(`title="${enSidebar.completionNotifications.repair}"`), `${error} uses the imperative repair title`);
-    assert.match(html, new RegExp(`aria-label="${enSidebar.completionNotifications.repair}"`), `${error} uses the imperative repair accessible name`);
-  }
-  for (const error of [...ENVIRONMENTAL_REASONS, ...NON_REPAIRABLE_REASONS]) {
-    const html = await renderBell({ ...watched, error });
-    assert.equal((html.match(/<button/g) ?? []).length, 1, `${error} does not expose device repair`);
-  }
+  assert.match(on, /lucide-bell h-3\.5 w-3\.5/);
+  assert.doesNotMatch(on, /lucide-bell-off|lucide-wrench|animate-spin/);
+  assert.equal((on.match(/<button/g) ?? []).length, 1);
+  assert.match(on, new RegExp(enSidebar.completionNotifications.disable));
 });
 test('SessionCompletionBell shows localized environmental guidance without a repair action', async () => {
   for (const [error, message] of [
@@ -158,9 +128,19 @@ test('SessionCompletionBell composes paused status with concurrent error and pen
   assert.match(pausedWhilePending, new RegExp(enSidebar.completionNotifications.paused));
   assert.match(pausedWhilePending, /disabled=""/);
 });
-test('SessionCompletionBell disables pending spinner motion when reduced motion is requested', async () => {
-  const html = await renderBell({ pending: true });
-  assert.match(html, /animate-spin motion-reduce:animate-none/);
+test('SessionCompletionBell keeps its two-state icon while a mutation is pending', async () => {
+  const off = await renderBell({ pending: true });
+  assert.match(off, /lucide-bell-off/);
+  assert.doesNotMatch(off, /animate-spin/);
+
+  const watchedItem = item(true);
+  const on = await renderBell({
+    item: watchedItem,
+    target: watchedItem.target,
+    pending: true,
+  });
+  assert.match(on, /lucide-bell h-3\.5 w-3\.5/);
+  assert.match(on, /disabled=""/);
 });
 
 test('SessionCompletionBell retains keyboard semantics and 44px touch targets', async () => {
@@ -172,5 +152,5 @@ test('SessionCompletionBell retains keyboard semantics and 44px touch targets', 
   });
   assert.match(html, /type="button"/);
   assert.match(html, /focus-visible:ring-2/);
-  assert.equal((html.match(/h-11 w-11/g) ?? []).length, 2, 'both keyboard buttons meet the 44px mobile target');
+  assert.equal((html.match(/h-11 w-11/g) ?? []).length, 1, 'the keyboard toggle keeps its 44px mobile target');
 });

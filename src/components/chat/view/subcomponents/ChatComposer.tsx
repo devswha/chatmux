@@ -72,6 +72,8 @@ interface ChatComposerProps {
   hasInput: boolean;
   onClearInput: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement> | MouseEvent<HTMLButtonElement> | TouchEvent<HTMLButtonElement>) => void;
+  commandError: string | null;
+  onClearCommandError: () => void;
   isDragActive: boolean;
   queuedDraft: QueuedDraft | null;
   onEditQueuedDraft: () => void;
@@ -129,6 +131,8 @@ export default function ChatComposer({
   hasInput,
   onClearInput,
   onSubmit,
+  commandError,
+  onClearCommandError,
   isDragActive,
   queuedDraft,
   onEditQueuedDraft,
@@ -292,6 +296,22 @@ export default function ChatComposer({
           onEdit={onEditQueuedDraft}
           onDelete={onDeleteQueuedDraft}
         />
+      )}
+      {commandError && (
+        <div className="mx-auto mb-2 flex max-w-[54.25rem] items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive" role="alert">
+          <span className="min-w-0 flex-1 break-words">
+            {t('input.sendFailed', { defaultValue: 'Command failed' })}: {commandError}
+          </span>
+          <button
+            type="button"
+            onClick={onClearCommandError}
+            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded hover:bg-destructive/10"
+            aria-label={t('input.dismissError', { defaultValue: 'Dismiss error' })}
+            title={t('input.dismissError', { defaultValue: 'Dismiss error' })}
+          >
+            <XIcon className="h-3.5 w-3.5" />
+          </button>
+        </div>
       )}
 
       {!hasQuestionPanel && <div className="relative mx-auto max-w-[54.25rem]">

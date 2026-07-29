@@ -46,12 +46,11 @@
   "externalSessions": {
     "viewInTerminal": "'{{name}}' tmux oturumunu terminalde görüntüle",
     "openConversation": "{{name}} için konuşmayı aç",
-    "stopOptions": "{{name}} durdurma seçenekleri",
+    "closeSessionTitle": "'{{name}}' tmux oturumunu kapat",
+    "closeSessionConfirm": "'{{name}}' içindeki tüm bölmeler ve işlemler sonlandırılacak.",
+    "closeSession": "Kapat",
     "stopFailed": "Oturum durdurulamadı",
     "stopping": "Durduruluyor…",
-    "stopScope": "Durdurma kapsamı",
-    "agent": "Aracı",
-    "session": "Oturum",
     "cancel": "İptal",
     "activity": {
       "running": "Aracı yanıt veriyor veya araçları çalıştırıyor",

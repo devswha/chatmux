@@ -36,6 +36,9 @@ export type SystemUpdateStatus = {
     inFlight?: boolean;
     operationId?: string;
     initialBootId?: string;
+    currentRevision?: string;
+    targetRevision?: string;
+    targetVersion?: string;
   } | null;
   release?: { available?: boolean; targetVersion?: string | null } | null;
   activeJob?: UpdateJob | null;
@@ -96,8 +99,15 @@ export const useVersionCheck = (_owner: string, _repo: string) => {
         : null);
       setInstallMode(status.mode === 'source' || status.mode === 'release' ? status.mode : 'unknown');
       const sourceAvailable = status.source?.available === true;
-      const targetVersion = status.release?.targetVersion;
-      setLatestVersion(status.mode === 'release' && typeof targetVersion === 'string' ? targetVersion : null);
+      const releaseTargetVersion = status.release?.targetVersion;
+      const sourceTargetVersion = status.source?.targetVersion;
+      setLatestVersion(
+        status.mode === 'release' && typeof releaseTargetVersion === 'string'
+          ? releaseTargetVersion
+          : status.mode === 'source' && typeof sourceTargetVersion === 'string'
+            ? sourceTargetVersion
+            : null,
+      );
       setAvailability(status.mode === 'source'
         ? (sourceAvailable ? 'available' : status.source?.available === false ? 'unavailable' : 'unknown')
         : (status.release?.available === true ? 'available' : status.release?.available === false ? 'unavailable' : 'unknown'));

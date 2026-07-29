@@ -217,10 +217,11 @@ export function useChatRealtimeHandlers({
         return;
       }
 
-      // --- All other messages: route to store ---
+      // --- Route durable messages plus completion evidence to the store ---
+      // Completion rows are not rendered, but the timeline needs their terminal
+      // outcome to suppress recovered stderr and retain only unresolved failures.
       const shouldPersist =
-        msg.kind !== 'complete'
-        && msg.kind !== 'status'
+        msg.kind !== 'status'
         && msg.kind !== 'permission_request'
         && msg.kind !== 'permission_cancelled';
 

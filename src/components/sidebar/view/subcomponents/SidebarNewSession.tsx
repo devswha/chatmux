@@ -79,6 +79,13 @@ export default function SidebarNewSession({
     setStatus({ kind: 'idle' });
   };
 
+  const completeSpawn = (path: string) => {
+    rememberCwd(path);
+    setOpen(false);
+    reset();
+    onCreated();
+  };
+
   const spawn = async () => {
     const trimmedName = name.trim();
     const trimmedCwd = cwd.trim();
@@ -97,9 +104,7 @@ export default function SidebarNewSession({
           detail?: string;
         };
         if (response.ok && data.ok) {
-          rememberCwd(trimmedCwd);
-          setOpen(false);
-          reset();
+          completeSpawn(trimmedCwd);
           return;
         }
         const text = data.reachable === false
@@ -116,10 +121,7 @@ export default function SidebarNewSession({
       const response = await api.externalCliSessionSpawn(provider, trimmedName, trimmedCwd);
       const body = await response.json().catch(() => null);
       if (response.ok && body?.data?.ok) {
-        rememberCwd(trimmedCwd);
-        setOpen(false);
-        reset();
-        onCreated();
+        completeSpawn(trimmedCwd);
         return;
       }
       setStatus({

@@ -12,6 +12,18 @@ export function readDiscoveryOk(value: unknown): boolean {
   return typeof ok === 'boolean' ? ok : true;
 }
 
+/**
+ * New discovery rows carry their server-authoritative tmux action proof.
+ * The REST claim remains the compatibility fallback for older servers and
+ * the initial snapshot.
+ */
+export function isLiveTmuxActionable(
+  row: { tmuxActionable?: unknown },
+  restClaim?: unknown,
+): boolean {
+  return row.tmuxActionable === true || restClaim === 'lineage';
+}
+
 type PromotionApiRow = {
   id?: unknown;
   tmuxName?: unknown;

@@ -11,10 +11,20 @@ export const PROMPT_OPTION_SCAN_LINES = 15;
 export const PROMPT_MAX_OPTIONS = 5;
 export const PROMPT_MIN_OPTIONS = 2;
 
+export const TERMINAL_FONT_FAMILY = [
+  'ui-monospace',
+  'SFMono-Regular',
+  'Menlo',
+  'Monaco',
+  'Consolas',
+  '"Liberation Mono"',
+  'monospace',
+].join(', ');
+
 export const TERMINAL_OPTIONS: ITerminalOptions = {
   cursorBlink: true,
   fontSize: 14,
-  fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+  fontFamily: TERMINAL_FONT_FAMILY,
   allowProposedApi: true,
   allowTransparency: false,
   convertEol: true,

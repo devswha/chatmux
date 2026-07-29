@@ -16,6 +16,7 @@ import { recordHostCommand } from './host-command-metrics.service.js';
 
 export type ExternalSessionActivity = 'running' | 'waiting_user' | 'asking_user' | 'unknown';
 export type ExternalSessionTerminalOutcome = 'reply_ready' | 'failed' | 'none' | 'unknown';
+export type ExternalSessionDisplayActivity = ExternalSessionActivity | 'error';
 
 export type ExternalSessionActivityEvidence = {
   activity: ExternalSessionActivity;
@@ -98,6 +99,14 @@ export type ExternalSessionActivityResolutionResult =
     appSession: ExternalSessionAppSession | null;
     transcriptEnded: false;
   };
+
+export function toExternalSessionDisplayActivity(
+  resolution: ExternalSessionActivityResolutionResult,
+): ExternalSessionDisplayActivity {
+  return resolution.status === 'resolved' && resolution.terminalOutcome === 'failed'
+    ? 'error'
+    : resolution.activity;
+}
 
 export type ExternalSessionActivityResolverDependencies = {
   getAppSession?: (
@@ -802,7 +811,10 @@ export async function resolveExternalSessionActivity(
   const providerSessionId = session.providerSessionId;
   const getAppSession: NonNullable<ExternalSessionActivityResolverDependencies['getAppSession']> = dependencies.getAppSession
     ?? ((provider: ExternalLocalCliKind, nativeSessionId: string) => getConnection().prepare(`
-      SELECT session_id, project_path, custom_name, jsonl_path
+      SELECT session.session_id AS session_id,
+             session.project_path AS project_path,
+             session.custom_name AS custom_name,
+             session.jsonl_path AS jsonl_path
       FROM sessions session
       JOIN projects project ON project.project_path = session.project_path
       WHERE session.provider = ?

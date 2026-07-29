@@ -26,8 +26,8 @@ type ParsedTaskNotification = {
  * Newer notifications carry extra fields (`<tool-use-id>`, `<note>`, `<usage>`,
  * and a `<result>` markdown payload) that the previous single-shot regex could
  * not match, so the whole raw XML block leaked through as plain user text.
- * Fields are extracted independently so the block renders as an assistant
- * notification plus, when present, the agent's markdown result.
+ * Fields are extracted independently so a result renders as the assistant
+ * message, while summary-only notifications retain their compact status row.
  */
 function parseTaskNotification(content: string): ParsedTaskNotification | null {
   if (!content.trimStart().startsWith('<task-notification>')) {
@@ -54,7 +54,46 @@ function parseTaskNotification(content: string): ParsedTaskNotification | null {
     result,
   };
 }
+/**
+ * Suppress transient standalone errors once a final assistant response or terminal
+ * lifecycle event proves that their user turn recovered or was aborted.
+ */
+function findRecoveredStandaloneErrorIndexes(messages: NormalizedMessage[]): Set<number> {
+  const suppressed = new Set<number>();
+  let runErrors: number[] = [];
 
+  for (const [index, message] of messages.entries()) {
+    if (message.kind === 'text' && message.role === 'user') {
+      runErrors = [];
+      continue;
+    }
+
+    if (message.kind === 'error') {
+      runErrors.push(index);
+      continue;
+    }
+
+    if (message.kind === 'text' && message.role === 'assistant' && message.content?.trim()) {
+      runErrors.forEach((errorIndex) => suppressed.add(errorIndex));
+      runErrors = [];
+      continue;
+    }
+
+    if (message.kind !== 'complete') {
+      continue;
+    }
+
+    if (message.success === true || message.aborted === true) {
+      runErrors.forEach((errorIndex) => suppressed.add(errorIndex));
+    } else if (message.success === false) {
+      runErrors.slice(0, -1).forEach((errorIndex) => suppressed.add(errorIndex));
+    }
+
+    runErrors = [];
+  }
+
+  return suppressed;
+}
 /**
  * Convert NormalizedMessage[] from the session store into ChatMessage[]
  * that the existing UI components expect.
@@ -78,8 +117,9 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
       toolResultMap.set(msg.toolId, msg);
     }
   }
+  const suppressedStandaloneErrorIndexes = findRecoveredStandaloneErrorIndexes(messages);
 
-  for (const msg of messages) {
+  for (const [index, msg] of messages.entries()) {
     const sharedMetadata = {
       displayText: msg.displayText,
       commandName: msg.commandName,
@@ -100,21 +140,20 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
           // Parse task notifications
           const taskNotif = parseTaskNotification(content);
           if (taskNotif) {
-            converted.push({
-              type: 'assistant',
-              content: taskNotif.summary,
-              timestamp: msg.timestamp,
-              isTaskNotification: true,
-              taskStatus: taskNotif.status,
-              ...sharedMetadata,
-            });
-            // Render the agent's result as a normal assistant message so its
-            // markdown displays correctly instead of leaking raw XML.
             if (taskNotif.result) {
               converted.push({
                 type: 'assistant',
                 content: formatUsageLimitText(unescapeWithMathProtection(decodeHtmlEntities(taskNotif.result))),
                 timestamp: msg.timestamp,
+                ...sharedMetadata,
+              });
+            } else {
+              converted.push({
+                type: 'assistant',
+                content: taskNotif.summary,
+                timestamp: msg.timestamp,
+                isTaskNotification: true,
+                taskStatus: taskNotif.status,
                 ...sharedMetadata,
               });
             }
@@ -202,6 +241,9 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
         break;
 
       case 'error':
+        if (suppressedStandaloneErrorIndexes.has(index)) {
+          break;
+        }
         converted.push({
           type: 'error',
           content: msg.content || 'Unknown error',

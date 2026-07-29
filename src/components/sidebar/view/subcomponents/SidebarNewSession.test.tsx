@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
@@ -46,12 +47,11 @@ const requiredKeys = [
 const externalSessionRequiredKeys = [
   'viewInTerminal',
   'openConversation',
-  'stopOptions',
+  'closeSessionTitle',
+  'closeSessionConfirm',
+  'closeSession',
   'stopFailed',
   'stopping',
-  'stopScope',
-  'agent',
-  'session',
   'cancel',
   'activity.running',
   'activity.waitingUser',
@@ -128,4 +128,26 @@ test('English and Korean render the new-session form without mixed-language copy
   assert.ok(korean.includes(koSidebar.newSessionForm.create));
   assert.ok(!korean.includes(enSidebar.newSessionForm.sessionNamePlaceholder));
   assert.ok(!korean.includes(enSidebar.newSessionForm.cancel));
+});
+
+test('successful GJC and external spawns both refresh discovery', () => {
+  const source = readFileSync(new URL('./SidebarNewSession.tsx', import.meta.url), 'utf8');
+  const completion = source.slice(
+    source.indexOf('const completeSpawn'),
+    source.indexOf('const spawn'),
+  );
+  assert.match(completion, /onCreated\(\)/);
+
+  const gjcBranch = source.slice(
+    source.indexOf("if (provider === 'gjc')"),
+    source.indexOf('const response = await api.externalCliSessionSpawn'),
+  );
+  assert.match(gjcBranch, /completeSpawn\(trimmedCwd\)/);
+
+  const externalStart = source.indexOf('const response = await api.externalCliSessionSpawn');
+  const externalBranch = source.slice(
+    externalStart,
+    source.indexOf('} catch {', externalStart),
+  );
+  assert.match(externalBranch, /completeSpawn\(trimmedCwd\)/);
 });

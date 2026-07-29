@@ -11,6 +11,7 @@ import type { TmuxPaneTarget } from '../../../../../shared/tmux';
 
 import SidebarIdleComposer from './SidebarIdleComposer';
 import SessionCompletionBell from './SessionCompletionBell';
+import SessionActivityBadge from './SessionActivityBadge';
 
 type SidebarLiveSectionProps = {
   projects: Project[];
@@ -29,7 +30,7 @@ type SidebarLiveSectionProps = {
   // interactive gjc TUI. Presentational only — kill/relay still key off lineage.
   liveSessionKinds: ReadonlyMap<string, string>;
   // Ids whose transcript tail shows a turn in progress — RUN (green) instead
-  // of LIVE (blue). Presentational only.
+  // of READY (blue). Presentational only.
   liveSessionRunning: ReadonlySet<string>;
   selectedSession: ProjectSession | null;
   onProjectSelect: (project: Project) => void;
@@ -42,8 +43,8 @@ const isStableGjcSessionId = (sessionId: string) => (
   sessionId.length > 0 && !sessionId.startsWith('idle-gjc:')
 );
 
-/** Per-row kill flow state (2-step confirm before the tower is asked to kill). */
-type KillStatus =
+/** Per-row whole-session close state with a destructive-action confirmation. */
+type CloseStatus =
   | { kind: 'idle' }
   | { kind: 'confirming' }
   | { kind: 'stopping' }
@@ -90,23 +91,23 @@ export default function SidebarLiveSection({
   onExternalTerminalOpen,
 }: SidebarLiveSectionProps) {
   const { t } = useTranslation('sidebar');
-  // Session ids killed in this component instance — hidden immediately; the 5s
-  // live poll is the source of truth and will drop them for real.
-  const [killedIds, setKilledIds] = useState<ReadonlySet<string>>(new Set());
-  const [killStatus, setKillStatus] = useState<Map<string, KillStatus>>(new Map());
+  // Session ids closed in this component instance are hidden immediately; the
+  // live poll remains the source of truth and removes them authoritatively.
+  const [closedIds, setClosedIds] = useState<ReadonlySet<string>>(new Set());
+  const [closeStatus, setCloseStatus] = useState<Map<string, CloseStatus>>(new Map());
   const [openingId, setOpeningId] = useState<string | null>(null);
   const [openError, setOpenError] = useState<Map<string, string>>(new Map());
 
   // Reconcile row-local state with each authoritative snapshot (리뷰 반영):
-  // ids the poll no longer reports drop their killed/confirm/error state, so a
+  // ids the poll no longer reports drop their close/confirm/error state, so a
   // later id reuse (e.g. idle-gjc:<name> after a new gjc boots there) renders
   // fresh instead of staying hidden or showing a stale confirm strip.
   useEffect(() => {
-    setKilledIds((prev) => {
+    setClosedIds((prev) => {
       const next = new Set([...prev].filter((id) => liveSessionIds.has(id)));
       return next.size === prev.size ? prev : next;
     });
-    setKillStatus((prev) => {
+    setCloseStatus((prev) => {
       const next = new Map([...prev].filter(([id]) => liveSessionIds.has(id)));
       return next.size === prev.size ? prev : next;
     });
@@ -118,7 +119,7 @@ export default function SidebarLiveSection({
 
   const rows = projects.flatMap((project) =>
     getAllSessions(project)
-      .filter((session) => liveSessionIds.has(session.id) && liveSessionNames.has(session.id) && !killedIds.has(session.id))
+      .filter((session) => liveSessionIds.has(session.id) && liveSessionNames.has(session.id) && !closedIds.has(session.id))
       .map((session) => ({ project, session })),
   );
 
@@ -127,16 +128,16 @@ export default function SidebarLiveSection({
   // the tab. Transcript-only processes without a tmux name stay in history.
   const matchedIds = new Set(rows.map(({ session }) => session.id));
   const orphans = [...liveSessionIds].filter((id) => (
-    liveSessionNames.has(id) && !matchedIds.has(id) && !killedIds.has(id)
+    liveSessionNames.has(id) && !matchedIds.has(id) && !closedIds.has(id)
   ));
 
   if (rows.length === 0 && orphans.length === 0) {
     return null;
   }
 
-  const statusOf = (id: string): KillStatus => killStatus.get(id) ?? { kind: 'idle' };
-  const setStatusOf = (id: string, status: KillStatus) => {
-    setKillStatus((prev) => {
+  const statusOf = (id: string): CloseStatus => closeStatus.get(id) ?? { kind: 'idle' };
+  const setStatusOf = (id: string, status: CloseStatus) => {
+    setCloseStatus((prev) => {
       const next = new Map(prev);
       if (status.kind === 'idle') {
         next.delete(id);
@@ -192,10 +193,7 @@ export default function SidebarLiveSection({
     }
   };
 
-  const stop = async (
-    sessionId: string,
-    mode: 'process' | 'pane' | 'session',
-  ) => {
+  const closeTmuxSession = async (sessionId: string) => {
     const target = liveSessionTargets.get(sessionId);
     if (!target) {
       setStatusOf(sessionId, { kind: 'error', text: t('liveSessions.targetReplaced') });
@@ -203,12 +201,12 @@ export default function SidebarLiveSection({
     }
     setStatusOf(sessionId, { kind: 'stopping' });
     try {
-      const response = await api.liveSessionKill(target.tmux, target.process, mode);
+      const response = await api.liveSessionKill(target.tmux, target.process, 'session');
       const body = await response.json().catch(() => null);
       const data = (body?.data ?? body ?? {}) as { ok?: boolean; detail?: string };
       if (response.ok && data.ok) {
         setStatusOf(sessionId, { kind: 'idle' });
-        setKilledIds((prev) => new Set([...prev, sessionId]));
+        setClosedIds((prev) => new Set([...prev, sessionId]));
         return;
       }
       const text = response.status === 409
@@ -222,12 +220,13 @@ export default function SidebarLiveSection({
     }
   };
 
-  // Shared kill affordances (matched rows + orphan rows use the same flow).
-  const killButton = (id: string, tmuxName: string) =>
+  // Matched and orphan rows share the same whole-session close flow.
+  const closeButton = (id: string, tmuxName: string) =>
     statusOf(id).kind === 'idle' ? (
       <button
         type="button"
-        title={t('liveSessions.stopOptions', { name: tmuxName })}
+        title={t('liveSessions.closeSessionTitle', { name: tmuxName })}
+        aria-label={t('liveSessions.closeSessionTitle', { name: tmuxName })}
         onClick={() => setStatusOf(id, { kind: 'confirming' })}
         className="mr-1 mt-1.5 rounded p-1 text-muted-foreground/60 transition-colors hover:bg-red-500/10 hover:text-red-500"
       >
@@ -235,7 +234,7 @@ export default function SidebarLiveSection({
       </button>
     ) : null;
 
-  const killStrip = (id: string, tmuxName: string) => {
+  const closeStrip = (id: string, tmuxName: string) => {
     const status = statusOf(id);
     if (status.kind === 'idle') return null;
     return (
@@ -254,22 +253,18 @@ export default function SidebarLiveSection({
         ) : (
           <div className="flex items-center justify-between gap-2">
             <span className="truncate text-[11px] text-muted-foreground">
-              {status.kind === 'stopping' ? t('liveSessions.stopping') : t('liveSessions.stopScope', { name: tmuxName })}
+              {status.kind === 'stopping'
+                ? t('liveSessions.stopping')
+                : t('liveSessions.closeSessionConfirm', { name: tmuxName })}
             </span>
             {status.kind === 'confirming' && (
               <span className="flex shrink-0 items-center gap-1">
                 <button
                   type="button"
-                  onClick={() => void stop(id, 'process')}
+                  onClick={() => void closeTmuxSession(id)}
                   className="rounded bg-red-600 px-2 py-0.5 text-[11px] font-medium text-white hover:bg-red-700"
                 >
-                  {t('liveSessions.agent')}
-                </button>
-                <button type="button" onClick={() => void stop(id, 'pane')} className="px-1 text-[11px] text-red-500">
-                  pane
-                </button>
-                <button type="button" onClick={() => void stop(id, 'session')} className="px-1 text-[11px] text-red-500">
-                  {t('liveSessions.session')}
+                  {t('liveSessions.closeSession')}
                 </button>
                 <button type="button" onClick={() => setStatusOf(id, { kind: 'idle' })} className="px-1 text-[11px] text-muted-foreground">
                   {t('liveSessions.cancel')}
@@ -319,33 +314,15 @@ export default function SidebarLiveSection({
                   <SessionProviderLogo provider="gjc" className="mt-0.5 h-4 w-4 flex-shrink-0" />
                   <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                     <span className="flex items-center gap-2">
-                      {liveSessionRunning.has(session.id) ? (
-                        <>
-                          <span className="inline-flex h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-emerald-500" aria-hidden />
-                          <span
-                            className="shrink-0 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400"
-                            title={t('liveSessions.runTitle')}
-                          >
-                            RUN
-                          </span>
-                        </>
-                      ) : (
-                        <>
-                          <span className="inline-flex h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-blue-500" aria-hidden />
-                          <span
-                            className="shrink-0 rounded bg-blue-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-blue-600 dark:text-blue-400"
-                            title={t('liveSessions.liveTitle')}
-                          >
-                            LIVE
-                          </span>
-                        </>
-                      )}
+                      <SessionActivityBadge
+                        state={liveSessionRunning.has(session.id) ? 'running' : 'ready'}
+                      />
                       {liveSessionKinds.get(session.id) === 'batch' && (
                         <span
                           className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400"
-                          title={t('liveSessions.batchTitle')}
+                          aria-label={t('liveSessions.batchTitle')}
                         >
-                          {t('liveSessions.batchBadge')}
+                          BATCH
                         </span>
                       )}
                       <span className="truncate text-sm font-medium text-foreground">{primary}</span>
@@ -362,17 +339,17 @@ export default function SidebarLiveSection({
                   />
                 )}
                 {tmuxName && liveSessionLineage.has(session.id) && liveSessionTargets.has(session.id) && (
-                  killButton(session.id, tmuxName)
+                  closeButton(session.id, tmuxName)
                 )}
               </div>
-              {tmuxName && liveSessionLineage.has(session.id) && liveSessionTargets.has(session.id) && killStrip(session.id, tmuxName)}
+              {tmuxName && liveSessionLineage.has(session.id) && liveSessionTargets.has(session.id) && closeStrip(session.id, tmuxName)}
             </div>
           );
         })}
         {orphans.map((id) => {
           const tmuxName = liveSessionNames.get(id);
-          // Server-synthetic row: a gjc TUI runs in this tmux session but has no
-          // transcript yet (gjc creates it at the FIRST message) — waiting, not live.
+          // Server-synthetic row: a GJC TUI runs in this tmux session but has
+          // no transcript yet. It is ready for its first message.
           const isIdle = id.startsWith('idle-gjc:');
           const model = liveSessionModels.get(id)?.split('/').pop();
           const effort = liveSessionEfforts.get(id);
@@ -385,21 +362,13 @@ export default function SidebarLiveSection({
               <SessionProviderLogo provider="gjc" className="mt-0.5 h-4 w-4 flex-shrink-0" />
               <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                 <span className="flex items-center gap-2">
-                  <span
-                    className={`inline-flex h-1.5 w-1.5 shrink-0 rounded-full ${isIdle ? 'bg-muted-foreground/50' : liveSessionRunning.has(id) ? 'animate-pulse bg-emerald-500' : 'animate-pulse bg-blue-500'}`}
-                    aria-hidden
-                  />
-                  <span
-                    className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${isIdle ? 'bg-muted text-muted-foreground' : liveSessionRunning.has(id) ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' : 'bg-blue-500/15 text-blue-600 dark:text-blue-400'}`}
-                  >
-                    {isIdle ? t('liveSessions.idleBadge') : liveSessionRunning.has(id) ? 'RUN' : 'LIVE'}
-                  </span>
+                  <SessionActivityBadge state={liveSessionRunning.has(id) ? 'running' : 'ready'} />
                   {liveSessionKinds.get(id) === 'batch' && (
                     <span
                       className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400"
-                      title={t('liveSessions.batchTitle')}
+                      aria-label={t('liveSessions.batchTitle')}
                     >
-                      {t('liveSessions.batchBadge')}
+                      BATCH
                     </span>
                   )}
                   <span className="truncate text-sm font-medium text-foreground">
@@ -455,7 +424,7 @@ export default function SidebarLiveSection({
                     className="mt-1.5"
                   />
                 )}
-                {tmuxName && liveSessionLineage.has(id) && liveSessionTargets.has(id) && killButton(id, tmuxName)}
+                {tmuxName && liveSessionLineage.has(id) && liveSessionTargets.has(id) && closeButton(id, tmuxName)}
               </div>
               {openError.has(id) && (
                 <p className="px-2 pb-1.5 pl-[1.375rem] text-[11px] text-red-500">{openError.get(id)}</p>
@@ -467,7 +436,7 @@ export default function SidebarLiveSection({
                   target={liveSessionTargets.get(id) ?? null}
                 />
               )}
-              {tmuxName && liveSessionLineage.has(id) && liveSessionTargets.has(id) && killStrip(id, tmuxName)}
+              {tmuxName && liveSessionLineage.has(id) && liveSessionTargets.has(id) && closeStrip(id, tmuxName)}
             </div>
           );
         })}
