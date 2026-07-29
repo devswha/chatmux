@@ -159,6 +159,9 @@ test('SidebarExternalSection opens a fresh local agent in the pending conversati
   });
   assert.ok(html.includes(koSidebar.externalSessions.openConversation.replace('{{name}}', 'omp-fresh')));
   assert.ok(!html.includes('터미널로 보기'));
+  assert.ok(html.includes('>대화 전<'), html);
+  assert.ok(html.includes('아직 첫 메시지를 보내지 않았습니다'), html);
+  assert.ok(!html.includes('>확인 불가<'), html);
 });
 
 test('SidebarExternalSection renders provider-native activity states without labelling SSH', async () => {
@@ -167,7 +170,10 @@ test('SidebarExternalSection renders provider-native activity states without lab
       external('claude-run', 'claude', '%5', 105, { activity: 'running' }),
       external('codex-wait', 'codex', '%6', 106, { activity: 'waiting_user' }),
       external('omp-ask', 'omp', '%7', 107, { activity: 'asking_user' }),
-      external('cursor-unknown', 'cursor', '%8', 108, { activity: 'unknown' }),
+      external('cursor-unknown', 'cursor', '%8', 108, {
+        activity: 'unknown',
+        transcriptSessionId: 'cursor-session',
+      }),
       external('remote', 'ssh', '%9', 109),
     ],
     projects: [project],

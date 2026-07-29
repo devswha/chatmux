@@ -15,10 +15,10 @@ export default {
     },
     extend: {
       fontFamily: {
+        // Pretendard has native Hangul and Latin glyphs with consistent metrics.
+        // Keep legacy font-serif call sites on the same readable app face.
         sans: ['"Pretendard Variable"', 'Pretendard', '"Encode Sans"', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'Roboto', '"Helvetica Neue"', 'Arial', 'sans-serif'],
-        // Latin keeps its serif faces; Korean (no serif glyph in them) falls through
-        // to Pretendard instead of the ugly system serif (궁서체).
-        serif: ['Merriweather', 'Georgia', 'Cambria', '"Times New Roman"', '"Pretendard Variable"', 'Pretendard', 'serif'],
+        serif: ['"Pretendard Variable"', 'Pretendard', '"Encode Sans"', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'Roboto', '"Helvetica Neue"', 'Arial', 'sans-serif'],
       },
       colors: {
         border: "hsl(var(--border))",

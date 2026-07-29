@@ -60,6 +60,8 @@
       "approvalPending": "Onay bekliyor",
       "approvalPendingTitle": "Aracı seçiminizi veya onayınızı bekliyor",
       "approvalPendingAttach": "Bekleyen onayı yanıtlamak için '{{name}}' oturumuna bağlan",
+      "notStarted": "Hazır",
+      "notStartedTitle": "Henüz ilk mesaj gönderilmedi",
       "unknown": "Kullanılamıyor",
       "unknownTitle": "Geçerli durum sağlayıcı kayıtlarından güvenle belirlenemiyor"
     }

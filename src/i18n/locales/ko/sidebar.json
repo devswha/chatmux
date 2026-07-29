@@ -60,6 +60,8 @@
       "approvalPending": "승인 대기",
       "approvalPendingTitle": "에이전트가 사용자 선택이나 승인을 기다립니다",
       "approvalPendingAttach": "'{{name}}'에 연결해 대기 중인 승인에 답하기",
+      "notStarted": "대화 전",
+      "notStartedTitle": "아직 첫 메시지를 보내지 않았습니다",
       "unknown": "확인 불가",
       "unknownTitle": "provider 기록에서 현재 상태를 안전하게 판정할 수 없습니다"
     }

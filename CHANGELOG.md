@@ -4,6 +4,19 @@ All notable changes to ChatMux are documented in this file. Current and
 future server artifacts are published only through
 [GitHub Releases](https://github.com/devswha/chatmux/releases).
 
+## 1.4.3 (2026-07-29)
+
+### Fixed
+
+- Mobile terminal shortcuts now reserve their own layout row instead of covering
+  the bottom of external CLI output, including the phone safe area.
+- Fresh external CLI sessions with no first message are labelled `Ready`/`대화
+  전` instead of the misleading `Unavailable` state; genuine provider-evidence
+  failures still fail closed as unavailable.
+- Chat and Markdown typography now use one Hangul-capable Pretendard Variable
+  stack for both former sans and serif utility paths, eliminating mixed glyph
+  sizes within Korean text.
+
 ## 1.4.2 (2026-07-28)
 
 ### Added

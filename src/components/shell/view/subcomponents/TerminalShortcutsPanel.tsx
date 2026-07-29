@@ -41,7 +41,6 @@ type TerminalShortcutsPanelProps = {
   wsRef: MutableRefObject<WebSocket | null>;
   terminalRef: MutableRefObject<Terminal | null>;
   isConnected: boolean;
-  bottomOffset?: string;
 };
 
 const preventFocusSteal = (e: React.PointerEvent) => e.preventDefault();
@@ -57,7 +56,6 @@ export default function TerminalShortcutsPanel({
   wsRef,
   terminalRef,
   isConnected,
-  bottomOffset = 'bottom-0',
 }: TerminalShortcutsPanelProps) {
   const { t } = useTranslation('settings');
   const [ctrlActive, setCtrlActive] = useState(false);
@@ -109,7 +107,7 @@ export default function TerminalShortcutsPanel({
   );
 
   return (
-    <div className={`pointer-events-none fixed inset-x-0 ${bottomOffset} z-20 px-2 md:hidden`}>
+    <div className="pointer-events-none z-20 shrink-0 px-2 pb-safe-area-inset-bottom md:hidden">
       <div className="pointer-events-auto flex items-center gap-1 overflow-x-auto rounded-lg border border-gray-700/80 bg-gray-900/95 px-1.5 py-1.5 shadow-lg backdrop-blur-sm [-webkit-overflow-scrolling:touch] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <button
           type="button"

@@ -243,20 +243,21 @@ export default function Shell({
 
   if (minimal) {
     return (
-      <>
+      <div className="flex h-full min-h-0 w-full flex-col bg-gray-900">
         {isProtocolOutdated && (
-          <div role="alert" className="bg-amber-900/80 px-3 py-2 text-sm text-amber-100">
+          <div role="alert" className="shrink-0 bg-amber-900/80 px-3 py-2 text-sm text-amber-100">
             {t('shell.protocolOutdated')}
           </div>
         )}
-        <ShellMinimalView terminalContainerRef={terminalContainerRef} />
+        <div className="min-h-0 flex-1">
+          <ShellMinimalView terminalContainerRef={terminalContainerRef} />
+        </div>
         <TerminalShortcutsPanel
           wsRef={wsRef}
           terminalRef={terminalRef}
           isConnected={isConnected}
-          bottomOffset="bottom-0"
         />
-      </>
+      </div>
     );
   }
 

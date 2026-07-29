@@ -45,6 +45,8 @@
       "approvalPending": "Approbation en attente",
       "approvalPendingTitle": "L’agent attend votre sélection ou votre approbation",
       "approvalPendingAttach": "Se connecter à « {{name}} » pour répondre à l’approbation en attente",
+      "notStarted": "Prêt",
+      "notStartedTitle": "Aucun message n’a encore été envoyé",
       "unknown": "Indisponible",
       "unknownTitle": "L’état actuel ne peut pas être déterminé de manière sûre à partir des données du fournisseur"
     }

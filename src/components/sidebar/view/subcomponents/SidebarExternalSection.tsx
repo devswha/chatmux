@@ -56,6 +56,13 @@ const activityBadge = (t: ReturnType<typeof useTranslation>['t'], activity: Exte
   dotClassName: string;
 }>)[activity];
 
+const notStartedBadge = (t: ReturnType<typeof useTranslation>['t']) => ({
+  label: t('externalSessions.activity.notStarted'),
+  title: t('externalSessions.activity.notStartedTitle'),
+  className: 'bg-slate-500/15 text-slate-600 dark:text-slate-400',
+  dotClassName: 'bg-slate-400',
+});
+
 // Local coding-agent tmux sessions can be stopped; SSH and unclassified shell
 // panes are attach-only.
 
@@ -208,7 +215,11 @@ export default function SidebarExternalSection({ sessions, projects, onOpen, onC
       {sessions.map((session) => {
         const key = tmuxPaneIdentityKey(session.tmux);
         const canKill = !isAttachOnlyKind(session.kind) && session.process !== null;
-        const activityBadgeForSession = canKill ? activityBadge(t, session.activity ?? 'unknown') : null;
+        const activity = session.activity ?? 'unknown';
+        const isNotStarted = canKill && activity === 'unknown' && !session.transcriptSessionId;
+        const activityBadgeForSession = canKill
+          ? (isNotStarted ? notStartedBadge(t) : activityBadge(t, activity))
+          : null;
         const isApprovalPending = canKill && session.activity === 'asking_user';
         const completionDescriptor = (
           (session.kind === 'claude' || session.kind === 'codex' || session.kind === 'opencode' || session.kind === 'omp')

@@ -60,6 +60,8 @@
       "approvalPending": "等待核准",
       "approvalPendingTitle": "代理程式正在等待你的選擇或核准",
       "approvalPendingAttach": "連線到「{{name}}」以回覆等待中的核准",
+      "notStarted": "待開始",
+      "notStartedTitle": "尚未傳送第一則訊息",
       "unknown": "無法確認",
       "unknownTitle": "無法根據提供者記錄安全地判定目前狀態"
     }

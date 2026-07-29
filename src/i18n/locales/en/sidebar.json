@@ -45,6 +45,8 @@
       "approvalPending": "Approval pending",
       "approvalPendingTitle": "The agent is waiting for your selection or approval",
       "approvalPendingAttach": "Attach to '{{name}}' to answer the pending approval",
+      "notStarted": "Ready",
+      "notStartedTitle": "No message has been sent yet",
       "unknown": "Unavailable",
       "unknownTitle": "The current state cannot be determined safely from provider records"
     }
