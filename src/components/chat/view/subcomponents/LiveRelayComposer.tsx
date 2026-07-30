@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ClipboardEvent, DragEvent, KeyboardEvent } from 'react';
+import type { ClipboardEvent, DragEvent, FormEvent, KeyboardEvent, MouseEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { api } from '../../../../utils/api';
@@ -22,6 +22,14 @@ export {
   flattenProjectFileTree,
   getActiveMentionToken,
 } from '../../utils/liveRelayComposer';
+import {
+  PromptInput,
+  PromptInputBody,
+  PromptInputTextarea,
+  PromptInputFooter,
+  PromptInputTools,
+  PromptInputSubmit,
+} from '../../../../shared/view/ui';
 
 import CommandMenu from './CommandMenu';
 
@@ -61,6 +69,7 @@ export default function LiveRelayComposer({
   sessionName = null,
   workspacePath = null,
   relayKind = 'gjc',
+  isProcessing = false,
 }: {
   target: TmuxPaneTarget;
   model?: string | null;
@@ -68,6 +77,8 @@ export default function LiveRelayComposer({
   sessionName?: string | null;
   workspacePath?: string | null;
   relayKind?: 'gjc' | 'codex' | 'claude' | 'cursor' | 'opencode' | 'omp';
+  /** True while the target session is running a turn — enables the stop control. */
+  isProcessing?: boolean;
 }) {
   const commandTrigger = relayKind === 'codex' ? '$' : '/';
   const { t } = useTranslation('chat');
@@ -403,7 +414,7 @@ export default function LiveRelayComposer({
     void handleImageUpload(imageFiles);
   }, [handleImageUpload]);
 
-  const handleComposerDrop = useCallback((event: DragEvent<HTMLDivElement>) => {
+  const handleComposerDrop = useCallback((event: DragEvent<HTMLElement>) => {
     const files = Array.from(event.dataTransfer?.files ?? []);
     const imageFiles = files.filter((file) => file.type.startsWith('image/'));
     if (imageFiles.length === 0) {
@@ -413,7 +424,7 @@ export default function LiveRelayComposer({
     void handleImageUpload(imageFiles);
   }, [handleImageUpload]);
 
-  const handleComposerDragOver = useCallback((event: DragEvent<HTMLDivElement>) => {
+  const handleComposerDragOver = useCallback((event: DragEvent<HTMLElement>) => {
     if (Array.from(event.dataTransfer?.items ?? []).some((item) => item.kind === 'file')) {
       event.preventDefault();
     }
@@ -543,6 +554,26 @@ export default function LiveRelayComposer({
     return { top: rect.top, left: rect.left, bottom: Math.max(16, window.innerHeight - rect.top + 8) };
   })();
 
+  // ccui-style single control: the round submit button sends when a draft
+  // exists and becomes a stop control while the session runs a turn. The
+  // stop path is the only way to reach interrupt, so an idle CLI can never
+  // receive a stray Ctrl+C that would terminate it.
+  const hasDraft = input.trim().length > 0;
+  const showStop = isProcessing && canInterrupt && !hasDraft;
+  const submitLabel = showStop
+    ? t('input.stop', { defaultValue: 'Stop' })
+    : status.kind === 'sending'
+      ? t('relay.sending')
+      : t('relay.send');
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    void send();
+  };
+  const handleStopClick = (event: MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    void interrupt();
+  };
+
   return (
     <div className="chat-composer-shell relative flex-shrink-0 px-2 pb-3 pt-2 sm:px-4">
       <div className="mx-auto max-w-[54.25rem] space-y-1.5">
@@ -567,50 +598,45 @@ export default function LiveRelayComposer({
             <span aria-live="polite" className="text-red-500">· {assetStatus.text}</span>
           )}
         </div>
-        <div
-          className="flex items-end gap-2 rounded-xl border border-border bg-card p-2"
+        <PromptInput
+          status={isProcessing ? 'streaming' : 'ready'}
+          onSubmit={handleSubmit}
           onDrop={handleComposerDrop}
           onDragOver={handleComposerDragOver}
         >
-          <textarea
-            ref={textareaRef}
-            value={input}
-            onChange={(event) => {
-              const nextValue = event.target.value;
-              setInput(nextValue);
-              syncCommandMenu(nextValue, event.target.selectionStart ?? nextValue.length);
-              syncFileMenu(nextValue, event.target.selectionStart ?? nextValue.length);
-            }}
-            onKeyDown={handleKeyDown}
-            onPaste={handleComposerPaste}
-            onClick={(event) => {
-              const caret = event.currentTarget.selectionStart ?? input.length;
-              syncCommandMenu(input, caret);
-              syncFileMenu(input, caret);
-            }}
-            rows={1}
-            placeholder={t('relay.placeholder', { name: displayName, trigger: commandTrigger })}
-            className="max-h-40 min-h-9 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm outline-none"
-          />
-          {canInterrupt && (
-            <button
-              type="button"
-              onClick={() => void interrupt()}
-              disabled={isInterrupting}
-              className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-sm font-medium transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {isInterrupting ? t('relay.interrupting', { defaultValue: 'Interrupting…' }) : t('relay.interrupt', { defaultValue: 'Interrupt' })}
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={() => void send()}
-            disabled={!input.trim() || status.kind === 'sending'}
-            className="shrink-0 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {status.kind === 'sending' ? t('relay.sending') : t('relay.send')}
-          </button>
-        </div>
+          <PromptInputBody>
+            <PromptInputTextarea
+              ref={textareaRef}
+              value={input}
+              onChange={(event) => {
+                const nextValue = event.target.value;
+                setInput(nextValue);
+                syncCommandMenu(nextValue, event.target.selectionStart ?? nextValue.length);
+                syncFileMenu(nextValue, event.target.selectionStart ?? nextValue.length);
+              }}
+              onKeyDown={handleKeyDown}
+              onPaste={handleComposerPaste}
+              onClick={(event) => {
+                const caret = event.currentTarget.selectionStart ?? input.length;
+                syncCommandMenu(input, caret);
+                syncFileMenu(input, caret);
+              }}
+              rows={1}
+              placeholder={t('relay.placeholder', { name: displayName, trigger: commandTrigger })}
+            />
+          </PromptInputBody>
+          <PromptInputFooter>
+            <PromptInputTools className="min-w-0" />
+            <PromptInputSubmit
+              status={showStop ? 'streaming' : 'ready'}
+              onClick={showStop ? handleStopClick : undefined}
+              disabled={showStop ? isInterrupting : (!hasDraft || status.kind === 'sending')}
+              aria-label={submitLabel}
+              title={submitLabel}
+              className="h-10 w-10"
+            />
+          </PromptInputFooter>
+        </PromptInput>
       </div>
 
       <CommandMenu

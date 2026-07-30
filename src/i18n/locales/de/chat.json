@@ -216,8 +216,6 @@
     "startChatWithProvider": "Wähl ein Projekt, um mit {{provider}} zu chatten"
   },
   "relay": {
-    "interrupt": "Unterbrechen",
-    "interrupting": "Unterbrechung wird gesendet…",
     "interruptSent": "Unterbrechung gesendet",
     "interruptFailed": "Unterbrechen fehlgeschlagen",
     "imageUploading": "Bild wird hochgeladen…",

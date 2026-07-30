@@ -216,8 +216,6 @@
     "startChatWithProvider": "{{provider}} ile sohbet etmeye başlamak için bir proje seç"
   },
   "relay": {
-    "interrupt": "Durdur",
-    "interrupting": "Durduruluyor…",
     "interruptSent": "Durdurma gönderildi",
     "interruptFailed": "Durdurulamadı",
     "imageUploading": "Görsel yükleniyor…",

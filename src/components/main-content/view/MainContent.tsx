@@ -103,6 +103,7 @@ function MainContent({
   liveSessionEffort,
   liveSessionName,
   liveSessionKind,
+  liveSessionProcessing = false,
   activeTab,
   setActiveTab,
   ws,
@@ -520,6 +521,7 @@ function MainContent({
                     liveSessionEffort={liveSessionEffort}
                     liveSessionName={liveSessionName}
                     liveSessionKind={liveSessionKind}
+                    liveSessionProcessing={liveSessionProcessing}
                     ws={ws}
                     sendMessage={sendMessage}
                     onFileOpen={handleFileOpen}

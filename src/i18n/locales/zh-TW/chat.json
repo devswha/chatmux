@@ -252,8 +252,6 @@
     "startChatWithProvider": "選擇一個專案以開始與 {{provider}} 聊天"
   },
   "relay": {
-    "interrupt": "中斷",
-    "interrupting": "正在中斷…",
     "interruptSent": "已傳送中斷",
     "interruptFailed": "無法中斷",
     "imageUploading": "正在上傳圖片…",

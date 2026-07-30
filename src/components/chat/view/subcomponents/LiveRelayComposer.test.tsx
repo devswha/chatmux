@@ -92,16 +92,23 @@ test('LiveRelayComposer does not discover files until an @ mention is active', (
     api.getFiles = getFiles;
   }
 });
-test('LiveRelayComposer exposes interrupt only for supported relay providers and never exposes escape', () => {
-  const supported = renderToStaticMarkup(createElement(LiveRelayComposer, { target, relayKind: 'codex' }));
+test('LiveRelayComposer offers stop only while a supported provider is processing', () => {
+  const idle = renderToStaticMarkup(createElement(LiveRelayComposer, { target, relayKind: 'codex' }));
+  const processing = renderToStaticMarkup(createElement(LiveRelayComposer, {
+    target,
+    relayKind: 'codex',
+    isProcessing: true,
+  }));
   const unsupported = renderToStaticMarkup(createElement(LiveRelayComposer, {
     target,
     relayKind: 'unsupported' as never,
+    isProcessing: true,
   }));
 
-  assert.ok(supported.includes('Interrupt'));
-  assert.ok(!supported.includes('Escape'));
-  assert.ok(!unsupported.includes('Interrupt'));
+  assert.ok(!idle.includes('aria-label="Stop"'), 'an idle session never exposes an interrupt path');
+  assert.ok(processing.includes('aria-label="Stop"'), 'a running turn turns the submit control into stop');
+  assert.ok(!unsupported.includes('aria-label="Stop"'), 'unsupported providers never expose stop');
+  assert.ok(!processing.includes('Escape'));
 });
 
 test('relay action API posts the exact interrupt body once without retrying', async () => {
@@ -144,10 +151,8 @@ test('relay translations exist in every supported locale', () => {
       'imagePathRejected',
       'imageUploadFailed',
       'imageUploading',
-      'interrupt',
       'interruptFailed',
       'interruptSent',
-      'interrupting',
       'placeholder',
       'queued',
       'send',

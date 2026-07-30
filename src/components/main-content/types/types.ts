@@ -27,6 +27,8 @@ export type MainContentProps = {
   liveSessionEffort: string | null;
   liveSessionName: string | null;
   liveSessionKind: 'gjc' | 'codex' | 'claude' | 'cursor' | 'opencode' | 'omp' | null;
+  /** True while the viewed live/external session is running a turn. */
+  liveSessionProcessing?: boolean;
   activeTab: AppTab;
   setActiveTab: Dispatch<SetStateAction<AppTab>>;
   ws: WebSocket | null;

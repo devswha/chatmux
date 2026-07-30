@@ -230,8 +230,6 @@
     "startChatWithProvider": "Select a project to start chatting with {{provider}}"
   },
   "relay": {
-    "interrupt": "Interrupt",
-    "interrupting": "Interrupting…",
     "interruptSent": "Interrupt sent",
     "interruptFailed": "Unable to interrupt",
     "imageUploading": "Uploading image…",

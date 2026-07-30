@@ -25,6 +25,7 @@ function ChatInterface({
   liveSessionEffort,
   liveSessionName,
   liveSessionKind,
+  liveSessionProcessing = false,
   ws,
   sendMessage,
   onFileOpen,
@@ -454,6 +455,7 @@ function ChatInterface({
                 sessionName={liveSessionName}
                 workspacePath={selectedProject.fullPath || selectedProject.path}
                 relayKind={liveSessionKind ?? 'gjc'}
+                isProcessing={liveSessionProcessing}
               />
             ) : (
               <div className="chat-composer-shell relative flex-shrink-0 px-2 pb-3 pt-2 sm:px-4">

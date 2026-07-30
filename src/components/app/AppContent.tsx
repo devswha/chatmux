@@ -19,6 +19,7 @@ import {
 } from '../../utils/liveSessions';
 import type { ExternalTerminalTarget, Project, ProjectSession } from '../../types/app';
 import type { ExternalCliSession } from '../sidebar/hooks/useExternalCliSessions';
+import { tmuxPaneIdentityKey } from '../../../shared/tmux';
 
 type RunningSessionApiItem = {
   sessionId?: unknown;
@@ -402,8 +403,18 @@ function AppContentInner() {
   const [externalTranscript, setExternalTranscript] = useState<ExternalTerminalTarget | null>(null);
   const selectExternalProject = sidebarSharedProps.onProjectSelect;
   const selectExternalSession = sidebarSharedProps.onSessionSelect;
+  // Pane keys of external sessions currently running a turn. Fed by the same
+  // sidebar-published roster as attach capability; no extra request is added.
+  const [externalRunningPanes, setExternalRunningPanes] = useState<ReadonlySet<string>>(new Set());
   const refreshExternalTerminalCapability = useCallback((sessions: ExternalCliSession[]) => {
     setExternalTerminal((current) => refreshExternalTerminalAttachCapability(current, sessions));
+    setExternalRunningPanes((current) => {
+      const next = new Set(sessions
+        .filter((session) => session.activity === 'running')
+        .map((session) => tmuxPaneIdentityKey(session.tmux)));
+      if (next.size === current.size && [...next].every((key) => current.has(key))) return current;
+      return next;
+    });
   }, []);
 
   const openExternalTerminal = useCallback((
@@ -495,6 +506,13 @@ function AppContentInner() {
     sidebarSharedProps.liveSessionTargets,
     activeExternalTranscript,
   ]);
+
+  // Drives the relay composer's send↔stop control for the viewed session.
+  const liveSessionProcessing = activeExternalTranscript
+    ? externalRunningPanes.has(tmuxPaneIdentityKey(activeExternalTranscript.tmux))
+    : selectedSession
+      ? sidebarSharedProps.liveSessionRunning.has(selectedSession.id)
+      : false;
 
   // Queued messages for sessions that finish while another session (or none)
   // is being viewed are sent from here; the viewed session's composer handles
@@ -671,6 +689,7 @@ function AppContentInner() {
             : selectedSession && sidebarSharedProps.liveSessionLineage.has(selectedSession.id)
               ? 'gjc'
               : null}
+          liveSessionProcessing={liveSessionProcessing}
           activeTab={activeTab}
           setActiveTab={setActiveTab}
           ws={ws}

@@ -206,8 +206,6 @@
     }
   },
   "relay": {
-    "interrupt": "中断",
-    "interrupting": "中断を送信中…",
     "interruptSent": "中断を送信しました",
     "interruptFailed": "中断できませんでした",
     "imageUploading": "画像をアップロード中…",

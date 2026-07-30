@@ -127,6 +127,8 @@ export interface ChatInterfaceProps {
   liveSessionEffort: string | null;
   liveSessionName: string | null;
   liveSessionKind: 'gjc' | 'codex' | 'claude' | 'cursor' | 'opencode' | 'omp' | null;
+  /** True while the viewed live/external session is running a turn. */
+  liveSessionProcessing?: boolean;
   ws: WebSocket | null;
   sendMessage: (message: unknown) => void;
   onFileOpen?: (filePath: string, diffInfo?: any) => void;
