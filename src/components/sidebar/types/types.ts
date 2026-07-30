@@ -1,5 +1,5 @@
 import type { ExternalTerminalTarget, Project, ProjectSession } from '../../../types/app';
-import type { TmuxPaneTarget } from '../../../../shared/tmux';
+import type { TmuxPaneIdentity, TmuxPaneTarget } from '../../../../shared/tmux';
 import type { ExternalCliSession } from '../hooks/useExternalCliSessions';
 import type {
   CompletionNotificationDescriptor,
@@ -16,9 +16,12 @@ export type SidebarProps = {
   liveSessionModels: ReadonlyMap<string, string>;
   liveSessionEfforts: ReadonlyMap<string, string>;
   liveSessionLineage: ReadonlySet<string>;
+  liveSessionPanes: ReadonlyMap<string, TmuxPaneIdentity>;
+  liveSessionPresence: ReadonlyMap<string, 'present' | 'stale'>;
   liveSessionTargets: ReadonlyMap<string, TmuxPaneTarget>;
   liveSessionKinds: ReadonlyMap<string, string>;
   liveSessionRunning: ReadonlySet<string>;
+  liveSessionErrors?: ReadonlySet<string>;
   liveSessionsLoaded: boolean;
   onProjectSelect: (project: Project) => void;
   onSessionSelect: (session: ProjectSession, projectId?: string) => void;

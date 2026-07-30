@@ -19,8 +19,35 @@ export function detectInstallMode(appRoot: string, home: string = homedir()): In
   return existsSync(path.join(root, '.git')) && existsSync(path.join(root, 'scripts', 'deploy.sh')) ? 'source' : 'unknown';
 }
 export function shellQuote(value: string): string { return `'${value.replaceAll("'", `'\\''`)}'`; }
-export function buildSelfUpdateScript(appRoot: string, healthUrl: string, logPath: string): string {
-  return [`exec >>${shellQuote(logPath)} 2>&1`, 'set -euo pipefail', 'export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"', 'echo "[self-update] $(date -u +%FT%TZ) starting"', `cd ${shellQuote(appRoot)}`, 'before="$(git rev-parse HEAD)"', 'git pull --ff-only origin main', 'after="$(git rev-parse HEAD)"', 'if ! git diff --quiet "$before" "$after" -- package-lock.json; then npm ci; fi', `DEPLOY_HEALTH_URL=${shellQuote(healthUrl)} scripts/deploy.sh`, 'echo "[self-update] $(date -u +%FT%TZ) finished"'].join('\n');
+export function buildSelfUpdateScript(appRoot: string, targetRevision: string, healthUrl: string, logPath: string): string {
+  if (!GIT_REVISION_PATTERN.test(targetRevision)) throw new Error('Source update target revision is invalid.');
+  return [
+    `exec >>${shellQuote(logPath)} 2>&1`,
+    'set -euo pipefail',
+    'export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"',
+    'echo "[self-update] $(date -u +%FT%TZ) starting"',
+    `cd ${shellQuote(appRoot)}`,
+    'before="$(git rev-parse HEAD)"',
+    'status_file="$(mktemp)" || { echo "[self-update] SOURCE_WORKTREE_STATUS_FAILED"; exit 1; }',
+    'trap \'rm -f "$status_file"\' EXIT',
+    'if ! git status --porcelain=v1 --untracked-files=all | head -c 4097 >"$status_file"; then',
+    '  if [ -s "$status_file" ]; then',
+    '    echo "[self-update] SOURCE_WORKTREE_DIRTY"',
+    '  else',
+    '    echo "[self-update] SOURCE_WORKTREE_STATUS_FAILED"',
+    '  fi',
+    '  exit 1',
+    'fi',
+    'if [ -s "$status_file" ]; then',
+    '  echo "[self-update] SOURCE_WORKTREE_DIRTY"',
+    '  exit 1',
+    'fi',
+    `git merge --ff-only ${shellQuote(targetRevision)}`,
+    'after="$(git rev-parse HEAD)"',
+    'if ! git diff --quiet "$before" "$after" -- package-lock.json; then npm ci; fi',
+    `DEPLOY_HEALTH_URL=${shellQuote(healthUrl)} scripts/deploy.sh`,
+    'echo "[self-update] $(date -u +%FT%TZ) finished"',
+  ].join('\n');
 }
 export function buildSystemdRunArgs(unitName: string, script: string, environmentPath: string): string[] {
   return ['--user', '--collect', `--unit=${unitName}`, `--setenv=PATH=${environmentPath}`, '--setenv=DEPLOY_TRIGGER=self-update', 'bash', '-c', script];
@@ -30,14 +57,29 @@ const SOURCE_DISCOVERY_TIMEOUT_MS = 10_000;
 const SOURCE_DISCOVERY_MAX_BYTES = 4_096;
 const GIT_REVISION_PATTERN = /^[0-9a-f]{40,64}$/;
 
+export type SourceUpdateRelation = 'same' | 'behind' | 'ahead' | 'diverged' | 'unknown';
 export type SourceUpdateDescriptor = {
   available: boolean;
   currentRevision: string;
   targetRevision: string;
   targetVersion: string;
+  relation: SourceUpdateRelation;
+  blockedReason?: string;
 };
 
-function runReadOnlyGit(appRoot: string, args: string[]): Promise<string> {
+class GitCommandError extends Error {
+  constructor(message: string, readonly status: number | null) {
+    super(message);
+  }
+}
+
+class SourceUpdateError extends Error {
+  constructor(readonly statusCode: number, readonly code: string, message: string) {
+    super(message);
+  }
+}
+
+function runGit(appRoot: string, args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn('git', args, {
       cwd: appRoot,
@@ -54,20 +96,20 @@ function runReadOnlyGit(appRoot: string, args: string[]): Promise<string> {
       if (error) reject(error);
       else resolve(stdout.trim());
     };
-    const append = (current: string, chunk: Buffer): string => {
+    const append = (current: string, chunk: Buffer, stream: 'stdout' | 'stderr'): string => {
       const next = current + chunk.toString('utf8');
       if (Buffer.byteLength(next) > SOURCE_DISCOVERY_MAX_BYTES) {
         child.kill('SIGKILL');
-        finish(new Error('Git update discovery output is too large.'));
+        finish(new Error(`Git update discovery ${stream} is too large.`));
       }
       return next;
     };
-    child.stdout.on('data', (chunk: Buffer) => { stdout = append(stdout, chunk); });
-    child.stderr.on('data', (chunk: Buffer) => { stderr = append(stderr, chunk); });
+    child.stdout.on('data', (chunk: Buffer) => { stdout = append(stdout, chunk, 'stdout'); });
+    child.stderr.on('data', (chunk: Buffer) => { stderr = append(stderr, chunk, 'stderr'); });
     child.on('error', (error) => finish(error));
     child.on('close', (code) => {
       if (code === 0) finish();
-      else finish(new Error(stderr.trim() || `git exited with ${code}`));
+      else finish(new GitCommandError(stderr.trim() || `git exited with ${code}`, code));
     });
     const timer = setTimeout(() => {
       child.kill('SIGKILL');
@@ -76,23 +118,84 @@ function runReadOnlyGit(appRoot: string, args: string[]): Promise<string> {
   });
 }
 
+async function isGitAncestor(appRoot: string, ancestor: string, descendant: string): Promise<boolean> {
+  try {
+    await runGit(appRoot, ['merge-base', '--is-ancestor', ancestor, descendant]);
+    return true;
+  } catch (error) {
+    if (error instanceof GitCommandError && error.status === 1) return false;
+    throw error;
+  }
+}
+
+async function sourceRelation(appRoot: string, currentRevision: string, targetRevision: string): Promise<SourceUpdateRelation> {
+  if (currentRevision === targetRevision) return 'same';
+  const currentIsAncestor = await isGitAncestor(appRoot, currentRevision, targetRevision);
+  const targetIsAncestor = await isGitAncestor(appRoot, targetRevision, currentRevision);
+  if (currentIsAncestor) return 'behind';
+  if (targetIsAncestor) return 'ahead';
+  return 'diverged';
+}
+
+function sourceDescriptor(currentRevision: string, targetRevision: string, relation: SourceUpdateRelation, blockedReason?: string): SourceUpdateDescriptor {
+  return {
+    available: currentRevision !== targetRevision && (relation === 'behind' || relation === 'unknown'),
+    currentRevision,
+    targetRevision,
+    targetVersion: `main@${targetRevision.slice(0, 12)}`,
+    relation,
+    ...(blockedReason ? { blockedReason } : {}),
+  };
+}
+
 /** Reads HEAD and origin/main without fetching or changing refs, the index, or the worktree. */
 export async function discoverSourceUpdate(appRoot: string): Promise<SourceUpdateDescriptor> {
-  const currentRevision = await runReadOnlyGit(appRoot, ['rev-parse', '--verify', 'HEAD']);
-  const remoteOutput = await runReadOnlyGit(appRoot, ['ls-remote', '--exit-code', '--heads', 'origin', 'refs/heads/main']);
+  const currentRevision = await runGit(appRoot, ['rev-parse', '--verify', 'HEAD']);
+  const remoteOutput = await runGit(appRoot, ['ls-remote', '--exit-code', '--heads', 'origin', 'refs/heads/main']);
   const remoteMatch = /^([0-9a-f]{40,64})\s+refs\/heads\/main$/m.exec(remoteOutput);
   if (!GIT_REVISION_PATTERN.test(currentRevision) || !remoteMatch) {
     throw new Error('Git update discovery returned an invalid revision.');
   }
   const targetRevision = remoteMatch[1];
-  return {
-    available: currentRevision !== targetRevision,
-    currentRevision,
-    targetRevision,
-    targetVersion: `main@${targetRevision.slice(0, 12)}`,
-  };
+  try {
+    return sourceDescriptor(currentRevision, targetRevision, await sourceRelation(appRoot, currentRevision, targetRevision));
+  } catch {
+    return sourceDescriptor(currentRevision, targetRevision, 'unknown', 'Source history relationship is unavailable without fetching.');
+  }
 }
-export type SelfUpdateState = { unit: string; startedAt: number; operationId?: string; initialBootId?: string } | null;
+
+async function inspectSourceClean(appRoot: string): Promise<void> {
+  try {
+    if (await runGit(appRoot, ['status', '--porcelain=v1', '--untracked-files=all'])) {
+      throw new SourceUpdateError(409, 'SOURCE_WORKTREE_DIRTY', 'Source worktree must be clean before updating.');
+    }
+  } catch (error) {
+    if (error instanceof Error && error.message === 'Git update discovery stdout is too large.') {
+      throw new SourceUpdateError(409, 'SOURCE_WORKTREE_DIRTY', 'Source worktree must be clean before updating.');
+    }
+    throw error;
+  }
+}
+
+export async function prepareSourceUpdate(appRoot: string, inspectClean: (appRoot: string) => Promise<void> = inspectSourceClean): Promise<SourceUpdateDescriptor> {
+  await inspectClean(appRoot);
+  try {
+    await runGit(appRoot, ['fetch', 'origin', 'main']);
+    const currentRevision = await runGit(appRoot, ['rev-parse', '--verify', 'HEAD']);
+    const targetRevision = await runGit(appRoot, ['rev-parse', '--verify', 'FETCH_HEAD']);
+    if (!GIT_REVISION_PATTERN.test(currentRevision) || !GIT_REVISION_PATTERN.test(targetRevision)) {
+      throw new Error('Git update preparation returned an invalid revision.');
+    }
+    const relation = await sourceRelation(appRoot, currentRevision, targetRevision);
+    if (relation === 'behind') return sourceDescriptor(currentRevision, targetRevision, relation);
+    if (relation === 'diverged') throw new SourceUpdateError(409, 'SOURCE_HISTORY_DIVERGED', 'Source history has diverged from origin/main.');
+    throw new SourceUpdateError(409, 'SOURCE_UPDATE_NOT_AVAILABLE', 'No newer source revision is available.');
+  } catch (error) {
+    if (error instanceof SourceUpdateError) throw error;
+    throw new SourceUpdateError(503, 'SOURCE_UPDATE_PREPARATION_FAILED', 'Source update preparation failed.');
+  }
+}
+export type SelfUpdateState = { state: 'preparing'; token: string; unit: string; startedAt: number; operationId: string; initialBootId: string } | { state: 'in_flight'; unit: string; startedAt: number; operationId: string; initialBootId: string } | null;
 export type SelfUpdatePlan = { action: 'reject'; statusCode: number; error: string } | { action: 'start' };
 export function planSelfUpdate(args: { mode: InstallMode; inFlight: SelfUpdateState; now: number }): SelfUpdatePlan {
   if (args.mode === 'release') return { action: 'reject', statusCode: 409, error: 'Release updates use the verified release updater.' };
@@ -332,7 +435,7 @@ export interface SystemRouterOptions {
   appRoot: string; serverPort: number; bootId: string; runningVersion?: string; mode?: InstallMode; authMode?: 'none' | 'password' | 'tailscale';
   launch?: (unitName: string, script: string) => Promise<void>;
   launchRelease?: (unitName: string, workerPath: string, jobId: string) => Promise<void>;
-  now?: () => number; home?: string; discoverRelease?: () => Promise<Discovery>; discoverSource?: () => Promise<SourceUpdateDescriptor>; isReleaseUpdateUnitLive?: (unitName: string) => boolean; state?: Pick<ReleaseUpdateStateStore, 'initialize' | 'createIfNoActive' | 'publicStatus' | 'publicActiveStatus' | 'transition' | 'failIfInactive'>;
+  now?: () => number; home?: string; discoverRelease?: () => Promise<Discovery>; discoverSource?: () => Promise<SourceUpdateDescriptor>; inspectSourceClean?: () => Promise<void>; prepareSourceUpdate?: () => Promise<SourceUpdateDescriptor>; isReleaseUpdateUnitLive?: (unitName: string) => boolean; state?: Pick<ReleaseUpdateStateStore, 'initialize' | 'createIfNoActive' | 'publicStatus' | 'publicActiveStatus' | 'transition' | 'failIfInactive'>;
 }
 async function launchViaSystemdRun(unitName: string, script: string): Promise<void> { await new Promise<void>((resolve, reject) => { const child = spawn('systemd-run', buildSystemdRunArgs(unitName, script, process.env.PATH ?? ''), { stdio: ['ignore', 'ignore', 'pipe'] }); let stderr = ''; child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString('utf8'); }); child.on('error', (error) => reject(error)); child.on('close', (code) => code === 0 ? resolve() : reject(new Error(stderr.trim() || `systemd-run exited with ${code}`))); }); }
 export function buildReleaseSystemdRunArgs(unitName: string, workerPath: string, jobId: string, home: string, serverPort: number, environmentPath: string): string[] {
@@ -372,7 +475,7 @@ export function createSystemRouter(options: SystemRouterOptions): Router {
       if (makesReleaseStateUnavailable(error)) releaseStateUnavailable = true;
     }
   }
-  const sourceLaunch = options.launch ?? launchViaSystemdRun; const releaseLaunch = options.launchRelease ?? ((unitName, workerPath, jobId) => launchReleaseViaSystemdRun(unitName, workerPath, jobId, home, options.serverPort)); const discover = options.discoverRelease ?? (() => discoverCanonicalRelease()); const discoverSource = options.discoverSource ?? (() => discoverSourceUpdate(options.appRoot));
+  const sourceLaunch = options.launch ?? launchViaSystemdRun; const releaseLaunch = options.launchRelease ?? ((unitName, workerPath, jobId) => launchReleaseViaSystemdRun(unitName, workerPath, jobId, home, options.serverPort)); const discover = options.discoverRelease ?? (() => discoverCanonicalRelease()); const discoverSource = options.discoverSource ?? (() => discoverSourceUpdate(options.appRoot)); const inspectSource = options.inspectSourceClean ?? (() => inspectSourceClean(options.appRoot)); const prepareSource = options.prepareSourceUpdate ? async () => { await inspectSource(); return options.prepareSourceUpdate!(); } : () => prepareSourceUpdate(options.appRoot, async () => inspectSource());
   let inFlight: SelfUpdateState = null; let discoveryCache: { at: number; value: Discovery } | null = null; let sourceDiscoveryCache: { at: number; value: SourceUpdateDescriptor } | null = null; let accessCache: { at: number; info: TailscaleAccessInfo } | null = null;
   const owner = (req: Request) => canUpdate(req, options.authMode);
   const cachedDiscovery = async () => { if (!discoveryCache || now() - discoveryCache.at > DISCOVERY_CACHE_MS) discoveryCache = { at: now(), value: await discover() }; return discoveryCache.value; };
@@ -407,7 +510,31 @@ export function createSystemRouter(options: SystemRouterOptions): Router {
     }
   })().catch(() => { if (!res.headersSent) res.status(500).json({ error: 'Update status unavailable.' }); }); });
   router.get('/update/jobs/:jobId', (req, res) => { if (!owner(req)) return res.status(403).json({ error: 'Update access denied.' }); if (mode !== 'release' || releaseVersionUnavailable) return res.status(404).json({ error: 'Update job not found.' }); if (releaseStateUnavailable) return res.status(503).json({ error: 'Release updates are unavailable until updater state is repaired.' }); const job = state.publicStatus(req.params.jobId); return job ? res.json(job) : res.status(404).json({ error: 'Update job not found.' }); });
-  router.post('/update', (req, res) => { void (async () => { if (!owner(req)) return res.status(403).json({ error: 'Update access denied.' }); if (mode === 'source') { const plan = planSelfUpdate({ mode, inFlight, now: now() }); if (plan.action === 'reject') return res.status(plan.statusCode).json({ error: plan.error, mode }); const sourceTarget = await discoverSource(); if (!sourceTarget.available) return res.status(409).json({ error: 'No newer source revision is available.', mode }); const unit = `chatmux-self-update-${now()}`; const operationId = randomBytes(16).toString('base64url').slice(0, 22); await sourceLaunch(unit, buildSelfUpdateScript(options.appRoot, `http://127.0.0.1:${options.serverPort}/`, path.join(home, '.chatmux', 'self-update.log'))); inFlight = { unit, startedAt: now(), operationId, initialBootId: options.bootId }; return res.json({ started: true, mode, bootId: options.bootId, operationId, initialBootId: options.bootId, targetVersion: sourceTarget.targetVersion }); }
+  router.post('/update', (req, res) => { void (async () => {
+    if (!owner(req)) return res.status(403).json({ error: 'Update access denied.' });
+    if (mode === 'source') {
+      const plan = planSelfUpdate({ mode, inFlight, now: now() });
+      if (plan.action === 'reject') {
+        return res.status(plan.statusCode).json({ error: plan.error, ...(plan.statusCode === 429 ? { code: 'SOURCE_UPDATE_IN_PROGRESS' } : {}), mode });
+      }
+      const token = randomBytes(16).toString('base64url').slice(0, 22);
+      const operationId = randomBytes(16).toString('base64url').slice(0, 22);
+      const startedAt = now();
+      inFlight = { state: 'preparing', token, unit: '', startedAt, operationId, initialBootId: options.bootId };
+      try {
+        const sourceTarget = await prepareSource();
+        if (sourceTarget.relation === 'diverged') throw new SourceUpdateError(409, 'SOURCE_HISTORY_DIVERGED', 'Source history has diverged from origin/main.');
+        if (sourceTarget.relation !== 'behind') throw new SourceUpdateError(409, 'SOURCE_UPDATE_NOT_AVAILABLE', 'No newer source revision is available.');
+        const unit = `chatmux-self-update-${startedAt}`;
+        await sourceLaunch(unit, buildSelfUpdateScript(options.appRoot, sourceTarget.targetRevision, `http://127.0.0.1:${options.serverPort}/`, path.join(home, '.chatmux', 'self-update.log')));
+        inFlight = { state: 'in_flight', unit, startedAt, operationId, initialBootId: options.bootId };
+        return res.json({ started: true, mode, bootId: options.bootId, operationId, initialBootId: options.bootId, targetVersion: sourceTarget.targetVersion });
+      } catch (error) {
+        if (inFlight?.state === 'preparing' && inFlight.token === token) inFlight = null;
+        if (error instanceof SourceUpdateError) return res.status(error.statusCode).json({ error: error.message, code: error.code, mode });
+        return res.status(503).json({ error: 'Source update preparation failed.', code: 'SOURCE_UPDATE_PREPARATION_FAILED', mode });
+      }
+    }
     if (mode !== 'release') return res.status(409).json({ error: 'This install cannot self-update.', mode });
     if (releaseVersionUnavailable) return res.status(503).json({ error: 'Release updates require a valid installed version.', mode });
     if (releaseStateUnavailable) return res.status(503).json({ error: 'Release updates are unavailable until updater state is repaired.', mode });

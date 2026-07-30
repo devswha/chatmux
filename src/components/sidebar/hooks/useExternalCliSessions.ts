@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { api } from '../../../utils/api';
 import { tmuxPaneIdentityKey, type TmuxPaneIdentity, type TmuxProcessGeneration } from '../../../../shared/tmux';
-import { readDiscoveryOk } from '../../../utils/liveSessions';
+import { readRestSessionContainer } from '../../../utils/liveSessions';
 import { useWebSocket } from '../../../contexts/WebSocketContext';
 import { useDiscoveryStream, type DiscoveryRow } from '../../../hooks/useDiscoveryStream';
 
@@ -23,6 +23,8 @@ export type ExternalCliSession = {
   transcriptEnded?: boolean;
   /** Opaque server-issued token required to attach SSH and shell panes. */
   attachCapability?: string;
+  presence?: 'present' | 'stale';
+  authority?: 'stream' | 'rest' | 'none';
 };
 export function mergeExternalDiscoveryRows(
   rows: DiscoveryRow[],
@@ -37,6 +39,15 @@ export function mergeExternalDiscoveryRows(
     .filter((row) => row.lane === 'external' && ['claude', 'codex', 'cursor', 'opencode', 'omp', 'ssh', 'shell'].includes(row.kind))
     .map((row) => {
       const metadata = restSessions.get(tmuxPaneIdentityKey(row.tmux)) ?? previous.get(tmuxPaneIdentityKey(row.tmux));
+      if (row.presence !== 'present') {
+        return externalIdentityOnly({
+          tmuxName: row.tmuxName,
+          tmux: row.tmux,
+          process: null,
+          kind: row.kind as ExternalCliSession['kind'],
+          presence: row.presence,
+        }, 'stream');
+      }
       return {
         ...metadata,
         tmuxName: row.tmuxName,
@@ -45,8 +56,44 @@ export function mergeExternalDiscoveryRows(
         kind: row.kind as ExternalCliSession['kind'],
         activity: row.activity,
         projectPath: row.cwd ?? metadata?.projectPath,
+        presence: 'present' as const,
+        authority: 'stream' as const,
       };
     });
+}
+
+export function clearExternalSessionActivities(
+  sessions: ExternalCliSession[],
+): ExternalCliSession[] {
+  return sessions.map((session) => (
+    session.activity === 'unknown' || session.activity === undefined
+      ? session
+      : { ...session, activity: 'unknown' }
+  ));
+}
+
+export function shouldApplyExternalRestResponse(
+  generation: number,
+  appliedGeneration: number,
+  cancelled: boolean,
+  latestGeneration = generation,
+): boolean {
+  return !cancelled && generation === latestGeneration && generation > appliedGeneration;
+}
+
+export function externalIdentityOnly(
+  session: ExternalCliSession,
+  authority: ExternalCliSession['authority'] = 'none',
+): ExternalCliSession {
+  return {
+    tmuxName: session.tmuxName,
+    tmux: session.tmux,
+    process: null,
+    kind: session.kind,
+    activity: 'unknown',
+    presence: session.presence ?? 'stale',
+    authority,
+  };
 }
 
 /**
@@ -72,67 +119,152 @@ export function useExternalCliSessions(
   const restSessionsRef = useRef(new Map<string, ExternalCliSession>());
   sessionsRef.current = sessions;
   const streamRowsRef = useRef<DiscoveryRow[] | null>(null);
+  const streamEverHealthyRef = useRef(false);
+  const authorityRef = useRef<'stream' | 'rest' | 'none'>('none');
+  const restRequestGenerationRef = useRef(0);
+  const appliedRestGenerationRef = useRef(0);
+  const restRequestControllerRef = useRef<AbortController | null>(null);
 
-  const applyRows = useCallback((rows: DiscoveryRow[]) => {
-    streamRowsRef.current = rows;
-    const next = mergeExternalDiscoveryRows(rows, restSessionsRef.current, sessionsRef.current);
+  const publish = useCallback((next: ExternalCliSession[]) => {
+    sessionsRef.current = next;
     setSessions(next);
     onSessionsChangeRef.current?.(next);
-    setLoading(false);
   }, []);
-  const applyRestSessions = useCallback((list: ExternalCliSession[], discoveryOk: boolean) => {
-    const next = list.filter((session) => session?.tmuxName && ['claude', 'codex', 'cursor', 'opencode', 'omp', 'ssh', 'shell'].includes(session.kind));
-    restSessionsRef.current = new Map(next.map((session) => [tmuxPaneIdentityKey(session.tmux), session]));
-    setDiscoveryOk(discoveryOk);
-    if (streamRowsRef.current !== null) {
+
+  const applyNone = useCallback((identities = sessionsRef.current) => {
+    authorityRef.current = 'none';
+    streamRowsRef.current = null;
+    restSessionsRef.current = new Map();
+    publish(identities.map((session) => externalIdentityOnly(session)));
+    setLoading(false);
+  }, [publish]);
+
+  const applyRows = useCallback((allRows: DiscoveryRow[]) => {
+    const rows = allRows.filter((row) => row.lane === 'external');
+    authorityRef.current = 'stream';
+    streamRowsRef.current = rows;
+    const next = mergeExternalDiscoveryRows(rows, restSessionsRef.current, sessionsRef.current);
+    publish(next);
+    setLoading(false);
+  }, [publish]);
+
+  const applyRestSessions = useCallback((list: ExternalCliSession[], responseDiscoveryOk: boolean) => {
+    const supported = list.filter((session) => (
+      session?.tmuxName
+      && ['claude', 'codex', 'cursor', 'opencode', 'omp', 'ssh', 'shell'].includes(session.kind)
+    ));
+    setDiscoveryOk(responseDiscoveryOk);
+    if (!responseDiscoveryOk) {
+      applyNone(supported);
+      return;
+    }
+
+    const authoritative = supported.map((session) => (
+      session.presence === 'stale'
+        ? externalIdentityOnly(session, 'rest')
+        : { ...session, presence: 'present' as const, authority: 'rest' as const }
+    ));
+    restSessionsRef.current = new Map(authoritative.map((session) => [tmuxPaneIdentityKey(session.tmux), session]));
+    if (authorityRef.current === 'stream' && streamRowsRef.current !== null) {
       applyRows(streamRowsRef.current);
       return;
     }
-    setSessions(next);
-    onSessionsChangeRef.current?.(next);
-  }, [applyRows]);
-  const streamHealthy = useDiscoveryStream({ lanes: ['external', 'live'], isConnected, sendMessage, subscribe, onRows: applyRows });
+    authorityRef.current = 'rest';
+    publish(authoritative);
+    setLoading(false);
+  }, [applyNone, applyRows, publish]);
+
+  const invalidateRestRequests = useCallback(() => {
+    restRequestControllerRef.current?.abort();
+    ++restRequestGenerationRef.current;
+  }, []);
+
+  const requestRestSessions = useCallback(async () => {
+    const generation = ++restRequestGenerationRef.current;
+    restRequestControllerRef.current?.abort();
+    const controller = new AbortController();
+    restRequestControllerRef.current = controller;
+    try {
+      const response = await api.externalSessions(controller.signal);
+      if (!shouldApplyExternalRestResponse(
+        generation,
+        appliedRestGenerationRef.current,
+        controller.signal.aborted,
+        restRequestGenerationRef.current,
+      )) return;
+
+      if (!response.ok) {
+        appliedRestGenerationRef.current = generation;
+        applyNone();
+        return;
+      }
+
+      const body = await response.json();
+      if (!shouldApplyExternalRestResponse(
+        generation,
+        appliedRestGenerationRef.current,
+        controller.signal.aborted,
+        restRequestGenerationRef.current,
+      )) return;
+      const container = readRestSessionContainer(body, 'externalSessions');
+      appliedRestGenerationRef.current = generation;
+      if (!container) {
+        setDiscoveryOk(false);
+        applyNone();
+        return;
+      }
+      applyRestSessions(
+        container.sessions as ExternalCliSession[],
+        container.discoveryOk,
+      );
+    } catch {
+      if (shouldApplyExternalRestResponse(
+        generation,
+        appliedRestGenerationRef.current,
+        controller.signal.aborted,
+        restRequestGenerationRef.current,
+      )) {
+        appliedRestGenerationRef.current = generation;
+        applyNone();
+      }
+    }
+  }, [applyNone, applyRestSessions]);
+
+  const handleStreamHealthChange = useCallback((healthy: boolean) => {
+    if (healthy) {
+      streamEverHealthyRef.current = true;
+      return;
+    }
+    invalidateRestRequests();
+    applyNone();
+  }, [applyNone, invalidateRestRequests]);
+
+  const streamHealthy = useDiscoveryStream({
+    lanes: ['external'],
+    isConnected,
+    sendMessage,
+    subscribe,
+    onRows: (rows) => {
+      invalidateRestRequests();
+      applyRows(rows);
+    },
+    onHealthChange: handleStreamHealthChange,
+  });
+
   useEffect(() => {
-    let cancelled = false;
-    void api.externalSessions()
-      .then(async (response) => response.ok ? response.json() : null)
-      .then((body) => {
-        if (cancelled || !body) return;
-        const data = body?.data ?? body ?? {};
-        applyRestSessions(data.externalSessions ?? [], readDiscoveryOk(data));
-      })
-      .catch(() => undefined)
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, [applyRestSessions]);
+    void requestRestSessions();
+    return () => {
+      invalidateRestRequests();
+    };
+  }, [invalidateRestRequests, requestRestSessions]);
 
   useEffect(() => {
     if (streamHealthy) return undefined;
-    let cancelled = false;
-    let generation = 0;
-    let applied = 0;
-    const poll = async () => {
-      const myGeneration = ++generation;
-      try {
-        const response = await api.externalSessions();
-        if (!response.ok) return;
-        const body = await response.json();
-        const data = body?.data ?? body ?? {};
-        if (!cancelled && myGeneration > applied) {
-          applied = myGeneration;
-          applyRestSessions(data.externalSessions ?? [], readDiscoveryOk(data));
-        }
-      } catch {
-        // Best-effort: retain the last known roster while the fallback retries.
-      }
-    };
-    if (refreshToken > 0) void poll();
-    const timer = window.setInterval(() => { void poll(); }, 5_000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [applyRestSessions, refreshToken, streamHealthy]);
+    const poll = () => { void requestRestSessions(); };
+    if (streamEverHealthyRef.current || refreshToken > 0) poll();
+    const timer = window.setInterval(poll, 5_000);
+    return () => window.clearInterval(timer);
+  }, [refreshToken, requestRestSessions, streamHealthy]);
 
   return {
     sessions,

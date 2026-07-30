@@ -9,6 +9,7 @@ import type { SidebarProps } from '../types/types';
 import SidebarCollapsed from './subcomponents/SidebarCollapsed';
 import SidebarContent from './subcomponents/SidebarContent';
 import SidebarModals from './subcomponents/SidebarModals';
+const EMPTY_SESSION_IDS = new Set<string>();
 
 function Sidebar({
   projects,
@@ -18,9 +19,12 @@ function Sidebar({
   liveSessionModels,
   liveSessionEfforts,
   liveSessionLineage,
+  liveSessionPanes,
+  liveSessionPresence,
   liveSessionTargets,
   liveSessionKinds,
   liveSessionRunning,
+  liveSessionErrors = EMPTY_SESSION_IDS,
   liveSessionsLoaded,
   onProjectSelect,
   onSessionSelect,
@@ -127,9 +131,12 @@ function Sidebar({
           liveSessionModels={liveSessionModels}
           liveSessionEfforts={liveSessionEfforts}
           liveSessionLineage={liveSessionLineage}
+          liveSessionPanes={liveSessionPanes}
+          liveSessionPresence={liveSessionPresence}
           liveSessionTargets={liveSessionTargets}
           liveSessionKinds={liveSessionKinds}
           liveSessionRunning={liveSessionRunning}
+          liveSessionErrors={liveSessionErrors}
           liveSessionsLoaded={liveSessionsLoaded}
           onProjectSelect={onProjectSelect}
           onSessionSelect={onSessionSelect}

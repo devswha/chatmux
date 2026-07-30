@@ -59,6 +59,13 @@
     "batchTitle": "This tmux pane's foreground command is not gjc — gjc runs as a batch (background) descendant",
     "idleBadge": "Idle",
     "idleHint": "Click to start the first conversation",
+    "reorderSession": "Drag to reorder session '{{name}}'",
+    "dragInstructions": "To pick up a session, press Space or Enter. Use the arrow keys to move it, Space or Enter to drop it, or Escape to cancel.",
+    "dragPickedUp": "Picked up '{{name}}'.",
+    "dragMoved": "'{{name}}' moved over '{{over}}'.",
+    "dragDropped": "Dropped '{{name}}' near '{{over}}'.",
+    "dragCancelled": "Cancelled reordering '{{name}}'.",
+    "unknownSession": "session",
     "startFirstConversation": "Start the first conversation in tmux session '{{name}}'",
     "openingPrevious": "Loading previous conversation…",
     "openPreviousHint": "Click to open the previous conversation",
@@ -89,17 +96,5 @@
     "enable": "Enable notifications when the assistant has a reply ready for this session",
     "timeout": "Notifications when the assistant has a reply ready timed out. Try again.",
     "conflict": "Assistant reply notification settings changed. Try again."
-  },
-  "idleComposer": {
-    "sendFirstMessage": "Send first message",
-    "waitingPromotion": "Waiting for the first turn to start — switching to LIVE soon",
-    "placeholder": "First instruction to {{name}}… (Enter to send)",
-    "cancel": "Cancel",
-    "send": "Send",
-    "sending": "Sending…",
-    "targetReplaced": "Target replaced — refresh the list",
-    "promotionTimeout": "The message was sent but the session is not switching to LIVE — check gjc directly in tmux",
-    "towerUnavailable": "Control tower is not running — cannot send",
-    "sendFailed": "Failed to send"
   }
 }

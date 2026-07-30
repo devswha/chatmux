@@ -65,6 +65,7 @@ export type ShellIncomingMessage =
 
 export type UseShellRuntimeOptions = {
   selectedProject: Project | null | undefined;
+  projectPath?: string;
   selectedSession: ProjectSession | null | undefined;
   initialCommand: string | null | undefined;
   isPlainShell: boolean;
@@ -81,6 +82,7 @@ export type ShellSharedRefs = {
   terminalRef: MutableRefObject<Terminal | null>;
   fitAddonRef: MutableRefObject<FitAddon | null>;
   selectedProjectRef: MutableRefObject<Project | null | undefined>;
+  projectPathRef: MutableRefObject<string | undefined>;
   selectedSessionRef: MutableRefObject<ProjectSession | null | undefined>;
   initialCommandRef: MutableRefObject<string | null | undefined>;
   isPlainShellRef: MutableRefObject<boolean>;

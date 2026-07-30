@@ -25,6 +25,11 @@ Oh My Pi — inside tmux, like always. ChatMux finds them by itself and shows
 every session in one browser page, on your desktop or your phone:
 
 - **No registration.** Agents already running in tmux just appear in the sidebar.
+- **One ordered sidebar.** GJC, Claude, Codex, Cursor, OpenCode, Oh My Pi,
+  SSH, and plain shell sessions share one list; drag any row across providers
+  and ChatMux remembers the order in that browser.
+- **See live state.** `RUN`, `READY`, and `ERROR` badges distinguish active
+  turns, reply-ready sessions, and provider failures such as an overloaded API.
 - **Read as chat.** Sessions with a recognized transcript open as a
   conversation view; everything else opens as a real terminal.
 - **Type back.** Send prompts, answer menu prompts in the built-in terminal,
@@ -91,6 +96,11 @@ Open <http://127.0.0.1:5173>. Development requires Node.js `22.22.2+` on the
 composer; otherwise ChatMux gives you an attached terminal. Both views can
 type into the real pane.
 
+Every live row uses the same reorderable sidebar regardless of provider. Dragging
+a row across provider boundaries persists the resulting order in that browser.
+Transcript-aware activity badges surface running turns and terminal provider
+errors without replacing the underlying conversation or terminal view.
+
 | Agent | Found automatically | Chat view | Send input | Start new session |
 |---|---|---|---|---|
 | **Gajae Code (GJC)** | Yes | Yes | Prompts and `/` commands | Yes |
@@ -100,6 +110,7 @@ type into the real pane.
 | **OpenCode** | Yes | After its history is indexed | Prompts and `/` skills | Yes |
 | **Oh My Pi** | Yes | After its history is indexed | Prompts and `/skill:` skills | Yes |
 | **SSH tmux** | Yes | No — terminal only | Terminal keystrokes | No |
+| **Local shell** | Yes | No — terminal only | Terminal keystrokes | No |
 
 Cursor sessions use the documented `agent` command. The legacy `cursor-agent`
 alias remains supported for older installations.
@@ -183,6 +194,9 @@ the tmux session identifier is rechecked before relay or termination.
 
 - Live agent rows open as conversation views before the first native transcript
   is written, then switch to indexed titles, models, and message history.
+- Drag handles reorder the complete live roster across providers. `RUN`,
+  `READY`, and `ERROR` badges keep active, completed, and failed turns visible
+  on both desktop and the installed PWA.
 - Remote SSH rows remain attached terminals because no local transcript can be
   verified.
 - Native provider stores are indexed automatically. Select a project to search

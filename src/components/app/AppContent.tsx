@@ -1,19 +1,23 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
 import Sidebar from '../sidebar/view/Sidebar';
 import MainContent from '../main-content/view/MainContent';
 import CommandPalette from '../command-palette/CommandPalette';
-import { useWebSocket } from '../../contexts/WebSocketContext';
+import { useWebSocket, type ServerEvent } from '../../contexts/WebSocketContext';
 import { PaletteOpsProvider, usePaletteOpsRegister } from '../../contexts/PaletteOpsContext';
 import { useDeviceSettings } from '../../hooks/useDeviceSettings';
 import { useSessionProtection } from '../../hooks/useSessionProtection';
 import { useProjectsState } from '../../hooks/useProjectsState';
 import { useQueuedMessageAutoSend } from '../../hooks/useQueuedMessageAutoSend';
 import { api } from '../../utils/api';
-import { findGjcPromotionCandidate } from '../../utils/liveSessions';
-import type { ExternalTerminalTarget } from '../../types/app';
+import {
+  findGjcPromotionCandidate,
+  hasGjcTerminalTarget,
+  readRestSessionContainer,
+} from '../../utils/liveSessions';
+import type { ExternalTerminalTarget, Project, ProjectSession } from '../../types/app';
 import type { ExternalCliSession } from '../sidebar/hooks/useExternalCliSessions';
 
 type RunningSessionApiItem = {
@@ -41,26 +45,66 @@ const parseStartedAt = (value: unknown): number | undefined => {
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) ? parsed : undefined;
 };
+
+export const isSameExternalTerminal = (
+  current: ExternalTerminalTarget | null,
+  expected: ExternalTerminalTarget,
+): boolean => Boolean(
+  current
+  && current.cliKind === expected.cliKind
+  && current.tmux.socketPath === expected.tmux.socketPath
+  && current.tmux.sessionId === expected.tmux.sessionId
+  && current.tmux.windowId === expected.tmux.windowId
+  && current.tmux.paneId === expected.tmux.paneId
+  && (
+    current.process === null && expected.process === null
+    || current.process !== null
+      && expected.process !== null
+      && current.process.pid === expected.process.pid
+      && current.process.startedAtMs === expected.process.startedAtMs
+  ),
+);
 export function refreshExternalTerminalAttachCapability(
   target: ExternalTerminalTarget | null,
   sessions: readonly ExternalCliSession[],
 ): ExternalTerminalTarget | null {
-  if (!target || (target.cliKind !== 'ssh' && target.cliKind !== 'shell')) {
+  if (!target || target.cliKind === 'gjc') {
     return target;
   }
 
   const session = sessions.find((candidate) => (
-    candidate.tmux.socketPath === target.tmux.socketPath
+    candidate.authority !== 'none'
+    && candidate.presence !== 'stale'
+    && candidate.kind === target.cliKind
+    && candidate.tmux.socketPath === target.tmux.socketPath
     && candidate.tmux.sessionId === target.tmux.sessionId
     && candidate.tmux.windowId === target.tmux.windowId
     && candidate.tmux.paneId === target.tmux.paneId
   ));
-
-  if (!session || session.attachCapability === target.attachCapability) {
-    return target;
+  if (!session) {
+    return null;
   }
 
-  return { ...target, attachCapability: session.attachCapability };
+  if (target.cliKind === 'ssh' || target.cliKind === 'shell') {
+    return session.attachCapability
+      ? { ...target, attachCapability: session.attachCapability }
+      : null;
+  }
+
+  return session.process
+    && target.process
+    && session.process.pid === target.process.pid
+    && session.process.startedAtMs === target.process.startedAtMs
+    ? {
+        ...target,
+        process: session.process,
+        projectPath: session.projectPath ?? target.projectPath,
+        transcriptSessionId: session.transcriptSessionId,
+        sessionName: session.sessionName ?? target.sessionName,
+        model: session.model ?? target.model,
+        effort: session.effort ?? target.effort,
+      }
+    : null;
 }
 export function resolveExternalTerminalRoute(
   target: ExternalTerminalTarget,
@@ -76,10 +120,230 @@ export function resolveExternalTerminalRoute(
     && target.cliKind !== 'ssh'
     && target.cliKind !== 'shell'
     && target.transcriptSessionId
+    && target.project
   ) {
     return 'transcript';
   }
   return 'terminal';
+}
+
+type DiscoveryAuthorityOptions = {
+  externalTerminal: ExternalTerminalTarget | null;
+  setExternalTerminal: Dispatch<SetStateAction<ExternalTerminalTarget | null>>;
+  setExternalTranscript: Dispatch<SetStateAction<ExternalTerminalTarget | null>>;
+  openExternalTerminal: (target: ExternalTerminalTarget) => void;
+  setActiveTab: (tab: 'chat') => void;
+  sidebarSharedProps: {
+    projects: readonly Project[];
+    onProjectSelect: (project: Project) => unknown;
+    onSessionSelect: (session: ProjectSession) => unknown;
+  };
+  subscribe: (listener: (event: ServerEvent) => void) => () => void;
+};
+
+export function useExternalTerminalDiscoveryAuthority({
+  externalTerminal,
+  setExternalTerminal,
+  setExternalTranscript,
+  openExternalTerminal,
+  setActiveTab,
+  sidebarSharedProps,
+  subscribe,
+}: DiscoveryAuthorityOptions): void {
+  useEffect(() => {
+    if (
+      !externalTerminal
+      || externalTerminal.cliKind === 'gjc'
+      || externalTerminal.cliKind === 'ssh'
+      || externalTerminal.cliKind === 'shell'
+      || externalTerminal.transcriptSessionId
+      || externalTerminal.forceAttach
+    ) return undefined;
+    const target = externalTerminal;
+    let cancelled = false;
+    let requestGeneration = 0;
+    let appliedGeneration = 0;
+    let activeController: AbortController | null = null;
+    const invalidateTarget = () => {
+      setExternalTerminal((current) => (
+        isSameExternalTerminal(current, target) ? null : current
+      ));
+    };
+    const poll = async () => {
+      const generation = ++requestGeneration;
+      activeController?.abort();
+      const controller = new AbortController();
+      activeController = controller;
+      try {
+        const response = await api.externalSessions(controller.signal);
+        if (
+          cancelled
+          || controller.signal.aborted
+          || generation !== requestGeneration
+          || generation <= appliedGeneration
+        ) return;
+        if (!response.ok) {
+          appliedGeneration = generation;
+          invalidateTarget();
+          return;
+        }
+
+        const body = await response.json();
+        if (
+          cancelled
+          || controller.signal.aborted
+          || generation !== requestGeneration
+          || generation <= appliedGeneration
+        ) return;
+        appliedGeneration = generation;
+        const container = readRestSessionContainer(body, 'externalSessions');
+        if (!container?.discoveryOk) {
+          invalidateTarget();
+          return;
+        }
+        const sessions = container.sessions as ExternalCliSession[];
+
+        const refreshed = refreshExternalTerminalAttachCapability(target, sessions);
+        if (!refreshed) {
+          invalidateTarget();
+          return;
+        }
+        if ('transcriptSessionId' in refreshed && refreshed.transcriptSessionId) {
+          openExternalTerminal(refreshed);
+        }
+      } catch {
+        if (
+          !cancelled
+          && !controller.signal.aborted
+          && generation === requestGeneration
+          && generation > appliedGeneration
+        ) {
+          appliedGeneration = generation;
+          invalidateTarget();
+        }
+      }
+    };
+    void poll();
+    const unsubscribe = subscribe((event) => {
+      if (event.kind === 'discovery.snapshot' || event.kind === 'discovery.delta') void poll();
+    });
+    return () => {
+      cancelled = true;
+      activeController?.abort();
+      unsubscribe();
+    };
+  }, [externalTerminal, openExternalTerminal, setExternalTerminal, subscribe]);
+
+  useEffect(() => {
+    if (externalTerminal?.cliKind !== 'gjc') return undefined;
+    const target = externalTerminal;
+    let cancelled = false;
+    let requestGeneration = 0;
+    let appliedGeneration = 0;
+    let activeController: AbortController | null = null;
+    const invalidateTarget = () => {
+      setExternalTerminal((current) => (
+        isSameExternalTerminal(current, target) ? null : current
+      ));
+    };
+    const poll = async () => {
+      const generation = ++requestGeneration;
+      activeController?.abort();
+      const controller = new AbortController();
+      activeController = controller;
+      try {
+        const response = await api.liveSessions(controller.signal);
+        if (
+          cancelled
+          || controller.signal.aborted
+          || generation !== requestGeneration
+          || generation <= appliedGeneration
+        ) return;
+        if (!response.ok) {
+          appliedGeneration = generation;
+          invalidateTarget();
+          return;
+        }
+
+        const body = await response.json();
+        if (
+          cancelled
+          || controller.signal.aborted
+          || generation !== requestGeneration
+          || generation <= appliedGeneration
+        ) return;
+        appliedGeneration = generation;
+        const container = readRestSessionContainer(body, 'liveSessions');
+        if (!container?.discoveryOk) {
+          invalidateTarget();
+          return;
+        }
+        const sessions = container.sessions as Parameters<typeof hasGjcTerminalTarget>[0];
+        if (!hasGjcTerminalTarget(sessions, target)) {
+          invalidateTarget();
+          return;
+        }
+
+        const ready = findGjcPromotionCandidate(sessions, target);
+        if (!ready) return;
+
+        const detailsResponse = await api.sessionDetails(ready.id);
+        const detailsBody = await detailsResponse.json().catch(() => null);
+        const session = detailsBody?.data?.session as {
+          sessionId?: unknown;
+          provider?: unknown;
+          summary?: unknown;
+          projectId?: unknown;
+          createdAt?: unknown;
+          updatedAt?: unknown;
+        } | undefined;
+        const projectId = typeof session?.projectId === 'string' ? session.projectId : '';
+        const project = sidebarSharedProps.projects.find((candidate) => candidate.projectId === projectId);
+        if (
+          cancelled
+          || controller.signal.aborted
+          || generation !== requestGeneration
+          || generation !== appliedGeneration
+          || !detailsResponse.ok
+          || session?.sessionId !== ready.id
+          || session.provider !== 'gjc'
+          || !project
+        ) return;
+
+        setExternalTerminal(null);
+        setExternalTranscript(null);
+        setActiveTab('chat');
+        sidebarSharedProps.onProjectSelect(project);
+        sidebarSharedProps.onSessionSelect({
+          id: ready.id,
+          summary: typeof session.summary === 'string' ? session.summary : '',
+          createdAt: typeof session.createdAt === 'string' ? session.createdAt : undefined,
+          updated_at: typeof session.updatedAt === 'string' ? session.updatedAt : undefined,
+          __provider: 'gjc',
+          __projectId: project.projectId,
+        });
+      } catch {
+        if (
+          !cancelled
+          && !controller.signal.aborted
+          && generation === requestGeneration
+          && generation > appliedGeneration
+        ) {
+          appliedGeneration = generation;
+          invalidateTarget();
+        }
+      }
+    };
+    void poll();
+    const unsubscribe = subscribe((event) => {
+      if (event.kind === 'discovery.snapshot' || event.kind === 'discovery.delta') void poll();
+    });
+    return () => {
+      cancelled = true;
+      activeController?.abort();
+      unsubscribe();
+    };
+  }, [externalTerminal, setActiveTab, setExternalTerminal, setExternalTranscript, sidebarSharedProps, subscribe]);
 }
 
 export default function AppContent() {
@@ -154,6 +418,7 @@ function AppContentInner() {
       && routed.cliKind !== 'ssh'
       && routed.cliKind !== 'shell'
       && routed.transcriptSessionId
+      && routed.project
       && resolveExternalTerminalRoute(routed) === 'transcript'
     ) {
       setExternalTerminal(null);
@@ -178,123 +443,15 @@ function AppContentInner() {
     setExternalTerminal(null);
   }, []);
 
-  useEffect(() => {
-    if (
-      !externalTerminal
-      || externalTerminal.cliKind === 'gjc'
-      || externalTerminal.cliKind === 'ssh'
-      || externalTerminal.cliKind === 'shell'
-      || externalTerminal.transcriptSessionId
-      || externalTerminal.forceAttach
-    ) return undefined;
-    let cancelled = false;
-    const poll = async () => {
-      try {
-        const response = await api.externalSessions();
-        if (!response.ok || cancelled) return;
-        const body = await response.json();
-        const sessions = body?.data?.externalSessions ?? [];
-        const ready = sessions.find((session: {
-          tmuxName?: unknown;
-          transcriptSessionId?: unknown;
-          sessionName?: unknown;
-          model?: unknown;
-          effort?: unknown;
-        }) => (
-          session.tmuxName === externalTerminal.tmuxName
-          && typeof session.transcriptSessionId === 'string'
-        ));
-        if (!cancelled && ready) {
-          openExternalTerminal({
-            ...externalTerminal,
-            transcriptSessionId: ready.transcriptSessionId,
-            sessionName: typeof ready.sessionName === 'string' ? ready.sessionName : externalTerminal.sessionName,
-            model: typeof ready.model === 'string' ? ready.model : externalTerminal.model,
-            effort: typeof ready.effort === 'string' ? ready.effort : externalTerminal.effort,
-          });
-        }
-      } catch {
-        // Best-effort: the sidebar poll can still complete the same handoff.
-      }
-    };
-    void poll();
-    const unsubscribe = subscribe((event) => {
-      if (event.kind === 'discovery.snapshot' || event.kind === 'discovery.delta') void poll();
-    });
-    return () => {
-      cancelled = true;
-      unsubscribe();
-    };
-  }, [externalTerminal, openExternalTerminal, subscribe]);
-
-  useEffect(() => {
-    if (externalTerminal?.cliKind !== 'gjc') return undefined;
-    let cancelled = false;
-    let resolving = false;
-    const poll = async () => {
-      if (resolving) return;
-      try {
-        const response = await api.liveSessions();
-        if (!response.ok || cancelled) return;
-        const body = await response.json();
-        const sessions = (body?.data?.liveSessions ?? body?.liveSessions ?? []) as Array<{
-          id?: unknown;
-          tmux?: unknown;
-          process?: unknown;
-        }>;
-        const ready = findGjcPromotionCandidate(sessions, externalTerminal);
-        if (!ready || typeof ready.id !== 'string') return;
-
-        resolving = true;
-        const detailsResponse = await api.sessionDetails(ready.id);
-        const detailsBody = await detailsResponse.json().catch(() => null);
-        const session = detailsBody?.data?.session as {
-          sessionId?: unknown;
-          provider?: unknown;
-          summary?: unknown;
-          projectId?: unknown;
-          createdAt?: unknown;
-          updatedAt?: unknown;
-        } | undefined;
-        const projectId = typeof session?.projectId === 'string' ? session.projectId : '';
-        const project = sidebarSharedProps.projects.find((candidate) => candidate.projectId === projectId);
-        if (
-          cancelled
-          || !detailsResponse.ok
-          || session?.sessionId !== ready.id
-          || session.provider !== 'gjc'
-          || !project
-        ) {
-          resolving = false;
-          return;
-        }
-
-        setExternalTerminal(null);
-        setExternalTranscript(null);
-        setActiveTab('chat');
-        sidebarSharedProps.onProjectSelect(project);
-        sidebarSharedProps.onSessionSelect({
-          id: ready.id,
-          summary: typeof session.summary === 'string' ? session.summary : '',
-          createdAt: typeof session.createdAt === 'string' ? session.createdAt : undefined,
-          updated_at: typeof session.updatedAt === 'string' ? session.updatedAt : undefined,
-          __provider: 'gjc',
-          __projectId: project.projectId,
-        });
-      } catch {
-        resolving = false;
-        // Best-effort: the next poll retries transcript discovery/indexing.
-      }
-    };
-    void poll();
-    const unsubscribe = subscribe((event) => {
-      if (event.kind === 'discovery.snapshot' || event.kind === 'discovery.delta') void poll();
-    });
-    return () => {
-      cancelled = true;
-      unsubscribe();
-    };
-  }, [externalTerminal, setActiveTab, sidebarSharedProps, subscribe]);
+  useExternalTerminalDiscoveryAuthority({
+    externalTerminal,
+    setExternalTerminal,
+    setExternalTranscript,
+    openExternalTerminal,
+    setActiveTab,
+    sidebarSharedProps,
+    subscribe,
+  });
 
   // Wrap sidebar navigation so leaving for a project or session drops the
   // terminal takeover without modifying the original handlers.

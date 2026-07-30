@@ -5,7 +5,11 @@ import test from 'node:test';
 import type { ExternalTerminalTarget } from '../../types/app';
 import type { ExternalCliSession } from '../sidebar/hooks/useExternalCliSessions';
 
-import { refreshExternalTerminalAttachCapability, resolveExternalTerminalRoute } from './AppContent';
+import {
+  isSameExternalTerminal,
+  refreshExternalTerminalAttachCapability,
+  resolveExternalTerminalRoute,
+} from './AppContent';
 
 const tmux = {
   socketPath: '/tmp/tmux-1000/default',
@@ -40,14 +44,73 @@ test('refreshes the selected terminal capability from its exact pane row', () =>
   assert.equal(refreshed && 'attachCapability' in refreshed ? refreshed.attachCapability : undefined, 'fresh-capability');
 });
 
-test('does not refresh a selected terminal from a different pane', () => {
+test('invalidates a selected terminal when the authoritative roster lacks its exact pane', () => {
   const refreshed = refreshExternalTerminalAttachCapability(target, [{
     ...session,
     tmux: { ...tmux, paneId: '%3' },
   }]);
 
-  assert.equal(refreshed, target);
-  assert.equal(refreshed && 'attachCapability' in refreshed ? refreshed.attachCapability : undefined, 'stale-capability');
+  assert.equal(refreshed, null);
+});
+
+test('invalidates a selected terminal when its exact row is stale or unavailable', () => {
+  assert.equal(refreshExternalTerminalAttachCapability(target, [{
+    ...session,
+    presence: 'stale',
+    authority: 'stream',
+  }]), null);
+  assert.equal(refreshExternalTerminalAttachCapability(target, [{
+    ...session,
+    presence: 'present',
+    authority: 'none',
+  }]), null);
+});
+
+test('local-agent capability refresh never rebinds a replacement process generation', () => {
+  const localTarget = {
+    ...target,
+    process: { pid: 42, startedAtMs: 1_700_000_000_000 },
+    kind: 'Claude Code',
+    cliKind: 'claude',
+    attachCapability: undefined,
+  } satisfies ExternalTerminalTarget;
+  const exactSession = {
+    ...session,
+    process: localTarget.process,
+    kind: 'claude',
+    transcriptSessionId: 'session-ready',
+  } satisfies ExternalCliSession;
+
+  assert.equal(
+    refreshExternalTerminalAttachCapability(localTarget, [{
+      ...exactSession,
+      process: { ...localTarget.process, pid: 43 },
+    }]),
+    null,
+  );
+  const refreshed = refreshExternalTerminalAttachCapability(localTarget, [exactSession]);
+  assert.ok(refreshed && 'transcriptSessionId' in refreshed);
+  assert.equal(refreshed.transcriptSessionId, 'session-ready');
+});
+
+test('terminal request fencing distinguishes replacement process generations in one pane', () => {
+  const selected = {
+    ...target,
+    process: { pid: 42, startedAtMs: 1_700_000_000_000 },
+    kind: 'Claude Code',
+    cliKind: 'claude',
+    attachCapability: undefined,
+  } satisfies ExternalTerminalTarget;
+
+  assert.equal(isSameExternalTerminal(selected, selected), true);
+  assert.equal(isSameExternalTerminal({
+    ...selected,
+    process: { ...selected.process!, pid: 43 },
+  }, selected), false);
+  assert.equal(isSameExternalTerminal({
+    ...selected,
+    process: { ...selected.process!, startedAtMs: selected.process!.startedAtMs + 1 },
+  }, selected), false);
 });
 
 test('B8: forceAttach always routes an indexed local-agent pane to terminal, not transcript', () => {
@@ -65,6 +128,21 @@ test('B8: forceAttach always routes an indexed local-agent pane to terminal, not
   // Without forceAttach the same indexed session still routes to transcript —
   // forceAttach is the only thing that changes the decision.
   assert.equal(resolveExternalTerminalRoute({ ...indexedLocalAgent, forceAttach: undefined }), 'transcript');
+});
+
+test('indexed external sessions require an exact Project for transcript navigation', () => {
+  const indexedWithoutProject: ExternalTerminalTarget = {
+    tmuxName: 'claude-review',
+    tmux: { ...tmux, paneId: '%10' },
+    process: { pid: 43, startedAtMs: 1_700_000_000_001 },
+    kind: 'Claude Code',
+    cliKind: 'claude',
+    project: null,
+    projectPath: '/workspace/unregistered',
+    transcriptSessionId: 'session-indexed',
+  };
+
+  assert.equal(resolveExternalTerminalRoute(indexedWithoutProject), 'terminal');
 });
 
 test('B8: attach routing is keyed on the exact pane 4-tuple, not the tmux name alone', () => {
@@ -112,13 +190,10 @@ test('capability refresh consumes the discovery roster without adding its own re
     appContent.indexOf('const openExternalTerminal'),
   );
 
-  // B15 replaced the unconditional 5s roster poll with the discovery stream.
-  // Two REST call sites remain by design: a non-cancellable hydration that
-  // seeds transcript/model/capability metadata the stream does not carry, and
-  // a bounded fallback that only runs while the stream is unhealthy. Neither
-  // belongs to the capability refresh, which reads the roster the sidebar
-  // already publishes.
-  assert.equal((hook.match(/api\.externalSessions\(\)/g) ?? []).length, 2);
+  // Hydration and unhealthy fallback share one request helper, so the source has
+  // one API call site. Capability refresh reads the authoritative roster already
+  // published by the sidebar hook and must not add a separate poll.
+  assert.equal((hook.match(/api\.externalSessions\(/g) ?? []).length, 1);
   assert.match(hook, /if \(streamHealthy\) return undefined;/);
   assert.match(hook, /onSessionsChangeRef\.current\?\.\(/);
   assert.doesNotMatch(refreshCallback, /api\.externalSessions/);

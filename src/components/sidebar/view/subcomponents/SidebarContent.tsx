@@ -2,13 +2,12 @@ import type { TFunction } from 'i18next';
 
 import { ScrollArea } from '../../../../shared/view/ui';
 import type { ExternalTerminalTarget, Project, ProjectSession } from '../../../../types/app';
-import type { TmuxPaneTarget } from '../../../../../shared/tmux';
+import type { TmuxPaneIdentity, TmuxPaneTarget } from '../../../../../shared/tmux';
 import { useExternalCliSessions, type ExternalCliSession } from '../../hooks/useExternalCliSessions';
 
 import SidebarFooter from './SidebarFooter';
 import SidebarHeader from './SidebarHeader';
 import SidebarLiveSection from './SidebarLiveSection';
-import SidebarExternalSection from './SidebarExternalSection';
 import SidebarNewSession from './SidebarNewSession';
 
 type SidebarContentProps = {
@@ -21,9 +20,12 @@ type SidebarContentProps = {
   liveSessionModels: ReadonlyMap<string, string>;
   liveSessionEfforts: ReadonlyMap<string, string>;
   liveSessionLineage: ReadonlySet<string>;
+  liveSessionPanes: ReadonlyMap<string, TmuxPaneIdentity>;
+  liveSessionPresence: ReadonlyMap<string, 'present' | 'stale'>;
   liveSessionTargets: ReadonlyMap<string, TmuxPaneTarget>;
   liveSessionKinds: ReadonlyMap<string, string>;
   liveSessionRunning: ReadonlySet<string>;
+  liveSessionErrors: ReadonlySet<string>;
   liveSessionsLoaded: boolean;
   onProjectSelect: (project: Project) => void;
   onSessionSelect: (session: ProjectSession, projectId?: string) => void;
@@ -52,9 +54,12 @@ export default function SidebarContent({
   liveSessionModels,
   liveSessionEfforts,
   liveSessionLineage,
+  liveSessionPanes,
+  liveSessionPresence,
   liveSessionTargets,
   liveSessionKinds,
   liveSessionRunning,
+  liveSessionErrors,
   liveSessionsLoaded,
   onProjectSelect,
   onSessionSelect,
@@ -94,29 +99,26 @@ export default function SidebarContent({
       <ScrollArea className="flex-1 overflow-y-auto overscroll-contain md:px-1.5 md:py-2">
         <SidebarNewSession onCreated={refreshDiscoveredSessions} />
         {sessionCount > 0 ? (
-          <>
-            <SidebarLiveSection
-              projects={projects}
-              liveSessionIds={liveSessionIds}
-              selectedSession={selectedSession}
-              onProjectSelect={onProjectSelect}
-              onSessionSelect={onSessionSelect}
-              liveSessionNames={liveSessionNames}
-              liveSessionModels={liveSessionModels}
-              liveSessionEfforts={liveSessionEfforts}
-              liveSessionLineage={liveSessionLineage}
-              liveSessionTargets={liveSessionTargets}
-              liveSessionKinds={liveSessionKinds}
-              liveSessionRunning={liveSessionRunning}
-              onExternalTerminalOpen={onExternalTerminalOpen}
-            />
-            <SidebarExternalSection
-              sessions={externalSessions}
-              projects={projects}
-              onOpen={onExternalTerminalOpen}
-              onChanged={refreshDiscoveredSessions}
-            />
-          </>
+          <SidebarLiveSection
+            projects={projects}
+            liveSessionIds={liveSessionIds}
+            externalSessions={externalSessions}
+            selectedSession={selectedSession}
+            onProjectSelect={onProjectSelect}
+            onSessionSelect={onSessionSelect}
+            liveSessionNames={liveSessionNames}
+            liveSessionModels={liveSessionModels}
+            liveSessionEfforts={liveSessionEfforts}
+            liveSessionLineage={liveSessionLineage}
+            liveSessionPanes={liveSessionPanes}
+            liveSessionPresence={liveSessionPresence}
+            liveSessionTargets={liveSessionTargets}
+            liveSessionKinds={liveSessionKinds}
+            liveSessionRunning={liveSessionRunning}
+            liveSessionErrors={liveSessionErrors}
+            onExternalTerminalOpen={onExternalTerminalOpen}
+            onExternalSessionsChanged={refreshDiscoveredSessions}
+          />
         ) : (!liveSessionsLoaded || externalLoading) ? (
           <div className="flex items-center justify-center gap-2 px-4 py-8 text-sm text-muted-foreground" role="status" aria-live="polite">
             <span className="h-4 w-4 animate-spin rounded-full border-2 border-muted-foreground/40 border-t-muted-foreground" aria-hidden />

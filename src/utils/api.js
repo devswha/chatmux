@@ -117,7 +117,7 @@ export const api = {
     });
   },
   // Session ids currently live in a tmux gjc pane (tmux+lsof; [] when no tmux).
-  liveSessions: () => authenticatedFetch('/api/providers/sessions/live'),
+  liveSessions: (signal) => authenticatedFetch('/api/providers/sessions/live', signal === undefined ? undefined : { signal }),
   // Exact-pane actions carry both tmux identity and agent-process generation.
   liveSessionSend: (tmux, process, message) =>
     authenticatedFetch('/api/providers/sessions/live/send', {
@@ -201,7 +201,7 @@ export const api = {
   sessionDetails: (sessionId) =>
     authenticatedFetch(`/api/providers/sessions/${encodeURIComponent(sessionId)}`),
   // External CLI sessions enriched with structured transcript metadata when available.
-  externalSessions: () => authenticatedFetch('/api/providers/sessions/external'),
+  externalSessions: (signal) => authenticatedFetch('/api/providers/sessions/external', signal === undefined ? undefined : { signal }),
   // Home-relative directory autocomplete ({ home, suggestions }).
   dirSuggestions: (prefix) =>
     authenticatedFetch(`/api/providers/fs/dir-suggestions?prefix=${encodeURIComponent(prefix)}`),

@@ -74,6 +74,13 @@
     "batchTitle": "이 tmux pane의 전면 명령이 gjc가 아닙니다 — gjc는 배치(백그라운드) 자손으로 실행 중",
     "idleBadge": "대기",
     "idleHint": "눌러서 첫 대화 시작",
+    "reorderSession": "'{{name}}' 세션 순서 옮기기",
+    "dragInstructions": "세션을 집으려면 Space 또는 Enter를 누르세요. 방향키로 옮기고 Space 또는 Enter로 놓거나 Escape로 취소하세요.",
+    "dragPickedUp": "'{{name}}' 세션을 집었습니다.",
+    "dragMoved": "'{{name}}' 세션을 '{{over}}' 위치로 옮겼습니다.",
+    "dragDropped": "'{{name}}' 세션을 '{{over}}' 근처에 놓았습니다.",
+    "dragCancelled": "'{{name}}' 세션 순서 변경을 취소했습니다.",
+    "unknownSession": "세션",
     "startFirstConversation": "tmux 세션 '{{name}}'에서 첫 대화 시작",
     "openingPrevious": "이전 대화 불러오는 중…",
     "openPreviousHint": "눌러서 이전 대화 열기",
@@ -89,17 +96,5 @@
     "stopping": "종료 중…",
     "cancel": "취소",
     "close": "닫기"
-  },
-  "idleComposer": {
-    "sendFirstMessage": "첫 메시지 보내기",
-    "waitingPromotion": "첫 턴 시작 대기 중 — 곧 LIVE로 전환됩니다",
-    "placeholder": "{{name}}에 첫 지시… (Enter 전송)",
-    "cancel": "취소",
-    "send": "전송",
-    "sending": "전송 중…",
-    "targetReplaced": "대상이 교체됨 — 목록을 새로고침해 주세요",
-    "promotionTimeout": "전송은 됐지만 세션이 LIVE로 전환되지 않습니다 — tmux에서 gjc 상태를 직접 확인하세요",
-    "towerUnavailable": "관제탑 미가동 — 전송 불가",
-    "sendFailed": "전송 실패"
   }
 }

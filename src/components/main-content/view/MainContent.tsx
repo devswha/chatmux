@@ -375,6 +375,7 @@ function MainContent({
                   // Switching exact pane targets or process generations must remount.
                   key={`pending-cli-${tmuxPaneIdentityKey(pendingCliAttachTarget.tmux)}:${pendingCliAttachTarget.process.startedAtMs}`}
                   project={externalTerminal.project}
+                  projectPath={'projectPath' in externalTerminal ? externalTerminal.projectPath : undefined}
                   attachTarget={pendingCliAttachTarget}
                   isActive
                   minimal
@@ -398,7 +399,12 @@ function MainContent({
             model={'model' in externalTerminal ? externalTerminal.model : null}
             effort={'effort' in externalTerminal ? externalTerminal.effort : null}
             sessionName={externalTerminal.tmuxName}
-            workspacePath={isGjc ? null : (externalTerminal.project.fullPath || externalTerminal.project.path)}
+            workspacePath={isGjc
+              ? null
+              : (externalTerminal.project?.fullPath
+                || externalTerminal.project?.path
+                || externalTerminal.projectPath
+                || '')}
             relayKind={externalTerminal.cliKind}
           />
         )}
@@ -446,6 +452,7 @@ function MainContent({
                 // Switching exact pane targets must remount the Shell.
                 key={targetKey}
                 project={externalTerminal.project}
+                projectPath={'projectPath' in externalTerminal ? externalTerminal.projectPath : undefined}
                 attachTarget={attachTarget}
                 isActive
                 minimal

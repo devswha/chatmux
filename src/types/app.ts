@@ -31,8 +31,10 @@ export type AppTab = 'chat';
 
 /**
  * A discovered external CLI target. Local coding-agent sessions open their
- * structured transcript when indexed; `project` supplies the pending-relay or
- * terminal-fallback cwd before that handoff. SSH and shell panes are attach-only.
+ * structured transcript when indexed. Exact terminal attach remains available
+ * without a matching ChatMux project; project context is required only for
+ * transcript navigation and plain-shell flows. SSH and shell panes are
+ * attach-only.
  */
 export type ExternalTerminalTarget = {
   tmuxName: string;
@@ -40,7 +42,8 @@ export type ExternalTerminalTarget = {
   process: TmuxProcessGeneration | null;
   kind: string;
   cliKind: 'claude' | 'codex' | 'cursor' | 'opencode' | 'omp' | 'ssh' | 'shell';
-  project: Project;
+  project: Project | null;
+  projectPath?: string;
   /** Opens the structured transcript instead of attaching a terminal. */
   transcriptSessionId?: string;
   /** Transcript-derived display metadata for a running CLI session. */

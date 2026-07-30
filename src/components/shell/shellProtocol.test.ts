@@ -72,6 +72,35 @@ test('attach-only init includes its capability without a process or initial comm
   assert.equal('initialCommand' in message, false);
 });
 
+test('null-project typed attach uses explicit context without session or command authority', () => {
+  const message = buildShellInitMessage({
+    ...baseInit,
+    projectPath: '',
+    sessionId: null,
+    hasSession: false,
+    provider: 'external',
+    initialCommand: null,
+    isPlainShell: false,
+    attachTarget: { targetClass: 'local-agent', tmux, process },
+  });
+
+  assert.deepEqual(message, {
+    type: 'init',
+    shellProtocolVersion: 2,
+    projectPath: '',
+    sessionId: null,
+    hasSession: false,
+    provider: 'external',
+    cols: 120,
+    rows: 40,
+    forceRestart: false,
+    mode: 'typed-attach',
+    targetClass: 'local-agent',
+    tmux,
+    process,
+  });
+});
+
 test('plain shell init keeps its existing fields and adds the protocol version', () => {
   const message = buildShellInitMessage({ ...baseInit, attachTarget: null });
 
@@ -92,6 +121,18 @@ test('shell consumers retain their command props and no client tmux command buil
   assert.match(mainContent, /attachTarget=\{attachTarget\}/);
   assert.match(providerLogin, /StandaloneShell project=\{DEFAULT_PROJECT_FOR_EMPTY_SHELL\} command=\{command\}/);
   assert.match(standalone, /initialCommand=\{command\}/);
+});
+
+test('shell view permits only typed attach without a Project', () => {
+  const shell = readFileSync(new URL('./view/Shell.tsx', import.meta.url), 'utf8');
+  const standalone = readFileSync(new URL('../standalone-shell/view/StandaloneShell.tsx', import.meta.url), 'utf8');
+  const connection = readFileSync(new URL('./hooks/useShellConnection.ts', import.meta.url), 'utf8');
+
+  assert.match(shell, /if \(!selectedProject && !attachTarget\)/);
+  assert.match(standalone, /if \(!project && !attachTarget\)/);
+  assert.match(connection, /\(!currentProject && !currentAttachTarget\)/);
+  assert.match(connection, /provider: typedAttach[\s\S]*\? 'external'/);
+  assert.match(connection, /sessionId: typedAttach \|\| isPlainShellRef\.current/);
 });
 test('external terminal targets do not attach without a server-issued capability', () => {
   const mainContent = readFileSync(new URL('../main-content/view/MainContent.tsx', import.meta.url), 'utf8');

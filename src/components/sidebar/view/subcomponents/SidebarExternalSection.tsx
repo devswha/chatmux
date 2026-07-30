@@ -1,15 +1,17 @@
 import { useTranslation } from 'react-i18next';
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type MutableRefObject } from 'react';
 import { Server, SquareTerminal, X } from 'lucide-react';
 
 import type { ExternalTerminalTarget, Project } from '../../../../types/app';
 import { api } from '../../../../utils/api';
+import { isSameTmuxPaneTarget } from '../../../../utils/liveSessions';
 import type { ExternalCliSession } from '../../hooks/useExternalCliSessions';
 import SessionProviderLogo from '../../../llm-logo-provider/SessionProviderLogo';
-import { tmuxPaneIdentityKey } from '../../../../../shared/tmux';
+import { tmuxPaneIdentityKey, type TmuxPaneTarget } from '../../../../../shared/tmux';
 
 import SessionCompletionBell from './SessionCompletionBell';
 import SessionActivityBadge, { type SessionActivityState } from './SessionActivityBadge';
+import SortableSessionRow from './SortableSessionRow';
 
 const KIND_LABEL: Record<ExternalCliSession['kind'], string> = {
   claude: 'Claude Code',
@@ -23,6 +25,9 @@ const KIND_LABEL: Record<ExternalCliSession['kind'], string> = {
 
 const isAttachOnlyKind = (kind: ExternalCliSession['kind']): boolean => (
   kind === 'ssh' || kind === 'shell'
+);
+const isExternalSessionAuthoritative = (session: ExternalCliSession): boolean => (
+  session.presence !== 'stale' && session.authority !== 'none'
 );
 
 const sessionActivityState = (
@@ -61,8 +66,44 @@ export const resolveExternalSessionProject = (
   return projects.find((project) => (
     normalizedSessionPath
     && normalizeComparablePath(project.fullPath || project.path || '') === normalizedSessionPath
-  )) ?? projects[0] ?? null;
+  )) ?? null;
 };
+
+const canOpenExternalSession = (
+  session: ExternalCliSession,
+  project: Project | null,
+): boolean => (
+  isExternalSessionAuthoritative(session)
+  && (
+    Boolean(session.transcriptSessionId && project)
+    || session.process !== null
+    || Boolean(session.attachCapability)
+  )
+);
+export type PendingExternalTranscriptTarget = TmuxPaneTarget;
+
+type PendingTranscriptDisposition = 'ignore' | 'clear' | 'wait' | 'promote';
+
+export function pendingExternalTranscriptDisposition(
+  pending: PendingExternalTranscriptTarget | null,
+  session: ExternalCliSession,
+): PendingTranscriptDisposition {
+  if (!pending || tmuxPaneIdentityKey(pending.tmux) !== tmuxPaneIdentityKey(session.tmux)) {
+    return 'ignore';
+  }
+  if (
+    !isExternalSessionAuthoritative(session)
+    || session.process === null
+    || !isSameTmuxPaneTarget(pending, { tmux: session.tmux, process: session.process })
+  ) {
+    return 'clear';
+  }
+  return session.transcriptSessionId ? 'promote' : 'wait';
+}
+
+function externalTargetKey(target: PendingExternalTranscriptTarget): string {
+  return `${tmuxPaneIdentityKey(target.tmux)}\u0000${target.process.pid}\u0000${target.process.startedAtMs}`;
+}
 
 type SidebarExternalSectionProps = {
   sessions: ExternalCliSession[];
@@ -77,21 +118,35 @@ type SidebarExternalSectionProps = {
  * list. Local agents open structured transcripts when indexed and use terminal
  * attach before then. SSH and shell panes are always attach-only.
  */
-export default function SidebarExternalSection({ sessions, projects, onOpen, onChanged }: SidebarExternalSectionProps) {
-  const { t } = useTranslation('sidebar');
-  const [confirming, setConfirming] = useState<string | null>(null);
-  const [killing, setKilling] = useState<string | null>(null);
-  const [error, setError] = useState('');
-  const pendingTranscriptRef = useRef<string | null>(null);
-  // Attach-only rows need any project-shaped shell context. Local transcripts
-  // must use their owning project so the selected session can actually render.
-  const shellProject = projects[0] ?? null;
+type SidebarExternalSessionRowProps = Omit<SidebarExternalSectionProps, 'sessions'> & {
+  session: ExternalCliSession;
+  sortId?: string;
+  sortableDisabled?: boolean;
+  pendingTranscriptRef: MutableRefObject<PendingExternalTranscriptTarget | null>;
+};
 
-  const openSession = (session: ExternalCliSession) => {
+export function SidebarExternalSessionRow({
+  session,
+  projects,
+  onOpen,
+  onChanged,
+  pendingTranscriptRef,
+  sortId,
+  sortableDisabled = false,
+}: SidebarExternalSessionRowProps) {
+  const { t } = useTranslation('sidebar');
+  const [confirming, setConfirming] = useState(false);
+  const [killing, setKilling] = useState(false);
+  const [error, setError] = useState('');
+
+  const openSession = () => {
     const sessionProject = resolveExternalSessionProject(session, projects);
-    if (!sessionProject) return;
-    pendingTranscriptRef.current = !isAttachOnlyKind(session.kind) && !session.transcriptSessionId
-      ? tmuxPaneIdentityKey(session.tmux)
+    if (!canOpenExternalSession(session, sessionProject)) return;
+    pendingTranscriptRef.current = sessionProject
+      && !isAttachOnlyKind(session.kind)
+      && !session.transcriptSessionId
+      && session.process
+      ? { tmux: session.tmux, process: session.process }
       : null;
     onOpen({
       tmuxName: session.tmuxName,
@@ -100,6 +155,7 @@ export default function SidebarExternalSection({ sessions, projects, onOpen, onC
       kind: KIND_LABEL[session.kind],
       cliKind: session.kind,
       project: sessionProject,
+      projectPath: session.projectPath,
       transcriptSessionId: session.transcriptSessionId,
       sessionName: session.sessionName,
       model: session.model,
@@ -108,17 +164,10 @@ export default function SidebarExternalSection({ sessions, projects, onOpen, onC
       attachCapability: session.attachCapability,
     });
   };
-  // B8: the asking_user badge is a dedicated entry point that always attaches
-  // the terminal for this exact pane 4-tuple, bypassing the structured
-  // transcript even when one is already indexed — the approval prompt only
-  // exists in the live TUI.
-  const attachToApproval = (session: ExternalCliSession) => {
-    if (session.process === null) return;
+
+  const attachToApproval = () => {
+    if (!isExternalSessionAuthoritative(session) || session.process === null) return;
     const sessionProject = resolveExternalSessionProject(session, projects);
-    if (!sessionProject) return;
-    // A prior row click may have armed the promotion effect for this pane. Once
-    // the pane indexes, that effect would reopen it as a transcript and pull the
-    // user off the attach they just asked for, so disarm it here.
     pendingTranscriptRef.current = null;
     onOpen({
       tmuxName: session.tmuxName,
@@ -127,6 +176,7 @@ export default function SidebarExternalSection({ sessions, projects, onOpen, onC
       kind: KIND_LABEL[session.kind],
       cliKind: session.kind,
       project: sessionProject,
+      projectPath: session.projectPath,
       transcriptSessionId: session.transcriptSessionId,
       sessionName: session.sessionName,
       model: session.model,
@@ -136,13 +186,20 @@ export default function SidebarExternalSection({ sessions, projects, onOpen, onC
     }, { forceAttach: true });
   };
 
+  const rowTargetKey = session.process === null
+    ? null
+    : externalTargetKey({ tmux: session.tmux, process: session.process });
+
   useEffect(() => {
-    const targetKey = pendingTranscriptRef.current;
-    if (!targetKey) return;
-    const session = sessions.find((candidate) => (
-      tmuxPaneIdentityKey(candidate.tmux) === targetKey && candidate.transcriptSessionId
-    ));
-    if (!session) return;
+    const disposition = pendingExternalTranscriptDisposition(
+      pendingTranscriptRef.current,
+      session,
+    );
+    if (disposition === 'clear') {
+      pendingTranscriptRef.current = null;
+      return;
+    }
+    if (disposition !== 'promote') return;
     const sessionProject = resolveExternalSessionProject(session, projects);
     if (!sessionProject) return;
     pendingTranscriptRef.current = null;
@@ -153,6 +210,7 @@ export default function SidebarExternalSection({ sessions, projects, onOpen, onC
       kind: KIND_LABEL[session.kind],
       cliKind: session.kind,
       project: sessionProject,
+      projectPath: session.projectPath,
       transcriptSessionId: session.transcriptSessionId,
       sessionName: session.sessionName,
       model: session.model,
@@ -160,18 +218,24 @@ export default function SidebarExternalSection({ sessions, projects, onOpen, onC
       transcriptEnded: session.transcriptEnded,
       attachCapability: session.attachCapability,
     });
-  }, [onOpen, sessions, projects]);
+  }, [onOpen, pendingTranscriptRef, projects, session]);
 
-  const closeTmuxSession = async (session: ExternalCliSession) => {
-    if (killing || !session.process) return;
-    const key = tmuxPaneIdentityKey(session.tmux);
-    setKilling(key);
+  useEffect(() => () => {
+    const pending = pendingTranscriptRef.current;
+    if (pending && rowTargetKey && externalTargetKey(pending) === rowTargetKey) {
+      pendingTranscriptRef.current = null;
+    }
+  }, [pendingTranscriptRef, rowTargetKey]);
+
+  const closeTmuxSession = async () => {
+    if (killing || !isExternalSessionAuthoritative(session) || !session.process) return;
+    setKilling(true);
     setError('');
     try {
       const response = await api.externalCliSessionKill(session.tmux, session.process, 'session');
       const body = await response.json().catch(() => null);
       if (response.ok && body?.data?.ok) {
-        setConfirming(null);
+        setConfirming(false);
         onChanged();
         return;
       }
@@ -179,128 +243,186 @@ export default function SidebarExternalSection({ sessions, projects, onOpen, onC
     } catch {
       setError(t('externalSessions.stopFailed'));
     } finally {
-      setKilling(null);
+      setKilling(false);
     }
   };
 
-  if (sessions.length === 0 || !shellProject) {
+  const canKill = (
+    isExternalSessionAuthoritative(session)
+    && !isAttachOnlyKind(session.kind)
+    && session.process !== null
+  );
+  const activityState = sessionActivityState(session, canKill);
+  const isInputRequired = activityState === 'input';
+  const completionDescriptor = (
+    isExternalSessionAuthoritative(session)
+    && (session.kind === 'claude' || session.kind === 'codex' || session.kind === 'opencode' || session.kind === 'omp')
+    && session.process
+  ) ? {
+      kind: 'external_generation' as const,
+      session: {
+        kind: session.kind,
+        tmux: session.tmux,
+        agentPid: session.process.pid,
+        startedAtMs: session.process.startedAtMs,
+      },
+    } : null;
+  const sessionName = session.sessionName?.trim();
+  const sessionProject = resolveExternalSessionProject(session, projects);
+  const canOpen = canOpenExternalSession(session, sessionProject);
+  const primary = session.tmuxName;
+  const metadata = [
+    sessionName,
+    session.model?.split('/').pop(),
+    session.effort ? `${session.effort} effort` : null,
+    KIND_LABEL[session.kind],
+  ].filter(Boolean).join(' · ');
+
+  const content = (
+    <>
+      {isInputRequired && (
+        <button
+          type="button"
+          onClick={attachToApproval}
+          aria-label={t('externalSessions.activity.approvalPendingAttach', { name: session.tmuxName })}
+          className="ml-1 mt-1.5 flex shrink-0 items-center gap-1.5 self-start rounded px-1 py-0.5 hover:bg-amber-500/10"
+        >
+          <SessionActivityBadge state="input" />
+        </button>
+      )}
+      <button
+        type="button"
+        onClick={openSession}
+        disabled={!canOpen}
+        aria-disabled={!canOpen}
+        title={session.transcriptSessionId
+          ? `${primary} — ${metadata}`
+          : isAttachOnlyKind(session.kind)
+            ? t('externalSessions.viewInTerminal', { name: session.tmuxName })
+            : t('externalSessions.openConversation', { name: primary })}
+        className="flex min-w-0 flex-1 items-start gap-2 px-1.5 py-1.5 text-left disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        {session.kind === 'ssh' ? (
+          <Server className="mt-0.5 h-4 w-4 flex-shrink-0 text-slate-400" aria-hidden />
+        ) : session.kind === 'shell' ? (
+          <SquareTerminal className="mt-0.5 h-4 w-4 flex-shrink-0 text-slate-400" aria-hidden />
+        ) : (
+          <SessionProviderLogo provider={session.kind} className="mt-0.5 h-4 w-4 flex-shrink-0" />
+        )}
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="flex items-center gap-2">
+            {activityState && !isInputRequired && (
+              <SessionActivityBadge state={activityState} />
+            )}
+            <span className="truncate text-sm font-medium text-foreground">{primary}</span>
+          </span>
+          <span className="truncate text-[11px] text-muted-foreground">
+            {metadata}
+          </span>
+        </span>
+        {isAttachOnlyKind(session.kind) && (
+          <SquareTerminal className="mt-1 h-3.5 w-3.5 shrink-0 text-muted-foreground/60" aria-hidden />
+        )}
+      </button>
+    </>
+  );
+  const actions = (
+    <>
+      {completionDescriptor && (
+        <SessionCompletionBell descriptor={completionDescriptor} className="m-1" />
+      )}
+      {canKill && (
+        <button
+          type="button"
+          onClick={() => { setError(''); setConfirming(true); }}
+          title={t('externalSessions.closeSessionTitle', { name: session.tmuxName })}
+          aria-label={t('externalSessions.closeSessionTitle', { name: session.tmuxName })}
+          className="m-1 rounded p-1.5 text-muted-foreground/60 transition-colors hover:bg-red-500/10 hover:text-red-500"
+        >
+          <X className="h-3.5 w-3.5" aria-hidden />
+        </button>
+      )}
+    </>
+  );
+  const details = (
+    <>
+      {error && <p className="px-2 pb-1.5 pl-10 text-[11px] text-red-500">{error}</p>}
+      {confirming && (
+        <div className="mx-2 mb-1 flex items-center justify-end gap-1 rounded-md bg-muted/50 px-2 py-1.5 text-[11px]">
+          <span className="mr-auto text-muted-foreground">
+            {killing
+              ? t('externalSessions.stopping')
+              : t('externalSessions.closeSessionConfirm', { name: session.tmuxName })}
+          </span>
+          {!killing && (
+            <>
+              <button
+                type="button"
+                onClick={() => void closeTmuxSession()}
+                className="rounded bg-red-600 px-2 py-0.5 font-medium text-white hover:bg-red-700"
+              >
+                {t('externalSessions.closeSession')}
+              </button>
+              <button type="button" onClick={() => setConfirming(false)} className="text-muted-foreground hover:text-foreground">
+                {t('externalSessions.cancel')}
+              </button>
+            </>
+          )}
+        </div>
+      )}
+    </>
+  );
+
+  if (sortId) {
+    return (
+      <SortableSessionRow
+        id={sortId}
+        dragLabel={t('liveSessions.reorderSession', { name: primary })}
+        disabled={sortableDisabled}
+        content={content}
+        actions={actions}
+        details={details}
+      />
+    );
+  }
+
+  return (
+    <div className="rounded-md transition-colors hover:bg-muted/50">
+      <div className="flex items-start">
+        {content}
+        {actions}
+      </div>
+      {details}
+    </div>
+  );
+}
+
+export default function SidebarExternalSection({
+  sessions,
+  projects,
+  onOpen,
+  onChanged,
+}: SidebarExternalSectionProps) {
+  const pendingTranscriptRef = useRef<PendingExternalTranscriptTarget | null>(null);
+  useEffect(() => () => {
+    pendingTranscriptRef.current = null;
+  }, []);
+  if (sessions.length === 0) {
     return null;
   }
 
   return (
     <div className="space-y-0.5 px-1.5">
-      {error && <p className="px-2 py-1 text-[11px] text-red-500">{error}</p>}
-      {sessions.map((session) => {
-        const key = tmuxPaneIdentityKey(session.tmux);
-        const canKill = !isAttachOnlyKind(session.kind) && session.process !== null;
-        const activityState = sessionActivityState(session, canKill);
-        const isInputRequired = activityState === 'input';
-        const completionDescriptor = (
-          (session.kind === 'claude' || session.kind === 'codex' || session.kind === 'opencode' || session.kind === 'omp')
-          && session.process
-        ) ? {
-          kind: 'external_generation' as const,
-          session: {
-            kind: session.kind,
-            tmux: session.tmux,
-            agentPid: session.process.pid,
-            startedAtMs: session.process.startedAtMs,
-          },
-        } : null;
-        const sessionName = session.sessionName?.trim();
-        const primary = session.tmuxName;
-        const metadata = [
-          sessionName,
-          session.model?.split('/').pop(),
-          session.effort ? `${session.effort} effort` : null,
-          KIND_LABEL[session.kind],
-        ].filter(Boolean).join(' · ');
-        return (
-          <Fragment key={key}>
-            <div className="flex items-start rounded-md transition-colors hover:bg-muted/50">
-              {isInputRequired && (
-                <button
-                  type="button"
-                  onClick={() => attachToApproval(session)}
-                  aria-label={t('externalSessions.activity.approvalPendingAttach', { name: session.tmuxName })}
-                  className="ml-2 mt-1.5 flex shrink-0 items-center gap-1.5 self-start rounded px-1 py-0.5 hover:bg-amber-500/10"
-                >
-                  <SessionActivityBadge state="input" />
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => openSession(session)}
-                title={session.transcriptSessionId
-                  ? `${primary} — ${metadata}`
-                  : isAttachOnlyKind(session.kind)
-                    ? t('externalSessions.viewInTerminal', { name: session.tmuxName })
-                    : t('externalSessions.openConversation', { name: primary })}
-                className="flex min-w-0 flex-1 items-start gap-2 px-2 py-1.5 text-left"
-              >
-                {session.kind === 'ssh' ? (
-                  <Server className="mt-0.5 h-4 w-4 flex-shrink-0 text-slate-400" aria-hidden />
-                ) : session.kind === 'shell' ? (
-                  <SquareTerminal className="mt-0.5 h-4 w-4 flex-shrink-0 text-slate-400" aria-hidden />
-                ) : (
-                  <SessionProviderLogo provider={session.kind} className="mt-0.5 h-4 w-4 flex-shrink-0" />
-                )}
-                <span className="flex min-w-0 flex-1 flex-col">
-                  <span className="flex items-center gap-2">
-                    {activityState && !isInputRequired && (
-                      <SessionActivityBadge state={activityState} />
-                    )}
-                    <span className="truncate text-sm font-medium text-foreground">{primary}</span>
-                  </span>
-                  <span className="truncate text-[11px] text-muted-foreground">
-                    {metadata}
-                  </span>
-                </span>
-                {isAttachOnlyKind(session.kind) && (
-                  <SquareTerminal className="mt-1 h-3.5 w-3.5 shrink-0 text-muted-foreground/60" aria-hidden />
-                )}
-              </button>
-              {completionDescriptor && (
-                <SessionCompletionBell descriptor={completionDescriptor} className="m-1" />
-              )}
-              {canKill && (
-                <button
-                  type="button"
-                  onClick={() => { setError(''); setConfirming(key); }}
-                  title={t('externalSessions.closeSessionTitle', { name: session.tmuxName })}
-                  aria-label={t('externalSessions.closeSessionTitle', { name: session.tmuxName })}
-                  className="m-1 rounded p-1.5 text-muted-foreground/60 transition-colors hover:bg-red-500/10 hover:text-red-500"
-                >
-                  <X className="h-3.5 w-3.5" aria-hidden />
-                </button>
-              )}
-            </div>
-            {confirming === key && (
-              <div className="mx-2 mb-1 flex items-center justify-end gap-1 rounded-md bg-muted/50 px-2 py-1.5 text-[11px]">
-                <span className="mr-auto text-muted-foreground">
-                  {killing === key
-                    ? t('externalSessions.stopping')
-                    : t('externalSessions.closeSessionConfirm', { name: session.tmuxName })}
-                </span>
-                {killing !== key && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => void closeTmuxSession(session)}
-                      className="rounded bg-red-600 px-2 py-0.5 font-medium text-white hover:bg-red-700"
-                    >
-                      {t('externalSessions.closeSession')}
-                    </button>
-                    <button type="button" onClick={() => setConfirming(null)} className="text-muted-foreground hover:text-foreground">
-                      {t('externalSessions.cancel')}
-                    </button>
-                  </>
-                )}
-              </div>
-            )}
-          </Fragment>
-        );
-      })}
+      {sessions.map((session) => (
+        <SidebarExternalSessionRow
+          key={tmuxPaneIdentityKey(session.tmux)}
+          session={session}
+          projects={projects}
+          onOpen={onOpen}
+          onChanged={onChanged}
+          pendingTranscriptRef={pendingTranscriptRef}
+        />
+      ))}
     </div>
   );
 }

@@ -94,6 +94,10 @@ function rowKey(lane: DiscoveryLane, tmux: TmuxPaneIdentity): DiscoveryRowKey {
   return `${lane}\0${tmuxPaneIdentityKey(tmux)}`;
 }
 
+function tmuxSessionNameKey(row: Pick<DiscoveryRow, 'tmuxName' | 'tmux'>): string {
+  return `${row.tmux.socketPath}\0${row.tmuxName}`;
+}
+
 function sameRow(a: DiscoveryRow, b: DiscoveryRow): boolean {
   return a.key === b.key
     && a.lane === b.lane
@@ -189,7 +193,7 @@ export function createDiscoveryCollector(options: DiscoveryCollectorOptions = {}
         process: session.process,
         kind: 'gjc',
         providerSessionId: session.id,
-        activity: session.running === true ? 'running' : 'unknown',
+        activity: session.error === true ? 'error' : session.running === true ? 'running' : 'unknown',
         tmuxActionable: session.claim === 'lineage' && session.process !== null,
         cwd: null,
         lastSeenRevision: revision,
@@ -202,6 +206,9 @@ export function createDiscoveryCollector(options: DiscoveryCollectorOptions = {}
   function applyAvailable(lane: DiscoveryLane, scannedRows: readonly DiscoveryRow[]): boolean {
     const next = new Map(rows);
     const found = new Map(scannedRows.map((row) => [row.key, row]));
+    const observedSessionIds = new Map(
+      scannedRows.map((row) => [tmuxSessionNameKey(row), row.tmux.sessionId]),
+    );
     let changed = false;
     const grace = lane === 'live' ? GRACE_TICKS_LIVE : GRACE_TICKS_EXTERNAL;
 
@@ -217,6 +224,13 @@ export function createDiscoveryCollector(options: DiscoveryCollectorOptions = {}
         }
         found.delete(key);
         missingTicks.delete(key);
+        continue;
+      }
+      const replacementSessionId = observedSessionIds.get(tmuxSessionNameKey(previous));
+      if (replacementSessionId !== undefined && replacementSessionId !== previous.tmux.sessionId) {
+        missingTicks.delete(key);
+        next.delete(key);
+        changed = true;
         continue;
       }
       if (previous.presence === 'present') {

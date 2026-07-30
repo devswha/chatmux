@@ -119,6 +119,7 @@ function snapshotLiveSessions(rows: readonly DiscoveryRow[]): LiveGjcSession[] {
       model: null,
       effort: null,
       running: row.activity === 'running',
+      error: row.activity === 'error',
     }]
   ));
 }
@@ -822,6 +823,7 @@ router.post(
         statusCode: 409,
       });
     }
+    (req.app.locals.discoveryCollector as DiscoveryCollector | undefined)?.forceRefresh();
     res.status(201).json(createApiSuccessResponse({ ok: true, tmuxName: body.name, cwd, cli }));
   }),
 );
@@ -989,6 +991,9 @@ router.post(
       });
     }
     const result = await spawnLiveSession(body.name, cwd);
+    if (result.ok) {
+      (req.app.locals.discoveryCollector as DiscoveryCollector | undefined)?.forceRefresh();
+    }
     res.json(createApiSuccessResponse(result));
   }),
 );

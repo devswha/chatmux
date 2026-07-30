@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createServer, request as httpRequest } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -18,6 +18,7 @@ import {
   canUpdate,
   discoverCanonicalRelease,
   discoverSourceUpdate,
+  prepareSourceUpdate,
   createSystemRouter,
   exactUpdateRequestGuard,
   mapSystemctlIsActiveResult,
@@ -78,6 +79,7 @@ test('source discovery reports only a different origin/main revision without mut
   const current = await discoverSourceUpdate(checkout);
   assert.equal(current.available, false);
   assert.equal(current.currentRevision, current.targetRevision);
+  assert.equal(current.relation, 'same');
 
   const checkoutHead = git(checkout, ['rev-parse', 'HEAD']);
   writeFileSync(path.join(seed, 'package.json'), '{"version":"1.1.0"}\n');
@@ -86,11 +88,73 @@ test('source discovery reports only a different origin/main revision without mut
   git(seed, ['push', 'origin', 'main']);
 
   const update = await discoverSourceUpdate(checkout);
-  assert.equal(update.available, true);
+  assert.equal(update.available, true, 'an unfetched remote SHA remains an actionable candidate');
   assert.equal(update.currentRevision, checkoutHead);
   assert.notEqual(update.targetRevision, checkoutHead);
   assert.equal(update.targetVersion, `main@${update.targetRevision.slice(0, 12)}`);
+  assert.equal(update.relation, 'unknown');
+  assert.equal(update.blockedReason, 'Source history relationship is unavailable without fetching.');
+  const prepared = await prepareSourceUpdate(checkout);
+  assert.equal(prepared.relation, 'behind', 'explicit preparation fetches and classifies the candidate');
+  assert.equal(prepared.targetRevision, update.targetRevision, 'preparation pins the fetched SHA rather than a moving branch name');
+  const knownBehind = await discoverSourceUpdate(checkout);
+  assert.equal(knownBehind.relation, 'behind');
+  assert.equal(knownBehind.available, true);
+  writeFileSync(path.join(checkout, 'untracked.txt'), 'untracked\n');
+  await assert.rejects(prepareSourceUpdate(checkout), /Source worktree must be clean/);
+  unlinkSync(path.join(checkout, 'untracked.txt'));
+  writeFileSync(path.join(checkout, 'package.json'), '{"version":"dirty"}\n');
+  await assert.rejects(prepareSourceUpdate(checkout), /Source worktree must be clean/);
+  git(checkout, ['checkout', '--', 'package.json']);
+  writeFileSync(path.join(checkout, 'package.json'), '{"version":"staged"}\n');
+  git(checkout, ['add', 'package.json']);
+  await assert.rejects(prepareSourceUpdate(checkout), /Source worktree must be clean/);
+  git(checkout, ['reset', '--hard', 'HEAD']);
+  const manyUntracked = path.join(checkout, 'many-untracked');
+  mkdirSync(manyUntracked);
+  for (let index = 0; index < 300; index += 1) {
+    writeFileSync(path.join(manyUntracked, `dirty-${index.toString().padStart(4, '0')}.txt`), 'dirty\n');
+  }
+  await assert.rejects(prepareSourceUpdate(checkout), /Source worktree must be clean/);
+  rmSync(manyUntracked, { recursive: true });
   assert.equal(git(checkout, ['rev-parse', 'HEAD']), checkoutHead);
+  assert.equal(git(checkout, ['status', '--porcelain']), '');
+});
+
+test('source discovery does not mistake local commits ahead of origin/main for an update', async () => {
+  const root = tempRoot();
+  const remote = path.join(root, 'remote.git');
+  const seed = path.join(root, 'seed');
+  const checkout = path.join(root, 'checkout');
+  mkdirSync(seed);
+  git(root, ['init', '--bare', remote]);
+  git(seed, ['init', '--initial-branch=main']);
+  writeFileSync(path.join(seed, 'package.json'), '{"version":"1.0.0"}\n');
+  git(seed, ['add', 'package.json']);
+  git(seed, ['commit', '-m', 'initial']);
+  git(seed, ['remote', 'add', 'origin', remote]);
+  git(seed, ['push', '-u', 'origin', 'main']);
+  git(root, ['clone', '--branch', 'main', remote, checkout]);
+
+  writeFileSync(path.join(checkout, 'local.txt'), 'unreleased local work\n');
+  git(checkout, ['add', 'local.txt']);
+  git(checkout, ['commit', '-m', 'local ahead']);
+  const checkoutHead = git(checkout, ['rev-parse', 'HEAD']);
+  const remoteHead = git(seed, ['rev-parse', 'HEAD']);
+
+  const update = await discoverSourceUpdate(checkout);
+  assert.equal(update.available, false);
+  assert.equal(update.currentRevision, checkoutHead);
+  assert.equal(update.targetRevision, remoteHead);
+  assert.equal(update.relation, 'ahead');
+  writeFileSync(path.join(seed, 'remote.txt'), 'remote work\n');
+  git(seed, ['add', 'remote.txt']);
+  git(seed, ['commit', '-m', 'remote ahead']);
+  git(seed, ['push', 'origin', 'main']);
+  git(checkout, ['fetch', 'origin', 'main']);
+  const diverged = await discoverSourceUpdate(checkout);
+  assert.equal(diverged.relation, 'diverged');
+  assert.equal(diverged.available, false);
   assert.equal(git(checkout, ['status', '--porcelain']), '');
 });
 
@@ -129,30 +193,165 @@ test('planSelfUpdate: only source mode may start; release and unknown fail close
 
 test('planSelfUpdate: single-flight rejects a concurrent start but a stale marker expires', () => {
   const startedAt = 1_000_000;
-  const running = planSelfUpdate({ mode: 'source', inFlight: { unit: 'u', startedAt }, now: startedAt + 60_000 });
+  const running = planSelfUpdate({ mode: 'source', inFlight: { state: 'in_flight', unit: 'u', startedAt, operationId: 'operation', initialBootId: 'boot' }, now: startedAt + 60_000 });
   assert.equal(running.action, 'reject');
   assert.equal(running.action === 'reject' && running.statusCode, 429);
 
   const afterStale = planSelfUpdate({
     mode: 'source',
-    inFlight: { unit: 'u', startedAt },
+    inFlight: { state: 'in_flight', unit: 'u', startedAt, operationId: 'operation', initialBootId: 'boot' },
     now: startedAt + SELF_UPDATE_STALE_MS + 1,
   });
   assert.deepEqual(afterStale, { action: 'start' }, 'a crashed updater must not wedge the button forever');
 });
 
-test('buildSelfUpdateScript: ff-only pull, conditional npm ci, deploy.sh with the health url', () => {
-  const script = buildSelfUpdateScript('/srv/app dir', 'http://127.0.0.1:3021/', '/home/u/.chatmux/self-update.log');
+test('buildSelfUpdateScript: rechecks dirt and merges the pinned target without moving refs', () => {
+  const targetRevision = 'a'.repeat(40);
+  const script = buildSelfUpdateScript('/srv/app dir', targetRevision, 'http://127.0.0.1:3021/', '/home/u/.chatmux/self-update.log');
   assert.ok(script.includes("cd '/srv/app dir'"), 'app root is shell-quoted');
-  assert.ok(script.includes('git pull --ff-only origin main'), 'never merges or rebases on its own');
+  assert.ok(script.includes('git status --porcelain=v1 --untracked-files=all'), 'the launcher rechecks for clean source immediately before changing HEAD');
+  assert.ok(script.includes('SOURCE_WORKTREE_DIRTY'), 'late worktree dirt has a stable log code');
+  assert.ok(script.includes('SOURCE_WORKTREE_STATUS_FAILED'), 'status probe failure has a stable fail-closed log code');
+  assert.ok(script.includes('head -c 4097 >"$status_file"'), 'porcelain output is bounded before inspection');
+  assert.ok(!script.includes('"$(git status'), 'porcelain output is never captured into an unbounded shell variable');
+  assert.ok(script.includes(`git merge --ff-only '${targetRevision}'`), 'the fetched target is pinned');
+  assert.ok(!script.includes('git pull') && !script.includes('git reset') && !script.includes('git stash') && !script.includes('git rebase'), 'the script never uses moving refs or destructive recovery');
   assert.ok(/if ! git diff --quiet .* -- package-lock\.json; then npm ci; fi/.test(script),
-    'node_modules is only reinstalled when the pull changed dependencies');
+    'node_modules is only reinstalled when the merge changed dependencies');
   assert.ok(script.includes("DEPLOY_HEALTH_URL='http://127.0.0.1:3021/' scripts/deploy.sh"),
     'hands over to the verified deploy machinery (build → restart → health → rollback)');
   assert.ok(script.startsWith("exec >>'/home/u/.chatmux/self-update.log' 2>&1"), 'output lands in the log file');
   assert.ok(script.includes('set -euo pipefail'), 'any failing step stops the update');
   assert.ok(script.includes('export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"'),
     'the transient unit must reach cargo for the native-core build (실측 ENOENT)');
+});
+
+test('source update script leaves HEAD unchanged when the worktree becomes dirty before merge', () => {
+  const root = tempRoot();
+  const appRoot = path.join(root, 'app');
+  mkdirSync(appRoot);
+  git(appRoot, ['init', '--initial-branch=main']);
+  mkdirSync(path.join(appRoot, 'scripts'));
+  const deployScript = path.join(appRoot, 'scripts', 'deploy.sh');
+  writeFileSync(deployScript, '#!/usr/bin/env bash\n: > "$DEPLOY_MARKER"\n');
+  chmodSync(deployScript, 0o755);
+  writeFileSync(path.join(appRoot, 'app.txt'), 'initial\n');
+  git(appRoot, ['add', '.']);
+  git(appRoot, ['commit', '-m', 'initial']);
+
+  writeFileSync(path.join(appRoot, 'app.txt'), 'target\n');
+  git(appRoot, ['add', 'app.txt']);
+  git(appRoot, ['commit', '-m', 'target']);
+  const targetRevision = git(appRoot, ['rev-parse', 'HEAD']);
+  git(appRoot, ['reset', '--hard', 'HEAD~1']);
+  const before = git(appRoot, ['rev-parse', 'HEAD']);
+  const lateWork = path.join(appRoot, 'late-user-work.txt');
+  writeFileSync(lateWork, 'preserve me\n');
+
+  const logPath = path.join(root, 'update.log');
+  const deployMarker = path.join(root, 'deployed');
+  const script = buildSelfUpdateScript(appRoot, targetRevision, 'http://127.0.0.1:3021/', logPath);
+  assert.throws(() => execFileSync('/bin/bash', ['-c', script], {
+    env: { ...process.env, DEPLOY_MARKER: deployMarker },
+  }));
+
+  assert.equal(git(appRoot, ['rev-parse', 'HEAD']), before);
+  assert.equal(readFileSync(lateWork, 'utf8'), 'preserve me\n');
+  assert.equal(existsSync(deployMarker), false);
+  assert.match(readFileSync(logPath, 'utf8'), /SOURCE_WORKTREE_DIRTY/);
+});
+
+test('source update script leaves HEAD unchanged when the status probe fails', () => {
+  const root = tempRoot();
+  const appRoot = path.join(root, 'app');
+  const wrapperBin = path.join(root, 'bin');
+  mkdirSync(appRoot);
+  mkdirSync(wrapperBin);
+  git(appRoot, ['init', '--initial-branch=main']);
+  mkdirSync(path.join(appRoot, 'scripts'));
+  const deployScript = path.join(appRoot, 'scripts', 'deploy.sh');
+  writeFileSync(deployScript, '#!/usr/bin/env bash\n: > "$DEPLOY_MARKER"\n');
+  chmodSync(deployScript, 0o755);
+  writeFileSync(path.join(appRoot, 'app.txt'), 'initial\n');
+  git(appRoot, ['add', '.']);
+  git(appRoot, ['commit', '-m', 'initial']);
+
+  writeFileSync(path.join(appRoot, 'app.txt'), 'target\n');
+  git(appRoot, ['add', 'app.txt']);
+  git(appRoot, ['commit', '-m', 'target']);
+  const targetRevision = git(appRoot, ['rev-parse', 'HEAD']);
+  git(appRoot, ['reset', '--hard', 'HEAD~1']);
+  const before = git(appRoot, ['rev-parse', 'HEAD']);
+
+  const realGit = execFileSync('/bin/sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim();
+  const gitWrapper = path.join(wrapperBin, 'git');
+  writeFileSync(gitWrapper, [
+    '#!/bin/sh',
+    'if [ "$1" = "status" ]; then exit 42; fi',
+    'exec "$REAL_GIT" "$@"',
+    '',
+  ].join('\n'));
+  chmodSync(gitWrapper, 0o755);
+
+  const logPath = path.join(root, 'update.log');
+  const deployMarker = path.join(root, 'deployed');
+  assert.throws(() => execFileSync('/bin/bash', ['-c', buildSelfUpdateScript(
+    appRoot,
+    targetRevision,
+    'http://127.0.0.1:3021/',
+    logPath,
+  )], {
+    env: {
+      ...process.env,
+      DEPLOY_MARKER: deployMarker,
+      PATH: `${wrapperBin}${path.delimiter}${process.env.PATH ?? ''}`,
+      REAL_GIT: realGit,
+    },
+  }));
+
+  assert.equal(git(appRoot, ['rev-parse', 'HEAD']), before);
+  assert.equal(existsSync(deployMarker), false);
+  assert.match(readFileSync(logPath, 'utf8'), /SOURCE_WORKTREE_STATUS_FAILED/);
+});
+
+test('source update script merges the prepared SHA even when a newer commit exists', () => {
+  const root = tempRoot();
+  const appRoot = path.join(root, 'app');
+  mkdirSync(appRoot);
+  git(appRoot, ['init', '--initial-branch=main']);
+  mkdirSync(path.join(appRoot, 'scripts'));
+  const deployScript = path.join(appRoot, 'scripts', 'deploy.sh');
+  writeFileSync(deployScript, '#!/usr/bin/env bash\n: > "$DEPLOY_MARKER"\n');
+  chmodSync(deployScript, 0o755);
+  writeFileSync(path.join(appRoot, 'app.txt'), 'initial\n');
+  git(appRoot, ['add', '.']);
+  git(appRoot, ['commit', '-m', 'initial']);
+  const initialRevision = git(appRoot, ['rev-parse', 'HEAD']);
+
+  writeFileSync(path.join(appRoot, 'app.txt'), 'prepared target\n');
+  git(appRoot, ['add', 'app.txt']);
+  git(appRoot, ['commit', '-m', 'prepared']);
+  const preparedRevision = git(appRoot, ['rev-parse', 'HEAD']);
+  writeFileSync(path.join(appRoot, 'app.txt'), 'moving remote\n');
+  git(appRoot, ['add', 'app.txt']);
+  git(appRoot, ['commit', '-m', 'later']);
+  const laterRevision = git(appRoot, ['rev-parse', 'HEAD']);
+  git(appRoot, ['reset', '--hard', initialRevision]);
+
+  const deployMarker = path.join(root, 'deployed');
+  execFileSync('/bin/bash', ['-c', buildSelfUpdateScript(
+    appRoot,
+    preparedRevision,
+    'http://127.0.0.1:3021/',
+    path.join(root, 'update.log'),
+  )], {
+    env: { ...process.env, DEPLOY_MARKER: deployMarker },
+  });
+
+  assert.equal(git(appRoot, ['rev-parse', 'HEAD']), preparedRevision);
+  assert.notEqual(git(appRoot, ['rev-parse', 'HEAD']), laterRevision);
+  assert.equal(readFileSync(path.join(appRoot, 'app.txt'), 'utf8'), 'prepared target\n');
+  assert.equal(existsSync(deployMarker), true);
 });
 
 test('buildSystemdRunArgs: detached transient unit with the caller PATH', () => {
@@ -212,6 +411,7 @@ test('mounted update boundary rejects malformed POSTs before router effects and 
     currentRevision: '1'.repeat(40),
     targetRevision: '2'.repeat(40),
     targetVersion: `main@${'2'.repeat(12)}`,
+    relation: 'behind' as const,
   };
   const app = express();
   app.use(exactUpdateRequestGuard);
@@ -221,6 +421,8 @@ test('mounted update boundary rejects malformed POSTs before router effects and 
     launch: async () => { launches += 1; },
     discoverRelease: async () => { discoveries += 1; return { release: releaseJob(9).release, compatibility: releaseJob(9).compatibility }; },
     discoverSource: async () => { sourceDiscoveries += 1; return sourceTarget; },
+    prepareSourceUpdate: async () => sourceTarget,
+    inspectSourceClean: async () => {},
   }));
   const server = createServer(app);
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -265,14 +467,14 @@ test('mounted update boundary rejects malformed POSTs before router effects and 
     assert.equal(start.targetVersion, sourceTarget.targetVersion);
     assert.equal(launches, 1);
     assert.equal(discoveries, 0);
-    assert.equal(sourceDiscoveries, 1);
+    assert.equal(sourceDiscoveries, 0);
     assert.equal((await fetch(`${baseUrl}/update`, { method: 'POST', headers: updateHeaders })).status, 429);
     const status = await (await fetch(`${baseUrl}/update/status`)).json() as { source: { operationId: string; initialBootId: string; available: boolean; targetVersion: string } };
     assert.equal(status.source.operationId, start.operationId);
     assert.equal(status.source.initialBootId, 'boot');
     assert.equal(status.source.available, true);
     assert.equal(status.source.targetVersion, sourceTarget.targetVersion);
-    assert.equal(sourceDiscoveries, 2);
+    assert.equal(sourceDiscoveries, 1);
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   }
@@ -286,6 +488,7 @@ test('source status and launch reject an unchanged origin/main revision', async 
     currentRevision: revision,
     targetRevision: revision,
     targetVersion: `main@${revision.slice(0, 12)}`,
+    relation: 'same' as const,
   };
   const app = express();
   app.use(exactUpdateRequestGuard);
@@ -297,6 +500,8 @@ test('source status and launch reject an unchanged origin/main revision', async 
     mode: 'source',
     launch: async () => { launches += 1; },
     discoverSource: async () => sourceTarget,
+    prepareSourceUpdate: async () => sourceTarget,
+    inspectSourceClean: async () => {},
   }));
   const server = createServer(app);
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -312,7 +517,150 @@ test('source status and launch reject an unchanged origin/main revision', async 
       headers: { origin: baseUrl, 'x-chatmux-update-intent': 'start' },
     });
     assert.equal(response.status, 409);
+    assert.equal((await response.json() as { code?: string }).code, 'SOURCE_UPDATE_NOT_AVAILABLE');
     assert.equal(launches, 0);
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+test('source POST serializes preparation and clears a failed reservation for retry', async () => {
+  let releasePreparation: (() => void) | undefined;
+  let signalPreparationStarted: (() => void) | undefined;
+  const preparationStarted = new Promise<void>((resolve) => {
+    signalPreparationStarted = resolve;
+  });
+  let preparations = 0;
+  let launches = 0;
+  let failClean = false;
+  const target = { available: true, currentRevision: '1'.repeat(40), targetRevision: '2'.repeat(40), targetVersion: `main@${'2'.repeat(12)}`, relation: 'behind' as const };
+  const app = express();
+  app.use(exactUpdateRequestGuard);
+  app.use(createSystemRouter({
+    appRoot: tempRoot(), home: tempRoot(), serverPort: 3000, bootId: 'boot', mode: 'source',
+    inspectSourceClean: async () => { if (failClean) throw new Error('dirty'); },
+    prepareSourceUpdate: async () => {
+      preparations += 1;
+      signalPreparationStarted?.();
+      await new Promise<void>((resolve) => { releasePreparation = resolve; });
+      return target;
+    },
+    launch: async () => { launches += 1; },
+  }));
+  const server = createServer(app);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  assert.ok(address && typeof address !== 'string');
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const headers = { origin: baseUrl, 'x-chatmux-update-intent': 'start' };
+  try {
+    failClean = true;
+    const failed = await fetch(`${baseUrl}/update`, { method: 'POST', headers });
+    assert.equal(failed.status, 503);
+    failClean = false;
+
+    const first = fetch(`${baseUrl}/update`, { method: 'POST', headers });
+    await preparationStarted;
+    const concurrent = await fetch(`${baseUrl}/update`, { method: 'POST', headers });
+    assert.equal(concurrent.status, 429);
+    assert.equal((await concurrent.json() as { code: string }).code, 'SOURCE_UPDATE_IN_PROGRESS');
+    assert.equal(preparations, 1);
+    releasePreparation?.();
+    assert.equal((await first).status, 200);
+    assert.equal(launches, 1);
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
+test('source POST returns a stable divergence code without launching', async () => {
+  let launches = 0;
+  const target = {
+    available: false,
+    currentRevision: '1'.repeat(40),
+    targetRevision: '2'.repeat(40),
+    targetVersion: `main@${'2'.repeat(12)}`,
+    relation: 'diverged' as const,
+  };
+  const app = express();
+  app.use(exactUpdateRequestGuard);
+  app.use(createSystemRouter({
+    appRoot: tempRoot(),
+    home: tempRoot(),
+    serverPort: 3000,
+    bootId: 'boot',
+    mode: 'source',
+    inspectSourceClean: async () => {},
+    prepareSourceUpdate: async () => target,
+    launch: async () => { launches += 1; },
+  }));
+  const server = createServer(app);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  assert.ok(address && typeof address !== 'string');
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const response = await fetch(`${baseUrl}/update`, {
+      method: 'POST',
+      headers: { origin: baseUrl, 'x-chatmux-update-intent': 'start' },
+    });
+    assert.equal(response.status, 409);
+    assert.equal((await response.json() as { code?: string }).code, 'SOURCE_HISTORY_DIVERGED');
+    assert.equal(launches, 0);
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
+test('source POST clears a launcher failure reservation and allows retry', async () => {
+  let preparations = 0;
+  let launches = 0;
+  let failLaunch = true;
+  const target = {
+    available: true,
+    currentRevision: '1'.repeat(40),
+    targetRevision: '2'.repeat(40),
+    targetVersion: `main@${'2'.repeat(12)}`,
+    relation: 'behind' as const,
+  };
+  const app = express();
+  app.use(exactUpdateRequestGuard);
+  app.use(createSystemRouter({
+    appRoot: tempRoot(),
+    home: tempRoot(),
+    serverPort: 3000,
+    bootId: 'boot',
+    mode: 'source',
+    inspectSourceClean: async () => {},
+    prepareSourceUpdate: async () => {
+      preparations += 1;
+      return target;
+    },
+    launch: async () => {
+      launches += 1;
+      if (failLaunch) throw new Error('launcher failed');
+    },
+  }));
+  const server = createServer(app);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  assert.ok(address && typeof address !== 'string');
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const headers = { origin: baseUrl, 'x-chatmux-update-intent': 'start' };
+
+  try {
+    const failed = await fetch(`${baseUrl}/update`, { method: 'POST', headers });
+    assert.equal(failed.status, 503);
+    assert.equal(
+      (await failed.json() as { code?: string }).code,
+      'SOURCE_UPDATE_PREPARATION_FAILED',
+    );
+
+    failLaunch = false;
+    const retried = await fetch(`${baseUrl}/update`, { method: 'POST', headers });
+    assert.equal(retried.status, 200);
+    assert.equal(preparations, 2);
+    assert.equal(launches, 2);
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   }

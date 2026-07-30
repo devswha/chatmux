@@ -26,6 +26,7 @@ type CliPromptOption = { number: string; label: string };
 
 type ShellProps = {
   selectedProject?: Project | null;
+  projectPath?: string;
   selectedSession?: ProjectSession | null;
   initialCommand?: string | null;
   isPlainShell?: boolean;
@@ -38,6 +39,7 @@ type ShellProps = {
 
 export default function Shell({
   selectedProject = null,
+  projectPath,
   selectedSession = null,
   initialCommand = null,
   isPlainShell = false,
@@ -67,6 +69,7 @@ export default function Shell({
     disconnectFromShell,
   } = useShellRuntime({
     selectedProject,
+    projectPath,
     selectedSession,
     initialCommand,
     isPlainShell,
@@ -232,7 +235,7 @@ export default function Shell({
     connectToShell({ forceRestart: true });
   }, [connectToShell, isConnected, isConnecting, isInitialized, isRestarting]);
 
-  if (!selectedProject) {
+  if (!selectedProject && !attachTarget) {
     return (
       <ShellEmptyState
         title={t('shell.selectProject.title')}
@@ -261,10 +264,11 @@ export default function Shell({
     );
   }
 
+  const contextLabel = selectedProject?.displayName || attachTarget?.tmux.sessionId || 'terminal';
   const readyDescription = isPlainShell
     ? t('shell.runCommand', {
         command: initialCommand || t('shell.defaultCommand'),
-        projectName: selectedProject.displayName,
+        projectName: contextLabel,
       })
     : selectedSession
       ? t('shell.resumeSession', { displayName: sessionDisplayNameLong })
@@ -273,9 +277,9 @@ export default function Shell({
   const connectingDescription = isPlainShell
     ? t('shell.runCommand', {
         command: initialCommand || t('shell.defaultCommand'),
-        projectName: selectedProject.displayName,
+        projectName: contextLabel,
       })
-    : t('shell.startCli', { projectName: selectedProject.displayName });
+    : t('shell.startCli', { projectName: contextLabel });
 
   const overlayMode = !isInitialized ? 'loading' : isConnecting ? 'connecting' : !isConnected ? 'connect' : null;
   const overlayDescription = overlayMode === 'connecting' ? connectingDescription : readyDescription;

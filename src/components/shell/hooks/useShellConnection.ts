@@ -17,6 +17,7 @@ type UseShellConnectionOptions = {
   terminalRef: MutableRefObject<Terminal | null>;
   fitAddonRef: MutableRefObject<FitAddon | null>;
   selectedProjectRef: MutableRefObject<Project | null | undefined>;
+  projectPathRef: MutableRefObject<string | undefined>;
   selectedSessionRef: MutableRefObject<ProjectSession | null | undefined>;
   initialCommandRef: MutableRefObject<string | null | undefined>;
   isPlainShellRef: MutableRefObject<boolean>;
@@ -112,6 +113,7 @@ export function useShellConnection({
   terminalRef,
   fitAddonRef,
   selectedProjectRef,
+  projectPathRef,
   selectedSessionRef,
   initialCommandRef,
   isPlainShellRef,
@@ -227,20 +229,26 @@ export function useShellConnection({
             const currentTerminal = terminalRef.current;
             const currentFitAddon = fitAddonRef.current;
             const currentProject = selectedProjectRef.current;
-            if (!currentTerminal || !currentFitAddon || !currentProject) {
+            const currentAttachTarget = attachTargetRef.current;
+            if (!currentTerminal || !currentFitAddon || (!currentProject && !currentAttachTarget)) {
               return;
             }
 
             currentFitAddon.fit();
             const forceRestart = forceRestartOnInitRef.current;
             forceRestartOnInitRef.current = false;
+            const typedAttach = Boolean(currentAttachTarget);
+            const projectPath = projectPathRef.current
+              ?? currentProject?.fullPath
+              ?? currentProject?.path
+              ?? '';
 
             const identity = JSON.stringify([
-              currentProject.fullPath || currentProject.path || '',
-              isPlainShellRef.current ? null : selectedSessionRef.current?.id || null,
-              isPlainShellRef.current,
-              initialCommandRef.current ?? null,
-              attachTargetRef.current?.tmux ?? null,
+              projectPath,
+              typedAttach || isPlainShellRef.current ? null : selectedSessionRef.current?.id || null,
+              typedAttach ? false : isPlainShellRef.current,
+              typedAttach ? null : initialCommandRef.current ?? null,
+              currentAttachTarget ?? null,
             ]);
             if (forceRestart || identity !== replayIdentityRef.current) {
               replayIdentityRef.current = identity;
@@ -248,16 +256,24 @@ export function useShellConnection({
             }
 
             sendSocketMessage(socket, buildShellInitMessage({
-              projectPath: currentProject.fullPath || currentProject.path || '',
-              sessionId: isPlainShellRef.current ? null : selectedSessionRef.current?.id || null,
-              hasSession: isPlainShellRef.current ? false : Boolean(selectedSessionRef.current),
-              provider: isPlainShellRef.current ? 'plain-shell' : (selectedSessionRef.current?.__provider || localStorage.getItem('selected-provider') || 'claude'),
+              projectPath,
+              sessionId: typedAttach || isPlainShellRef.current
+                ? null
+                : selectedSessionRef.current?.id || null,
+              hasSession: typedAttach
+                ? false
+                : !isPlainShellRef.current && Boolean(selectedSessionRef.current),
+              provider: typedAttach
+                ? 'external'
+                : isPlainShellRef.current
+                  ? 'plain-shell'
+                  : (selectedSessionRef.current?.__provider || localStorage.getItem('selected-provider') || 'claude'),
               cols: currentTerminal.cols,
               rows: currentTerminal.rows,
-              initialCommand: initialCommandRef.current,
-              isPlainShell: isPlainShellRef.current,
+              initialCommand: typedAttach ? null : initialCommandRef.current,
+              isPlainShell: typedAttach ? false : isPlainShellRef.current,
               forceRestart,
-              attachTarget: attachTargetRef.current,
+              attachTarget: currentAttachTarget,
               lastSeq: lastSeqRef.current,
             }));
           }, TERMINAL_INIT_DELAY_MS);
@@ -298,6 +314,7 @@ export function useShellConnection({
       isPlainShellRef,
       attachTargetRef,
       selectedProjectRef,
+      projectPathRef,
       selectedSessionRef,
       terminalRef,
       wsRef,

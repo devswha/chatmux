@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { open, readdir, readFile, realpath, stat } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
@@ -38,6 +39,7 @@ import { recordHostCommand } from './host-command-metrics.service.js';
 
 const SESSIONS_SEGMENT = '.gjc/agent/sessions';
 const SESSION_FILE_RE = /\.gjc\/agent\/sessions\/[^/]+\/[^/]*_([0-9a-fA-F][0-9a-fA-F-]{7,})\.jsonl\b/;
+const SESSION_SIDECAR_FILE_RE = /^(.*\/\.gjc\/agent\/sessions\/[^/]+\/[^/]*_([0-9a-fA-F][0-9a-fA-F-]{7,}))\/[^/]+\.jsonl$/;
 const TMUX_FIELD_SEP = '\t';
 
 export type LiveGjcSession = {
@@ -66,12 +68,14 @@ export type LiveGjcSession = {
   model: string | null;
   effort: string | null;
   /**
-   * Whether the transcript tail shows a turn in progress (assistant answering
-   * or tool loop running). null = undeterminable (no transcript yet, no
-   * turn-relevant record in the scan window, or a read failure) — the UI then
-   * shows the plain LIVE badge. Purely presentational.
+   * Whether the transcript shows a turn in progress (assistant answering or
+   * tool loop running). null = undeterminable (no transcript yet, no complete
+   * turn-relevant record, or a read failure) — the UI then shows the plain LIVE
+   * badge. Purely presentational.
    */
   running: boolean | null;
+  /** Whether the last turn-relevant record is an assistant/provider error. */
+  error?: boolean | null;
 };
 
 /** Synthetic id prefix for gjc panes that opened no transcript yet (first message pending). */
@@ -164,9 +168,9 @@ function paneKind(cmd: string | null | undefined): 'interactive' | 'batch' | nul
  * process but that NO transcript-holding live session claimed. Subtree
  * membership (pane pid → descendants via the ps snapshot) is the same evidence
  * a lineage claim rests on, so tmux actions (kill/relay) remain safe for these
- * rows. Exclusion is LINEAGE names only: a 'cwd' label is weaker evidence than
- * the subtree proof, so it must not hide a real idle gjc pane (리뷰 반영 —
- * 같은 이름의 cwd 라벨 행과 idle 행이 공존할 수 있고 그게 더 정직하다).
+ * rows. Exclusion is LINEAGE names only: a cwd label is weaker evidence than
+ * the subtree proof, so it must not hide a real idle gjc pane. Both rows may
+ * coexist when they share a name because they represent different evidence.
  * Sorted by name for stable rendering; dedupe keeps the first pane's sid.
  */
 export function findIdleGjcTmuxSessions(args: {
@@ -410,9 +414,9 @@ export function computeLiveSessions(args: {
 
 /**
  * A tmux session proven by lineage must not ALSO surface as a cwd label-only
- * row. cwd claims are guesses (the gjc runs elsewhere); when a lineage row from
+ * row. Cwd claims are guesses (the gjc runs elsewhere); when a lineage row from
  * any lane already covers that exact tmux pane, the cwd row is a spurious duplicate
- * (patina 중복 — lsof cwd row + receipt/idle lineage row for one tmux session).
+ * of the lsof cwd row and the receipt/idle lineage row.
  * Lineage rows are never dropped — including several sharing one pane
  * (main+worker), which is a real configuration.
  */
@@ -435,8 +439,8 @@ export function dedupeLiveSessionsByLineage<T extends {
 }
 
 // Detection subprocess output is small (pane lists / lsof field lines); a multi-
-// megabyte stream means something is pathologically wrong — kill instead of
-// buffering without bound (리뷰 반영: timeout 뒤에도 listener/버퍼가 남던 문제).
+// megabyte stream is pathological, so terminate it instead of retaining its
+// listeners and buffer after a timeout.
 const RUN_COMMAND_MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 
 export type LiveGjcSessionCommandRunner = (
@@ -505,18 +509,19 @@ async function readParentPid(pid: number): Promise<number | null> {
 }
 
 // ── Runtime-receipt lane ─────────────────────────────────────────────────────
-// gjc 0.10.2 keeps NO open fd on its transcript while idle (open-append-close), so
-// the lsof lane misses quiet TUI sessions entirely (실측 2026-07-14: gjc-app pane —
-// transcript on disk, `lsof -c gjc` silent → the app fell to the read-only banner
-// with no relay composer). gjc itself leaves an authoritative per-session receipt
+// gjc 0.10.2 keeps no open fd on its transcript while idle (open-append-close), so
+// the lsof lane misses quiet TUI sessions. This was observed on 2026-07-14 when a
+// transcript existed on disk but `lsof -c gjc` was silent, leaving only a read-only
+// banner with no relay composer. gjc leaves an authoritative per-session receipt
 // under the pane's cwd, rewritten on every turn event:
 //   <cwd>/.gjc/_session-<id>/runtime/runtime-state.json
 //     { session_id, cwd, session_file, ... }
 // For a pane already PROVEN to run gjc in its subtree (the same evidence grade the
-// synthetic idle rows use to permit kill/relay), the newest receipt that (a) points
-// at this cwd, (b) has an existing transcript, and (c) is not older than the pane
-// process binds pane↔session as a lineage claim. Bare cwd equality alone still
-// never grants lineage — the patina-실사고 guard in computeLiveSessions is untouched.
+// synthetic idle rows use to permit kill/relay), an exact terminal or active-resume
+// receipt can bind pane↔session. The bounded cwd/newest-receipt compatibility fallback
+// additionally requires exactly one subtree-proven idle pane for that cwd, an existing
+// transcript, and a receipt no older than the current gjc generation. Bare or ambiguous
+// cwd equality alone never grants lineage.
 
 export type RuntimeReceipt = {
   sessionId: string;
@@ -525,23 +530,43 @@ export type RuntimeReceipt = {
   mtimeMs: number;
 };
 
-/** Parses the two-line receipt written by gjc 0.11+ for a tmux pane. */
-export function parseTerminalSessionReceipt(content: string, mtimeMs: number): RuntimeReceipt | null {
-  const [cwd, sessionFile] = content.split(/\r?\n/);
-  if (!cwd || !sessionFile) {
+function resolveInteractiveSessionTranscript(
+  receiptFile: string,
+): Pick<RuntimeReceipt, 'sessionId' | 'sessionFile'> | null {
+  const directMatch = SESSION_FILE_RE.exec(receiptFile);
+  if (directMatch) {
+    return { sessionId: directMatch[1], sessionFile: receiptFile };
+  }
+  const sidecarMatch = SESSION_SIDECAR_FILE_RE.exec(receiptFile);
+  if (!sidecarMatch) {
     return null;
   }
-  const match = SESSION_FILE_RE.exec(sessionFile);
-  if (!match) {
-    return null;
-  }
-  return { sessionId: match[1], cwd, sessionFile, mtimeMs };
+  return {
+    sessionId: sidecarMatch[2],
+    sessionFile: `${sidecarMatch[1]}.jsonl`,
+  };
 }
 
-/** Pure pick: newest receipt for this pane, guarded by cwd match + pane-start floor. */
+/**
+ * Parses the pane receipt written by gjc 0.11+.
+ *
+ * Subagents rewrite the receipt to their sidecar transcript. ChatMux presents
+ * the owning interactive session, so a sidecar path is resolved back to its
+ * sibling top-level transcript instead of exposing the subagent as the pane.
+ */
+export function parseTerminalSessionReceipt(content: string, mtimeMs: number): RuntimeReceipt | null {
+  const [cwd, receiptFile] = content.split(/\r?\n/);
+  if (!cwd || !receiptFile) {
+    return null;
+  }
+  const transcript = resolveInteractiveSessionTranscript(receiptFile);
+  return transcript ? { ...transcript, cwd, mtimeMs } : null;
+}
+
+/** Pure pick: newest receipt for this pane, guarded by cwd + current agent start. */
 export function pickPaneReceipt(args: {
   paneCwd: string;
-  paneStartMs: number | null;
+  agentStartMs: number | null;
   receipts: RuntimeReceipt[];
 }): RuntimeReceipt | null {
   let best: RuntimeReceipt | null = null;
@@ -552,9 +577,9 @@ export function pickPaneReceipt(args: {
     if (receipt.cwd !== null && receipt.cwd !== args.paneCwd) {
       continue;
     }
-    // A receipt written before the pane process existed belongs to an EARLIER
-    // session in this cwd (e.g. a finished headless run) — never capture the pane.
-    if (args.paneStartMs !== null && receipt.mtimeMs < args.paneStartMs) {
+    // A receipt written before the current gjc agent existed belongs to an
+    // earlier run in this long-lived tmux pane — never bind it after restart.
+    if (args.agentStartMs !== null && receipt.mtimeMs < args.agentStartMs) {
       continue;
     }
     if (!best || receipt.mtimeMs > best.mtimeMs) {
@@ -564,22 +589,136 @@ export function pickPaneReceipt(args: {
   return best;
 }
 
+export function selectAuthoritativePaneReceipt(
+  terminal: RuntimeReceipt | null,
+  exactResume: RuntimeReceipt | null,
+  heuristicFallback: RuntimeReceipt | null,
+): RuntimeReceipt | null {
+  return terminal ?? exactResume ?? heuristicFallback;
+}
+
 // A workspace .gjc dir accumulates one _session-* dir per session; cap the scan so
 // a pathological directory cannot stall the live poll.
-const RUNTIME_RECEIPT_DIR_LIMIT = 512;
-const RUNTIME_RECEIPT_READ_CONCURRENCY = 32;
+export const RECEIPT_ATTEMPT_LIMIT = 512;
+export const RUNTIME_RECEIPT_FALLBACK_LIMIT = 511;
+export const GJC_CMDLINE_MAX_BYTES = 64 * 1024;
+const RUNTIME_RECEIPT_DIR_LIMIT = RECEIPT_ATTEMPT_LIMIT;
+const RUNTIME_RECEIPT_DIR_RE = /^_session-[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const RUNTIME_RECEIPT_READ_CONCURRENCY = 1;
+
+/**
+ * Canonical UUIDv7 session directory names sort chronologically after case
+ * normalization. Validate before spending the bounded scan budget; slicing raw
+ * readdir order retained old sessions and excluded the current one.
+ */
+export function selectRuntimeReceiptDirectories(
+  entries: readonly string[],
+  limit = RUNTIME_RECEIPT_DIR_LIMIT,
+  excludedEntries: ReadonlySet<string> = new Set(),
+): string[] {
+  const excluded = new Set([...excludedEntries].map((entry) => entry.toLowerCase()));
+  return entries
+    .filter((entry) => RUNTIME_RECEIPT_DIR_RE.test(entry) && !excluded.has(entry.toLowerCase()))
+    .sort((left, right) => {
+      const normalizedLeft = left.toLowerCase();
+      const normalizedRight = right.toLowerCase();
+      return normalizedLeft < normalizedRight ? 1 : normalizedLeft > normalizedRight ? -1 : 0;
+    })
+    .slice(0, limit);
+}
+export function resumeSessionIdFromCmdline(cmdline: Buffer): string | null {
+  const argv = cmdline.toString('utf8').split('\0');
+  for (let index = 0; index < argv.length; index += 1) {
+    const value = argv[index];
+    const candidate = value === '--resume' ? argv[index + 1] : value.startsWith('--resume=') ? value.slice(9) : null;
+    if (candidate && RUNTIME_RECEIPT_DIR_RE.test(`_session-${candidate}`)) return candidate.toLowerCase();
+  }
+  return null;
+}
+
+type RuntimeReceiptAttempt = {
+  receipt: RuntimeReceipt | null;
+  attempts: 0 | 1;
+  attemptedEntry: string | null;
+};
+
+export function runtimeReceiptFallbackBudget(consumedAttempts: number): number {
+  return Math.min(
+    RUNTIME_RECEIPT_FALLBACK_LIMIT,
+    Math.max(0, RECEIPT_ATTEMPT_LIMIT - Math.max(0, consumedAttempts)),
+  );
+}
+
+async function readExactResumeReceipt(
+  paneCwd: string,
+  agentPid: number,
+  agentStartMs: number,
+): Promise<RuntimeReceiptAttempt> {
+  let attemptedEntry: string | null = null;
+  try {
+    recordHostCommand('read', ['proc']);
+    const cmdlineHandle = await open(`/proc/${agentPid}/cmdline`, 'r');
+    let sessionId: string | null = null;
+    try {
+      const argv = Buffer.allocUnsafe(GJC_CMDLINE_MAX_BYTES);
+      const bytesRead = await readAt(cmdlineHandle, argv, 0);
+      sessionId = resumeSessionIdFromCmdline(argv.subarray(0, bytesRead));
+    } finally {
+      await cmdlineHandle.close();
+    }
+    if (!sessionId) return { receipt: null, attempts: 0, attemptedEntry: null };
+    attemptedEntry = `_session-${sessionId}`;
+    const receiptPath = join(paneCwd, '.gjc', attemptedEntry, 'runtime', 'runtime-state.json');
+    recordHostCommand('read', ['runtime-receipt']);
+    const [content, meta] = await Promise.all([readFile(receiptPath, 'utf8'), stat(receiptPath)]);
+    const parsed = JSON.parse(content) as { session_id?: unknown; cwd?: unknown; session_file?: unknown };
+    if (parsed.session_id !== sessionId || typeof parsed.session_file !== 'string' || meta.mtimeMs < agentStartMs) {
+      return { receipt: null, attempts: 1, attemptedEntry };
+    }
+    const transcript = resolveInteractiveSessionTranscript(parsed.session_file);
+    if (!transcript?.sessionFile || transcript.sessionId.toLowerCase() !== sessionId) {
+      return { receipt: null, attempts: 1, attemptedEntry };
+    }
+    await stat(transcript.sessionFile);
+    const receiptCwd = typeof parsed.cwd === 'string' ? ((await safeRealpath(parsed.cwd)) ?? parsed.cwd) : null;
+    if (
+      (receiptCwd !== null && receiptCwd !== paneCwd)
+      || (await processStartMs(agentPid)) !== agentStartMs
+    ) {
+      return { receipt: null, attempts: 1, attemptedEntry };
+    }
+    return {
+      receipt: {
+        sessionId: transcript.sessionId,
+        sessionFile: transcript.sessionFile,
+        cwd: receiptCwd,
+        mtimeMs: meta.mtimeMs,
+      },
+      attempts: 1,
+      attemptedEntry,
+    };
+  } catch {
+    return {
+      receipt: null,
+      attempts: attemptedEntry === null ? 0 : 1,
+      attemptedEntry,
+    };
+  }
+}
 
 /** Reads all parseable session receipts under `<paneCwd>/.gjc` (missing dir → []). */
-async function readPaneRuntimeReceipts(paneCwd: string): Promise<RuntimeReceipt[]> {
+async function readPaneRuntimeReceipts(
+  paneCwd: string,
+  limit: number,
+  excludedEntries: ReadonlySet<string>,
+): Promise<RuntimeReceipt[]> {
   let entries: string[];
   try {
     entries = await readdir(`${paneCwd}/.gjc`);
   } catch {
     return [];
   }
-  const candidates = entries
-    .filter((entry) => entry.startsWith('_session-'))
-    .slice(0, RUNTIME_RECEIPT_DIR_LIMIT);
+  const candidates = selectRuntimeReceiptDirectories(entries, limit, excludedEntries);
   const receipts: RuntimeReceipt[] = [];
   for (let offset = 0; offset < candidates.length; offset += RUNTIME_RECEIPT_READ_CONCURRENCY) {
     const batch = await Promise.all(
@@ -591,12 +730,16 @@ async function readPaneRuntimeReceipts(paneCwd: string): Promise<RuntimeReceipt[
             recordHostCommand('read', ['runtime-receipt']);
             const [content, meta] = await Promise.all([readFile(statePath, 'utf8'), stat(statePath)]);
             const parsed = JSON.parse(content) as { session_id?: unknown; cwd?: unknown; session_file?: unknown };
-            const sessionFile = typeof parsed.session_file === 'string' ? parsed.session_file : null;
+            const receiptFile = typeof parsed.session_file === 'string' ? parsed.session_file : null;
+            const transcript = receiptFile ? resolveInteractiveSessionTranscript(receiptFile) : null;
+            const sessionFile = transcript?.sessionFile ?? receiptFile;
             if (sessionFile !== null) {
               await stat(sessionFile); // the transcript must exist — throws (→ skip) otherwise
             }
             return {
-              sessionId: typeof parsed.session_id === 'string' ? parsed.session_id : '',
+              sessionId: transcript?.sessionId ?? (
+                typeof parsed.session_id === 'string' ? parsed.session_id : ''
+              ),
               cwd: typeof parsed.cwd === 'string' ? ((await safeRealpath(parsed.cwd)) ?? parsed.cwd) : null,
               sessionFile,
               mtimeMs: meta.mtimeMs,
@@ -612,7 +755,8 @@ async function readPaneRuntimeReceipts(paneCwd: string): Promise<RuntimeReceipt[
 }
 
 /** Reads gjc 0.11+'s pane-specific `terminal-sessions/tmux-%N` receipt. */
-async function readPaneTerminalReceipt(panePid: number): Promise<RuntimeReceipt | null> {
+async function readPaneTerminalReceipt(panePid: number): Promise<RuntimeReceiptAttempt> {
+  let attempted = false;
   try {
     recordHostCommand('read', ['proc']);
     const environment = await readFile(`/proc/${panePid}/environ`, 'utf8');
@@ -621,22 +765,27 @@ async function readPaneTerminalReceipt(panePid: number): Promise<RuntimeReceipt 
       .find((entry) => entry.startsWith('TMUX_PANE='))
       ?.slice('TMUX_PANE='.length);
     if (!paneValue || !/^%\d+$/.test(paneValue)) {
-      return null;
+      return { receipt: null, attempts: 0, attemptedEntry: null };
     }
     const receiptPath = join(homedir(), '.gjc', 'agent', 'terminal-sessions', `tmux-${paneValue}`);
+    attempted = true;
     recordHostCommand('read', ['runtime-receipt']);
     const [content, meta] = await Promise.all([readFile(receiptPath, 'utf8'), stat(receiptPath)]);
     const receipt = parseTerminalSessionReceipt(content, meta.mtimeMs);
     if (!receipt?.sessionFile) {
-      return null;
+      return { receipt: null, attempts: 1, attemptedEntry: null };
     }
     await stat(receipt.sessionFile);
     return {
-      ...receipt,
-      cwd: receipt.cwd ? ((await safeRealpath(receipt.cwd)) ?? receipt.cwd) : null,
+      receipt: {
+        ...receipt,
+        cwd: receipt.cwd ? ((await safeRealpath(receipt.cwd)) ?? receipt.cwd) : null,
+      },
+      attempts: 1,
+      attemptedEntry: null,
     };
   } catch {
-    return null;
+    return { receipt: null, attempts: attempted ? 1 : 0, attemptedEntry: null };
   }
 }
 
@@ -735,71 +884,398 @@ export function parseLastModelChange(tailText: string): string | null {
 }
 
 /**
- * Whether a transcript tail shows a turn IN PROGRESS (실측 gjc 스키마 — the
- * same records the live turn monitor keys off). Scanned backwards; the LAST
- * turn-relevant record decides:
- * - assistant with stopReason 'stop' | 'error'  → turn finished (false)
- * - assistant with any other stopReason (toolUse) → mid-turn (true)
- * - user message → turn just requested (true)
- * - toolResult → tool loop in progress (true)
- * Returns null when the window holds no turn-relevant record (fail-safe: the
- * UI then shows the plain LIVE badge, never a wrong RUN).
+ * Latest transcript activity (measured GJC schema), scanned backwards so the
+ * last turn-relevant record decides:
+ * - assistant stopReason 'stop' → ready
+ * - assistant stopReason 'error' or a raw provider error record → error
+ * - assistant toolUse, user, or toolResult → running
+ * Returns null when the input has no relevant complete record.
  */
-export function parseTurnActivity(tailText: string): boolean | null {
-  const lines = tailText.split(/\r?\n/);
-  for (let i = lines.length - 1; i >= 0; i -= 1) {
-    if (!lines[i].includes('"message"') || !lines[i].includes('"role"')) {
-      continue;
+export type TurnActivityState = 'running' | 'ready' | 'error' | null;
+
+function parseTurnActivityRecord(line: string): TurnActivityState {
+  try {
+    const record = JSON.parse(line) as {
+      type?: unknown;
+      message?: { role?: unknown; stopReason?: unknown };
+    };
+    if (record.type === 'error') {
+      return 'error';
     }
-    try {
-      const record = JSON.parse(lines[i]) as { type?: unknown; message?: { role?: unknown; stopReason?: unknown } };
-      if (record.type !== 'message' || !record.message || typeof record.message !== 'object') {
-        continue;
-      }
-      const { role, stopReason } = record.message;
-      if (role === 'assistant') {
-        return !(stopReason === 'stop' || stopReason === 'error');
-      }
-      if (role === 'user' || role === 'toolResult') {
-        return true;
-      }
-    } catch {
-      // partial first line of the tail window — keep scanning
+    if (record.type !== 'message' || !record.message || typeof record.message !== 'object') {
+      return null;
     }
+    const { role, stopReason } = record.message;
+    if (role === 'assistant') {
+      if (stopReason === 'error') return 'error';
+      return stopReason === 'stop' ? 'ready' : 'running';
+    }
+    if (role === 'user' || role === 'toolResult') {
+      return 'running';
+    }
+  } catch {
+    // Partial or malformed records are not turn-relevant.
   }
   return null;
 }
 
-const ACTIVITY_SCAN_WINDOW_BYTES = 64 * 1024;
+export function parseTurnActivityState(tailText: string): TurnActivityState {
+  const lines = tailText.split(/\r?\n/);
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    const activity = parseTurnActivityRecord(lines[i]);
+    if (activity !== null) return activity;
+  }
+  return null;
+}
+
+export function parseTurnActivity(tailText: string): boolean | null {
+  const activity = parseTurnActivityState(tailText);
+  return activity === null ? null : activity === 'running';
+}
+
+export const ACTIVITY_SCAN_CHUNK_BYTES = 64 * 1024;
+export const ACTIVITY_MAX_SCAN_BYTES = 2 * 1024 * 1024;
+export const ACTIVITY_MAX_RECORD_BYTES = 256 * 1024;
+export const ACTIVITY_BOUNDARY_DIGEST_BYTES = 4 * 1024;
+export const ACTIVITY_MAX_READ_BYTES_PER_ATTEMPT = 2_363_392;
+export const ACTIVITY_MAX_RETAINED_INPUT_BYTES = 331_776;
+export const TRANSCRIPT_ENRICHMENT_CONCURRENCY = 4;
+export const ACTIVITY_CACHE_MAX_ENTRIES = 256;
+export type ActivityReadDiagnostics = {
+  bytesRead: number;
+};
+let activeTranscriptEnrichments = 0;
+const queuedTranscriptEnrichments: Array<() => void> = [];
+
+export async function mapTranscriptEnrichments<T, R>(
+  values: readonly T[],
+  map: (value: T) => Promise<R>,
+): Promise<R[]> {
+  return Promise.all(values.map(async (value) => {
+    if (activeTranscriptEnrichments >= TRANSCRIPT_ENRICHMENT_CONCURRENCY) {
+      await new Promise<void>((resolve) => queuedTranscriptEnrichments.push(resolve));
+    }
+    activeTranscriptEnrichments += 1;
+    try {
+      return await map(value);
+    } finally {
+      activeTranscriptEnrichments -= 1;
+      queuedTranscriptEnrichments.shift()?.();
+    }
+  }));
+}
+
+export type ActivityScanResult = {
+  activity: TurnActivityState;
+  completeEnd: number;
+  decisiveStart: number | null;
+  decisiveEnd: number | null;
+  decisiveDigest: string | null;
+  boundaryStart: number;
+  boundaryEnd: number;
+  boundaryDigest: string;
+  /** Contiguous suffix of the requested range successfully read by this scan. */
+  coveredStart: number;
+  coveredEnd: number;
+  bytesRead: number;
+  retainedInputBytes: number;
+  oversizeRecords: number;
+};
+
+type ActivityCacheEntry = {
+  dev: number;
+  ino: number;
+  size: number;
+  scannedTo: number;
+  activity: TurnActivityState;
+  decisiveStart: number | null;
+  decisiveEnd: number | null;
+  decisiveDigest: string | null;
+  boundaryStart: number;
+  boundaryEnd: number;
+  boundaryDigest: string;
+};
+
+const activityCache = new Map<string, ActivityCacheEntry>();
+
+function digest(buffer: Buffer): string {
+  return createHash('sha256').update(buffer).digest('hex');
+}
+const EMPTY_ACTIVITY_DIGEST = createHash('sha256').digest('hex');
+
+async function readAt(
+  handle: Awaited<ReturnType<typeof open>>,
+  buffer: Buffer,
+  position: number,
+  diagnostics?: ActivityReadDiagnostics,
+): Promise<number> {
+  let offset = 0;
+  while (offset < buffer.length) {
+    const { bytesRead } = await handle.read(buffer, offset, buffer.length - offset, position + offset);
+    if (bytesRead === 0) break;
+    offset += bytesRead;
+    if (diagnostics) diagnostics.bytesRead += bytesRead;
+  }
+  return offset;
+}
+
+async function digestRange(
+  handle: Awaited<ReturnType<typeof open>>,
+  start: number,
+  end: number,
+  buffer: Buffer,
+  diagnostics?: ActivityReadDiagnostics,
+): Promise<string | null> {
+  if (start < 0 || end < start || buffer.length === 0) return null;
+  const hash = createHash('sha256');
+  let cursor = start;
+  while (cursor < end) {
+    const length = Math.min(buffer.length, end - cursor);
+    const bytesRead = await readAt(handle, buffer.subarray(0, length), cursor, diagnostics);
+    if (bytesRead !== length) return null;
+    hash.update(buffer.subarray(0, length));
+    cursor += length;
+  }
+  return hash.digest('hex');
+}
 
 /**
- * Per-transcript activity cache. Transcripts are append-only, so an unchanged
- * size means an unchanged verdict; any growth re-reads only the fixed tail
- * window (turn-relevant records are dense — one window is plenty).
+ * Scans one bounded range with a single handle and three fixed buffers. Records
+ * larger than the scratch space are ignored through their terminating newline.
  */
-const activityCache = new Map<string, { size: number; running: boolean | null }>();
+export async function scanTurnActivityBackwards(
+  handle: Awaited<ReturnType<typeof open>>,
+  start: number,
+  end: number,
+  diagnostics?: ActivityReadDiagnostics,
+): Promise<ActivityScanResult> {
+  const chunk = Buffer.allocUnsafe(ACTIVITY_SCAN_CHUNK_BYTES);
+  const scratch = Buffer.allocUnsafe(ACTIVITY_MAX_RECORD_BYTES);
+  let cursor = end;
+  let completeEnd = start;
+  let boundaryStart = start;
+  let boundaryEnd = start;
+  let boundaryDigest = EMPTY_ACTIVITY_DIGEST;
+  let recordLength = 0;
+  let discardRecord = false;
+  let bytesRead = 0;
+  let oversizeRecords = 0;
+  let foundEnd = false;
+  let coveredStart = end;
 
-/** Whether the session's transcript shows a turn in progress. null on any failure. */
-async function readTurnActivityFromFile(path: string): Promise<boolean | null> {
-  try {
-    const { size } = await stat(path);
-    const cached = activityCache.get(path);
-    if (cached && cached.size === size) {
-      return cached.running;
+  const resetRecord = () => {
+    recordLength = 0;
+    discardRecord = false;
+  };
+  const appendSegment = (segment: Buffer) => {
+    if (discardRecord || segment.length === 0) return;
+    if (recordLength + segment.length > scratch.length) {
+      discardRecord = true;
+      oversizeRecords += 1;
+      return;
     }
-    let running: boolean | null = null;
-    if (size > 0) {
-      const tail = await readRange(path, Math.max(0, size - ACTIVITY_SCAN_WINDOW_BYTES), size);
-      // Only COMPLETE lines: a record being written mid-scan is re-read next poll.
-      const lastNewline = tail.lastIndexOf(0x0a);
-      if (lastNewline >= 0) {
-        running = parseTurnActivity(tail.subarray(0, lastNewline + 1).toString('utf8'));
+    segment.copy(scratch, scratch.length - recordLength - segment.length);
+    recordLength += segment.length;
+  };
+
+  while (cursor > start && bytesRead < ACTIVITY_MAX_SCAN_BYTES) {
+    const chunkStart = Math.max(start, cursor - Math.min(chunk.length, ACTIVITY_MAX_SCAN_BYTES - bytesRead));
+    const length = cursor - chunkStart;
+    const received = await readAt(handle, chunk.subarray(0, length), chunkStart, diagnostics);
+    bytesRead += received;
+    if (received !== length) break;
+    coveredStart = chunkStart;
+
+    let segmentEnd = length;
+    for (let index = length - 1; index >= 0; index -= 1) {
+      if (chunk[index] !== 0x0a) continue;
+      const newlineEnd = chunkStart + index + 1;
+      if (!foundEnd) {
+        foundEnd = true;
+        completeEnd = newlineEnd;
+        boundaryStart = Math.max(start, newlineEnd - ACTIVITY_BOUNDARY_DIGEST_BYTES);
+        boundaryEnd = newlineEnd;
+        boundaryDigest = digest(chunk.subarray(boundaryStart - chunkStart, index + 1));
+        segmentEnd = index;
+        resetRecord();
+        continue;
+      }
+      appendSegment(chunk.subarray(index + 1, segmentEnd));
+      const recordStart = newlineEnd;
+      const recordEnd = recordStart + recordLength;
+      if (!discardRecord && recordLength > 0) {
+        const record = scratch.subarray(scratch.length - recordLength);
+        const activity = parseTurnActivityRecord(record.toString('utf8').replace(/\r$/, ''));
+        if (activity !== null) {
+          return {
+            activity,
+            completeEnd,
+            decisiveStart: recordStart,
+            decisiveEnd: recordEnd,
+            decisiveDigest: digest(record),
+            boundaryStart,
+            boundaryEnd,
+            boundaryDigest,
+            coveredStart,
+            coveredEnd: end,
+            bytesRead,
+            retainedInputBytes: chunk.length + scratch.length + ACTIVITY_BOUNDARY_DIGEST_BYTES,
+            oversizeRecords,
+          };
+        }
+      }
+      resetRecord();
+      segmentEnd = index;
+    }
+    if (foundEnd) appendSegment(chunk.subarray(0, segmentEnd));
+    cursor = chunkStart;
+  }
+
+  if (foundEnd && cursor === start) {
+    const recordStart = start;
+    const recordEnd = recordStart + recordLength;
+    if (!discardRecord && recordLength > 0) {
+      const record = scratch.subarray(scratch.length - recordLength);
+      const activity = parseTurnActivityRecord(record.toString('utf8').replace(/\r$/, ''));
+      if (activity !== null) {
+        return {
+          activity,
+          completeEnd,
+          decisiveStart: recordStart,
+          decisiveEnd: recordEnd,
+          decisiveDigest: digest(record),
+          boundaryStart,
+          boundaryEnd,
+          boundaryDigest,
+          coveredStart,
+          coveredEnd: end,
+          bytesRead,
+          retainedInputBytes: chunk.length + scratch.length + ACTIVITY_BOUNDARY_DIGEST_BYTES,
+          oversizeRecords,
+        };
       }
     }
-    activityCache.set(path, { size, running });
-    return running;
+  }
+  return {
+    activity: null,
+    completeEnd,
+    decisiveStart: null,
+    decisiveEnd: null,
+    decisiveDigest: null,
+    boundaryStart,
+    boundaryEnd,
+    boundaryDigest,
+    coveredStart,
+    coveredEnd: end,
+    bytesRead,
+    retainedInputBytes: chunk.length + scratch.length + ACTIVITY_BOUNDARY_DIGEST_BYTES,
+    oversizeRecords,
+  };
+}
+
+function setActivityCache(path: string, entry: ActivityCacheEntry): void {
+  activityCache.delete(path);
+  activityCache.set(path, entry);
+  if (activityCache.size > ACTIVITY_CACHE_MAX_ENTRIES) {
+    activityCache.delete(activityCache.keys().next().value!);
+  }
+}
+
+export function getActivityCacheDiagnostics(path?: string): {
+  entries: number;
+  containsPath?: boolean;
+} {
+  return {
+    entries: activityCache.size,
+    ...(path === undefined ? {} : { containsPath: activityCache.has(path) }),
+  };
+}
+
+/** Latest turn activity from the transcript. null on any read/parse failure. */
+export async function readTurnActivityFromFile(
+  path: string,
+  diagnostics?: ActivityReadDiagnostics,
+): Promise<TurnActivityState> {
+  if (diagnostics) diagnostics.bytesRead = 0;
+  let handle: Awaited<ReturnType<typeof open>> | null = null;
+  try {
+    handle = await open(path, 'r');
+    const identity = await handle.stat();
+    const cached = activityCache.get(path);
+    const boundaryBuffer = Buffer.allocUnsafe(ACTIVITY_BOUNDARY_DIGEST_BYTES);
+    const identityMatches = cached !== undefined && cached.dev === identity.dev && cached.ino === identity.ino;
+    const canValidate = identityMatches
+      && identity.size >= cached.size
+      && cached.boundaryEnd <= cached.size
+      && cached.boundaryStart >= 0
+      && cached.decisiveStart !== null
+      && cached.decisiveEnd !== null;
+    if (canValidate) {
+      const decisiveDigest = await digestRange(
+        handle,
+        cached.decisiveStart!,
+        cached.decisiveEnd!,
+        boundaryBuffer,
+        diagnostics,
+      );
+      const boundaryDigest = await digestRange(
+        handle,
+        cached.boundaryStart,
+        cached.boundaryEnd,
+        boundaryBuffer,
+        diagnostics,
+      );
+      if (decisiveDigest === cached.decisiveDigest && boundaryDigest === cached.boundaryDigest) {
+        if (identity.size === cached.size) {
+          setActivityCache(path, cached);
+          return cached.activity;
+        }
+        const scanStart = cached.scannedTo;
+        const scanned = await scanTurnActivityBackwards(handle, scanStart, identity.size, diagnostics);
+        // A bounded suffix scan cannot prove the previous verdict remained current
+        // when an unscanned portion of this append sits before it.
+        if (
+          scanned.activity === null
+          && (scanned.coveredStart !== scanStart || scanned.coveredEnd !== identity.size)
+        ) {
+          activityCache.delete(path);
+          return null;
+        }
+        const activity = scanned.activity ?? cached.activity;
+        setActivityCache(path, {
+          dev: identity.dev, ino: identity.ino, size: identity.size,
+          scannedTo: scanned.boundaryEnd, activity,
+          decisiveStart: scanned.decisiveStart ?? cached.decisiveStart,
+          decisiveEnd: scanned.decisiveEnd ?? cached.decisiveEnd,
+          decisiveDigest: scanned.decisiveDigest ?? cached.decisiveDigest,
+          boundaryStart: scanned.boundaryStart,
+          boundaryEnd: scanned.boundaryEnd,
+          boundaryDigest: scanned.boundaryDigest,
+        });
+        return activity;
+      }
+    }
+    activityCache.delete(path);
+
+    const scanStart = Math.max(0, identity.size - ACTIVITY_MAX_SCAN_BYTES);
+    const scanned = await scanTurnActivityBackwards(handle, scanStart, identity.size, diagnostics);
+    setActivityCache(path, {
+      dev: identity.dev, ino: identity.ino, size: identity.size,
+      scannedTo: scanned.boundaryEnd,
+      activity: scanned.activity,
+      decisiveStart: scanned.decisiveStart,
+      decisiveEnd: scanned.decisiveEnd,
+      decisiveDigest: scanned.decisiveDigest,
+      boundaryStart: scanned.boundaryStart,
+      boundaryEnd: scanned.boundaryEnd,
+      boundaryDigest: scanned.boundaryDigest,
+    });
+    return scanned.activity;
   } catch {
+    activityCache.delete(path);
     return null;
+  } finally {
+    await handle?.close();
   }
 }
 
@@ -887,9 +1363,9 @@ async function readLastSessionPreferencesFromFile(
 
 /**
  * Returns live gjc sessions with their tmux session name + generation id.
- * Empty when tmux is absent. lsof failure no longer empties the list — the
- * ps-subtree idle lane is independent evidence and keeps running (리뷰 반영);
- * transcript-backed rows are simply absent for that poll.
+ * Empty when tmux is absent. An lsof failure no longer empties the list because
+ * the ps-subtree idle lane is independent; transcript-backed rows are simply
+ * absent for that poll.
  *
  * Concurrent callers share one in-flight scan (single-flight): several browser
  * clients poll every 5s, and overlapping tmux/lsof/ps storms were themselves
@@ -1072,6 +1548,17 @@ async function scanLiveGjcSessions(
   } catch {
     // ignore — the idle lane is additive
   }
+  // A cwd-only receipt is not pane-specific. It is therefore usable only when
+  // exactly one current subtree-proven pane can claim that cwd; a pane with an
+  // unavailable process generation still makes the mapping ambiguous.
+  const idlePaneCwdCounts = new Map<string, number>();
+  for (const idle of idlePanes) {
+    for (const pane of panes) {
+      if (pane.tmux.paneId !== idle.tmux.paneId) continue;
+      idlePaneCwdCounts.set(pane.cwd, (idlePaneCwdCounts.get(pane.cwd) ?? 0) + 1);
+    }
+  }
+
 
   // Runtime-receipt lane (gjc 0.10.2: idle gjc holds no transcript fd — see the
   // lane comment above pickPaneReceipt). Upgrade subtree-proven gjc panes, which
@@ -1084,17 +1571,44 @@ async function scanLiveGjcSessions(
   const upgradedRows: typeof named = [];
   const remainingIdlePanes: typeof idlePanes = [];
   for (const idle of idlePanes) {
+    if (idle.process === null) {
+      // Without the active gjc generation, a receipt from an earlier run in the
+      // same long-lived pane is indistinguishable. Keep the safe synthetic row.
+      remainingIdlePanes.push(idle);
+      continue;
+    }
     let bound = false;
     for (const pane of panes.filter((candidate) => candidate.tmux.paneId === idle.tmux.paneId)) {
-      const terminalReceipt = await readPaneTerminalReceipt(pane.pid);
-      const receipt = pickPaneReceipt({
+      const terminalAttempt = await readPaneTerminalReceipt(pane.pid);
+      const terminal = terminalAttempt.receipt ? pickPaneReceipt({
         paneCwd: pane.cwd,
-        paneStartMs: await processStartMs(pane.pid),
-        receipts: [
-          ...(terminalReceipt ? [terminalReceipt] : []),
-          ...await readPaneRuntimeReceipts(pane.cwd),
-        ],
-      });
+        agentStartMs: idle.process.startedAtMs,
+        receipts: [terminalAttempt.receipt],
+      }) : null;
+      const exactAttempt = terminal ? {
+        receipt: null,
+        attempts: 0 as const,
+        attemptedEntry: null,
+      } : await readExactResumeReceipt(
+        pane.cwd,
+        idle.agentPid,
+        idle.process.startedAtMs,
+      );
+      const fallbackLimit = runtimeReceiptFallbackBudget(
+        terminalAttempt.attempts + exactAttempt.attempts,
+      );
+      const excludedEntries = new Set(
+        exactAttempt.attemptedEntry ? [exactAttempt.attemptedEntry] : [],
+      );
+      const fallback = terminal || exactAttempt.receipt || fallbackLimit === 0
+        || idlePaneCwdCounts.get(pane.cwd) !== 1
+        ? null
+        : pickPaneReceipt({
+            paneCwd: pane.cwd,
+            agentStartMs: idle.process.startedAtMs,
+            receipts: await readPaneRuntimeReceipts(pane.cwd, fallbackLimit, excludedEntries),
+          });
+      const receipt = selectAuthoritativePaneReceipt(terminal, exactAttempt.receipt, fallback);
       if (!receipt || claimedIds.has(receipt.sessionId)) {
         continue;
       }
@@ -1127,22 +1641,22 @@ async function scanLiveGjcSessions(
 
   // Enrich with the current model, reasoning effort, and turn activity from
   // each transcript.
-  const enriched = await Promise.all(
-    [...namedFinal, ...upgradedRows].map(async (session) => {
+  const enriched = await mapTranscriptEnrichments(
+    [...namedFinal, ...upgradedRows],
+    async (session) => {
       const path = sessionPaths.get(session.id);
-      const [preferences, running] = path
-        ? await Promise.all([
-            readLastSessionPreferencesFromFile(path),
-            readTurnActivityFromFile(path),
-          ])
-        : [{ model: null, effort: null }, null] as const;
+      const preferences = path
+        ? await readLastSessionPreferencesFromFile(path)
+        : { model: null, effort: null };
+      const activity = path ? await readTurnActivityFromFile(path) : null;
       return {
         ...session,
         model: preferences.model,
         effort: preferences.effort,
-        running,
+        running: activity === null ? null : activity === 'running',
+        error: activity === null ? null : activity === 'error',
       };
-    }),
+    },
   );
   const allSessions = [
     ...enriched,
@@ -1158,6 +1672,7 @@ async function scanLiveGjcSessions(
       model: null,
       effort: null,
       running: null,
+      error: null,
     })),
   ];
   return {

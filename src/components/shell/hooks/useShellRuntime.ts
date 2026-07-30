@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import type { FitAddon } from '@xterm/addon-fit';
 import type { Terminal } from '@xterm/xterm';
 
+import { tmuxPaneIdentityKey } from '../../../../shared/tmux';
 import type { UseShellRuntimeOptions, UseShellRuntimeResult } from '../types/types';
 
 import { useShellConnection } from './useShellConnection';
@@ -9,6 +10,7 @@ import { useShellTerminal } from './useShellTerminal';
 
 export function useShellRuntime({
   selectedProject,
+  projectPath,
   selectedSession,
   initialCommand,
   isPlainShell,
@@ -25,6 +27,7 @@ export function useShellRuntime({
   const wsRef = useRef<WebSocket | null>(null);
 
   const selectedProjectRef = useRef(selectedProject);
+  const projectPathRef = useRef(projectPath);
   const selectedSessionRef = useRef(selectedSession);
   const initialCommandRef = useRef(initialCommand);
   const isPlainShellRef = useRef(isPlainShell);
@@ -35,12 +38,23 @@ export function useShellRuntime({
   // Keep mutable values in refs so websocket handlers always read current data.
   useEffect(() => {
     selectedProjectRef.current = selectedProject;
+    projectPathRef.current = projectPath;
     selectedSessionRef.current = selectedSession;
     initialCommandRef.current = initialCommand;
     isPlainShellRef.current = isPlainShell;
     attachTargetRef.current = attachTarget;
     onProcessCompleteRef.current = onProcessComplete;
-  }, [selectedProject, selectedSession, initialCommand, isPlainShell, attachTarget, onProcessComplete]);
+  }, [selectedProject, projectPath, selectedSession, initialCommand, isPlainShell, attachTarget, onProcessComplete]);
+
+  const terminalIdentityKey = attachTarget
+    ? JSON.stringify([
+        attachTarget.targetClass,
+        tmuxPaneIdentityKey(attachTarget.tmux),
+        attachTarget.targetClass === 'local-agent'
+          ? [attachTarget.process.pid, attachTarget.process.startedAtMs]
+          : attachTarget.capability,
+      ])
+    : selectedProject?.fullPath || selectedProject?.path || '';
 
   const closeSocket = useCallback(() => {
     const activeSocket = wsRef.current;
@@ -63,7 +77,7 @@ export function useShellRuntime({
     terminalRef,
     fitAddonRef,
     wsRef,
-    selectedProject,
+    terminalIdentityKey,
     minimal,
     isRestarting,
     closeSocket,
@@ -74,6 +88,7 @@ export function useShellRuntime({
     terminalRef,
     fitAddonRef,
     selectedProjectRef,
+    projectPathRef,
     selectedSessionRef,
     initialCommandRef,
     isPlainShellRef,
@@ -96,13 +111,13 @@ export function useShellRuntime({
   }, [disconnectFromShell, disposeTerminal, isRestarting]);
 
   useEffect(() => {
-    if (selectedProject) {
+    if (selectedProject || attachTarget) {
       return;
     }
 
     disconnectFromShell();
     disposeTerminal();
-  }, [disconnectFromShell, disposeTerminal, selectedProject]);
+  }, [attachTarget, disconnectFromShell, disposeTerminal, selectedProject]);
 
   useEffect(() => {
     const currentSessionId = selectedSession?.id ?? null;

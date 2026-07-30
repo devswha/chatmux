@@ -18,7 +18,7 @@ const tmux = { socketPath: '/tmp/tmux-1000/default', sessionId: '$1', windowId: 
 const external = { tmuxName: 'shell', tmux, kind: 'ssh' as const, agentPid: 10, startedAtMs: 100 };
 const live = {
   id: 'session-1', tmuxName: 'gjc', tmux, process: { pid: 11, startedAtMs: 101 },
-  claim: 'lineage' as const, kind: 'interactive' as const, model: null, effort: null, running: true,
+  claim: 'lineage' as const, kind: 'interactive' as const, model: null, effort: null, running: true, error: false,
 };
 
 type SnapshotRowsCannotAuthorize = DiscoveryRow extends VerifiedTmuxActionTarget ? false : true;
@@ -63,6 +63,17 @@ test('discovery collector only advances revision for a changed snapshot', async 
   assert.equal(state.collector.currentSnapshot().revision, first.revision + 2);
   assert.equal(state.collector.currentSnapshot().rows.some((row) => row.lane === 'external'), false);
   assert.equal(GRACE_TICKS_EXTERNAL, 2);
+});
+
+test('discovery collector publishes GJC provider failures as error activity', async () => {
+  const state = scans();
+  state.live([{ ...live, running: false, error: true }]);
+  await state.collector.tick();
+
+  assert.equal(
+    state.collector.currentSnapshot().rows.find((row) => row.lane === 'live')?.activity,
+    'error',
+  );
 });
 
 test('unavailable lanes retain rows and only degrade health after the threshold', async () => {
@@ -133,6 +144,25 @@ test('a structured live row replaces an idle row in the same pane without grace'
   const row = state.collector.currentSnapshot().rows.find((candidate) => candidate.lane === 'live');
   assert.equal(row?.providerSessionId, 'session-1');
   assert.equal(row?.presence, 'present');
+});
+
+test('a same-name tmux session replacement removes the stale generation immediately', async () => {
+  const state = scans();
+  await state.collector.tick();
+
+  const replacement = {
+    ...live,
+    id: 'session-2',
+    tmux: { ...tmux, sessionId: '$2', windowId: '@2', paneId: '%2' },
+    process: { pid: 12, startedAtMs: 102 },
+  };
+  state.live([replacement]);
+  await state.collector.tick();
+
+  const liveRows = state.collector.currentSnapshot().rows.filter((row) => row.lane === 'live');
+  assert.equal(liveRows.length, 1);
+  assert.equal(liveRows[0]?.providerSessionId, 'session-2');
+  assert.equal(liveRows[0]?.presence, 'present');
 });
 
 test('epochs are unique and snapshot payloads exclude transcript paths', async () => {

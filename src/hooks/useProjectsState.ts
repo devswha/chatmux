@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { NavigateFunction } from 'react-router-dom';
 
 import { api } from '../utils/api';
-import { isLiveTmuxActionable } from '../utils/liveSessions';
+import { isLiveTmuxActionable, readRestSessionContainer } from '../utils/liveSessions';
 import type { ServerEvent } from '../contexts/WebSocketContext';
 import type {
   AppTab,
@@ -10,7 +10,7 @@ import type {
   Project,
   ProjectSession,
 } from '../types/app';
-import { tmuxPaneIdentityKey, type TmuxPaneTarget } from '../../shared/tmux';
+import { tmuxPaneIdentityKey, type TmuxPaneIdentity, type TmuxPaneTarget } from '../../shared/tmux';
 
 import { useDiscoveryStream, type DiscoveryRow } from './useDiscoveryStream';
 import type { SessionActivityMap } from './useSessionProtection';
@@ -81,6 +81,51 @@ const readPersistedTab = (): AppTab => {
   return 'chat';
 };
 
+type LiveRestMetadata = {
+  id: string;
+  model?: string;
+  effort?: string;
+  claim?: string;
+  kind?: string;
+  running?: boolean;
+  error?: boolean;
+};
+
+export function resolveLiveDiscoverySession(
+  row: DiscoveryRow,
+  metadataCandidate?: LiveRestMetadata,
+  discoveryOk = true,
+): {
+  sessionId: string;
+  metadata?: LiveRestMetadata;
+  running: boolean;
+  error: boolean;
+} | null {
+  if (row.lane !== 'live' || !row.providerSessionId) return null;
+  if (!discoveryOk) {
+    return {
+      sessionId: row.providerSessionId,
+      running: false,
+      error: false,
+    };
+  }
+  return {
+    sessionId: row.providerSessionId,
+    metadata: metadataCandidate?.id === row.providerSessionId ? metadataCandidate : undefined,
+    running: row.activity === 'running',
+    error: row.activity === 'error',
+  };
+}
+export function shouldApplyLiveRestResponse(
+  generation: number,
+  latestGeneration: number,
+  appliedGeneration: number,
+  aborted: boolean,
+): boolean {
+  return !aborted && generation === latestGeneration && generation > appliedGeneration;
+}
+
+
 export function useProjectsState({
   sessionId,
   navigate,
@@ -95,11 +140,12 @@ export function useProjectsState({
   const [selectedSession, setSelectedSession] = useState<ProjectSession | null>(null);
   const [liveSessionIds, setLiveSessionIds] = useState<Set<string>>(new Set());
   const [liveSessionNames, setLiveSessionNames] = useState<Map<string, string>>(new Map());
+  const [liveSessionPanes, setLiveSessionPanes] = useState<Map<string, TmuxPaneIdentity>>(new Map());
+  const [liveSessionPresence, setLiveSessionPresence] = useState<Map<string, 'present' | 'stale'>>(new Map());
   const [liveSessionModels, setLiveSessionModels] = useState<Map<string, string>>(new Map());
   const [liveSessionEfforts, setLiveSessionEfforts] = useState<Map<string, string>>(new Map());
   // Session ids whose tmux name is a LINEAGE claim (gjc runs inside that tmux
-  // session). Only these may carry tmux actions (kill/relay) — cwd-fallback
-  // labels killed an unrelated claude tmux session (patina 실사고).
+  // session). Only these may carry tmux actions; cwd-fallback labels are display-only.
   const [liveSessionLineage, setLiveSessionLineage] = useState<Set<string>>(new Set());
   // Foreground-command classification per live id ('interactive' | 'batch'):
   // a batch gjc descendant under a shell is badged apart from an interactive
@@ -108,20 +154,19 @@ export function useProjectsState({
   // Session ids whose transcript tail shows a turn in progress (assistant
   // answering / tool loop). Presentational only — drives the RUN badge.
   const [liveSessionRunning, setLiveSessionRunning] = useState<Set<string>>(new Set());
+  const [liveSessionErrors, setLiveSessionErrors] = useState<Set<string>>(new Set());
   // Exact pane and process generation per actionable live row.
   const [liveSessionTargets, setLiveSessionTargets] = useState<Map<string, TmuxPaneTarget>>(new Map());
   // False until the first live poll settles, so the sidebar shows a loading
   // state instead of a false "no sessions" during the initial fetch.
   const [liveSessionsLoaded, setLiveSessionsLoaded] = useState(false);
-  const liveRestMetadataRef = useRef(new Map<string, {
-    id: string;
-    model?: string;
-    effort?: string;
-    claim?: string;
-    kind?: string;
-    running?: boolean;
-  }>());
+  const liveRestMetadataRef = useRef(new Map<string, LiveRestMetadata>());
   const liveRowsRef = useRef<DiscoveryRow[] | null>(null);
+  const liveStreamEverHealthyRef = useRef(false);
+  const liveAuthorityRef = useRef<'stream' | 'rest' | 'none'>('none');
+  const liveRequestGenerationRef = useRef(0);
+  const liveAppliedGenerationRef = useRef(0);
+  const liveRequestControllerRef = useRef<AbortController | null>(null);
   const [activeTab, setActiveTab] = useState<AppTab>(readPersistedTab);
 
   useEffect(() => {
@@ -132,123 +177,267 @@ export function useProjectsState({
     }
   }, [activeTab]);
 
-  const applyLiveRows = useCallback((rows: DiscoveryRow[]) => {
+  const applyLiveNone = useCallback(() => {
+    liveAuthorityRef.current = 'none';
+    liveRowsRef.current = null;
+    liveRestMetadataRef.current = new Map();
+    setLiveSessionPresence((current) => new Map(
+      [...current.keys()].map((sessionId) => [sessionId, 'stale'] as const),
+    ));
+    setLiveSessionTargets(new Map());
+    setLiveSessionModels(new Map());
+    setLiveSessionEfforts(new Map());
+    setLiveSessionLineage(new Set());
+    setLiveSessionKinds(new Map());
+    setLiveSessionRunning(new Set());
+    setLiveSessionErrors(new Set());
+    setLiveSessionsLoaded(true);
+  }, []);
+  const applyLiveIdentityOnly = useCallback((sessions: Array<{ id?: unknown; tmuxName?: unknown; tmux?: unknown }>) => {
+    const ids = new Set<string>();
+    const names = new Map<string, string>();
+    const panes = new Map<string, TmuxPaneIdentity>();
+    const presence = new Map<string, 'present' | 'stale'>();
+    for (const session of sessions) {
+      if (typeof session.id !== 'string') continue;
+      ids.add(session.id);
+      presence.set(session.id, 'stale');
+      if (typeof session.tmuxName === 'string') names.set(session.id, session.tmuxName);
+      if (session.tmux && typeof session.tmux === 'object') {
+        panes.set(session.id, session.tmux as TmuxPaneIdentity);
+      }
+    }
+    liveAuthorityRef.current = 'none';
+    liveRowsRef.current = null;
+    liveRestMetadataRef.current = new Map();
+    setLiveSessionIds(ids);
+    setLiveSessionNames(names);
+    setLiveSessionPanes(panes);
+    setLiveSessionPresence(presence);
+    setLiveSessionTargets(new Map());
+    setLiveSessionModels(new Map());
+    setLiveSessionEfforts(new Map());
+    setLiveSessionLineage(new Set());
+    setLiveSessionKinds(new Map());
+    setLiveSessionRunning(new Set());
+    setLiveSessionErrors(new Set());
+    setLiveSessionsLoaded(true);
+  }, []);
+
+
+  const applyLiveRows = useCallback((allRows: DiscoveryRow[]) => {
+    const rows = allRows.filter((row) => row.lane === 'live');
+    liveAuthorityRef.current = 'stream';
     liveRowsRef.current = rows;
     const names = new Map<string, string>();
+    const panes = new Map<string, TmuxPaneIdentity>();
+    const presence = new Map<string, 'present' | 'stale'>();
     const targets = new Map<string, TmuxPaneTarget>();
     const models = new Map<string, string>();
     const efforts = new Map<string, string>();
     const lineage = new Set<string>();
     const kinds = new Map<string, string>();
     const runningIds = new Set<string>();
+    const errorIds = new Set<string>();
     for (const row of rows) {
-      if (row.lane !== 'live') continue;
-      const metadata = liveRestMetadataRef.current.get(tmuxPaneIdentityKey(row.tmux));
-      const sessionId = metadata?.id ?? row.providerSessionId;
-      if (!sessionId) continue;
+      const observation = resolveLiveDiscoverySession(
+        row,
+        liveRestMetadataRef.current.get(tmuxPaneIdentityKey(row.tmux)),
+      );
+      if (!observation) continue;
+      const { sessionId, metadata } = observation;
       names.set(sessionId, row.tmuxName);
-      if (row.process) targets.set(sessionId, { tmux: row.tmux, process: row.process });
-      if (typeof metadata?.model === 'string') models.set(sessionId, metadata.model);
-      if (typeof metadata?.effort === 'string') efforts.set(sessionId, metadata.effort);
-      if (isLiveTmuxActionable(row, metadata?.claim)) lineage.add(sessionId);
-      if (typeof metadata?.kind === 'string') kinds.set(sessionId, metadata.kind);
-      if (row.activity === 'running' || metadata?.running === true) runningIds.add(sessionId);
+      panes.set(sessionId, row.tmux);
+      presence.set(sessionId, row.presence);
+      if (row.presence === 'present') {
+        if (row.process) targets.set(sessionId, { tmux: row.tmux, process: row.process });
+        if (typeof metadata?.model === 'string') models.set(sessionId, metadata.model);
+        if (typeof metadata?.effort === 'string') efforts.set(sessionId, metadata.effort);
+        if (isLiveTmuxActionable(row, metadata?.claim)) lineage.add(sessionId);
+        if (typeof metadata?.kind === 'string') kinds.set(sessionId, metadata.kind);
+        if (observation.running) runningIds.add(sessionId);
+        if (observation.error) errorIds.add(sessionId);
+      }
     }
     setLiveSessionIds(new Set(names.keys()));
     setLiveSessionNames(names);
+    setLiveSessionPanes(panes);
+    setLiveSessionPresence(presence);
     setLiveSessionTargets(targets);
     setLiveSessionModels(models);
     setLiveSessionEfforts(efforts);
     setLiveSessionLineage(lineage);
     setLiveSessionKinds(kinds);
     setLiveSessionRunning(runningIds);
+    setLiveSessionErrors(errorIds);
     setLiveSessionsLoaded(true);
   }, []);
-  const streamHealthy = useDiscoveryStream({
-    lanes: ['external', 'live'],
-    isConnected,
-    sendMessage,
-    subscribe,
-    onRows: applyLiveRows,
-  });
+
   const applyLiveRestSessions = useCallback((sessions: Array<{
     id?: unknown; tmuxName?: unknown; tmux?: unknown; process?: unknown; model?: unknown;
-    effort?: unknown; claim?: unknown; kind?: unknown; running?: unknown;
-  }>) => {
+    effort?: unknown; claim?: unknown; kind?: unknown; running?: unknown; error?: unknown;
+    presence?: unknown;
+  }>, discoveryOk: boolean) => {
+    if (!discoveryOk) {
+      applyLiveIdentityOnly(sessions);
+      return;
+    }
+
     const names = new Map<string, string>();
     const targets = new Map<string, TmuxPaneTarget>();
+    const panes = new Map<string, TmuxPaneIdentity>();
+    const presence = new Map<string, 'present' | 'stale'>();
     const models = new Map<string, string>();
     const efforts = new Map<string, string>();
     const lineage = new Set<string>();
     const kinds = new Map<string, string>();
     const running = new Set<string>();
-    const metadata = new Map<string, {
-      id: string; model?: string; effort?: string; claim?: string; kind?: string; running?: boolean;
-    }>();
+    const errors = new Set<string>();
+    const metadata = new Map<string, LiveRestMetadata>();
     for (const session of sessions) {
       if (typeof session.id !== 'string') continue;
-      if (session.tmux && typeof session.tmux === 'object') {
-        metadata.set(tmuxPaneIdentityKey(session.tmux as TmuxPaneTarget['tmux']), {
+      const hasPane = Boolean(session.tmux && typeof session.tmux === 'object');
+      const present = session.presence !== 'stale';
+      presence.set(session.id, present ? 'present' : 'stale');
+      if (hasPane) {
+        const tmux = session.tmux as TmuxPaneIdentity;
+        panes.set(session.id, tmux);
+        metadata.set(tmuxPaneIdentityKey(tmux), {
           id: session.id,
-          model: typeof session.model === 'string' ? session.model : undefined,
-          effort: typeof session.effort === 'string' ? session.effort : undefined,
-          claim: typeof session.claim === 'string' ? session.claim : undefined,
-          kind: typeof session.kind === 'string' ? session.kind : undefined,
-          running: session.running === true,
+          model: present && typeof session.model === 'string' ? session.model : undefined,
+          effort: present && typeof session.effort === 'string' ? session.effort : undefined,
+          claim: present && typeof session.claim === 'string' ? session.claim : undefined,
+          kind: present && typeof session.kind === 'string' ? session.kind : undefined,
+          running: present && session.running === true,
+          error: present && session.error === true,
         });
       }
       if (typeof session.tmuxName === 'string') names.set(session.id, session.tmuxName);
-      if (session.tmux && session.process) targets.set(session.id, { tmux: session.tmux as TmuxPaneTarget['tmux'], process: session.process as TmuxPaneTarget['process'] });
+      if (!present) continue;
+      if (hasPane && session.process) targets.set(session.id, {
+        tmux: session.tmux as TmuxPaneTarget['tmux'],
+        process: session.process as TmuxPaneTarget['process'],
+      });
       if (typeof session.model === 'string') models.set(session.id, session.model);
       if (typeof session.effort === 'string') efforts.set(session.id, session.effort);
       if (session.claim === 'lineage') lineage.add(session.id);
       if (typeof session.kind === 'string') kinds.set(session.id, session.kind);
       if (session.running === true) running.add(session.id);
+      if (session.error === true) errors.add(session.id);
     }
     liveRestMetadataRef.current = metadata;
-    if (liveRowsRef.current !== null) {
+    if (liveAuthorityRef.current === 'stream' && liveRowsRef.current !== null) {
       applyLiveRows(liveRowsRef.current);
       return;
     }
-    setLiveSessionIds(new Set(sessions.flatMap((session) => typeof session.id === 'string' ? [session.id] : [])));
+    liveAuthorityRef.current = 'rest';
+    setLiveSessionIds(new Set(names.keys()));
     setLiveSessionNames(names);
+    setLiveSessionPanes(panes);
+    setLiveSessionPresence(presence);
     setLiveSessionTargets(targets);
     setLiveSessionModels(models);
     setLiveSessionEfforts(efforts);
     setLiveSessionLineage(lineage);
     setLiveSessionKinds(kinds);
     setLiveSessionRunning(running);
-  }, [applyLiveRows]);
+    setLiveSessionErrors(errors);
+    setLiveSessionsLoaded(true);
+  }, [applyLiveIdentityOnly, applyLiveRows]);
+
+  const invalidateLiveRequests = useCallback(() => {
+    liveRequestControllerRef.current?.abort();
+    ++liveRequestGenerationRef.current;
+  }, []);
+
   const loadLiveSessions = useCallback(async () => {
-    const response = await api.liveSessions();
-    if (!response.ok) return;
-    const body = await response.json();
-    applyLiveRestSessions((body?.data?.liveSessions ?? body?.liveSessions ?? []) as Array<{
-      id?: unknown; tmuxName?: unknown; tmux?: unknown; process?: unknown; model?: unknown;
-      effort?: unknown; claim?: unknown; kind?: unknown; running?: unknown;
-    }>);
-  }, [applyLiveRestSessions]);
+    const generation = ++liveRequestGenerationRef.current;
+    liveRequestControllerRef.current?.abort();
+    const controller = new AbortController();
+    liveRequestControllerRef.current = controller;
+    try {
+      const response = await api.liveSessions(controller.signal);
+      if (!shouldApplyLiveRestResponse(
+        generation,
+        liveRequestGenerationRef.current,
+        liveAppliedGenerationRef.current,
+        controller.signal.aborted,
+      )) return;
+
+      if (!response.ok) {
+        liveAppliedGenerationRef.current = generation;
+        applyLiveNone();
+        return;
+      }
+
+      const body = await response.json();
+      if (!shouldApplyLiveRestResponse(
+        generation,
+        liveRequestGenerationRef.current,
+        liveAppliedGenerationRef.current,
+        controller.signal.aborted,
+      )) return;
+      const container = readRestSessionContainer(body, 'liveSessions');
+      liveAppliedGenerationRef.current = generation;
+      if (!container) {
+        applyLiveNone();
+        return;
+      }
+      applyLiveRestSessions(
+        container.sessions as Array<{
+          id?: unknown; tmuxName?: unknown; tmux?: unknown; process?: unknown; model?: unknown;
+          effort?: unknown; claim?: unknown; kind?: unknown; running?: unknown; error?: unknown;
+          presence?: unknown;
+        }>,
+        container.discoveryOk,
+      );
+    } catch {
+      if (shouldApplyLiveRestResponse(
+        generation,
+        liveRequestGenerationRef.current,
+        liveAppliedGenerationRef.current,
+        controller.signal.aborted,
+      )) {
+        liveAppliedGenerationRef.current = generation;
+        applyLiveNone();
+      }
+    }
+  }, [applyLiveNone, applyLiveRestSessions]);
+
+  const handleLiveStreamHealthChange = useCallback((healthy: boolean) => {
+    if (healthy) {
+      liveStreamEverHealthyRef.current = true;
+      return;
+    }
+    invalidateLiveRequests();
+    applyLiveNone();
+  }, [applyLiveNone, invalidateLiveRequests]);
+
+  const streamHealthy = useDiscoveryStream({
+    lanes: ['live'],
+    isConnected,
+    sendMessage,
+    subscribe,
+    onRows: (rows) => {
+      invalidateLiveRequests();
+      applyLiveRows(rows);
+    },
+    onHealthChange: handleLiveStreamHealthChange,
+  });
+
   useEffect(() => {
-    let cancelled = false;
-    void loadLiveSessions()
-      .catch(() => undefined)
-      .finally(() => { if (!cancelled) setLiveSessionsLoaded(true); });
-    return () => { cancelled = true; };
-  }, [loadLiveSessions]);
+    void loadLiveSessions();
+    return () => {
+      invalidateLiveRequests();
+    };
+  }, [invalidateLiveRequests, loadLiveSessions]);
 
   useEffect(() => {
     if (streamHealthy) return undefined;
-    let cancelled = false;
-    const poll = () => {
-      void loadLiveSessions()
-        .catch(() => undefined)
-        .finally(() => { if (!cancelled) setLiveSessionsLoaded(true); });
-    };
+    const poll = () => { void loadLiveSessions(); };
+    if (liveStreamEverHealthyRef.current) poll();
     const timer = window.setInterval(poll, 5_000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
+    return () => window.clearInterval(timer);
   }, [loadLiveSessions, streamHealthy]);
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -570,9 +759,8 @@ export function useProjectsState({
       return;
     }
 
-    // Synthetic idle fleet rows (`idle-gjc:<tmux>`) are not sessions: no
-    // transcript, no provider — a placeholder here would become a writable
-    // fake session once the idle row disappears (리뷰 반영). Never route them.
+    // Synthetic idle fleet rows (`idle-gjc:<tmux>`) are not sessions. Creating a
+    // placeholder for one would leave a writable fake session after the row disappears.
     if (sessionId.startsWith('idle-gjc:')) {
       return;
     }
@@ -752,9 +940,12 @@ export function useProjectsState({
       liveSessionEfforts,
       liveSessionModels,
       liveSessionLineage,
+      liveSessionPanes,
+      liveSessionPresence,
       liveSessionTargets,
       liveSessionKinds,
       liveSessionRunning,
+      liveSessionErrors,
       liveSessionsLoaded,
       onProjectSelect: handleProjectSelect,
       onSessionSelect: handleSessionSelect,
@@ -772,8 +963,11 @@ export function useProjectsState({
       liveSessionModels,
       liveSessionLineage,
       liveSessionTargets,
+      liveSessionPanes,
+      liveSessionPresence,
       liveSessionKinds,
       liveSessionRunning,
+      liveSessionErrors,
       liveSessionsLoaded,
       handleProjectSelect,
       handleSessionSelect,

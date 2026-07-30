@@ -1,11 +1,25 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { chmod, mkdtemp, writeFile } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
+import { appendFile, chmod, mkdir, mkdtemp, open, truncate, unlink, utimes, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
 import {
   computeLiveSessions,
+  ACTIVITY_CACHE_MAX_ENTRIES,
+  ACTIVITY_BOUNDARY_DIGEST_BYTES,
+  ACTIVITY_MAX_READ_BYTES_PER_ATTEMPT,
+  ACTIVITY_MAX_RECORD_BYTES,
+  ACTIVITY_MAX_RETAINED_INPUT_BYTES,
+  ACTIVITY_MAX_SCAN_BYTES,
+  ACTIVITY_SCAN_CHUNK_BYTES,
+  GJC_CMDLINE_MAX_BYTES,
+  RECEIPT_ATTEMPT_LIMIT,
+  RUNTIME_RECEIPT_FALLBACK_LIMIT,
+  TRANSCRIPT_ENRICHMENT_CONCURRENCY,
+  mapTranscriptEnrichments,
+  getActivityCacheDiagnostics,
   dedupeLiveSessionsByLineage,
   extractSessionPathsFromLsof,
   findIdleGjcTmuxSessions,
@@ -18,10 +32,17 @@ import {
   parseLastSessionPreferences,
   parseTerminalSessionReceipt,
   parseTurnActivity,
+  parseTurnActivityState,
+  readTurnActivityFromFile,
+  scanTurnActivityBackwards,
+  resumeSessionIdFromCmdline,
   parseLsofPidSessions,
   parseTmuxPanes,
   pickPaneReceipt,
   getLiveGjcSessionsDetailed,
+  runtimeReceiptFallbackBudget,
+  selectRuntimeReceiptDirectories,
+  selectAuthoritativePaneReceipt,
   tmuxHasPanes,
 } from '@/modules/providers/services/live-sessions.service.js';
 
@@ -67,6 +88,294 @@ esac
   } finally {
     process.env.PATH = previousPath;
     delete process.env.CHATMUX_LIVE_TMUX_OUTPUT;
+  }
+});
+
+test('getLiveGjcSessionsDetailed fails closed when the current gjc generation is unavailable', async () => {
+  const bin = await mkdtemp(path.join(os.tmpdir(), 'chatmux-stale-receipt-'));
+  const workspace = await mkdtemp(path.join(os.tmpdir(), 'chatmux-stale-workspace-'));
+  const tmuxBin = path.join(bin, 'tmux');
+  const lsofBin = path.join(bin, 'lsof');
+  const psBin = path.join(bin, 'ps');
+  const staleSessionId = '019faf4b-ec4c-7000-bb62-7f446e85d4a7';
+  const runtimeDir = path.join(workspace, '.gjc', `_session-${staleSessionId}`, 'runtime');
+  const transcript = path.join(workspace, 'stale.jsonl');
+  const previousPath = process.env.PATH;
+
+  await mkdir(runtimeDir, { recursive: true });
+  await writeFile(transcript, '');
+  await writeFile(
+    path.join(runtimeDir, 'runtime-state.json'),
+    JSON.stringify({ session_id: staleSessionId, cwd: workspace, session_file: transcript }),
+  );
+  await writeFile(tmuxBin, `#!/bin/sh
+case "$*" in
+  *list-panes*) printf '%s\\n' "$CHATMUX_LIVE_TMUX_OUTPUT" ;;
+esac
+`);
+  await writeFile(lsofBin, '#!/bin/sh\nexit 0\n');
+  await writeFile(psBin, '#!/bin/sh\nprintf \'%s\\n\' "$CHATMUX_LIVE_PS_OUTPUT"\n');
+  await Promise.all([chmod(tmuxBin, 0o755), chmod(lsofBin, 0o755), chmod(psBin, 0o755)]);
+
+  process.env.PATH = `${bin}${path.delimiter}${previousPath ?? ''}`;
+  process.env.CHATMUX_LIVE_TMUX_OUTPUT =
+    `/tmp/chatmux.sock\t$1\t@1\t%91\trestart\t99999998\tbash\t${workspace}`;
+  process.env.CHATMUX_LIVE_PS_OUTPUT = [
+    '99999998 1 bash',
+    '99999999 99999998 /usr/local/bin/gjc',
+  ].join('\n');
+
+  try {
+    const result = await getLiveGjcSessionsDetailed();
+    assert.equal(result.ok, true);
+    assert.equal(result.sessions.length, 1);
+    assert.equal(result.sessions[0].id, `${IDLE_GJC_ID_PREFIX}restart:%91`);
+    assert.equal(result.sessions[0].process, null);
+    assert.notEqual(result.sessions[0].id, staleSessionId);
+  } finally {
+    process.env.PATH = previousPath;
+    delete process.env.CHATMUX_LIVE_TMUX_OUTPUT;
+    delete process.env.CHATMUX_LIVE_PS_OUTPUT;
+  }
+});
+
+test('getLiveGjcSessionsDetailed maps a subagent runtime receipt to its interactive parent', async () => {
+  const bin = await mkdtemp(path.join(os.tmpdir(), 'chatmux-sidecar-receipt-'));
+  const workspace = await mkdtemp(path.join(os.tmpdir(), 'chatmux-sidecar-workspace-'));
+  const tmuxBin = path.join(bin, 'tmux');
+  const lsofBin = path.join(bin, 'lsof');
+  const psBin = path.join(bin, 'ps');
+  const parentSessionId = '019faf4b-ec4c-7000-bb62-7f446e85d4a7';
+  const subagentSessionId = '019faf68-e6d3-7000-a118-e8ae9c0b421b';
+  const transcriptBase = path.join(
+    workspace,
+    '.gjc',
+    'agent',
+    'sessions',
+    'test-scope',
+    `2026-07-29T19-13-36_${parentSessionId}`,
+  );
+  const parentTranscript = `${transcriptBase}.jsonl`;
+  const sidecarTranscript = path.join(transcriptBase, '1-GjcReceiptReview.jsonl');
+  const runtimeDir = path.join(workspace, '.gjc', `_session-${subagentSessionId}`, 'runtime');
+  const previousPath = process.env.PATH;
+
+  await Promise.all([
+    mkdir(path.dirname(parentTranscript), { recursive: true }),
+    mkdir(path.dirname(sidecarTranscript), { recursive: true }),
+    mkdir(runtimeDir, { recursive: true }),
+  ]);
+  await Promise.all([
+    writeFile(parentTranscript, ''),
+    writeFile(sidecarTranscript, ''),
+    writeFile(
+      path.join(runtimeDir, 'runtime-state.json'),
+      JSON.stringify({
+        session_id: subagentSessionId,
+        cwd: workspace,
+        session_file: sidecarTranscript,
+      }),
+    ),
+  ]);
+  await writeFile(tmuxBin, `#!/bin/sh
+case "$*" in
+  *list-panes*) printf '%s\\n' "$CHATMUX_LIVE_TMUX_OUTPUT" ;;
+esac
+`);
+  await writeFile(lsofBin, '#!/bin/sh\nexit 0\n');
+  await writeFile(psBin, '#!/bin/sh\nprintf \'%s\\n\' "$CHATMUX_LIVE_PS_OUTPUT"\n');
+  await Promise.all([chmod(tmuxBin, 0o755), chmod(lsofBin, 0o755), chmod(psBin, 0o755)]);
+
+  process.env.PATH = `${bin}${path.delimiter}${previousPath ?? ''}`;
+  process.env.CHATMUX_LIVE_TMUX_OUTPUT =
+    `/tmp/chatmux.sock\t$1\t@1\t%92\truntime-sidecar\t99999997\tbash\t${workspace}`;
+  process.env.CHATMUX_LIVE_PS_OUTPUT = [
+    '99999997 1 bash',
+    `${process.pid} 99999997 /usr/local/bin/gjc`,
+  ].join('\n');
+
+  try {
+    const result = await getLiveGjcSessionsDetailed();
+    assert.equal(result.ok, true);
+    assert.equal(result.sessions.length, 1);
+    assert.equal(result.sessions[0].id, parentSessionId);
+    assert.equal(result.sessions[0].process?.pid, process.pid);
+    assert.notEqual(result.sessions[0].id, subagentSessionId);
+  } finally {
+    process.env.PATH = previousPath;
+    delete process.env.CHATMUX_LIVE_TMUX_OUTPUT;
+    delete process.env.CHATMUX_LIVE_PS_OUTPUT;
+  }
+});
+
+test('getLiveGjcSessionsDetailed prefers the exact resumed session over a newer heuristic receipt', async () => {
+  const bin = await mkdtemp(path.join(os.tmpdir(), 'chatmux-exact-receipt-'));
+  const workspace = await mkdtemp(path.join(os.tmpdir(), 'chatmux-exact-workspace-'));
+  const tmuxBin = path.join(bin, 'tmux');
+  const lsofBin = path.join(bin, 'lsof');
+  const psBin = path.join(bin, 'ps');
+  const exactSessionId = '019faf4b-ec4c-7000-bb62-7f446e85d4a7';
+  const heuristicSessionId = '019faf5b-ec4c-7000-bb62-7f446e85d4a8';
+  const transcriptDirectory = path.join(workspace, '.gjc', 'agent', 'sessions', 'test-scope');
+  const exactTranscript = path.join(transcriptDirectory, `2026-07-29T19-13-36_${exactSessionId}.jsonl`);
+  const heuristicTranscript = path.join(transcriptDirectory, `2026-07-29T19-13-37_${heuristicSessionId}.jsonl`);
+  const exactReceipt = path.join(workspace, '.gjc', `_session-${exactSessionId}`, 'runtime', 'runtime-state.json');
+  const heuristicReceipt = path.join(workspace, '.gjc', `_session-${heuristicSessionId}`, 'runtime', 'runtime-state.json');
+  const previousPath = process.env.PATH;
+  const agent = spawn(
+    process.execPath,
+    ['-e', 'setInterval(() => {}, 1000)', '--', '--resume', exactSessionId],
+    { argv0: '/usr/local/bin/gjc', stdio: 'ignore' },
+  );
+  await new Promise<void>((resolve, reject) => {
+    agent.once('spawn', resolve);
+    agent.once('error', reject);
+  });
+
+  try {
+    await Promise.all([
+      mkdir(transcriptDirectory, { recursive: true }),
+      mkdir(path.join(workspace, '.gjc', `_session-${exactSessionId}`, 'runtime'), { recursive: true }),
+      mkdir(path.join(workspace, '.gjc', `_session-${heuristicSessionId}`, 'runtime'), { recursive: true }),
+    ]);
+    await Promise.all([
+      writeFile(exactTranscript, ''),
+      writeFile(heuristicTranscript, ''),
+    ]);
+    await writeFile(
+      exactReceipt,
+      JSON.stringify({ session_id: exactSessionId, cwd: workspace, session_file: exactTranscript }),
+    );
+    await writeFile(
+      heuristicReceipt,
+      JSON.stringify({ session_id: heuristicSessionId, cwd: workspace, session_file: heuristicTranscript }),
+    );
+    const receiptEpoch = Date.now() + 1_000;
+    await utimes(exactReceipt, receiptEpoch / 1_000, receiptEpoch / 1_000);
+    await utimes(heuristicReceipt, (receiptEpoch + 1_000) / 1_000, (receiptEpoch + 1_000) / 1_000);
+
+    await writeFile(tmuxBin, `#!/bin/sh
+case "$*" in
+  *list-panes*) printf '%s\\n' "$CHATMUX_LIVE_TMUX_OUTPUT" ;;
+esac
+`);
+    await writeFile(lsofBin, '#!/bin/sh\nexit 0\n');
+    await writeFile(psBin, '#!/bin/sh\nprintf \'%s\\n\' "$CHATMUX_LIVE_PS_OUTPUT"\n');
+    await Promise.all([chmod(tmuxBin, 0o755), chmod(lsofBin, 0o755), chmod(psBin, 0o755)]);
+
+    process.env.PATH = `${bin}${path.delimiter}${previousPath ?? ''}`;
+    process.env.CHATMUX_LIVE_TMUX_OUTPUT =
+      `/tmp/chatmux.sock\t$1\t@1\t%93\texact-resume\t99999996\tbash\t${workspace}`;
+    process.env.CHATMUX_LIVE_PS_OUTPUT = [
+      '99999996 1 bash',
+      `${agent.pid} 99999996 /usr/local/bin/gjc --resume ${exactSessionId}`,
+    ].join('\n');
+
+    const result = await getLiveGjcSessionsDetailed();
+    assert.equal(result.ok, true);
+    assert.equal(result.sessions.length, 1);
+    assert.equal(result.sessions[0].id, exactSessionId);
+    assert.equal(result.sessions[0].process?.pid, agent.pid);
+    assert.notEqual(result.sessions[0].id, heuristicSessionId);
+  } finally {
+    process.env.PATH = previousPath;
+    delete process.env.CHATMUX_LIVE_TMUX_OUTPUT;
+    delete process.env.CHATMUX_LIVE_PS_OUTPUT;
+    agent.kill('SIGKILL');
+  }
+});
+test('getLiveGjcSessionsDetailed keeps same-cwd heuristic receipts synthetic when two idle panes are live', async () => {
+  const bin = await mkdtemp(path.join(os.tmpdir(), 'chatmux-ambiguous-receipt-'));
+  const workspace = await mkdtemp(path.join(os.tmpdir(), 'chatmux-ambiguous-workspace-'));
+  const tmuxBin = path.join(bin, 'tmux');
+  const lsofBin = path.join(bin, 'lsof');
+  const psBin = path.join(bin, 'ps');
+  const firstSessionId = '019faf4b-ec4c-7000-bb62-7f446e85d4a7';
+  const secondSessionId = '019faf5b-ec4c-7000-bb62-7f446e85d4a8';
+  const previousPath = process.env.PATH;
+  const firstAgent = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+    argv0: '/usr/local/bin/gjc',
+    stdio: 'ignore',
+  });
+  const secondAgent = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+    argv0: '/usr/local/bin/gjc',
+    stdio: 'ignore',
+  });
+
+  await Promise.all([firstAgent, secondAgent].map((agent) => new Promise<void>((resolve, reject) => {
+    agent.once('spawn', resolve);
+    agent.once('error', reject);
+  })));
+
+  try {
+    const transcripts = [
+      path.join(workspace, `${firstSessionId}.jsonl`),
+      path.join(workspace, `${secondSessionId}.jsonl`),
+    ];
+    await Promise.all([
+      ...transcripts.map((transcript) => writeFile(transcript, '')),
+      ...[firstSessionId, secondSessionId].map((sessionId, index) => {
+        const receipt = path.join(workspace, '.gjc', `_session-${sessionId}`, 'runtime', 'runtime-state.json');
+        return mkdir(path.dirname(receipt), { recursive: true }).then(() => writeFile(
+          receipt,
+          JSON.stringify({ session_id: sessionId, cwd: workspace, session_file: transcripts[index] }),
+        ));
+      }),
+    ]);
+    await writeFile(tmuxBin, `#!/bin/sh
+case "$*" in
+  *list-panes*) printf '%s\\n' "$CHATMUX_LIVE_TMUX_OUTPUT" ;;
+esac
+`);
+    await writeFile(lsofBin, '#!/bin/sh\nexit 0\n');
+    await writeFile(psBin, '#!/bin/sh\nprintf \'%s\\n\' "$CHATMUX_LIVE_PS_OUTPUT"\n');
+    await Promise.all([chmod(tmuxBin, 0o755), chmod(lsofBin, 0o755), chmod(psBin, 0o755)]);
+
+    process.env.PATH = `${bin}${path.delimiter}${previousPath ?? ''}`;
+    process.env.CHATMUX_LIVE_TMUX_OUTPUT = [
+      `/tmp/chatmux.sock\t$1\t@1\t%94\tfirst\t99999994\tbash\t${workspace}`,
+      `/tmp/chatmux.sock\t$2\t@2\t%95\tsecond\t99999995\tbash\t${workspace}`,
+    ].join('\n');
+    process.env.CHATMUX_LIVE_PS_OUTPUT = [
+      '99999994 1 bash',
+      `${firstAgent.pid} 99999994 /usr/local/bin/gjc`,
+      '99999995 1 bash',
+      `${secondAgent.pid} 99999995 /usr/local/bin/gjc`,
+    ].join('\n');
+
+    const expectedSyntheticIds = [
+      `${IDLE_GJC_ID_PREFIX}first:%94`,
+      `${IDLE_GJC_ID_PREFIX}second:%95`,
+    ];
+    const result = await getLiveGjcSessionsDetailed();
+    assert.equal(result.ok, true);
+    assert.deepEqual(
+      result.sessions.map((session) => session.id).sort(),
+      expectedSyntheticIds,
+    );
+    assert.ok(result.sessions.every((session) => (
+      session.id !== firstSessionId && session.id !== secondSessionId
+    )));
+
+    const secondExit = new Promise<void>((resolve) => secondAgent.once('exit', () => resolve()));
+    secondAgent.kill('SIGKILL');
+    await secondExit;
+    const mixedGenerationResult = await getLiveGjcSessionsDetailed();
+    assert.equal(mixedGenerationResult.ok, true);
+    assert.deepEqual(
+      mixedGenerationResult.sessions.map((session) => session.id).sort(),
+      expectedSyntheticIds,
+      'a generation-unknown sibling keeps the same-cwd heuristic mapping ambiguous',
+    );
+    assert.ok(mixedGenerationResult.sessions.every((session) => (
+      session.id !== firstSessionId && session.id !== secondSessionId
+    )));
+  } finally {
+    process.env.PATH = previousPath;
+    delete process.env.CHATMUX_LIVE_TMUX_OUTPUT;
+    delete process.env.CHATMUX_LIVE_PS_OUTPUT;
+    firstAgent.kill('SIGKILL');
+    secondAgent.kill('SIGKILL');
   }
 });
 
@@ -513,20 +822,20 @@ test('pickPaneReceipt picks the newest receipt matching the pane cwd', () => {
     { sessionId: 'foreign', cwd: '/elsewhere', sessionFile: '/t/f.jsonl', mtimeMs: 9_000 },
   ];
   assert.equal(
-    pickPaneReceipt({ paneCwd: '/ws', paneStartMs: null, receipts })?.sessionId,
+    pickPaneReceipt({ paneCwd: '/ws', agentStartMs: null, receipts })?.sessionId,
     'new-1',
   );
 });
 
-test('pickPaneReceipt rejects receipts older than the pane process (stale headless run)', () => {
-  // A finished headless gjc left this receipt BEFORE the pane existed — it must
-  // never capture the new pane.
+test('pickPaneReceipt rejects receipts older than the current gjc agent process', () => {
+  // A previous gjc run left this receipt before the replacement agent started
+  // in the same tmux pane — it must never capture the restarted pane.
   const stale = [{ sessionId: 'stale', cwd: '/ws', sessionFile: '/t/s.jsonl', mtimeMs: 1_000 }];
-  assert.equal(pickPaneReceipt({ paneCwd: '/ws', paneStartMs: 2_000, receipts: stale }), null);
-  // …but the pane-start floor admits receipts written after the pane came up.
+  assert.equal(pickPaneReceipt({ paneCwd: '/ws', agentStartMs: 2_000, receipts: stale }), null);
+  // A receipt written by the replacement agent remains eligible.
   const fresh = [{ sessionId: 'live', cwd: '/ws', sessionFile: '/t/l.jsonl', mtimeMs: 3_000 }];
   assert.equal(
-    pickPaneReceipt({ paneCwd: '/ws', paneStartMs: 2_000, receipts: fresh })?.sessionId,
+    pickPaneReceipt({ paneCwd: '/ws', agentStartMs: 2_000, receipts: fresh })?.sessionId,
     'live',
   );
 });
@@ -535,7 +844,7 @@ test('pickPaneReceipt requires a session id and an existing transcript path', ()
   assert.equal(
     pickPaneReceipt({
       paneCwd: '/ws',
-      paneStartMs: null,
+      agentStartMs: null,
       receipts: [
         { sessionId: '', cwd: '/ws', sessionFile: '/t/x.jsonl', mtimeMs: 1 },
         { sessionId: 'no-file', cwd: '/ws', sessionFile: null, mtimeMs: 2 },
@@ -547,7 +856,24 @@ test('pickPaneReceipt requires a session id and an existing transcript path', ()
 
 test('pickPaneReceipt tolerates a null receipt cwd (older gjc builds) but never a mismatch', () => {
   const receipts = [{ sessionId: 'null-cwd', cwd: null, sessionFile: '/t/n.jsonl', mtimeMs: 4 }];
-  assert.equal(pickPaneReceipt({ paneCwd: '/ws', paneStartMs: null, receipts })?.sessionId, 'null-cwd');
+  assert.equal(pickPaneReceipt({ paneCwd: '/ws', agentStartMs: null, receipts })?.sessionId, 'null-cwd');
+});
+
+test('receipt authority is terminal, then exact resume, then heuristic regardless of mtime', () => {
+  const receipt = (sessionId: string, mtimeMs: number) => ({
+    sessionId,
+    cwd: '/ws',
+    sessionFile: `/t/${sessionId}.jsonl`,
+    mtimeMs,
+  });
+  const terminal = receipt('terminal', 1);
+  const exact = receipt('exact', 2);
+  const heuristic = receipt('heuristic', 9_999);
+
+  assert.equal(selectAuthoritativePaneReceipt(terminal, exact, heuristic)?.sessionId, 'terminal');
+  assert.equal(selectAuthoritativePaneReceipt(null, exact, heuristic)?.sessionId, 'exact');
+  assert.equal(selectAuthoritativePaneReceipt(null, null, heuristic)?.sessionId, 'heuristic');
+  assert.equal(selectAuthoritativePaneReceipt(null, null, null), null);
 });
 
 test('parseTerminalSessionReceipt maps gjc 0.11 tmux receipt to its transcript id', () => {
@@ -566,22 +892,95 @@ test('parseTerminalSessionReceipt maps gjc 0.11 tmux receipt to its transcript i
   assert.equal(parseTerminalSessionReceipt('/workspace/project\n/not-a-session.txt\n', 1234), null);
 });
 
+test('parseTerminalSessionReceipt maps a subagent receipt back to its parent transcript', () => {
+  assert.deepEqual(
+    parseTerminalSessionReceipt(
+      [
+        '/workspace/chatmux',
+        '/home/user/.gjc/agent/sessions/v2-scope/2026-07-29T19-13-36_019faf4b-ec4c-7000-bb62-7f446e85d4a7/0-SessionDragReview.jsonl',
+        '',
+      ].join('\n'),
+      5678,
+    ),
+    {
+      sessionId: '019faf4b-ec4c-7000-bb62-7f446e85d4a7',
+      cwd: '/workspace/chatmux',
+      sessionFile: '/home/user/.gjc/agent/sessions/v2-scope/2026-07-29T19-13-36_019faf4b-ec4c-7000-bb62-7f446e85d4a7.jsonl',
+      mtimeMs: 5678,
+    },
+  );
+});
+
+test('selectRuntimeReceiptDirectories keeps newest UUIDv7 sessions at the scan limit', () => {
+  const makeEntry = (index: number) => {
+    const timestamp = (0x019faf000000n + BigInt(index)).toString(16).padStart(12, '0');
+    return `_session-${timestamp.slice(0, 8)}-${timestamp.slice(8)}-7000-8000-${index.toString(16).padStart(12, '0')}`;
+  };
+  const validEntries = Array.from({ length: 514 }, (_, index) => makeEntry(index));
+  const newestUppercase = `_session-${validEntries[513].slice('_session-'.length).toUpperCase()}`;
+  const entries = [
+    '_session-ffffffff-ffff-4000-8000-ffffffffffff',
+    '_session-not-a-uuid',
+    ...validEntries.slice(0, 513),
+    newestUppercase,
+  ].reverse();
+
+  const selected = selectRuntimeReceiptDirectories(entries, 512);
+
+  assert.equal(selected.length, 512);
+  assert.equal(selected[0], newestUppercase);
+  assert.equal(selected[511], validEntries[2]);
+  assert.ok(!selected.includes(validEntries[0]));
+  assert.ok(!selected.includes(validEntries[1]));
+  assert.ok(!selected.includes('_session-ffffffff-ffff-4000-8000-ffffffffffff'));
+  assert.ok(!selected.includes('_session-not-a-uuid'));
+
+  const withoutExact = selectRuntimeReceiptDirectories(
+    entries,
+    512,
+    new Set([newestUppercase.toLowerCase()]),
+  );
+  assert.equal(withoutExact.length, 512);
+  assert.ok(!withoutExact.includes(newestUppercase));
+  assert.ok(withoutExact.includes(validEntries[1]));
+});
+
 // ─── parseTurnActivity (턴 진행 중 판정 — RUN/LIVE 배지) ─────────────────────
 
 const turnLine = (role: string, stopReason?: string) =>
   JSON.stringify({ type: 'message', id: 'x', message: { role, content: [], ...(stopReason ? { stopReason } : {}) } });
 
+const fixedTurnLine = (role: string, stopReason: string | undefined, targetLength: number) => {
+  const makeLine = (padding: string) => JSON.stringify({
+    type: 'message',
+    id: 'fixed',
+    message: { role, content: [], ...(stopReason ? { stopReason } : {}), padding },
+  });
+  const empty = makeLine('');
+  assert.ok(empty.length <= targetLength);
+  return makeLine('x'.repeat(targetLength - empty.length));
+};
+
 test('parseTurnActivity: the LAST turn-relevant record decides (실측 gjc 스키마)', () => {
   // assistant stop = turn finished
   assert.equal(parseTurnActivity([turnLine('user'), turnLine('assistant', 'toolUse'), turnLine('assistant', 'stop')].join('\n')), false);
-  // assistant error = turn finished
+  // assistant/provider error = finished, with a distinct ERROR activity
   assert.equal(parseTurnActivity([turnLine('user'), turnLine('assistant', 'error')].join('\n')), false);
+  assert.equal(parseTurnActivityState(turnLine('assistant', 'error')), 'error');
   // trailing user message = turn requested, in progress
   assert.equal(parseTurnActivity([turnLine('assistant', 'stop'), turnLine('user')].join('\n')), true);
   // trailing toolUse = mid tool loop
   assert.equal(parseTurnActivity([turnLine('user'), turnLine('assistant', 'toolUse')].join('\n')), true);
   // trailing toolResult = mid tool loop
   assert.equal(parseTurnActivity([turnLine('assistant', 'toolUse'), turnLine('toolResult')].join('\n')), true);
+});
+
+test('parseTurnActivityState recognizes a raw Claude API overloaded response as ERROR', () => {
+  assert.equal(parseTurnActivityState(JSON.stringify({
+    type: 'error',
+    error: { details: null, type: 'overloaded_error', message: 'Overloaded' },
+    request_id: 'req_011CdWwUjREwRBPM8SAkFNMR',
+  })), 'error');
 });
 
 test('parseTurnActivity: non-message and foreign lines are skipped, partial lines tolerated', () => {
@@ -598,6 +997,271 @@ test('parseTurnActivity: no turn-relevant record in the window returns null (fai
   assert.equal(parseTurnActivity(''), null);
   assert.equal(parseTurnActivity(JSON.stringify({ type: 'session' })), null);
   assert.equal(parseTurnActivity(JSON.stringify({ type: 'message', message: { role: 'system' } })), null);
+});
+
+test('activity and receipt resource contracts retain their fixed ceilings', () => {
+  assert.equal(ACTIVITY_SCAN_CHUNK_BYTES, 64 * 1024);
+  assert.equal(ACTIVITY_MAX_SCAN_BYTES, 2 * 1024 * 1024);
+  assert.equal(ACTIVITY_MAX_RECORD_BYTES, 256 * 1024);
+  assert.equal(ACTIVITY_MAX_READ_BYTES_PER_ATTEMPT, 2_363_392);
+  assert.equal(ACTIVITY_MAX_RETAINED_INPUT_BYTES, 331_776);
+  assert.equal(ACTIVITY_CACHE_MAX_ENTRIES, 256);
+  assert.equal(TRANSCRIPT_ENRICHMENT_CONCURRENCY, 4);
+  assert.equal(RECEIPT_ATTEMPT_LIMIT, 512);
+  assert.equal(RUNTIME_RECEIPT_FALLBACK_LIMIT, 511);
+  assert.equal(GJC_CMDLINE_MAX_BYTES, 64 * 1024);
+});
+
+test('resume receipt parsing scans complete NUL argv beyond the legacy 512-byte prefix', () => {
+  const sessionId = '019faffa-5d2a-7000-9f26-ef153cb667da';
+  const cmdline = Buffer.from([
+    '/usr/local/bin/gjc',
+    ...Array.from({ length: 80 }, (_, index) => `--padding-${index}`),
+    '--resume',
+    sessionId,
+  ].join('\0'));
+
+  assert.ok(cmdline.indexOf('--resume') > 512);
+  assert.ok(cmdline.length < GJC_CMDLINE_MAX_BYTES);
+  assert.equal(resumeSessionIdFromCmdline(cmdline), sessionId);
+  assert.equal(
+    resumeSessionIdFromCmdline(Buffer.from(`/usr/local/bin/gjc\0--resume=${sessionId}\0`)),
+    sessionId,
+  );
+});
+
+test('receipt fallback sizing cannot exceed the total attempt budget', () => {
+  assert.equal(runtimeReceiptFallbackBudget(0), RUNTIME_RECEIPT_FALLBACK_LIMIT);
+  assert.equal(runtimeReceiptFallbackBudget(1), RUNTIME_RECEIPT_FALLBACK_LIMIT);
+  assert.equal(runtimeReceiptFallbackBudget(2), 510);
+  assert.equal(runtimeReceiptFallbackBudget(RECEIPT_ATTEMPT_LIMIT), 0);
+  assert.equal(runtimeReceiptFallbackBudget(RECEIPT_ATTEMPT_LIMIT + 1), 0);
+  assert.equal(2 + runtimeReceiptFallbackBudget(2), RECEIPT_ATTEMPT_LIMIT);
+});
+
+test('transcript enrichment concurrency is global across overlapping rosters', async () => {
+  let active = 0;
+  let peak = 0;
+  const enrich = async (value: number) => {
+    active += 1;
+    peak = Math.max(peak, active);
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      return value * 2;
+    } finally {
+      active -= 1;
+    }
+  };
+
+  const [left, right] = await Promise.all([
+    mapTranscriptEnrichments([1, 2, 3, 4, 5, 6], enrich),
+    mapTranscriptEnrichments([7, 8, 9, 10, 11, 12], enrich),
+  ]);
+
+  assert.deepEqual(left, [2, 4, 6, 8, 10, 12]);
+  assert.deepEqual(right, [14, 16, 18, 20, 22, 24]);
+  assert.ok(peak > 1);
+  assert.ok(peak <= TRANSCRIPT_ENRICHMENT_CONCURRENCY, `peak enrichment concurrency was ${peak}`);
+});
+
+test('readTurnActivityFromFile invalidates same-size decisive mutations', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'chatmux-turn-activity-mutation-'));
+  const transcript = path.join(directory, 'session.jsonl');
+  const ready = fixedTurnLine('assistant', 'stop', 512);
+  const running = fixedTurnLine('user', undefined, 512);
+  assert.equal(ready.length, running.length);
+  const preservedBoundary = `${JSON.stringify({ type: 'custom', payload: 'x'.repeat(8 * 1024) })}\n`;
+
+  await writeFile(transcript, `${ready}\n${preservedBoundary}`);
+  assert.equal(await readTurnActivityFromFile(transcript), 'ready');
+  await writeFile(transcript, `${running}\n${preservedBoundary}`);
+  assert.equal(await readTurnActivityFromFile(transcript), 'running');
+});
+
+test('readTurnActivityFromFile invalidates a truncate-regrow cycle on the same inode', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'chatmux-turn-activity-regrow-'));
+  const transcript = path.join(directory, 'session.jsonl');
+  const ready = fixedTurnLine('assistant', 'stop', 512);
+  const failed = fixedTurnLine('assistant', 'error', 512);
+
+  await writeFile(transcript, `${ready}\n`);
+  assert.equal(await readTurnActivityFromFile(transcript), 'ready');
+  await truncate(transcript, 0);
+  await appendFile(transcript, `${failed}\n`);
+  assert.equal(await readTurnActivityFromFile(transcript), 'error');
+});
+
+test('activity scanning bounds cold work and retains a fully-covered warm verdict', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'chatmux-turn-activity-bounds-'));
+  const warmTranscript = path.join(directory, 'warm.jsonl');
+  const coldTranscript = path.join(directory, 'cold.jsonl');
+  const irrelevantLine = `${JSON.stringify({ type: 'custom', payload: 'x'.repeat(1024) })}\n`;
+  const irrelevantTail = irrelevantLine.repeat(
+    Math.ceil((ACTIVITY_MAX_SCAN_BYTES + ACTIVITY_SCAN_CHUNK_BYTES) / Buffer.byteLength(irrelevantLine)),
+  );
+  const initial = `${turnLine('user')}\n`;
+
+  await writeFile(warmTranscript, initial);
+  assert.equal(await readTurnActivityFromFile(warmTranscript), 'running');
+  await appendFile(warmTranscript, irrelevantLine.repeat(4));
+  assert.equal(
+    await readTurnActivityFromFile(warmTranscript),
+    'running',
+    'a fully-covered append miss retains the previously validated verdict',
+  );
+
+  await writeFile(coldTranscript, `${initial}${irrelevantTail}`);
+  assert.equal(
+    await readTurnActivityFromFile(coldTranscript),
+    null,
+    'a cold scan does not walk beyond the fixed budget',
+  );
+
+  const handle = await open(coldTranscript, 'r');
+  try {
+    const identity = await handle.stat();
+    const scanned = await scanTurnActivityBackwards(
+      handle,
+      Math.max(0, identity.size - ACTIVITY_MAX_SCAN_BYTES),
+      identity.size,
+    );
+    assert.equal(scanned.coveredStart, identity.size - ACTIVITY_MAX_SCAN_BYTES);
+    assert.equal(scanned.coveredEnd, identity.size);
+    assert.ok(scanned.bytesRead <= ACTIVITY_MAX_SCAN_BYTES);
+    assert.equal(scanned.retainedInputBytes, ACTIVITY_MAX_RETAINED_INPUT_BYTES);
+    assert.ok(
+      scanned.bytesRead + ACTIVITY_MAX_RECORD_BYTES + ACTIVITY_BOUNDARY_DIGEST_BYTES
+        <= ACTIVITY_MAX_READ_BYTES_PER_ATTEMPT,
+    );
+  } finally {
+    await handle.close();
+  }
+
+  await appendFile(warmTranscript, `${turnLine('assistant', 'stop')}\n`);
+  assert.equal(await readTurnActivityFromFile(warmTranscript), 'ready');
+});
+
+test('over-budget warm growth does not publish stale activity across an unscanned gap', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'chatmux-turn-activity-read-ceiling-'));
+  const transcript = path.join(directory, 'session.jsonl');
+  const decisive = fixedTurnLine('assistant', 'stop', ACTIVITY_MAX_RECORD_BYTES);
+  const irrelevantLine = `${JSON.stringify({ type: 'custom', payload: 'x'.repeat(1024) })}\n`;
+  const irrelevantTail = irrelevantLine.repeat(
+    Math.ceil((ACTIVITY_MAX_SCAN_BYTES + ACTIVITY_SCAN_CHUNK_BYTES) / Buffer.byteLength(irrelevantLine)),
+  );
+
+  await writeFile(transcript, `${decisive}\n`);
+  assert.equal(await readTurnActivityFromFile(transcript), 'ready');
+  await appendFile(transcript, `${turnLine('user')}\n${irrelevantTail}`);
+
+  const diagnostics = { bytesRead: 0 };
+  assert.equal(
+    await readTurnActivityFromFile(transcript, diagnostics),
+    null,
+    'a decisive record before an unscanned append gap cannot leave a stale badge published',
+  );
+  assert.equal(
+    diagnostics.bytesRead,
+    ACTIVITY_MAX_READ_BYTES_PER_ATTEMPT,
+    'decisive validation, old boundary validation, and the bounded suffix scan exhaust the budget exactly',
+  );
+
+  await appendFile(transcript, `${turnLine('user')}\n`);
+  assert.equal(
+    await readTurnActivityFromFile(transcript),
+    'running',
+    'a later decisive tail record recovers after the stale cache authority is dropped',
+  );
+});
+
+test('activity cache enforces LRU cap, touch order, eviction, and missing-file deletion', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'chatmux-turn-activity-lru-'));
+  const paths = Array.from(
+    { length: ACTIVITY_CACHE_MAX_ENTRIES + 1 },
+    (_, index) => path.join(directory, `${index}.jsonl`),
+  );
+  for (const transcript of paths) {
+    await writeFile(transcript, `${turnLine('assistant', 'stop')}\n`);
+    assert.equal(await readTurnActivityFromFile(transcript), 'ready');
+  }
+
+  assert.equal(getActivityCacheDiagnostics().entries, ACTIVITY_CACHE_MAX_ENTRIES);
+  assert.equal(getActivityCacheDiagnostics(paths[0]).containsPath, false);
+  assert.equal(getActivityCacheDiagnostics(paths[1]).containsPath, true);
+
+  assert.equal(await readTurnActivityFromFile(paths[1]), 'ready');
+  const newest = path.join(directory, 'newest.jsonl');
+  await writeFile(newest, `${turnLine('user')}\n`);
+  assert.equal(await readTurnActivityFromFile(newest), 'running');
+
+  assert.equal(getActivityCacheDiagnostics(paths[1]).containsPath, true);
+  assert.equal(getActivityCacheDiagnostics(paths[2]).containsPath, false);
+  assert.equal(getActivityCacheDiagnostics().entries, ACTIVITY_CACHE_MAX_ENTRIES);
+
+  await unlink(paths[1]);
+  assert.equal(await readTurnActivityFromFile(paths[1]), null);
+  assert.equal(getActivityCacheDiagnostics(paths[1]).containsPath, false);
+  assert.equal(getActivityCacheDiagnostics().entries, ACTIVITY_CACHE_MAX_ENTRIES - 1);
+});
+
+test('readTurnActivityFromFile discards oversized records and accepts a later complete record', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'chatmux-turn-activity-oversize-'));
+  const transcript = path.join(directory, 'session.jsonl');
+  const oversized = JSON.stringify({
+    type: 'message',
+    message: { role: 'assistant', stopReason: 'error', payload: 'x'.repeat(ACTIVITY_MAX_RECORD_BYTES) },
+  });
+  await writeFile(transcript, `${turnLine('user')}\n${oversized}`);
+  assert.equal(await readTurnActivityFromFile(transcript), 'running');
+  await appendFile(transcript, '\n');
+  assert.equal(await readTurnActivityFromFile(transcript), 'running');
+  await appendFile(transcript, `${turnLine('assistant', 'stop')}\n`);
+  assert.equal(await readTurnActivityFromFile(transcript), 'ready');
+});
+test('readTurnActivityFromFile reassembles large records and retains the last relevant verdict', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'chatmux-turn-activity-'));
+  const transcript = path.join(directory, 'session.jsonl');
+  const overloaded = JSON.stringify({
+    type: 'message',
+    message: {
+      role: 'assistant',
+      stopReason: 'error',
+      errorMessage: `429 ${'x'.repeat(128 * 1024)}`,
+    },
+  });
+
+  await writeFile(transcript, `${turnLine('user')}\n${overloaded}\n`);
+  assert.equal(await readTurnActivityFromFile(transcript), 'error');
+
+  await appendFile(
+    transcript,
+    `${JSON.stringify({ type: 'custom', payload: 'x'.repeat(128 * 1024) })}\n`,
+  );
+  assert.equal(
+    await readTurnActivityFromFile(transcript),
+    'error',
+    'non-turn records appended beyond one scan chunk must not clear ERROR',
+  );
+
+  await appendFile(transcript, `${turnLine('user')}\n`);
+  assert.equal(
+    await readTurnActivityFromFile(transcript),
+    'running',
+    'a later complete turn record supersedes the cached error',
+  );
+
+  await appendFile(transcript, turnLine('assistant', 'error'));
+  assert.equal(
+    await readTurnActivityFromFile(transcript),
+    'running',
+    'a record still being written must not change the verdict',
+  );
+  await appendFile(transcript, '\n');
+  assert.equal(
+    await readTurnActivityFromFile(transcript),
+    'error',
+    'the same record becomes authoritative once its newline is appended',
+  );
 });
 
 test('isGjcCommandLine matches gjc as a native binary AND under bun/node interpreters (comm-agnostic)', () => {

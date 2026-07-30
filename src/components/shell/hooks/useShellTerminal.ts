@@ -6,7 +6,6 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { Terminal } from '@xterm/xterm';
 
-import type { Project } from '../../../types/app';
 import { copyTextToClipboard } from '../../../utils/clipboard';
 import {
   TERMINAL_FONT_FAMILY,
@@ -63,7 +62,7 @@ type UseShellTerminalOptions = {
   terminalRef: MutableRefObject<Terminal | null>;
   fitAddonRef: MutableRefObject<FitAddon | null>;
   wsRef: MutableRefObject<WebSocket | null>;
-  selectedProject: Project | null | undefined;
+  terminalIdentityKey: string;
   minimal: boolean;
   isRestarting: boolean;
   closeSocket: () => void;
@@ -80,7 +79,7 @@ export function useShellTerminal({
   terminalRef,
   fitAddonRef,
   wsRef,
-  selectedProject,
+  terminalIdentityKey,
   minimal,
   isRestarting,
   closeSocket,
@@ -88,8 +87,7 @@ export function useShellTerminal({
   const [isInitialized, setIsInitialized] = useState(false);
   const resizeTimeoutRef = useRef<number | null>(null);
   const mobileSelectionRef = useRef<MobileTerminalSelectionManager | null>(null);
-  const selectedProjectKey = selectedProject?.fullPath || selectedProject?.path || '';
-  const hasSelectedProject = Boolean(selectedProject);
+  const hasTerminalIdentity = terminalIdentityKey.length > 0;
 
   useEffect(() => {
     ensureXtermFocusStyles();
@@ -121,7 +119,7 @@ export function useShellTerminal({
 
   useEffect(() => {
     const terminalContainer = terminalContainerRef.current;
-    if (!terminalContainer || !hasSelectedProject || isRestarting || terminalRef.current) {
+    if (!terminalContainer || !hasTerminalIdentity || isRestarting || terminalRef.current) {
       return;
     }
 
@@ -307,9 +305,9 @@ export function useShellTerminal({
     disposeTerminal,
     fitAddonRef,
     isRestarting,
-    hasSelectedProject,
+    hasTerminalIdentity,
     minimal,
-    selectedProjectKey,
+    terminalIdentityKey,
     terminalContainerRef,
     terminalRef,
     wsRef,

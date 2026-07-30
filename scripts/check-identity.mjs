@@ -19,7 +19,12 @@ const MAX_FILE_BYTES = 64 * 1024 * 1024;
 const MAX_ARCHIVE_BYTES = 512 * 1024 * 1024;
 const MAX_REPORTED_ERRORS = 100;
 const GENERATED_DIRECTORIES = ['dist', 'dist-server', 'release'];
-const SKIPPED_DIRECTORIES = new Set(['.git', '.gjc', 'node_modules']);
+const SKIPPED_DIRECTORIES = new Set(['.codegraph', '.git', '.gjc', 'node_modules']);
+const ENTRY_CLASSIFICATIONS = Object.freeze({
+  REJECT: 'reject',
+  SCAN: 'scan',
+  SKIP: 'skip',
+});
 const ARCHIVE_FILE_PATTERN = /\.(?:tar|tgz|gz|zip|bz2|xz)$/i;
 const LOCALIZED_READMES = new Set([
   'README.de.md',
@@ -80,6 +85,25 @@ const checkedFiles = {
 function addError(message) {
   errors.push(message);
 }
+/**
+ * Classify a directory entry without following symbolic links.
+ *
+ * @param {import('node:fs').Dirent} entry
+ * @param {string} relativePath
+ * @returns {'reject' | 'scan' | 'skip'}
+ */
+export function classifyDirectoryEntry(entry, relativePath) {
+  if (entry.isSymbolicLink()) {
+    return entry.name === '.codegraph' && relativePath === '.codegraph'
+      ? ENTRY_CLASSIFICATIONS.SKIP
+      : ENTRY_CLASSIFICATIONS.REJECT;
+  }
+
+  return entry.isDirectory() && SKIPPED_DIRECTORIES.has(entry.name)
+    ? ENTRY_CLASSIFICATIONS.SKIP
+    : ENTRY_CLASSIFICATIONS.SCAN;
+}
+
 
 function normalizeRelativePath(absolutePath) {
   return relative(REPOSITORY_ROOT, absolutePath).split(sep).join('/');
@@ -241,15 +265,18 @@ async function walkDirectory(directoryPath, category) {
     const absolutePath = resolve(directoryPath, entry.name);
     const relativePath = normalizeRelativePath(absolutePath);
 
-    if (entry.isSymbolicLink()) {
+    const entryClassification = classifyDirectoryEntry(entry, relativePath);
+    if (entryClassification === ENTRY_CLASSIFICATIONS.REJECT) {
       addError(`${relativePath}: symbolic links are not scanned`);
       continue;
     }
 
+    if (entryClassification === ENTRY_CLASSIFICATIONS.SKIP) {
+      continue;
+    }
+
+
     if (entry.isDirectory()) {
-      if (SKIPPED_DIRECTORIES.has(entry.name)) {
-        continue;
-      }
       if (relativePath.startsWith('release/server/.stage-')) {
         continue;
       }
@@ -326,37 +353,43 @@ function validatePackageMetadata(packageJson, packageLock) {
   assertEqual('package-lock.json Node engine', lockRoot?.engines?.node, packageJson.engines?.node);
 }
 
-const packageJson = await readJson('package.json');
-const packageLock = await readJson('package-lock.json');
-validatePackageMetadata(packageJson, packageLock);
-await walkDirectory(REPOSITORY_ROOT, 'source');
+async function main() {
+  const packageJson = await readJson('package.json');
+  const packageLock = await readJson('package-lock.json');
+  validatePackageMetadata(packageJson, packageLock);
+  await walkDirectory(REPOSITORY_ROOT, 'source');
 
-for (const generatedDirectory of GENERATED_DIRECTORIES) {
-  const absolutePath = resolve(REPOSITORY_ROOT, generatedDirectory);
-  try {
-    const directoryStat = await stat(absolutePath);
-    if (directoryStat.isDirectory()) {
-      await walkDirectory(absolutePath, 'generated');
+  for (const generatedDirectory of GENERATED_DIRECTORIES) {
+    const absolutePath = resolve(REPOSITORY_ROOT, generatedDirectory);
+    try {
+      const directoryStat = await stat(absolutePath);
+      if (directoryStat.isDirectory()) {
+        await walkDirectory(absolutePath, 'generated');
+      }
+    } catch (error) {
+      if (error.code !== 'ENOENT') {
+        addError(`${generatedDirectory}: could not inspect generated directory (${error.message})`);
+      }
     }
-  } catch (error) {
-    if (error.code !== 'ENOENT') {
-      addError(`${generatedDirectory}: could not inspect generated directory (${error.message})`);
+  }
+
+  if (errors.length > 0) {
+    errors.sort((left, right) => left.localeCompare(right));
+    console.error(`Identity check failed with ${errors.length} violation(s).`);
+    for (const error of errors.slice(0, MAX_REPORTED_ERRORS)) {
+      console.error(`- ${error}`);
     }
+    if (errors.length > MAX_REPORTED_ERRORS) {
+      console.error(`- ${errors.length - MAX_REPORTED_ERRORS} additional violation(s) omitted`);
+    }
+    process.exitCode = 1;
+  } else {
+    console.log(
+      `Identity check passed (${checkedFiles.source} source, ${checkedFiles.generated} generated, ${checkedFiles.archive} archive file(s) scanned).`,
+    );
   }
 }
 
-if (errors.length > 0) {
-  errors.sort((left, right) => left.localeCompare(right));
-  console.error(`Identity check failed with ${errors.length} violation(s).`);
-  for (const error of errors.slice(0, MAX_REPORTED_ERRORS)) {
-    console.error(`- ${error}`);
-  }
-  if (errors.length > MAX_REPORTED_ERRORS) {
-    console.error(`- ${errors.length - MAX_REPORTED_ERRORS} additional violation(s) omitted`);
-  }
-  process.exitCode = 1;
-} else {
-  console.log(
-    `Identity check passed (${checkedFiles.source} source, ${checkedFiles.generated} generated, ${checkedFiles.archive} archive file(s) scanned).`,
-  );
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  await main();
 }

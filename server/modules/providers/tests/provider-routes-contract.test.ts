@@ -286,6 +286,26 @@ test('all eleven tmux provider routes have deterministic successful HTTP paths',
   assertSuccess(await request('/sessions/live/spawn', { name: 'live-contract', cwd: '~' }));
   assertSuccess(await request('/sessions/live/commands'));
 });
+
+test('successful spawn routes schedule an immediate discovery refresh', async () => {
+  let refreshes = 0;
+  app.locals.discoveryCollector = {
+    forceRefresh: () => {
+      refreshes += 1;
+    },
+  };
+
+  try {
+    assertSuccess(
+      await request('/sessions/external/spawn', { name: 'external-refresh', cwd: '~', cli: 'codex' }),
+      201,
+    );
+    assertSuccess(await request('/sessions/live/spawn', { name: 'live-refresh', cwd: '~' }));
+    assert.equal(refreshes, 2);
+  } finally {
+    delete app.locals.discoveryCollector;
+  }
+});
 test('process action routes reject unallowlisted keys and preserve freshness and lineage boundaries', async () => {
   assertError(
     await request('/sessions/external/actions', { tmux: externalTmux, process: validProcess, action: 'Enter' }),
@@ -390,7 +410,7 @@ test('unavailable roster responses retain authoritative stale snapshot rows whil
         process: validProcess,
         kind: 'gjc',
         providerSessionId: 'live-snapshot',
-        activity: 'running',
+        activity: 'error',
         cwd: null,
         lastSeenRevision: 1,
         presence: 'stale',
@@ -413,6 +433,8 @@ test('unavailable roster responses retain authoritative stale snapshot rows whil
     const liveRows = liveResponse.body.data?.liveSessions as Array<Record<string, unknown>>;
     assert.equal(liveRows[0]?.tmuxName, 'snapshot-live');
     assert.equal(liveRows[0]?.presence, 'stale');
+    assert.equal(liveRows[0]?.running, false);
+    assert.equal(liveRows[0]?.error, true);
     assertError(await request('/sessions/external/output', { tmux: externalTmux, process: validProcess }), 409, 'TMUX_PROCESS_GENERATION_MISMATCH');
   } finally {
     delete process.env.CHATMUX_CONTRACT_TMUX_FAIL;

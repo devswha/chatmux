@@ -3,8 +3,15 @@ import test from 'node:test';
 
 import { tmuxPaneIdentityKey } from '../../../../shared/tmux';
 import type { DiscoveryRow } from '../../../hooks/useDiscoveryStream';
+import { readRestSessionContainer } from '../../../utils/liveSessions';
 
-import { mergeExternalDiscoveryRows, type ExternalCliSession } from './useExternalCliSessions';
+import {
+  clearExternalSessionActivities,
+  externalIdentityOnly,
+  mergeExternalDiscoveryRows,
+  shouldApplyExternalRestResponse,
+  type ExternalCliSession,
+} from './useExternalCliSessions';
 
 const tmux = { socketPath: 'socket', sessionId: '$1', windowId: '@1', paneId: '%1' };
 const process = { pid: 42, startedAtMs: 100 };
@@ -27,5 +34,79 @@ test('hydrates external metadata onto a discovery row that arrived first', () =>
     process,
     activity: 'waiting_user',
     projectPath: '/stream',
+    presence: 'present',
+    authority: 'stream',
   }]);
+});
+
+test('stream loss clears mutable provider activity before REST fallback', () => {
+  const sessions: ExternalCliSession[] = [
+    { tmuxName: 'error', tmux, process, kind: 'claude', activity: 'error' },
+    { tmuxName: 'running', tmux: { ...tmux, paneId: '%2' }, process, kind: 'codex', activity: 'running' },
+    { tmuxName: 'unknown', tmux: { ...tmux, paneId: '%3' }, process, kind: 'shell', activity: 'unknown' },
+  ];
+
+  const cleared = clearExternalSessionActivities(sessions);
+  assert.deepEqual(cleared.map((session) => session.activity), ['unknown', 'unknown', 'unknown']);
+  assert.equal(cleared[2], sessions[2], 'already-unknown metadata is preserved without copying');
+});
+
+test('REST request generations reject a late bootstrap response', () => {
+  assert.equal(shouldApplyExternalRestResponse(2, 1, false), true);
+  assert.equal(
+    shouldApplyExternalRestResponse(1, 2, false),
+    false,
+    'an older bootstrap response cannot overwrite a newer fallback response',
+  );
+  assert.equal(shouldApplyExternalRestResponse(3, 2, true), false);
+});
+test('newest generation wins across recovery and unmount fencing', () => {
+  assert.equal(shouldApplyExternalRestResponse(2, 1, false, 2), true);
+  assert.equal(shouldApplyExternalRestResponse(1, 0, false, 2), false);
+  assert.equal(shouldApplyExternalRestResponse(2, 1, false, 3), false);
+  assert.equal(shouldApplyExternalRestResponse(3, 2, true, 3), false);
+});
+test('a malformed newest external container fences an older successful response', () => {
+  let appliedGeneration = 0;
+  const latestGeneration = 2;
+  assert.equal(
+    shouldApplyExternalRestResponse(2, appliedGeneration, false, latestGeneration),
+    true,
+  );
+  assert.equal(
+    readRestSessionContainer({ data: { externalSessions: {} } }, 'externalSessions'),
+    null,
+  );
+  appliedGeneration = 2;
+  assert.equal(
+    shouldApplyExternalRestResponse(1, appliedGeneration, false, latestGeneration),
+    false,
+  );
+});
+
+test('false discovery sanitizes reported-present external rows to identity only', () => {
+  const sanitized = externalIdentityOnly({
+    tmuxName: 'still-visible',
+    tmux,
+    process,
+    kind: 'claude',
+    activity: 'running',
+    transcriptSessionId: 'transcript',
+    sessionName: 'Sensitive session',
+    model: 'opus',
+    effort: 'high',
+    transcriptEnded: true,
+    attachCapability: 'attach-token',
+    projectPath: '/workspace/project',
+  });
+
+  assert.deepEqual(sanitized, {
+    tmuxName: 'still-visible',
+    tmux,
+    process: null,
+    kind: 'claude',
+    activity: 'unknown',
+    presence: 'stale',
+    authority: 'none',
+  });
 });

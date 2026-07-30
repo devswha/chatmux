@@ -9,6 +9,7 @@ import StandaloneShellHeader from './subcomponents/StandaloneShellHeader';
 
 type StandaloneShellProps = {
   project?: Project | null;
+  projectPath?: string;
   session?: ProjectSession | null;
   command?: string | null;
   isPlainShell?: boolean | null;
@@ -26,6 +27,7 @@ type StandaloneShellProps = {
 
 export default function StandaloneShell({
   project = null,
+  projectPath,
   session = null,
   command = null,
   isPlainShell = null,
@@ -55,7 +57,7 @@ export default function StandaloneShell({
     [onComplete],
   );
 
-  if (!project) {
+  if (!project && !attachTarget) {
     return <StandaloneShellEmptyState className={className} />;
   }
 
@@ -68,6 +70,7 @@ export default function StandaloneShell({
       <div className="min-h-0 w-full flex-1">
         <Shell
           selectedProject={project}
+          projectPath={projectPath}
           selectedSession={session}
           initialCommand={command}
           isPlainShell={shouldUsePlainShell}

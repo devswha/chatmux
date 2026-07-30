@@ -106,6 +106,30 @@ test('Claude result evidence requires an exact success subtype', () => {
   );
 });
 
+test('Claude API overloaded responses are promoted to ERROR evidence', () => {
+  const overloaded = {
+    type: 'error',
+    error: {
+      details: null,
+      type: 'overloaded_error',
+      message: 'Overloaded',
+    },
+    request_id: 'req_011CdWwUjREwRBPM8SAkFNMR',
+  };
+
+  assert.deepEqual(
+    parseExternalJsonlActivityEvidence('claude', line(overloaded)),
+    { activity: 'waiting_user', terminalOutcome: 'failed' },
+  );
+  assert.equal(toExternalSessionDisplayActivity({
+    status: 'resolved',
+    activity: 'waiting_user',
+    terminalOutcome: 'failed',
+    appSession: null,
+    transcriptEnded: false,
+  }), 'error');
+});
+
 test('Codex activity uses explicit task lifecycle events and request_user_input', () => {
   assert.equal(parseExternalJsonlActivity('codex', [
     line({ type: 'event_msg', payload: { type: 'task_complete' } }),

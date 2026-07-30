@@ -10,10 +10,13 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import enSidebar from '../../../../i18n/locales/en/sidebar.json';
 import koSidebar from '../../../../i18n/locales/ko/sidebar.json';
 import type { ExternalTerminalTarget, Project } from '../../../../types/app';
-import type { TmuxPaneIdentity, TmuxProcessGeneration } from '../../../../../shared/tmux';
+import type { TmuxPaneIdentity, TmuxPaneTarget, TmuxProcessGeneration } from '../../../../../shared/tmux';
 import { CompletionNotificationsProvider } from '../../context/CompletionNotificationsContext';
 
-import SidebarExternalSection, { resolveExternalSessionProject } from './SidebarExternalSection';
+import SidebarExternalSection, {
+  pendingExternalTranscriptDisposition,
+  resolveExternalSessionProject,
+} from './SidebarExternalSection';
 
 
 const tmux = (paneId: string): TmuxPaneIdentity => ({
@@ -82,6 +85,16 @@ test('resolveExternalSessionProject selects the transcript owner instead of the 
   );
 });
 
+test('resolveExternalSessionProject never falls back to an unrelated project', () => {
+  assert.equal(
+    resolveExternalSessionProject(
+      external('shell-unmatched', 'shell', '%0', null, { projectPath: '/workspace/missing' }),
+      [project, otherProject],
+    ),
+    null,
+  );
+});
+
 test('SidebarExternalSection uses the tmux name as primary and transcript metadata as secondary', () => {
   const html = renderToStaticMarkup(
     createElement(
@@ -103,6 +116,59 @@ test('SidebarExternalSection uses the tmux name as primary and transcript metada
   assert.ok(html.includes('>codex-review</span>'), 'uses the tmux session name as the primary label');
   assert.ok(html.includes('Adversarial review · gpt-5.6-sol · xhigh effort · Codex CLI'), 'shows model and reasoning effort without raw tmux ids');
   assert.ok(!html.includes('%1'));
+});
+
+test('SidebarExternalSection renders an actionable external-only row without Projects', () => {
+  const html = renderToStaticMarkup(
+    createElement(
+      CompletionNotificationsProvider,
+      null,
+      createElement(SidebarExternalSection, {
+        sessions: [external('remote-shell', 'shell', '%10', null, {
+          projectPath: '/srv/work',
+          attachCapability: 'opaque-capability',
+        })],
+        projects: [],
+        onOpen,
+        onChanged: noop,
+      }),
+    ),
+  );
+
+  assert.match(html, />remote-shell<\/span>/);
+  assert.doesNotMatch(html, /aria-disabled="true"/);
+});
+
+test('SidebarExternalSection keeps unavailable or stale identity rows inert', async () => {
+  const html = await renderSection('ko', {
+    sessions: [
+      external('unavailable-agent', 'claude', '%11', 111, {
+        projectPath: project.fullPath,
+        transcriptSessionId: 'stale-transcript',
+        attachCapability: 'stale-capability',
+        activity: 'asking_user',
+        presence: 'present',
+        authority: 'none',
+      }),
+      external('stale-agent', 'opencode', '%12', 112, {
+        projectPath: project.fullPath,
+        activity: 'error',
+        presence: 'stale',
+        authority: 'stream',
+      }),
+    ],
+    projects: [project],
+    onOpen,
+    onChanged: noop,
+  });
+
+  assert.match(html, />unavailable-agent<\/span>/);
+  assert.match(html, />stale-agent<\/span>/);
+  assert.equal((html.match(/aria-disabled="true"/g) ?? []).length, 2, html);
+  assert.doesNotMatch(html, />INPUT</);
+  assert.doesNotMatch(html, />ERROR</);
+  assert.doesNotMatch(html, /대기 중인 승인에 답하기/);
+  assert.doesNotMatch(html, /tmux 세션 '(?:unavailable-agent|stale-agent)' 닫기/);
 });
 
 test('SidebarExternalSection shows an indexed Claude session as a structured transcript', () => {
@@ -162,6 +228,37 @@ test('SidebarExternalSection opens a fresh local agent in the pending conversati
   assert.ok(html.includes('>READY<'), html);
   assert.ok(!html.includes('>대화 전<'), html);
   assert.ok(!html.includes('>확인 불가<'), html);
+});
+test('pending transcript promotion is fenced by the exact pane process generation', () => {
+  const current = external('omp-fresh', 'omp', '%4', 104, {
+    authority: 'rest',
+    presence: 'present',
+  });
+  const pending: TmuxPaneTarget = {
+    tmux: current.tmux,
+    process: current.process!,
+  };
+
+  assert.equal(pendingExternalTranscriptDisposition(pending, current), 'wait');
+  assert.equal(pendingExternalTranscriptDisposition(pending, {
+    ...current,
+    transcriptSessionId: 'indexed-current',
+  }), 'promote');
+  assert.equal(pendingExternalTranscriptDisposition(pending, {
+    ...current,
+    process: process(204),
+    transcriptSessionId: 'indexed-replacement',
+  }), 'clear');
+  assert.equal(pendingExternalTranscriptDisposition(pending, {
+    ...current,
+    authority: 'none',
+    transcriptSessionId: 'stale-index',
+  }), 'clear');
+  assert.equal(pendingExternalTranscriptDisposition(pending, {
+    ...current,
+    tmux: tmux('%different'),
+    transcriptSessionId: 'different-pane',
+  }), 'ignore');
 });
 
 test('SidebarExternalSection renders the unified English activity states without labelling SSH', async () => {

@@ -164,4 +164,9 @@ test('pending CLI output hides the duplicate chat composer while terminal input 
     pendingBranch,
     /\{externalTranscriptView === 'conversation' && \(\s*<LiveRelayComposer/,
   );
+  assert.match(
+    pendingBranch,
+    /projectPath=\{'projectPath' in externalTerminal \? externalTerminal\.projectPath : undefined\}/,
+    'the pending CLI shell wiring forwards the external-only workspace path',
+  );
 });
