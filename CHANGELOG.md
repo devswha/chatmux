@@ -3,6 +3,16 @@
 All notable changes to ChatMux will be documented in this file.
 
 
+## [1.6.1](https://github.com/devswha/chatmux/compare/v1.6.0...v1.6.1) (2026-07-30)
+
+### Bug Fixes
+
+* **notifications:** stop settings saves from failing once Web Push is on ([ddd9ed9](https://github.com/devswha/chatmux/commit/ddd9ed9a6f7d14fd8e6d8bce3da097f87b06c3aa))
+
+### Maintenance
+
+* **release:** declare 1.6.1 database rollback compatibility ([7650292](https://github.com/devswha/chatmux/commit/76502926e1cbbfd0fb0f4da63fd8a0a20ed3997b))
+
 ## [1.6.0](https://github.com/devswha/chatmux/compare/v1.5.0...v1.6.0) (2026-07-30)
 
 ### New Features
