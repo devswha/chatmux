@@ -278,7 +278,10 @@ function ChatInterface({
   // reply shows up in place. Ref keeps refreshFromServer out of the effect deps.
   const refreshFromServerRef = useRef(sessionStore.refreshFromServer);
   refreshFromServerRef.current = sessionStore.refreshFromServer;
-  const liveOpenSessionId = isSessionReadOnly ? (selectedSession?.id ?? null) : null;
+  const liveOpenSessionId =
+    isSessionReadOnly && liveSessionKind === 'gjc'
+      ? (selectedSession?.id ?? null)
+      : null;
   useEffect(() => {
     if (!liveOpenSessionId) {
       return;
