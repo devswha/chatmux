@@ -17,11 +17,15 @@ const CODEX_SELECTION_HINT_RE = /tab to add notes.*enter to submit answer.*esc t
 const CODEX_CUSTOM_HINT_RE = /tab or esc to clear notes.*enter to submit answer/i;
 const OMP_SELECTION_HINT_RE = /enter select.*↑\/↓ move.*esc cancel/i;
 const OMP_CUSTOM_HINT_RE = /enter or ctrl\+q submit.*esc cancel/i;
+const CLAUDE_SELECTION_HINT_RE = /enter to select.*↑\/↓ to navigate.*esc to cancel/i;
+const CLAUDE_CUSTOM_HINT_RE = /ctrl\+g to edit in vs code/i;
 const GJC_OTHER_LABEL = 'Other (type your own)';
 const CODEX_OTHER_LABEL = 'None of the above';
 const OMP_OTHER_LABEL = 'Other (type your own)';
+const CLAUDE_OTHER_LABEL = 'Type something.';
+const CLAUDE_CHAT_LABEL = 'Chat about this';
 
-export type TmuxAskKind = 'gjc' | 'codex' | 'omp';
+export type TmuxAskKind = 'gjc' | 'codex' | 'omp' | 'claude';
 export type TmuxAskQuestion = {
   question: string;
   options: Array<{ label: string }>;
@@ -297,6 +301,66 @@ export function parseOmpAskSelectionScreen(
   return null;
 }
 
+type ClaudeOptionLine = CodexOptionLine & { lineIndex: number };
+
+function parseClaudeOptionLine(line: string, lineIndex: number): ClaudeOptionLine | null {
+  const parsed = parseCodexOptionLine(line);
+  return parsed ? { ...parsed, lineIndex } : null;
+}
+
+export function parseClaudeAskSelectionScreen(
+  screen: string,
+  question: TmuxAskQuestion,
+  optionIndex: number,
+): AskSelection | null {
+  const labels = validateSelectionInput(question, optionIndex);
+  if (!labels) return null;
+  const lines = screen.replace(ANSI_RE, '').split(/\r?\n/);
+  let hintIndex = -1;
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    if (CLAUDE_SELECTION_HINT_RE.test(lines[index])) {
+      hintIndex = index;
+      break;
+    }
+  }
+  if (hintIndex < 0) return null;
+
+  const rows: ClaudeOptionLine[] = [];
+  for (let index = Math.max(0, hintIndex - 64); index < hintIndex; index += 1) {
+    const row = parseClaudeOptionLine(lines[index], index);
+    if (row) rows.push(row);
+  }
+  const rowCount = labels.length + 2;
+  for (let start = 0; start <= rows.length - rowCount; start += 1) {
+    const candidates = rows.slice(start, start + rowCount);
+    if (
+      !candidates.every((row, offset) => row.number === offset + 1)
+      || !labels.every((label, offset) => optionMatches(candidates[offset].text, label))
+      || candidates[labels.length].text !== CLAUDE_OTHER_LABEL
+      || candidates[labels.length + 1].text !== CLAUDE_CHAT_LABEL
+      || !questionIsVisible(lines, candidates[0].lineIndex, question.question)
+    ) {
+      continue;
+    }
+    const selectedIndex = candidates.findIndex((row) => row.selected);
+    if (selectedIndex < 0) return null;
+    if (optionIndex === -1) return { action: 'cancel', delta: 0, label: 'Cancel' };
+    if (optionIndex === labels.length) {
+      return {
+        action: 'other',
+        delta: labels.length - selectedIndex,
+        label: 'Direct input',
+      };
+    }
+    return {
+      action: 'option',
+      delta: optionIndex - selectedIndex,
+      label: labels[optionIndex],
+    };
+  }
+  return null;
+}
+
 export function parseGjcAskCustomInputScreen(
   screen: string,
   question: TmuxAskQuestion,
@@ -349,6 +413,20 @@ export function parseOmpAskCustomInputScreen(
     && lines.some((line) => normalizeText(line) === '>');
 }
 
+export function parseClaudeAskCustomInputScreen(
+  screen: string,
+  question: TmuxAskQuestion,
+): boolean {
+  const selection = parseClaudeAskSelectionScreen(
+    screen,
+    question,
+    question.options.length,
+  );
+  return selection?.action === 'other'
+    && selection.delta === 0
+    && CLAUDE_CUSTOM_HINT_RE.test(screen);
+}
+
 function parseSelection(
   kind: TmuxAskKind,
   screen: string,
@@ -357,7 +435,8 @@ function parseSelection(
 ): AskSelection | null {
   if (kind === 'gjc') return parseGjcAskSelectionScreen(screen, question, optionIndex);
   if (kind === 'codex') return parseCodexAskSelectionScreen(screen, question, optionIndex);
-  return parseOmpAskSelectionScreen(screen, question, optionIndex);
+  if (kind === 'omp') return parseOmpAskSelectionScreen(screen, question, optionIndex);
+  return parseClaudeAskSelectionScreen(screen, question, optionIndex);
 }
 
 function parseCustomInput(
@@ -367,7 +446,8 @@ function parseCustomInput(
 ): boolean {
   if (kind === 'gjc') return parseGjcAskCustomInputScreen(screen, question);
   if (kind === 'codex') return parseCodexAskCustomInputScreen(screen, question);
-  return parseOmpAskCustomInputScreen(screen, question);
+  if (kind === 'omp') return parseOmpAskCustomInputScreen(screen, question);
+  return parseClaudeAskCustomInputScreen(screen, question);
 }
 
 function stalePromptError(kind: TmuxAskKind): AppError {
@@ -383,7 +463,12 @@ export async function answerPendingTmuxAskSelection(
   optionIndex: number,
   run?: TmuxRunner,
 ): Promise<{ questionIndex: number; action: TmuxAskAction; label: string }> {
-  if (target.kind !== 'gjc' && target.kind !== 'codex' && target.kind !== 'omp') {
+  if (
+    target.kind !== 'gjc'
+    && target.kind !== 'codex'
+    && target.kind !== 'omp'
+    && target.kind !== 'claude'
+  ) {
     throw new AppError('This CLI does not support transcript selections.', {
       code: 'TMUX_ASK_UNSUPPORTED',
       statusCode: 400,
@@ -411,9 +496,11 @@ export async function answerPendingTmuxAskSelection(
   const keys: TmuxSelectionKey[] = matched.action === 'cancel'
     ? ['Escape']
     : matched.action === 'other'
-      ? [...navigationKeys, target.kind === 'codex' ? 'Tab' : 'Enter']
+      ? target.kind === 'claude'
+        ? navigationKeys
+        : [...navigationKeys, target.kind === 'codex' ? 'Tab' : 'Enter']
       : [...navigationKeys, 'Enter'];
-  await sendTmuxSelectionKeys(target, keys, run);
+  if (keys.length > 0) await sendTmuxSelectionKeys(target, keys, run);
   return {
     questionIndex: matched.questionIndex,
     action: matched.action,
@@ -431,7 +518,12 @@ export async function submitPendingTmuxAskCustomResponse(
   if (!value) {
     throw new AppError('message is required.', { code: 'EMPTY_MESSAGE', statusCode: 400 });
   }
-  if (target.kind !== 'gjc' && target.kind !== 'codex' && target.kind !== 'omp') {
+  if (
+    target.kind !== 'gjc'
+    && target.kind !== 'codex'
+    && target.kind !== 'omp'
+    && target.kind !== 'claude'
+  ) {
     throw new AppError('This CLI does not support transcript selections.', {
       code: 'TMUX_ASK_UNSUPPORTED',
       statusCode: 400,
