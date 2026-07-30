@@ -217,6 +217,44 @@ test('target aliases, redirects, merges, and transaction failures preserve canon
     assert.throws(() => targets.mergeEquivalentApps([first.id], loser.id, () => true), /canonical app targets/);
   });
 });
+test('a live generation follows provider session changes without moving conversation watches', () => {
+  withDatabase((db) => {
+    addUser(db, 1);
+    const targets = new CompletionNotificationTargetsRepository(db);
+    const generation = targets.createTarget('generation', 'external_generation', ['generation-alias']);
+    const first = targets.createTarget('first-app', 'app', ['first-app-alias']);
+    const second = targets.createTarget('second-app', 'app', ['second-app-alias']);
+
+    targets.promoteGenerationToApp(
+      'generation',
+      'first-app',
+      ['first-app-alias'],
+      ['generation-alias'],
+    );
+    db.prepare('INSERT INTO completion_notification_watches (user_id, target_id) VALUES (1, ?)')
+      .run(first.id);
+    targets.observeGeneration(generation.id, 'first-running', 'running');
+
+    const rebound = targets.promoteGenerationToApp(
+      'generation',
+      'second-app',
+      ['second-app-alias'],
+      ['generation-alias'],
+    );
+
+    assert.equal(rebound.id, second.id);
+    assert.equal(targets.resolveAlias('generation-alias')?.id, second.id);
+    assert.equal(targets.resolveAlias('first-app-alias')?.id, first.id);
+    assert.equal(targets.getWatch(1, first.id), true);
+    assert.equal(targets.getWatch(1, second.id), false);
+    assert.equal(
+      get<{ count: number }>(db, 'SELECT count(*) AS count FROM completion_notification_generation_state WHERE generation_target_id = ?', generation.id)?.count,
+      0,
+      'the resumed conversation starts from a fresh activity baseline',
+    );
+    assert.ok(rebound.revision > first.revision, 'stale alias revisions cannot mutate the rebound target');
+  });
+});
 test('stale watch mutations expose canonical state through survivor and loser aliases after app merge', () => {
   withDatabase((db) => {
     addUser(db, 1);
@@ -406,6 +444,37 @@ test('terminal decisions fan out owners once and enforce delivery claims, pause,
     assert.equal(outbox.endpointGone(retry.id, retry.claimToken), true);
     assert.equal(get<Row>(db, "SELECT * FROM push_subscriptions WHERE endpoint = 'https://push/shared'"), undefined);
     assert.equal(outbox.getDeliveryState(retry.id), 'endpoint_removed');
+  });
+});
+test('duplicate panes observing the same conversation and terminal evidence create one notification', () => {
+  withDatabase((db) => {
+    addUser(db, 1); addSubscription(db, 1); enableCompletionPreferences(db, 1); enablePush(db, 1);
+    const targets = new CompletionNotificationTargetsRepository(db);
+    const app = targets.createTarget('shared-app', 'app');
+    const first = targets.createTarget('first-generation', 'external_generation');
+    const second = targets.createTarget('second-generation', 'external_generation');
+    targets.promoteGenerationToApp('first-generation', 'shared-app');
+    targets.promoteGenerationToApp('second-generation', 'shared-app');
+    db.prepare('INSERT INTO completion_notification_watches (user_id, target_id) VALUES (1, ?)')
+      .run(app.id);
+    targets.observeGeneration(first.id, 'first-running', 'running');
+    targets.observeGeneration(second.id, 'second-running', 'running');
+
+    const outbox = new CompletionNotificationOutboxRepository(db);
+    const input = {
+      evidenceCursor: 'same-provider-turn',
+      eventCode: 'reply_ready' as const,
+      targetAliasSnapshot: 'shared-app',
+      payload,
+      now: 100,
+    };
+    const decided = outbox.recordTerminalDecision({ ...input, generationTargetId: first.id });
+    const replay = outbox.recordTerminalDecision({ ...input, generationTargetId: second.id });
+
+    assert.equal(decided.status, 'decided');
+    assert.equal(decided.decisionIds.length, 1);
+    assert.deepEqual(replay, { status: 'replay', decisionIds: decided.decisionIds });
+    assert.equal(get<{ count: number }>(db, 'SELECT count(*) AS count FROM completion_notification_outbox')?.count, 1);
   });
 });
 

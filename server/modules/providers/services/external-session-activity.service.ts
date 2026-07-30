@@ -589,6 +589,15 @@ const opaqueEvidence = (
   return { ...parsed, evidenceCursor, evidenceDigest };
 };
 
+const fileTailEvidenceDigest = (tail: Pick<FileTail, 'size' | 'digest'>): string => (
+  createHash('sha256')
+    .update('external-session-activity:file-tail:v1\0')
+    .update(String(tail.size))
+    .update('\0')
+    .update(tail.digest)
+    .digest('hex')
+);
+
 async function readJsonlActivityEvidence(
   kind: Exclude<ExternalLocalCliKind, 'opencode'>,
   providerSessionId: string,
@@ -601,7 +610,7 @@ async function readJsonlActivityEvidence(
       evidence: opaqueEvidence(
         kind,
         providerSessionId,
-        tail.digest,
+        fileTailEvidenceDigest(tail),
         parseExternalJsonlActivityEvidence(kind, tail.text),
       ),
     };
@@ -626,7 +635,12 @@ async function readOmpActivityAndTranscriptEvidence(
     return {
       activityResult: {
         status: 'resolved',
-        evidence: opaqueEvidence('omp', providerSessionId, tail.digest, parseOmpEvidence(records)),
+        evidence: opaqueEvidence(
+          'omp',
+          providerSessionId,
+          fileTailEvidenceDigest(tail),
+          parseOmpEvidence(records),
+        ),
       },
       transcriptEndedResult: {
         status: 'resolved',
@@ -683,6 +697,8 @@ function readOpenCodeActivityEvidence(
       `).all(message.id) as Array<{ data?: string }>;
       const sourceDigest = createHash('sha256')
         .update('opencode-message-and-parts:v1\0')
+        .update(message.id)
+        .update('\0')
         .update(message.data)
         .update('\0')
         .update(JSON.stringify(parts.map((part) => part.data ?? null)))
