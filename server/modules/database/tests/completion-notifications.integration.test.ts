@@ -659,6 +659,16 @@ test('completion preference updates merge partial state, require consent to enab
     });
     assert.deepEqual(get<Row>(db, 'SELECT desired_web_push, consent_configured FROM completion_notification_policy WHERE user_id = 1'),
       { desired_web_push: 1, consent_configured: 1 });
+    // A settings save round-trips the full preference object, including an
+    // already-consented webPush: true. That is not a fresh enable and must not
+    // fail the whole write.
+    const resave = notificationPreferencesDb.updateCompletionPreferencesAndDeliveryState(1, {
+      channels: { inApp: false, webPush: true, sound: false }, events: { stop: true },
+    }, 26);
+    assert.equal(resave.preferences.channels.webPush, true);
+    assert.equal(resave.preferences.channels.sound, false, 'the unrelated setting in the same save is persisted');
+    assert.deepEqual(get<Row>(db, 'SELECT desired_web_push, consent_configured FROM completion_notification_policy WHERE user_id = 1'),
+      { desired_web_push: 1, consent_configured: 1 });
     assert.throws(() => notificationPreferencesDb.updateCompletionPreferencesAndDeliveryState(1, {
       channels: { webPush: 'true' },
     }, 26), /must be a boolean/);

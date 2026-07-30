@@ -117,9 +117,6 @@ export const notificationPreferencesDb = {
       throw new TypeError('channels.webPush must be a boolean when provided');
     }
     const explicitWebPushConsent = configureWebPushConsent === true;
-    if (requestedWebPush === true && !explicitWebPushConsent) {
-      throw new Error('enabling Web Push requires explicit click consent');
-    }
     const db = getConnection();
     return db.transaction(() => {
       const stored = db.prepare(
@@ -148,10 +145,17 @@ export const notificationPreferencesDb = {
             : {}),
         },
       });
-      const policy = db.prepare(`SELECT desired_web_push, enforcement_enabled
+      const policy = db.prepare(`SELECT desired_web_push, consent_configured, enforcement_enabled
         FROM completion_notification_policy WHERE user_id = ?`).get(userId) as {
-        desired_web_push: number; enforcement_enabled: number;
+        desired_web_push: number; consent_configured: number; enforcement_enabled: number;
       } | undefined;
+      // Consent is proven once per device setup by the click-gated subscribe
+      // route. Only a fresh enable needs that proof: a settings save that
+      // round-trips an already-consented `true` is not a new enable, and
+      // rejecting it would fail every unrelated preference write.
+      if (requestedWebPush === true && !explicitWebPushConsent && !policy?.consent_configured) {
+        throw new Error('enabling Web Push requires explicit click consent');
+      }
       const wasEnabled = Boolean(policy?.desired_web_push && policy.enforcement_enabled);
       const desiredWebPush = requestedWebPush === false
         ? 0
