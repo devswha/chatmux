@@ -27,16 +27,11 @@ Oh My Pi — inside tmux, like always. ChatMux finds them by itself and shows
 every session in one browser page, on your desktop or your phone:
 
 - **No registration.** Agents already running in tmux just appear in the sidebar.
-- **One ordered sidebar.** GJC, Claude, Codex, Cursor, OpenCode, Oh My Pi,
-  SSH, and plain shell sessions share one list; drag any row across providers
-  and ChatMux remembers the order in that browser.
-- **See live state.** `RUN`, `READY`, and `ERROR` badges distinguish active
-  turns, reply-ready sessions, and provider failures such as an overloaded API.
-- **Read as chat.** Sessions with a recognized transcript open as a
-  conversation view; everything else opens as a real terminal.
-- **Type back.** Send prompts, answer menu prompts in the built-in terminal,
-  interrupt a running turn, resume old sessions, or start new agents — input
-  only ever reaches a pane whose identity ChatMux has verified.
+- **One ordered sidebar.** Every provider in one drag-sortable list, with
+  `RUN`, `READY`, and `ERROR` badges for live state.
+- **Chat or terminal.** Recognized transcripts read as conversations; everything
+  else is a real attached terminal. Input only ever reaches a pane whose
+  identity ChatMux has verified.
 - **tmux stays the boss.** Restart or remove ChatMux any time; your tmux
   sessions keep running untouched.
 
@@ -104,11 +99,6 @@ bar all work from the phone:
 composer; otherwise ChatMux gives you an attached terminal. Both views can
 type into the real pane.
 
-Every live row uses the same reorderable sidebar regardless of provider. Dragging
-a row across provider boundaries persists the resulting order in that browser.
-Transcript-aware activity badges surface running turns and terminal provider
-errors without replacing the underlying conversation or terminal view.
-
 | Agent | Found automatically | Chat view | Send input | Start new session |
 |---|---|---|---|---|
 | **Gajae Code (GJC)** | Yes | Yes | Prompts and `/` commands | Yes |
@@ -126,52 +116,19 @@ alias remains supported for older installations.
 <a id="remote-access"></a>
 ## Remote access
 
-When Tailscale is running and logged in, the installer configures Tailscale
-Serve automatically. Approved tailnet accounts use the private HTTPS address
-without a separate ChatMux password; unapproved accounts are denied. Turn on
-Tailscale on the phone before scanning the install QR and keep it connected
-while using ChatMux.
-
-Without Tailscale, installation enables password access on the LAN. Sign in
-once from any browser and the session renews on use. Rotate or recover the
-password, or change the mode, at any time:
+With Tailscale logged in, the installer configures Tailscale Serve
+automatically: approved tailnet accounts use the private HTTPS address with no
+separate password, and everyone else is denied. Without Tailscale, installation
+enables password access on the LAN with a one-time owner password:
 
 ```bash
-chatmux access password                            # rotate/recover (signs out all sessions)
-chatmux access enable password --session-days 90   # longer idle window
-chatmux access enable tailscale                    # switch after Tailscale is available
+chatmux access password              # rotate/recover (signs out all sessions)
+chatmux access enable tailscale     # switch modes after Tailscale is available
 ```
 
-Password-mode devices on the same Wi-Fi connect immediately; for the public
-internet, forward the TCP port and put a TLS proxy in front (see
-[docs/INSTALL.md](docs/INSTALL.md)).
-
-```bash
-chatmux access users
-chatmux access allow family@example.com
-chatmux access revoke family@example.com
-chatmux access owner new-owner@example.com
-```
-
-It reuses an existing ChatMux Serve front or selects an unused port from
-`8443` through `8499`. It does not enable Funnel or reset unrelated Serve
-configuration.
-
-Without Tailscale, a WireGuard-style VPN gives login-free access with no
-session expiry (see [docs/INSTALL.md](docs/INSTALL.md)):
-
-```bash
-chatmux access enable vpn 10.0.0.1
-```
-
-An SSH tunnel remains the simplest fallback:
-
-```bash
-ssh -N -L 3001:127.0.0.1:3001 user@server
-```
-
-Then open <http://127.0.0.1:3001> locally. Replace `3001` with the backend
-port reported by `chatmux status` when the installer selected a different one.
+User allowlists, longer sessions, VPN mode, SSH tunnels, and public TLS
+options are covered in the [remote access guide](docs/REMOTE-ACCESS.md) and
+the [installation guide](docs/INSTALL.md).
 
 ## How it works
 
@@ -198,30 +155,8 @@ ChatMux links tmux process ancestry to native transcript identifiers. A matching
 working directory alone is never enough to authorize a destructive action, and
 the tmux session identifier is rechecked before relay or termination.
 
-## Daily workflow
-
-- Live agent rows open as conversation views before the first native transcript
-  is written, then switch to indexed titles, models, and message history.
-- Drag handles reorder the complete live roster across providers. `RUN`,
-  `READY`, and `ERROR` badges keep active, completed, and failed turns visible
-  on both desktop and the installed PWA.
-- Remote SSH rows remain attached terminals because no local transcript can be
-  verified.
-- Native provider stores are indexed automatically. Select a project to search
-  and resume prior sessions.
-- The file panel browses, previews, edits, and uploads only within a validated
-  project root.
-
-### Settings
-
-| Tab | Controls |
-|---|---|
-| **Agents** | CLI installation and authentication, and provider permissions |
-| **Appearance** | Theme, language, thinking/raw parameters, send key, project order, and editor behavior |
-| **Access** | Tailscale HTTPS address, current identity, owner, and allowed accounts |
-
 <a id="development"></a>
-## Development and verification
+## Development
 
 ```bash
 git clone https://github.com/devswha/chatmux.git
@@ -232,38 +167,23 @@ npm run dev
 
 Open <http://127.0.0.1:5173>. Development requires Node.js `22.22.2+` on the
 22.x line or `24.15.0+` on the 24.x line, npm, Git, tmux, and Rust `1.85.1`.
-
-| Command | Purpose |
-|---|---|
-| `npm run dev` | Vite client and development backend |
-| `npm run typecheck` | Client and server TypeScript checks |
-| `npm test` | Server and client tests |
-| `npm run lint` | ESLint for product and tooling code |
-| `npm run check:identity` | Product name, storage path, and repository identity checks |
-| `npm run build` | Production client, server, and Rust core build |
-| `npm run verify` | Audit, types, Rust, tests, lint, identity, and production build |
-
-```bash
-npm run verify
-```
+`npm run verify` runs the full release gate: audit, typecheck, Rust checks,
+tests, lint, identity checks, and a production build.
 
 ## Security and data boundaries
 
 - The backend binds to loopback. Tailscale mode trusts Serve identity headers
-  only from loopback on the expected HTTPS origin and applies one allowlist to
-  HTTP and WebSocket requests.
-- The installer does not enable Tailscale Funnel or a public listener. Tagged
-  devices and unapproved tailnet users fail closed.
-- Password mode uses `HttpOnly`, `SameSite=Strict` cookies and persistent logout
-  revocation.
-- Project file access normalizes paths, checks symlinks, and rejects project-root
-  escapes.
+  only from loopback on the expected HTTPS origin; the installer never enables
+  Funnel or a public listener, and unapproved users fail closed.
+- Password mode uses `HttpOnly`, `SameSite=Strict` cookies with persistent
+  logout revocation.
 - State and indexes live below `~/.chatmux`. Back up `~/.chatmux/data` before
   migration or upgrade.
 
 ## Documentation
 
 - [Production installation](docs/INSTALL.md)
+- [Remote access](docs/REMOTE-ACCESS.md)
 - [Self-hosted operations](docs/SELF-HOST.md)
 - [Product scope and roadmap](docs/ROADMAP.md)
 - [Upstream provenance](docs/UPSTREAM.md)
