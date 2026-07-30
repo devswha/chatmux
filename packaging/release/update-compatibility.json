@@ -28,6 +28,13 @@
           "1.4.5"
         ]
       }
+    },
+    "1.5.0": {
+      "database": {
+        "rollbackCompatibleFrom": [
+          "1.4.6"
+        ]
+      }
     }
   }
 }
