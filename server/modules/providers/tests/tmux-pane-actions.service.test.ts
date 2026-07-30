@@ -6,6 +6,7 @@ import {
   captureTmuxPane,
   killTmuxPane,
   killTmuxSession,
+  pasteToTmuxPane,
   readTmuxPaneIdentity,
   readTmuxProcessGeneration,
   sendTmuxProcessAction,
@@ -99,6 +100,13 @@ test('send targets one pane and preserves literal input', async () => {
     '-S', identity.socketPath,
     'send-keys', '-t', identity.paneId, 'Enter',
   ]);
+});
+
+test('paste can stage native prompt feedback without submitting Enter', async () => {
+  const { calls, run } = recordingRunner(['$7\t@8\t%9\n']);
+  await pasteToTmuxPane(target, 'change the plan', run);
+  assert.equal(calls.some(({ args }) => args.at(-1) === 'Enter'), false);
+  assert.equal(calls.some(({ args }) => args.includes('paste-buffer')), true);
 });
 test('send refuses a stale pane before staging bytes in a tmux buffer', async () => {
   const { calls, run } = recordingRunner(['$7\t@8\t%999\n']);

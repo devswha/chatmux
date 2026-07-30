@@ -124,6 +124,22 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ tmux, process, message }),
     }),
+  liveSessionInteractivePrompt: (tmux, process, options = {}) =>
+    authenticatedFetch('/api/providers/sessions/live/interactive', {
+      ...options,
+      method: 'POST',
+      body: JSON.stringify({ tmux, process }),
+    }),
+  liveSessionInteractiveRespond: (tmux, process, promptId, choices) =>
+    authenticatedFetch('/api/providers/sessions/live/interactive/respond', {
+      method: 'POST',
+      body: JSON.stringify({ tmux, process, promptId, choices }),
+    }),
+  liveSessionInteractiveCustom: (tmux, process, promptId, message) =>
+    authenticatedFetch('/api/providers/sessions/live/interactive/custom', {
+      method: 'POST',
+      body: JSON.stringify({ tmux, process, promptId, message }),
+    }),
   liveSessionAskSelect: (tmux, process, sessionId, toolId, optionIndex) =>
     authenticatedFetch('/api/providers/sessions/live/ask', {
       method: 'POST',
@@ -149,6 +165,22 @@ export const api = {
     authenticatedFetch('/api/providers/sessions/external/send', {
       method: 'POST',
       body: JSON.stringify({ tmux, process, message }),
+    }),
+  externalCliSessionInteractivePrompt: (tmux, process, options = {}) =>
+    authenticatedFetch('/api/providers/sessions/external/interactive', {
+      ...options,
+      method: 'POST',
+      body: JSON.stringify({ tmux, process }),
+    }),
+  externalCliSessionInteractiveRespond: (tmux, process, promptId, choices) =>
+    authenticatedFetch('/api/providers/sessions/external/interactive/respond', {
+      method: 'POST',
+      body: JSON.stringify({ tmux, process, promptId, choices }),
+    }),
+  externalCliSessionInteractiveCustom: (tmux, process, promptId, message) =>
+    authenticatedFetch('/api/providers/sessions/external/interactive/custom', {
+      method: 'POST',
+      body: JSON.stringify({ tmux, process, promptId, message }),
     }),
   externalCliSessionAskSelect: (tmux, process, sessionId, toolId, optionIndex) =>
     authenticatedFetch('/api/providers/sessions/external/ask', {

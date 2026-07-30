@@ -526,6 +526,25 @@ test('SidebarLiveSection badges an in-progress turn as RUN, not READY', async ()
   assert.ok(html.includes('emerald'), 'RUN is styled green, not blue');
 });
 
+test('SidebarLiveSection gives an active GJC choice prompt INPUT precedence over RUN', async () => {
+  const html = await renderSection({
+    projects: makeProjects(),
+    liveSessionIds: new Set(['s-live']),
+    liveSessionNames: new Map([['s-live', 'omg']]),
+    liveSessionLineage: new Set(['s-live']),
+    liveSessionTargets: new Map([['s-live', target('%1', 1)]]),
+    liveSessionKinds: new Map([['s-live', 'interactive']]),
+    liveSessionRunning: new Set(['s-live']),
+    liveSessionInput: new Set(['s-live']),
+    selectedSession: null,
+    onProjectSelect,
+    onSessionSelect,
+  });
+  assert.ok(html.includes('>INPUT<'));
+  assert.ok(!html.includes('>RUN<'));
+  assert.ok(!html.includes('>READY<'));
+});
+
 test('SidebarLiveSection gives GJC provider failures ERROR precedence over RUN and READY', async () => {
   const html = await renderSection({
     projects: makeProjects(),

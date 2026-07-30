@@ -8,6 +8,8 @@ interface QuestionAnswerContentProps {
   answers: Record<string, string>;
   className?: string;
   pending?: boolean;
+  allowDirectInput?: boolean;
+  directInputNumber?: number;
 }
 
 // Exception to the stateless ContentRenderer pattern: multi-question navigation requires local state.
@@ -16,6 +18,8 @@ export const QuestionAnswerContent: React.FC<QuestionAnswerContentProps> = ({
   answers,
   className = '',
   pending = false,
+  allowDirectInput = true,
+  directInputNumber,
 }) => {
   const { t } = useTranslation('chat');
   const [expandedIdx, setExpandedIdx] = useState<number | null>(pending ? 0 : null);
@@ -178,10 +182,10 @@ export const QuestionAnswerContent: React.FC<QuestionAnswerContentProps> = ({
                     );
                   })}
 
-                  {pending && (
+                  {pending && allowDirectInput && (directInputNumber ?? options.length + 1) > options.length && (
                     <div className="flex items-start gap-2 rounded-lg border border-dashed border-blue-300/70 px-2.5 py-1.5 text-[12px] text-blue-700 dark:border-blue-700/60 dark:text-blue-300">
                       <span className="w-4 flex-shrink-0 pt-0.5 text-right font-mono text-[11px] font-semibold">
-                        {options.length + 1}.
+                        {directInputNumber ?? options.length + 1}.
                       </span>
                       <div className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 rounded-full border-[1.5px] border-blue-300 dark:border-blue-700" />
                       <span>{t('interactive.directInput', { defaultValue: 'Direct input (Other)' })}</span>
@@ -219,9 +223,22 @@ export const QuestionAnswerContent: React.FC<QuestionAnswerContentProps> = ({
 
       {pending && (
         <div className="rounded-md bg-blue-50 px-2.5 py-1.5 text-[11px] text-blue-700 dark:bg-blue-950/30 dark:text-blue-300">
-          {t('interactive.numberInstruction', {
-            defaultValue: 'Send the displayed number in chat. Last number: direct input · 0: cancel',
-          })}
+          {questions.some((question) => question?.multiSelect)
+            ? t('interactive.multiNumberInstruction', {
+                defaultValue: 'Send one or more numbers separated by commas · 0: cancel',
+              })
+            : allowDirectInput
+              ? directInputNumber !== undefined
+                ? t('interactive.numberInstructionWithCustomNumber', {
+                    number: directInputNumber,
+                    defaultValue: 'Send the displayed number in chat · {{number}}: direct input · 0: cancel',
+                  })
+                : t('interactive.numberInstruction', {
+                    defaultValue: 'Send the displayed number in chat. Last number: direct input · 0: cancel',
+                  })
+              : t('interactive.numberInstructionNoCustom', {
+                  defaultValue: 'Send the displayed number in chat · 0: cancel',
+                })}
         </div>
       )}
 

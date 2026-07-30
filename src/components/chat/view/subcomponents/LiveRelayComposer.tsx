@@ -31,6 +31,7 @@ import {
   PromptInputTools,
   PromptInputSubmit,
 } from '../../../../shared/view/ui';
+import { QuestionAnswerContent } from '../../tools/components/ContentRenderers';
 
 import CommandMenu from './CommandMenu';
 
@@ -41,26 +42,17 @@ type RelayStatus =
   | { kind: 'queued'; text: string }
   | { kind: 'error'; text: string };
 
-type ExternalApproval = {
+type InteractivePrompt = {
+  id: string;
+  kind: 'question' | 'approval' | 'plan';
   title: string;
-  text: string;
-  canRemember: boolean;
+  question: string;
+  body: string | null;
+  options: Array<{ label: string; description?: string }>;
+  multiSelect: boolean;
+  customOptionNumber: number | null;
+  cancelNumber: 0;
 };
-
-type ApprovalDecision = 'approve-once' | 'approve-remember' | 'reject' | 'cancel';
-
-export function mapExternalApprovalNumber(
-  kind: 'codex' | 'omp',
-  canRemember: boolean,
-  number: number,
-): ApprovalDecision | null {
-  if (number === 0) return 'cancel';
-  if (number === 1) return 'approve-once';
-  if (kind === 'codex' && canRemember && number === 2) return 'approve-remember';
-  if (number === (canRemember ? 3 : 2)) return 'reject';
-  return null;
-}
-
 
 type WorkspaceProject = {
   projectId?: string;
@@ -112,7 +104,8 @@ export default function LiveRelayComposer({
   const [status, setStatus] = useState<RelayStatus>({ kind: 'idle' });
   const [isInterrupting, setIsInterrupting] = useState(false);
   const [customInputToolId, setCustomInputToolId] = useState<string | null>(null);
-  const [externalApproval, setExternalApproval] = useState<ExternalApproval | null>(null);
+  const [interactivePrompt, setInteractivePrompt] = useState<InteractivePrompt | null>(null);
+  const [customInputPromptId, setCustomInputPromptId] = useState<string | null>(null);
   const [assetStatus, setAssetStatus] = useState<
     { kind: 'idle' } | { kind: 'uploading' } | { kind: 'error'; text: string }
   >({ kind: 'idle' });
@@ -144,6 +137,9 @@ export default function LiveRelayComposer({
   const isAwaitingCustomInput = Boolean(
     pendingAsk && customInputToolId === pendingAsk.toolId,
   );
+  const isAwaitingInteractiveCustom = Boolean(
+    interactivePrompt && customInputPromptId === interactivePrompt.id,
+  );
 
   useEffect(() => {
     if (!pendingAsk || pendingAsk.toolId !== customInputToolId) {
@@ -152,11 +148,19 @@ export default function LiveRelayComposer({
   }, [pendingAsk, customInputToolId]);
 
   useEffect(() => {
+    if (!interactivePrompt || interactivePrompt.id !== customInputPromptId) {
+      setCustomInputPromptId(null);
+    }
+  }, [interactivePrompt, customInputPromptId]);
+
+  useEffect(() => {
     if (
-      (relayKind !== 'codex' && relayKind !== 'omp')
-      || !transcriptSessionId
+      relayKind !== 'gjc'
+      && relayKind !== 'codex'
+      && relayKind !== 'omp'
+      && relayKind !== 'claude'
     ) {
-      setExternalApproval(null);
+      setInteractivePrompt(null);
       return undefined;
     }
     let cancelled = false;
@@ -165,27 +169,22 @@ export default function LiveRelayComposer({
       if (inFlight) return;
       inFlight = true;
       try {
-        const response = await api.externalCliSessionApproval(
-          target.tmux,
-          target.process,
-          transcriptSessionId,
-        );
+        const response = relayKind === 'gjc'
+          ? await api.liveSessionInteractivePrompt(target.tmux, target.process)
+          : await api.externalCliSessionInteractivePrompt(target.tmux, target.process);
         const body = await response.json().catch(() => null);
         if (cancelled || !response.ok) return;
-        const approval = body?.data?.approval;
-        setExternalApproval(
-          approval
-          && typeof approval.title === 'string'
-          && typeof approval.text === 'string'
-            ? {
-                title: approval.title,
-                text: approval.text,
-                canRemember: approval.canRemember === true,
-              }
+        const prompt = body?.data?.prompt;
+        setInteractivePrompt(
+          prompt
+          && typeof prompt.id === 'string'
+          && typeof prompt.question === 'string'
+          && Array.isArray(prompt.options)
+            ? prompt as InteractivePrompt
             : null,
         );
       } catch {
-        // Best effort. The normal relay remains available if polling fails.
+        // Best effort. Free-text relay remains available if prompt polling fails.
       } finally {
         inFlight = false;
       }
@@ -196,7 +195,7 @@ export default function LiveRelayComposer({
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [relayKind, target, transcriptSessionId]);
+  }, [relayKind, target]);
 
   // GJC exposes its live command catalog; native external agents expose their
   // provider skills. Failure is non-fatal because free-text relay still works.
@@ -521,33 +520,71 @@ export default function LiveRelayComposer({
     setStatus({ kind: 'sending' });
     try {
       let response: Response;
-      const approvalNumber = !pendingAsk && externalApproval && /^\d+$/.test(message)
-        ? Number.parseInt(message, 10)
-        : null;
-      const approvalDecision = approvalNumber !== null
-        && (relayKind === 'codex' || relayKind === 'omp')
-        ? mapExternalApprovalNumber(
-            relayKind,
-            externalApproval?.canRemember === true,
-            approvalNumber,
-          )
-        : null;
-      if (externalApproval && !pendingAsk && !approvalDecision) {
+      const interactiveNumbers = !isAwaitingInteractiveCustom
+        && interactivePrompt
+        && /^\d+(?:\s*,\s*\d+)*$/.test(message)
+          ? message.split(',').map((value) => Number.parseInt(value.trim(), 10))
+          : null;
+      if (interactivePrompt && !isAwaitingInteractiveCustom && !interactiveNumbers) {
         setStatus({
           kind: 'error',
-          text: t('relay.approvalNumberRequired', {
-            defaultValue: 'Enter a displayed approval number.',
-          }),
+          text: interactivePrompt.multiSelect
+            ? t('relay.multiSelectionNumberRequired', {
+                defaultValue: 'Enter one or more displayed numbers separated by commas.',
+              })
+            : t('relay.selectionNumberRequired', {
+                max: interactivePrompt.customOptionNumber ?? interactivePrompt.options.length,
+                defaultValue: 'Enter a displayed number (0-{{max}}).',
+              }),
         });
         return;
       }
-      if (approvalDecision && transcriptSessionId) {
-        response = await api.externalCliSessionApprovalRespond(
-          target.tmux,
-          target.process,
-          transcriptSessionId,
-          approvalDecision,
-        );
+      if (interactiveNumbers) {
+        const maximum = interactivePrompt?.customOptionNumber
+          ?? interactivePrompt?.options.length
+          ?? 0;
+        if (
+          interactiveNumbers.some((number) => number < 0 || number > maximum)
+          || (interactiveNumbers.includes(0) && interactiveNumbers.length !== 1)
+        ) {
+          setStatus({
+            kind: 'error',
+            text: t('relay.selectionNumberRequired', {
+              max: maximum,
+              defaultValue: 'Enter a displayed number (0-{{max}}).',
+            }),
+          });
+          return;
+        }
+      }
+      if (interactivePrompt && isAwaitingInteractiveCustom) {
+        response = relayKind === 'gjc'
+          ? await api.liveSessionInteractiveCustom(
+              target.tmux,
+              target.process,
+              interactivePrompt.id,
+              message,
+            )
+          : await api.externalCliSessionInteractiveCustom(
+              target.tmux,
+              target.process,
+              interactivePrompt.id,
+              message,
+            );
+      } else if (interactivePrompt && interactiveNumbers) {
+        response = relayKind === 'gjc'
+          ? await api.liveSessionInteractiveRespond(
+              target.tmux,
+              target.process,
+              interactivePrompt.id,
+              interactiveNumbers,
+            )
+          : await api.externalCliSessionInteractiveRespond(
+              target.tmux,
+              target.process,
+              interactivePrompt.id,
+              interactiveNumbers,
+            );
       } else if (pendingAsk && transcriptSessionId) {
         if (isAwaitingCustomInput) {
           response = relayKind !== 'gjc'
@@ -634,11 +671,18 @@ export default function LiveRelayComposer({
         return;
       }
       setInput('');
-      if (approvalDecision) {
-        setExternalApproval(null);
+      if (interactivePrompt && !isAwaitingInteractiveCustom && data.action === 'other') {
+        setCustomInputPromptId(interactivePrompt.id);
         setStatus({
           kind: 'ok',
-          text: t('relay.approvalDelivered', { defaultValue: 'Approval response delivered.' }),
+          text: t('relay.customInputReady', { defaultValue: 'Type the custom answer.' }),
+        });
+      } else if (interactivePrompt) {
+        setInteractivePrompt(null);
+        setCustomInputPromptId(null);
+        setStatus({
+          kind: 'ok',
+          text: t('relay.selectionDelivered', { defaultValue: 'Selection delivered.' }),
         });
       } else if (pendingAsk && !isAwaitingCustomInput && data.action === 'other') {
         setCustomInputToolId(pendingAsk.toolId);
@@ -659,7 +703,8 @@ export default function LiveRelayComposer({
     input,
     status.kind,
     pendingAsk,
-    externalApproval,
+    interactivePrompt,
+    isAwaitingInteractiveCustom,
     transcriptSessionId,
     isAwaitingCustomInput,
     target,
@@ -778,30 +823,25 @@ export default function LiveRelayComposer({
   return (
     <div className="chat-composer-shell relative flex-shrink-0 px-2 pb-3 pt-2 sm:px-4">
       <div className="mx-auto max-w-[54.25rem] space-y-1.5">
-        {externalApproval && !pendingAsk && (
-          <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
-            <div className="font-semibold text-amber-700 dark:text-amber-300">
-              {externalApproval.title}
-            </div>
-            <pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-background/70 p-2 font-mono text-[11px] leading-relaxed text-foreground">
-              {externalApproval.text}
-            </pre>
-            <div className="mt-2 text-xs text-amber-800 dark:text-amber-200">
-              <span className="font-semibold">1.</span>{' '}
-              {t('relay.approveOnce', { defaultValue: 'Approve once' })}
-              {relayKind === 'codex' && externalApproval.canRemember && (
-                <>
-                  {' · '}<span className="font-semibold">2.</span>{' '}
-                  {t('relay.approveRemember', { defaultValue: 'Approve and remember' })}
-                </>
-              )}
-              {' · '}<span className="font-semibold">
-                {externalApproval.canRemember ? '3.' : '2.'}
-              </span>{' '}
-              {t('relay.reject', { defaultValue: 'Reject' })}
-              {' · '}<span className="font-semibold">0.</span>{' '}
-              {t('relay.cancel', { defaultValue: 'Cancel' })}
-            </div>
+        {interactivePrompt && !pendingAsk && (
+          <div className="space-y-2">
+            {interactivePrompt.body && (
+              <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border/60 bg-background/70 p-2 font-mono text-[11px] leading-relaxed text-foreground">
+                {interactivePrompt.body}
+              </pre>
+            )}
+            <QuestionAnswerContent
+              questions={[{
+                header: interactivePrompt.title,
+                question: interactivePrompt.question,
+                options: interactivePrompt.options,
+                multiSelect: interactivePrompt.multiSelect,
+              }]}
+              answers={{}}
+              pending
+              allowDirectInput={interactivePrompt.customOptionNumber !== null}
+              directInputNumber={interactivePrompt.customOptionNumber ?? undefined}
+            />
           </div>
         )}
         <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-blue-600 dark:text-blue-400">
@@ -850,17 +890,22 @@ export default function LiveRelayComposer({
               }}
               rows={1}
               placeholder={
-                isAwaitingCustomInput
+                isAwaitingInteractiveCustom || isAwaitingCustomInput
                   ? t('relay.customInputPlaceholder', { defaultValue: 'Type the custom answer…' })
-                  : pendingAsk
+                  : interactivePrompt
+                    ? interactivePrompt.multiSelect
+                      ? t('relay.multiSelectionPlaceholder', {
+                          defaultValue: 'Enter choice numbers separated by commas…',
+                        })
+                      : t('relay.selectionPlaceholder', {
+                          max: interactivePrompt.customOptionNumber ?? interactivePrompt.options.length,
+                          defaultValue: 'Enter a choice number (0-{{max}})…',
+                        })
+                    : pendingAsk
                     ? t('relay.selectionPlaceholder', {
                         max: pendingAsk.maxChoiceNumber,
                         defaultValue: 'Enter a choice number (0-{{max}})…',
                       })
-                    : externalApproval
-                      ? t('relay.approvalPlaceholder', {
-                          defaultValue: 'Enter an approval number (0 to cancel)…',
-                        })
                     : t('relay.placeholder', { name: displayName, trigger: commandTrigger })
               }
             />

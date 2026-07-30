@@ -21,6 +21,7 @@ import {
   type LiveGjcSession,
   type LiveGjcSessionsDetailedResult,
 } from './live-sessions.service.js';
+import { getCachedTmuxInteractiveActivity } from './tmux-interactive-prompt.service.js';
 
 export const C_SCAN_MS = 1_000;
 export const C_SCAN_IDLE_MS = 8_000;
@@ -164,22 +165,30 @@ export function createDiscoveryCollector(options: DiscoveryCollectorOptions = {}
   }
 
   async function externalRows(sessions: readonly ExternalCliSession[]): Promise<DiscoveryRow[]> {
-    return Promise.all(sessions.map(async (session) => ({
-      key: rowKey('external', session.tmux),
-      lane: 'external' as const,
-      tmuxName: session.tmuxName,
-      tmux: session.tmux,
-      process: session.agentPid === undefined || session.startedAtMs === undefined
+    return Promise.all(sessions.map(async (session) => {
+      const process = session.agentPid === undefined || session.startedAtMs === undefined
         ? null
-        : { pid: session.agentPid, startedAtMs: session.startedAtMs },
-      kind: session.kind,
-      providerSessionId: session.providerSessionId ?? null,
-      activity: toExternalSessionDisplayActivity(await resolveExternalSessionActivity(session)),
-      cwd: session.cwd ?? null,
-      lastSeenRevision: revision,
-      presence: 'present' as const,
-      staleSinceRevision: null,
-    })));
+        : { pid: session.agentPid, startedAtMs: session.startedAtMs };
+      const transcriptActivity = toExternalSessionDisplayActivity(
+        await resolveExternalSessionActivity(session),
+      );
+      return {
+        key: rowKey('external', session.tmux),
+        lane: 'external' as const,
+        tmuxName: session.tmuxName,
+        tmux: session.tmux,
+        process,
+        kind: session.kind,
+        providerSessionId: session.providerSessionId ?? null,
+        activity: process
+          ? getCachedTmuxInteractiveActivity({ tmux: session.tmux, process }) ?? transcriptActivity
+          : transcriptActivity,
+        cwd: session.cwd ?? null,
+        lastSeenRevision: revision,
+        presence: 'present' as const,
+        staleSinceRevision: null,
+      };
+    }));
   }
 
   function liveRows(sessions: readonly LiveGjcSession[]): DiscoveryRow[] {
@@ -193,7 +202,14 @@ export function createDiscoveryCollector(options: DiscoveryCollectorOptions = {}
         process: session.process,
         kind: 'gjc',
         providerSessionId: session.id,
-        activity: session.error === true ? 'error' : session.running === true ? 'running' : 'unknown',
+        activity: session.error === true
+          ? 'error'
+          : session.process
+            ? getCachedTmuxInteractiveActivity({ tmux: session.tmux, process: session.process })
+              ?? (session.running === true ? 'running' : 'unknown')
+            : session.running === true
+              ? 'running'
+              : 'unknown',
         tmuxActionable: session.claim === 'lineage' && session.process !== null,
         cwd: null,
         lastSeenRevision: revision,

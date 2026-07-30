@@ -25,6 +25,7 @@ type SidebarContentProps = {
   liveSessionTargets: ReadonlyMap<string, TmuxPaneTarget>;
   liveSessionKinds: ReadonlyMap<string, string>;
   liveSessionRunning: ReadonlySet<string>;
+  liveSessionInput?: ReadonlySet<string>;
   liveSessionErrors: ReadonlySet<string>;
   liveSessionsLoaded: boolean;
   onProjectSelect: (project: Project) => void;
@@ -59,6 +60,7 @@ export default function SidebarContent({
   liveSessionTargets,
   liveSessionKinds,
   liveSessionRunning,
+  liveSessionInput = new Set<string>(),
   liveSessionErrors,
   liveSessionsLoaded,
   onProjectSelect,
@@ -115,6 +117,7 @@ export default function SidebarContent({
             liveSessionTargets={liveSessionTargets}
             liveSessionKinds={liveSessionKinds}
             liveSessionRunning={liveSessionRunning}
+            liveSessionInput={liveSessionInput}
             liveSessionErrors={liveSessionErrors}
             onExternalTerminalOpen={onExternalTerminalOpen}
             onExternalSessionsChanged={refreshDiscoveredSessions}

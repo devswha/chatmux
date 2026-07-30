@@ -21,6 +21,7 @@ export type SidebarProps = {
   liveSessionTargets: ReadonlyMap<string, TmuxPaneTarget>;
   liveSessionKinds: ReadonlyMap<string, string>;
   liveSessionRunning: ReadonlySet<string>;
+  liveSessionInput?: ReadonlySet<string>;
   liveSessionErrors?: ReadonlySet<string>;
   liveSessionsLoaded: boolean;
   onProjectSelect: (project: Project) => void;

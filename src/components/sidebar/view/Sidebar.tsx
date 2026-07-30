@@ -24,6 +24,7 @@ function Sidebar({
   liveSessionTargets,
   liveSessionKinds,
   liveSessionRunning,
+  liveSessionInput = EMPTY_SESSION_IDS,
   liveSessionErrors = EMPTY_SESSION_IDS,
   liveSessionsLoaded,
   onProjectSelect,
@@ -136,6 +137,7 @@ function Sidebar({
           liveSessionTargets={liveSessionTargets}
           liveSessionKinds={liveSessionKinds}
           liveSessionRunning={liveSessionRunning}
+          liveSessionInput={liveSessionInput}
           liveSessionErrors={liveSessionErrors}
           liveSessionsLoaded={liveSessionsLoaded}
           onProjectSelect={onProjectSelect}

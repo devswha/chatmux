@@ -154,6 +154,7 @@ export function useProjectsState({
   // Session ids whose transcript tail shows a turn in progress (assistant
   // answering / tool loop). Presentational only — drives the RUN badge.
   const [liveSessionRunning, setLiveSessionRunning] = useState<Set<string>>(new Set());
+  const [liveSessionInput, setLiveSessionInput] = useState<Set<string>>(new Set());
   const [liveSessionErrors, setLiveSessionErrors] = useState<Set<string>>(new Set());
   // Exact pane and process generation per actionable live row.
   const [liveSessionTargets, setLiveSessionTargets] = useState<Map<string, TmuxPaneTarget>>(new Map());
@@ -190,6 +191,7 @@ export function useProjectsState({
     setLiveSessionLineage(new Set());
     setLiveSessionKinds(new Map());
     setLiveSessionRunning(new Set());
+    setLiveSessionInput(new Set());
     setLiveSessionErrors(new Set());
     setLiveSessionsLoaded(true);
   }, []);
@@ -220,6 +222,7 @@ export function useProjectsState({
     setLiveSessionLineage(new Set());
     setLiveSessionKinds(new Map());
     setLiveSessionRunning(new Set());
+    setLiveSessionInput(new Set());
     setLiveSessionErrors(new Set());
     setLiveSessionsLoaded(true);
   }, []);
@@ -238,6 +241,7 @@ export function useProjectsState({
     const lineage = new Set<string>();
     const kinds = new Map<string, string>();
     const runningIds = new Set<string>();
+    const inputIds = new Set<string>();
     const errorIds = new Set<string>();
     for (const row of rows) {
       const observation = resolveLiveDiscoverySession(
@@ -256,6 +260,7 @@ export function useProjectsState({
         if (isLiveTmuxActionable(row, metadata?.claim)) lineage.add(sessionId);
         if (typeof metadata?.kind === 'string') kinds.set(sessionId, metadata.kind);
         if (observation.running) runningIds.add(sessionId);
+        if (row.activity === 'asking_user') inputIds.add(sessionId);
         if (observation.error) errorIds.add(sessionId);
       }
     }
@@ -269,6 +274,7 @@ export function useProjectsState({
     setLiveSessionLineage(lineage);
     setLiveSessionKinds(kinds);
     setLiveSessionRunning(runningIds);
+    setLiveSessionInput(inputIds);
     setLiveSessionErrors(errorIds);
     setLiveSessionsLoaded(true);
   }, []);
@@ -341,6 +347,7 @@ export function useProjectsState({
     setLiveSessionLineage(lineage);
     setLiveSessionKinds(kinds);
     setLiveSessionRunning(running);
+    setLiveSessionInput(new Set());
     setLiveSessionErrors(errors);
     setLiveSessionsLoaded(true);
   }, [applyLiveIdentityOnly, applyLiveRows]);
@@ -945,6 +952,7 @@ export function useProjectsState({
       liveSessionTargets,
       liveSessionKinds,
       liveSessionRunning,
+      liveSessionInput,
       liveSessionErrors,
       liveSessionsLoaded,
       onProjectSelect: handleProjectSelect,
@@ -967,6 +975,7 @@ export function useProjectsState({
       liveSessionPresence,
       liveSessionKinds,
       liveSessionRunning,
+      liveSessionInput,
       liveSessionErrors,
       liveSessionsLoaded,
       handleProjectSelect,

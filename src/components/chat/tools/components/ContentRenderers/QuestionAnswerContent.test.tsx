@@ -93,3 +93,23 @@ test('pending transcript question renders numbered choices, direct input, and ca
   assert.ok(html.includes('0: cancel'));
   assert.ok(!html.includes('Skipped'));
 });
+
+test('a provider-native custom option does not add a second direct-input row', () => {
+  const html = renderToStaticMarkup(
+    React.createElement(QuestionAnswerContent, {
+      questions: [{
+        question: 'Ready to code?',
+        options: [
+          { label: 'Approve' },
+          { label: 'Tell Claude what to change' },
+        ],
+      }],
+      answers: {},
+      pending: true,
+      allowDirectInput: true,
+      directInputNumber: 2,
+    }),
+  );
+  assert.ok(html.includes('2.'));
+  assert.ok(!html.includes('Direct input (Other)'));
+});

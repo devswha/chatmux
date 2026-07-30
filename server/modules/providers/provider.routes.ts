@@ -48,6 +48,12 @@ import {
   type TmuxApprovalDecision,
 } from '@/modules/providers/services/tmux-approval.service.js';
 import {
+  answerTmuxInteractivePrompt,
+  getCachedTmuxInteractiveActivity,
+  getTmuxInteractivePrompt,
+  submitTmuxInteractiveCustomResponse,
+} from '@/modules/providers/services/tmux-interactive-prompt.service.js';
+import {
   captureTmuxPane,
   killTmuxPane,
   killTmuxSession,
@@ -179,6 +185,32 @@ function readApprovalDecision(value: unknown): TmuxApprovalDecision {
     });
   }
   return value;
+}
+
+function readInteractivePromptId(value: unknown): string {
+  const promptId = typeof value === 'string' ? value.trim() : '';
+  if (!/^[a-f0-9]{32}$/.test(promptId)) {
+    throw new AppError('A valid interactive prompt id is required.', {
+      code: 'TMUX_INTERACTIVE_PROMPT_ID_INVALID',
+      statusCode: 400,
+    });
+  }
+  return promptId;
+}
+
+function readInteractiveChoices(value: unknown): number[] {
+  if (
+    !Array.isArray(value)
+    || value.length === 0
+    || value.length > 32
+    || value.some((choice) => !Number.isInteger(choice) || choice < 0 || choice > 32)
+  ) {
+    throw new AppError('choices must contain displayed choice numbers.', {
+      code: 'TMUX_INTERACTIVE_CHOICE_INVALID',
+      statusCode: 400,
+    });
+  }
+  return value as number[];
 }
 
 async function handleTmuxAskSelection(
@@ -862,6 +894,9 @@ router.get(
 
       const projectPath = session.cwd;
       const resolution = await resolveExternalSessionActivity(session);
+      const interactiveActivity = base.process
+        ? getCachedTmuxInteractiveActivity({ tmux: session.tmux, process: base.process })
+        : null;
       const appSession = resolution.appSession;
       const activeModel = appSession
         ? await providerModelsService
@@ -882,7 +917,7 @@ router.get(
           : {}),
         model: activeModel?.model ?? null,
         effort: activeModel?.effort ?? null,
-        activity: toExternalSessionDisplayActivity(resolution),
+        activity: interactiveActivity ?? toExternalSessionDisplayActivity(resolution),
         ...(appSession ? { transcriptEnded: resolution.transcriptEnded } : {}),
       };
     }));
@@ -980,6 +1015,51 @@ router.post(
     }
     const target = await assertFreshExternalTmuxTarget(body.tmux, body.process);
     await sendToTmuxPane(target, message);
+    res.json(createApiSuccessResponse({ ok: true }));
+  }),
+);
+router.post(
+  '/sessions/external/interactive',
+  asyncHandler(async (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as { tmux?: unknown; process?: unknown };
+    const target = await assertFreshExternalTmuxTarget(body.tmux, body.process);
+    const prompt = await getTmuxInteractivePrompt(target);
+    res.json(createApiSuccessResponse({ prompt }));
+  }),
+);
+router.post(
+  '/sessions/external/interactive/respond',
+  asyncHandler(async (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as {
+      tmux?: unknown;
+      process?: unknown;
+      promptId?: unknown;
+      choices?: unknown;
+    };
+    const target = await assertFreshExternalTmuxTarget(body.tmux, body.process);
+    const result = await answerTmuxInteractivePrompt(
+      target,
+      readInteractivePromptId(body.promptId),
+      readInteractiveChoices(body.choices),
+    );
+    res.json(createApiSuccessResponse({ ok: true, ...result }));
+  }),
+);
+router.post(
+  '/sessions/external/interactive/custom',
+  asyncHandler(async (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as {
+      tmux?: unknown;
+      process?: unknown;
+      promptId?: unknown;
+      message?: unknown;
+    };
+    const target = await assertFreshExternalTmuxTarget(body.tmux, body.process);
+    await submitTmuxInteractiveCustomResponse(
+      target,
+      readInteractivePromptId(body.promptId),
+      typeof body.message === 'string' ? body.message : '',
+    );
     res.json(createApiSuccessResponse({ ok: true }));
   }),
 );
@@ -1109,6 +1189,57 @@ router.post(
       queued: false,
       detail: `Delivered to ${tmux.paneId}`,
     }));
+  }),
+);
+router.post(
+  '/sessions/live/interactive',
+  asyncHandler(async (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as { tmux?: unknown; process?: unknown };
+    const tmux = readTmuxPaneIdentity(body.tmux);
+    const processGeneration = readTmuxProcessGeneration(body.process);
+    const target = await assertLineageTmuxTarget(tmux, processGeneration);
+    const prompt = await getTmuxInteractivePrompt(target);
+    res.json(createApiSuccessResponse({ prompt }));
+  }),
+);
+router.post(
+  '/sessions/live/interactive/respond',
+  asyncHandler(async (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as {
+      tmux?: unknown;
+      process?: unknown;
+      promptId?: unknown;
+      choices?: unknown;
+    };
+    const tmux = readTmuxPaneIdentity(body.tmux);
+    const processGeneration = readTmuxProcessGeneration(body.process);
+    const target = await assertLineageTmuxTarget(tmux, processGeneration);
+    const result = await answerTmuxInteractivePrompt(
+      target,
+      readInteractivePromptId(body.promptId),
+      readInteractiveChoices(body.choices),
+    );
+    res.json(createApiSuccessResponse({ ok: true, ...result }));
+  }),
+);
+router.post(
+  '/sessions/live/interactive/custom',
+  asyncHandler(async (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as {
+      tmux?: unknown;
+      process?: unknown;
+      promptId?: unknown;
+      message?: unknown;
+    };
+    const tmux = readTmuxPaneIdentity(body.tmux);
+    const processGeneration = readTmuxProcessGeneration(body.process);
+    const target = await assertLineageTmuxTarget(tmux, processGeneration);
+    await submitTmuxInteractiveCustomResponse(
+      target,
+      readInteractivePromptId(body.promptId),
+      typeof body.message === 'string' ? body.message : '',
+    );
+    res.json(createApiSuccessResponse({ ok: true }));
   }),
 );
 router.post(

@@ -274,7 +274,7 @@ test('auth-disabled mode accepts loopback provider requests without a bearer tok
   assert.deepEqual(result.statuses, [200, 200]);
 });
 
-test('all eleven tmux provider routes have deterministic successful HTTP paths', async () => {
+test('core tmux provider routes have deterministic successful HTTP paths', async () => {
   assertSuccess(await request('/sessions/external/output', { tmux: externalTmux, process: validProcess }));
   assertSuccess(await request('/sessions/external/send', { tmux: externalTmux, process: validProcess, message: 'hello' }));
   assertSuccess(await request('/sessions/external/actions', { tmux: externalTmux, process: validProcess, action: 'interrupt' }));
@@ -287,6 +287,59 @@ test('all eleven tmux provider routes have deterministic successful HTTP paths',
   assertSuccess(await request('/sessions/live/kill', { tmux: liveTmux, process: validProcess, mode: 'pane' }));
   assertSuccess(await request('/sessions/live/spawn', { name: 'live-contract', cwd: '~' }));
   assertSuccess(await request('/sessions/live/commands'));
+});
+
+test('interactive routes read and answer active external and live TUI prompts without transcript ids', async () => {
+  try {
+    process.env.CHATMUX_CONTRACT_CAPTURE = [
+      'Question 1/1 (1 unanswered)',
+      'Choose an action',
+      '› 1. Allow',
+      '  2. Reject',
+      '  3. None of the above',
+      'tab to add notes | enter to submit answer | esc to interrupt',
+    ].join('\n');
+    const external = await request('/sessions/external/interactive', {
+      tmux: externalTmux,
+      process: validProcess,
+    });
+    assertSuccess(external);
+    const externalPrompt = external.body.data?.prompt as { id?: string; options?: unknown[] } | undefined;
+    assert.match(externalPrompt?.id ?? '', /^[a-f0-9]{32}$/);
+    assert.equal(externalPrompt?.options?.length, 2);
+    assertSuccess(await request('/sessions/external/interactive/respond', {
+      tmux: externalTmux,
+      process: validProcess,
+      promptId: externalPrompt?.id,
+      choices: [2],
+    }));
+
+    process.env.CHATMUX_CONTRACT_CAPTURE = [
+      'Choose a target',
+      '╭─────────────────────────╮',
+      '│❯ CUDA                   │',
+      '│  CPU                    │',
+      '│  Other (type your own)  │',
+      '╰─────────────────────────╯',
+      'up/down navigate  enter select  esc cancel',
+    ].join('\n');
+    const live = await request('/sessions/live/interactive', {
+      tmux: liveTmux,
+      process: validProcess,
+    });
+    assertSuccess(live);
+    const livePrompt = live.body.data?.prompt as { id?: string; options?: unknown[] } | undefined;
+    assert.match(livePrompt?.id ?? '', /^[a-f0-9]{32}$/);
+    assert.equal(livePrompt?.options?.length, 2);
+    assertSuccess(await request('/sessions/live/interactive/respond', {
+      tmux: liveTmux,
+      process: validProcess,
+      promptId: livePrompt?.id,
+      choices: [1],
+    }));
+  } finally {
+    delete process.env.CHATMUX_CONTRACT_CAPTURE;
+  }
 });
 
 test('external ask routes verify the transcript and active Codex selector before sending input', async () => {

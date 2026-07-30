@@ -62,6 +62,7 @@ type SidebarLiveSectionProps = {
   // Ids whose transcript tail shows a turn in progress — RUN (green) instead
   // of READY (blue). Presentational only.
   liveSessionRunning: ReadonlySet<string>;
+  liveSessionInput?: ReadonlySet<string>;
   liveSessionErrors?: ReadonlySet<string>;
   selectedSession: ProjectSession | null;
   onProjectSelect: (project: Project) => void;
@@ -171,6 +172,7 @@ export default function SidebarLiveSection({
   liveSessionPresence = EMPTY_SESSION_PRESENCE,
   liveSessionKinds,
   liveSessionRunning,
+  liveSessionInput = EMPTY_SESSION_IDS,
   liveSessionErrors = EMPTY_SESSION_IDS,
   selectedSession,
   onProjectSelect,
@@ -561,6 +563,7 @@ export default function SidebarLiveSection({
                               <SessionActivityBadge
                                 state={liveSessionErrors.has(session.id)
                                   ? 'error'
+                                  : liveSessionInput.has(session.id) ? 'input'
                                   : liveSessionRunning.has(session.id) ? 'running' : 'ready'}
                               />
                             )}
@@ -622,6 +625,7 @@ export default function SidebarLiveSection({
                       {isPresent && (
                         <SessionActivityBadge state={liveSessionErrors.has(id)
                           ? 'error'
+                          : liveSessionInput.has(id) ? 'input'
                           : liveSessionRunning.has(id) ? 'running' : 'ready'} />
                       )}
                       {isPresent && liveSessionKinds.get(id) === 'batch' && (

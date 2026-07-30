@@ -16,7 +16,7 @@ import {
   isRelayImagePathAllowed,
 } from '../../utils/liveRelayComposer';
 
-import LiveRelayComposer, { mapExternalApprovalNumber } from './LiveRelayComposer';
+import LiveRelayComposer from './LiveRelayComposer';
 
 const target: TmuxPaneTarget = {
   tmux: {
@@ -63,14 +63,6 @@ test('LiveRelayComposer asks for a number while a transcript choice is pending',
   assert.ok(html.includes('Enter a choice number (0-4)'));
 });
 
-test('approval numbers map to provider-native approve, remember, reject, and cancel decisions', () => {
-  assert.equal(mapExternalApprovalNumber('codex', true, 1), 'approve-once');
-  assert.equal(mapExternalApprovalNumber('codex', true, 2), 'approve-remember');
-  assert.equal(mapExternalApprovalNumber('codex', true, 3), 'reject');
-  assert.equal(mapExternalApprovalNumber('omp', false, 2), 'reject');
-  assert.equal(mapExternalApprovalNumber('omp', false, 0), 'cancel');
-  assert.equal(mapExternalApprovalNumber('omp', false, 3), null);
-});
 test('LiveRelayComposer file mentions only activate at a token boundary and filter relative paths', () => {
   assert.deepEqual(getActiveMentionToken('review @src/com', 15), { start: 7, query: '@src/com' });
   assert.equal(getActiveMentionToken('email@src/com', 13), null);
