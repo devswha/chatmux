@@ -9,6 +9,13 @@ import { createNormalizedMessage, generateMessageId, readObjectRecord, sliceTail
 
 const PROVIDER = 'codex';
 
+export function normalizeCodexToolName(value: unknown): string {
+  if (typeof value !== 'string' || !value.trim()) {
+    return 'Unknown';
+  }
+  return value === 'request_user_input' ? 'AskUserQuestion' : value;
+}
+
 type CodexHistoryResult =
   | AnyRecord[]
   | {
@@ -184,7 +191,7 @@ async function getCodexSessionMessages(
         }
 
         if (entry.type === 'response_item' && entry.payload?.type === 'function_call') {
-          let toolName = entry.payload.name;
+          let toolName = normalizeCodexToolName(entry.payload.name);
           let toolInput = entry.payload.arguments;
 
           if (toolName === 'shell_command') {
@@ -380,7 +387,7 @@ export class CodexSessionsProvider implements IProviderSessions {
         timestamp: ts,
         provider: PROVIDER,
         kind: 'tool_use',
-        toolName: raw.toolName || 'Unknown',
+        toolName: normalizeCodexToolName(raw.toolName),
         toolInput: raw.toolInput,
         toolId: raw.toolCallId || baseId,
       })];

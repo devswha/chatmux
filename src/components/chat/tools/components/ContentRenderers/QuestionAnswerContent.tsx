@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import type { Question } from '../../../types/types';
 
@@ -6,6 +7,7 @@ interface QuestionAnswerContentProps {
   questions: Question[];
   answers: Record<string, string>;
   className?: string;
+  pending?: boolean;
 }
 
 // Exception to the stateless ContentRenderer pattern: multi-question navigation requires local state.
@@ -13,8 +15,14 @@ export const QuestionAnswerContent: React.FC<QuestionAnswerContentProps> = ({
   questions,
   answers,
   className = '',
+  pending = false,
 }) => {
-  const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
+  const { t } = useTranslation('chat');
+  const [expandedIdx, setExpandedIdx] = useState<number | null>(pending ? 0 : null);
+
+  useEffect(() => {
+    if (pending) setExpandedIdx((current) => current ?? 0);
+  }, [pending]);
 
   // Tool inputs are runtime data loaded from session transcripts and may be
   // malformed (e.g. `questions` arriving as a non-array). Guard with
@@ -107,7 +115,7 @@ export const QuestionAnswerContent: React.FC<QuestionAnswerContentProps> = ({
                   </div>
                 )}
 
-                {!isExpanded && skipped && hasAnyAnswer && (
+                {!pending && !isExpanded && skipped && hasAnyAnswer && (
                   <span className="mt-1 inline-block text-[10px] italic text-gray-400 dark:text-gray-500">
                     Skipped
                   </span>
@@ -127,7 +135,7 @@ export const QuestionAnswerContent: React.FC<QuestionAnswerContentProps> = ({
             {isExpanded && (
               <div className="border-t border-gray-100 px-3 pb-2.5 pt-0.5 dark:border-gray-700/40">
                 <div className="ml-6.5 space-y-1">
-                  {options.map((opt) => {
+                  {options.map((opt, optionIndex) => {
                     const wasSelected = answerLabels.includes(opt.label);
                     return (
                       <div
@@ -138,6 +146,11 @@ export const QuestionAnswerContent: React.FC<QuestionAnswerContentProps> = ({
                             : 'text-gray-400 dark:text-gray-500'
                         }`}
                       >
+                        {pending && (
+                          <span className="w-4 flex-shrink-0 pt-0.5 text-right font-mono text-[11px] font-semibold text-blue-600 dark:text-blue-400">
+                            {optionIndex + 1}.
+                          </span>
+                        )}
                         <div className={`mt-0.5 h-3.5 w-3.5 flex-shrink-0 ${q.multiSelect ? 'rounded-[3px]' : 'rounded-full'} flex items-center justify-center border-[1.5px] ${
                           wasSelected
                             ? 'border-blue-500 bg-blue-500 dark:border-blue-400 dark:bg-blue-500'
@@ -165,6 +178,16 @@ export const QuestionAnswerContent: React.FC<QuestionAnswerContentProps> = ({
                     );
                   })}
 
+                  {pending && (
+                    <div className="flex items-start gap-2 rounded-lg border border-dashed border-blue-300/70 px-2.5 py-1.5 text-[12px] text-blue-700 dark:border-blue-700/60 dark:text-blue-300">
+                      <span className="w-4 flex-shrink-0 pt-0.5 text-right font-mono text-[11px] font-semibold">
+                        {options.length + 1}.
+                      </span>
+                      <div className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 rounded-full border-[1.5px] border-blue-300 dark:border-blue-700" />
+                      <span>{t('interactive.directInput', { defaultValue: 'Direct input (Other)' })}</span>
+                    </div>
+                  )}
+
                   {answerLabels.filter(lbl => !options.some(o => o.label === lbl)).map(lbl => (
                     <div
                       key={lbl}
@@ -182,7 +205,7 @@ export const QuestionAnswerContent: React.FC<QuestionAnswerContentProps> = ({
                     </div>
                   ))}
 
-                  {skipped && hasAnyAnswer && (
+                  {!pending && skipped && hasAnyAnswer && (
                     <div className="px-2.5 py-1 text-[11px] italic text-gray-400 dark:text-gray-500">
                       No answer provided
                     </div>
@@ -194,7 +217,15 @@ export const QuestionAnswerContent: React.FC<QuestionAnswerContentProps> = ({
         );
       })}
 
-      {!hasAnyAnswer && total === 1 && (
+      {pending && (
+        <div className="rounded-md bg-blue-50 px-2.5 py-1.5 text-[11px] text-blue-700 dark:bg-blue-950/30 dark:text-blue-300">
+          {t('interactive.numberInstruction', {
+            defaultValue: 'Send the displayed number in chat. Last number: direct input · 0: cancel',
+          })}
+        </div>
+      )}
+
+      {!pending && !hasAnyAnswer && total === 1 && (
         <div className="text-[11px] italic text-gray-400 dark:text-gray-500">
           Skipped
         </div>

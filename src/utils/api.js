@@ -124,6 +124,16 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ tmux, process, message }),
     }),
+  liveSessionAskSelect: (tmux, process, sessionId, toolId, optionIndex) =>
+    authenticatedFetch('/api/providers/sessions/live/ask', {
+      method: 'POST',
+      body: JSON.stringify({ tmux, process, sessionId, toolId, optionIndex }),
+    }),
+  liveSessionAskCustom: (tmux, process, sessionId, toolId, message) =>
+    authenticatedFetch('/api/providers/sessions/live/ask/custom', {
+      method: 'POST',
+      body: JSON.stringify({ tmux, process, sessionId, toolId, message }),
+    }),
   liveSessionAction: (tmux, process, action) =>
     authenticatedFetch('/api/providers/sessions/live/actions', {
       method: 'POST',
@@ -139,6 +149,26 @@ export const api = {
     authenticatedFetch('/api/providers/sessions/external/send', {
       method: 'POST',
       body: JSON.stringify({ tmux, process, message }),
+    }),
+  externalCliSessionAskSelect: (tmux, process, sessionId, toolId, optionIndex) =>
+    authenticatedFetch('/api/providers/sessions/external/ask', {
+      method: 'POST',
+      body: JSON.stringify({ tmux, process, sessionId, toolId, optionIndex }),
+    }),
+  externalCliSessionAskCustom: (tmux, process, sessionId, toolId, message) =>
+    authenticatedFetch('/api/providers/sessions/external/ask/custom', {
+      method: 'POST',
+      body: JSON.stringify({ tmux, process, sessionId, toolId, message }),
+    }),
+  externalCliSessionApproval: (tmux, process, sessionId) =>
+    authenticatedFetch('/api/providers/sessions/external/approval', {
+      method: 'POST',
+      body: JSON.stringify({ tmux, process, sessionId }),
+    }),
+  externalCliSessionApprovalRespond: (tmux, process, sessionId, decision) =>
+    authenticatedFetch('/api/providers/sessions/external/approval/respond', {
+      method: 'POST',
+      body: JSON.stringify({ tmux, process, sessionId, decision }),
     }),
   externalCliSessionAction: (tmux, process, action) =>
     authenticatedFetch('/api/providers/sessions/external/actions', {

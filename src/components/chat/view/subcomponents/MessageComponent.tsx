@@ -35,6 +35,7 @@ type MessageComponentProps = {
   selectedProject?: Project | null;
   provider: Provider | string;
   transcriptView?: boolean;
+  pendingAskToolId?: string | null;
 };
 
 type InteractiveOption = {
@@ -49,7 +50,7 @@ const compactErrorSummary = (content: string, fallback: string): string => {
   return firstLine.length > 160 ? `${firstLine.slice(0, 157)}...` : firstLine;
 };
 
-const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, showRawParameters, showThinking, selectedProject, provider, transcriptView = false }: MessageComponentProps) => {
+const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, showRawParameters, showThinking, selectedProject, provider, transcriptView = false, pendingAskToolId = null }: MessageComponentProps) => {
   const { t } = useTranslation('chat');
   const isGrouped = prevMessage && prevMessage.type === message.type &&
     ((prevMessage.type === 'assistant') ||
@@ -193,6 +194,7 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
                     rawToolInput={typeof message.toolInput === 'string' ? message.toolInput : undefined}
                     isSubagentContainer={message.isSubagentContainer}
                     subagentState={message.subagentState}
+                    pendingAsk={pendingAskToolId === message.toolId}
                   />
                 )}
 

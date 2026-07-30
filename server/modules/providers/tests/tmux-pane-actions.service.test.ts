@@ -9,6 +9,7 @@ import {
   readTmuxPaneIdentity,
   readTmuxProcessGeneration,
   sendTmuxProcessAction,
+  sendTmuxSelectionKeys,
   sendToTmuxPane,
   stopAgentProcessInPane,
 } from '@/modules/providers/services/tmux-pane-actions.service.js';
@@ -129,6 +130,24 @@ test('process action refuses a stale pane before sending keys', async () => {
     (error) => error instanceof AppError && error.code === 'TMUX_PANE_GENERATION_MISMATCH',
   );
   assert.equal(calls.some(({ args }) => args.includes('send-keys')), false);
+});
+
+test('selector actions recheck the exact pane and send only allowlisted keys separately', async () => {
+  const { calls, run } = recordingRunner(['$7\t@8\t%9\n']);
+  await sendTmuxSelectionKeys(target, ['Down', 'Down', 'Enter'], run, async () => {});
+  assert.deepEqual(calls.slice(1).map(({ args }) => args), [
+    ['-S', identity.socketPath, 'send-keys', '-t', identity.paneId, 'Down'],
+    ['-S', identity.socketPath, 'send-keys', '-t', identity.paneId, 'Down'],
+    ['-S', identity.socketPath, 'send-keys', '-t', identity.paneId, 'Enter'],
+  ]);
+});
+
+test('selector actions reject empty and oversized internally constructed sequences', async () => {
+  await assert.rejects(
+    sendTmuxSelectionKeys(target, [], recordingRunner().run),
+    (error) => error instanceof AppError && error.code === 'INVALID_TMUX_SELECTION',
+  );
+  assert.equal(recordingRunner().calls.length, 0);
 });
 
 test('default process stop respawns a shell in the same pane', async () => {

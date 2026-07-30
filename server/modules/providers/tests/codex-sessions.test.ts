@@ -7,7 +7,15 @@ import test from 'node:test';
 
 import { closeConnection, initializeDatabase, sessionsDb } from '@/modules/database/index.js';
 import { CodexSessionSynchronizer } from '@/modules/providers/list/codex/codex-session-synchronizer.provider.js';
-import { CodexSessionsProvider } from '@/modules/providers/list/codex/codex-sessions.provider.js';
+import {
+  CodexSessionsProvider,
+  normalizeCodexToolName,
+} from '@/modules/providers/list/codex/codex-sessions.provider.js';
+
+test('Codex request_user_input uses the shared question renderer', () => {
+  assert.equal(normalizeCodexToolName('request_user_input'), 'AskUserQuestion');
+  assert.equal(normalizeCodexToolName('exec_command'), 'exec_command');
+});
 
 test('Codex SDK stays pinned to the CLI version required by synchronized models', () => {
   const packageJson = JSON.parse(readFileSync(path.join(process.cwd(), 'package.json'), 'utf8'));

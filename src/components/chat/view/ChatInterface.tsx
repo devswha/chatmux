@@ -10,6 +10,7 @@ import { useChatSessionState } from '../hooks/useChatSessionState';
 import { useChatRealtimeHandlers } from '../hooks/useChatRealtimeHandlers';
 import { useChatComposerState } from '../hooks/useChatComposerState';
 import { useSessionStore } from '../../../stores/useSessionStore';
+import { findPendingRelayAsk } from '../utils/pendingRelayAsk';
 
 import ChatMessagesPane from './subcomponents/ChatMessagesPane';
 import ChatComposer from './subcomponents/ChatComposer';
@@ -345,6 +346,12 @@ function ChatInterface({
   // reserve enough bottom space to keep the floating status tab from
   // overlapping the last message.
   const hasActivityIndicator = Boolean(sessionActivity && pendingPermissionRequests.length === 0);
+  const pendingRelayAsk = useMemo(() => (
+    isSessionReadOnly
+    && (liveSessionKind === 'gjc' || liveSessionKind === 'codex' || liveSessionKind === 'omp')
+      ? findPendingRelayAsk(chatMessages)
+      : null
+  ), [chatMessages, isSessionReadOnly, liveSessionKind]);
 
   if (!selectedProject) {
     const selectedProviderLabel =
@@ -422,6 +429,7 @@ function ChatInterface({
           showThinking={showThinking}
           selectedProject={selectedProject}
           transcriptView={Boolean(liveSessionKind && liveSessionKind !== 'gjc')}
+          pendingAskToolId={pendingRelayAsk?.toolId ?? null}
         />
 
         <div className="relative flex-shrink-0">
@@ -459,6 +467,8 @@ function ChatInterface({
                 workspacePath={selectedProject.fullPath || selectedProject.path}
                 relayKind={liveSessionKind ?? 'gjc'}
                 isProcessing={liveSessionProcessing}
+                transcriptSessionId={selectedSession?.id ?? null}
+                pendingAsk={pendingRelayAsk}
               />
             ) : (
               <div className="chat-composer-shell relative flex-shrink-0 px-2 pb-3 pt-2 sm:px-4">

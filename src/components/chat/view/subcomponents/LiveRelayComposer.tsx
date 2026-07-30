@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import { api } from '../../../../utils/api';
 import type { TmuxPaneTarget } from '../../../../../shared/tmux';
+import type { PendingRelayAsk } from '../../utils/pendingRelayAsk';
 import {
   buildPlainTextInsertion,
   filterCommands,
@@ -40,6 +41,26 @@ type RelayStatus =
   | { kind: 'queued'; text: string }
   | { kind: 'error'; text: string };
 
+type ExternalApproval = {
+  title: string;
+  text: string;
+  canRemember: boolean;
+};
+
+type ApprovalDecision = 'approve-once' | 'approve-remember' | 'reject' | 'cancel';
+
+export function mapExternalApprovalNumber(
+  kind: 'codex' | 'omp',
+  canRemember: boolean,
+  number: number,
+): ApprovalDecision | null {
+  if (number === 0) return 'cancel';
+  if (number === 1) return 'approve-once';
+  if (kind === 'codex' && canRemember && number === 2) return 'approve-remember';
+  if (number === (canRemember ? 3 : 2)) return 'reject';
+  return null;
+}
+
 
 type WorkspaceProject = {
   projectId?: string;
@@ -70,6 +91,8 @@ export default function LiveRelayComposer({
   workspacePath = null,
   relayKind = 'gjc',
   isProcessing = false,
+  transcriptSessionId = null,
+  pendingAsk = null,
 }: {
   target: TmuxPaneTarget;
   model?: string | null;
@@ -79,6 +102,8 @@ export default function LiveRelayComposer({
   relayKind?: 'gjc' | 'codex' | 'claude' | 'cursor' | 'opencode' | 'omp';
   /** True while the target session is running a turn — enables the stop control. */
   isProcessing?: boolean;
+  transcriptSessionId?: string | null;
+  pendingAsk?: PendingRelayAsk | null;
 }) {
   const commandTrigger = relayKind === 'codex' ? '$' : '/';
   const { t } = useTranslation('chat');
@@ -86,6 +111,8 @@ export default function LiveRelayComposer({
   const [input, setInput] = useState('');
   const [status, setStatus] = useState<RelayStatus>({ kind: 'idle' });
   const [isInterrupting, setIsInterrupting] = useState(false);
+  const [customInputToolId, setCustomInputToolId] = useState<string | null>(null);
+  const [externalApproval, setExternalApproval] = useState<ExternalApproval | null>(null);
   const [assetStatus, setAssetStatus] = useState<
     { kind: 'idle' } | { kind: 'uploading' } | { kind: 'error'; text: string }
   >({ kind: 'idle' });
@@ -114,6 +141,62 @@ export default function LiveRelayComposer({
   const isMountedRef = useRef(true);
   const mentionQuery = mentionToken?.query ?? null;
   workspacePathRef.current = workspacePath;
+  const isAwaitingCustomInput = Boolean(
+    pendingAsk && customInputToolId === pendingAsk.toolId,
+  );
+
+  useEffect(() => {
+    if (!pendingAsk || pendingAsk.toolId !== customInputToolId) {
+      setCustomInputToolId(null);
+    }
+  }, [pendingAsk, customInputToolId]);
+
+  useEffect(() => {
+    if (
+      (relayKind !== 'codex' && relayKind !== 'omp')
+      || !transcriptSessionId
+    ) {
+      setExternalApproval(null);
+      return undefined;
+    }
+    let cancelled = false;
+    let inFlight = false;
+    const poll = async () => {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const response = await api.externalCliSessionApproval(
+          target.tmux,
+          target.process,
+          transcriptSessionId,
+        );
+        const body = await response.json().catch(() => null);
+        if (cancelled || !response.ok) return;
+        const approval = body?.data?.approval;
+        setExternalApproval(
+          approval
+          && typeof approval.title === 'string'
+          && typeof approval.text === 'string'
+            ? {
+                title: approval.title,
+                text: approval.text,
+                canRemember: approval.canRemember === true,
+              }
+            : null,
+        );
+      } catch {
+        // Best effort. The normal relay remains available if polling fails.
+      } finally {
+        inFlight = false;
+      }
+    };
+    void poll();
+    const timer = window.setInterval(() => void poll(), 1_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [relayKind, target, transcriptSessionId]);
 
   // GJC exposes its live command catalog; native external agents expose their
   // provider skills. Failure is non-fatal because free-text relay still works.
@@ -437,11 +520,102 @@ export default function LiveRelayComposer({
     }
     setStatus({ kind: 'sending' });
     try {
-      const response = relayKind !== 'gjc'
-        ? await api.externalCliSessionSend(target.tmux, target.process, message)
-        : await api.liveSessionSend(target.tmux, target.process, message);
+      let response: Response;
+      const approvalNumber = !pendingAsk && externalApproval && /^\d+$/.test(message)
+        ? Number.parseInt(message, 10)
+        : null;
+      const approvalDecision = approvalNumber !== null
+        && (relayKind === 'codex' || relayKind === 'omp')
+        ? mapExternalApprovalNumber(
+            relayKind,
+            externalApproval?.canRemember === true,
+            approvalNumber,
+          )
+        : null;
+      if (externalApproval && !pendingAsk && !approvalDecision) {
+        setStatus({
+          kind: 'error',
+          text: t('relay.approvalNumberRequired', {
+            defaultValue: 'Enter a displayed approval number.',
+          }),
+        });
+        return;
+      }
+      if (approvalDecision && transcriptSessionId) {
+        response = await api.externalCliSessionApprovalRespond(
+          target.tmux,
+          target.process,
+          transcriptSessionId,
+          approvalDecision,
+        );
+      } else if (pendingAsk && transcriptSessionId) {
+        if (isAwaitingCustomInput) {
+          response = relayKind !== 'gjc'
+            ? await api.externalCliSessionAskCustom(
+                target.tmux,
+                target.process,
+                transcriptSessionId,
+                pendingAsk.toolId,
+                message,
+              )
+            : await api.liveSessionAskCustom(
+                target.tmux,
+                target.process,
+                transcriptSessionId,
+                pendingAsk.toolId,
+                message,
+              );
+        } else {
+          if (!/^\d+$/.test(message)) {
+            setStatus({
+              kind: 'error',
+              text: t('relay.selectionNumberRequired', {
+                max: pendingAsk.maxChoiceNumber,
+                defaultValue: 'Enter a displayed number (0-{{max}}).',
+              }),
+            });
+            return;
+          }
+          const number = Number.parseInt(message, 10);
+          if (number < 0 || number > pendingAsk.maxChoiceNumber) {
+            setStatus({
+              kind: 'error',
+              text: t('relay.selectionNumberRequired', {
+                max: pendingAsk.maxChoiceNumber,
+                defaultValue: 'Enter a displayed number (0-{{max}}).',
+              }),
+            });
+            return;
+          }
+          response = relayKind !== 'gjc'
+            ? await api.externalCliSessionAskSelect(
+                target.tmux,
+                target.process,
+                transcriptSessionId,
+                pendingAsk.toolId,
+                number === 0 ? -1 : number - 1,
+              )
+            : await api.liveSessionAskSelect(
+                target.tmux,
+                target.process,
+                transcriptSessionId,
+                pendingAsk.toolId,
+                number === 0 ? -1 : number - 1,
+              );
+        }
+      } else {
+        response = relayKind !== 'gjc'
+          ? await api.externalCliSessionSend(target.tmux, target.process, message)
+          : await api.liveSessionSend(target.tmux, target.process, message);
+      }
       const body = await response.json().catch(() => null);
-      const data = (body?.data ?? body ?? {}) as { ok?: boolean; reachable?: boolean; queued?: boolean; detail?: string };
+      const data = (body?.data ?? body ?? {}) as {
+        ok?: boolean;
+        reachable?: boolean;
+        queued?: boolean;
+        detail?: string;
+        action?: 'option' | 'other' | 'cancel';
+      };
       const apiError = typeof body?.error?.message === 'string'
         ? body.error.message
         : typeof body?.message === 'string'
@@ -460,11 +634,38 @@ export default function LiveRelayComposer({
         return;
       }
       setInput('');
-      setStatus(data.queued ? { kind: 'queued', text: t('relay.queued') } : { kind: 'ok', text: t('relay.delivered') });
+      if (approvalDecision) {
+        setExternalApproval(null);
+        setStatus({
+          kind: 'ok',
+          text: t('relay.approvalDelivered', { defaultValue: 'Approval response delivered.' }),
+        });
+      } else if (pendingAsk && !isAwaitingCustomInput && data.action === 'other') {
+        setCustomInputToolId(pendingAsk.toolId);
+        setStatus({
+          kind: 'ok',
+          text: t('relay.customInputReady', { defaultValue: 'Type the custom answer.' }),
+        });
+      } else {
+        setCustomInputToolId(null);
+        setStatus(data.queued
+          ? { kind: 'queued', text: t('relay.queued') }
+          : { kind: 'ok', text: t('relay.delivered') });
+      }
     } catch {
       setStatus({ kind: 'error', text: t('relay.sendFailed') });
     }
-  }, [input, status.kind, target, relayKind, t]);
+  }, [
+    input,
+    status.kind,
+    pendingAsk,
+    externalApproval,
+    transcriptSessionId,
+    isAwaitingCustomInput,
+    target,
+    relayKind,
+    t,
+  ]);
   const interrupt = useCallback(async () => {
     if (!canInterrupt || isInterrupting) {
       return;
@@ -577,6 +778,32 @@ export default function LiveRelayComposer({
   return (
     <div className="chat-composer-shell relative flex-shrink-0 px-2 pb-3 pt-2 sm:px-4">
       <div className="mx-auto max-w-[54.25rem] space-y-1.5">
+        {externalApproval && !pendingAsk && (
+          <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+            <div className="font-semibold text-amber-700 dark:text-amber-300">
+              {externalApproval.title}
+            </div>
+            <pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-background/70 p-2 font-mono text-[11px] leading-relaxed text-foreground">
+              {externalApproval.text}
+            </pre>
+            <div className="mt-2 text-xs text-amber-800 dark:text-amber-200">
+              <span className="font-semibold">1.</span>{' '}
+              {t('relay.approveOnce', { defaultValue: 'Approve once' })}
+              {relayKind === 'codex' && externalApproval.canRemember && (
+                <>
+                  {' · '}<span className="font-semibold">2.</span>{' '}
+                  {t('relay.approveRemember', { defaultValue: 'Approve and remember' })}
+                </>
+              )}
+              {' · '}<span className="font-semibold">
+                {externalApproval.canRemember ? '3.' : '2.'}
+              </span>{' '}
+              {t('relay.reject', { defaultValue: 'Reject' })}
+              {' · '}<span className="font-semibold">0.</span>{' '}
+              {t('relay.cancel', { defaultValue: 'Cancel' })}
+            </div>
+          </div>
+        )}
         <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-blue-600 dark:text-blue-400">
           <span className="inline-flex h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500" aria-hidden />
           {model ? (
@@ -622,7 +849,20 @@ export default function LiveRelayComposer({
                 syncFileMenu(input, caret);
               }}
               rows={1}
-              placeholder={t('relay.placeholder', { name: displayName, trigger: commandTrigger })}
+              placeholder={
+                isAwaitingCustomInput
+                  ? t('relay.customInputPlaceholder', { defaultValue: 'Type the custom answer…' })
+                  : pendingAsk
+                    ? t('relay.selectionPlaceholder', {
+                        max: pendingAsk.maxChoiceNumber,
+                        defaultValue: 'Enter a choice number (0-{{max}})…',
+                      })
+                    : externalApproval
+                      ? t('relay.approvalPlaceholder', {
+                          defaultValue: 'Enter an approval number (0 to cancel)…',
+                        })
+                    : t('relay.placeholder', { name: displayName, trigger: commandTrigger })
+              }
             />
           </PromptInputBody>
           <PromptInputFooter>

@@ -27,6 +27,7 @@ interface ToolGroupContainerProps {
   selectedProject?: Project | null;
   provider: Provider | string;
   transcriptView?: boolean;
+  pendingAskToolId?: string | null;
 }
 
 function parseToolInput(toolInput: unknown): unknown {
@@ -71,6 +72,7 @@ export default function ToolGroupContainer({
   selectedProject,
   provider,
   transcriptView = false,
+  pendingAskToolId = null,
 }: ToolGroupContainerProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const config = getToolConfig(group.toolName).input;
@@ -138,6 +140,7 @@ export default function ToolGroupContainer({
               selectedProject={selectedProject}
               provider={provider}
               transcriptView={transcriptView}
+              pendingAskToolId={pendingAskToolId}
             />
           ))}
         </div>
