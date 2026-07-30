@@ -205,8 +205,26 @@ test('an owner reset cannot overwrite another key and carries global pause atomi
     reason: 'permission_denied',
   });
 
-  assert.equal(resetOne.records.get(one)?.error, 'permission_denied');
+  assert.equal(resetOne.records.get(one)?.error, null, 'an unwatched owner does not surface a passive permission denial');
   assert.equal(resetOne.records.get(two)?.target?.watched, true, 'the other key survives an owner reset');
   assert.equal(resetOne.globalPaused, true);
   assert.equal(resetOne.device?.registered, false);
+});
+
+test('a passive permission denial surfaces only on watched sessions', () => {
+  const watchedKey = completionNotificationDescriptorKey(descriptor('watched'));
+  const idleKey = completionNotificationDescriptorKey(descriptor('idle'));
+  const refreshed = completionNotificationReducer(initial(), {
+    type: 'status',
+    records: new Map([
+      [watchedKey, statusRecord(target('watched', true))],
+      [idleKey, statusRecord(target('idle'))],
+    ]),
+    globalPaused: false,
+    device,
+    reason: 'permission_denied',
+  });
+
+  assert.equal(refreshed.records.get(watchedKey)?.error, 'permission_denied', 'a watched session keeps the actionable denial');
+  assert.equal(refreshed.records.get(idleKey)?.error, null, 'an unwatched session stays quiet');
 });

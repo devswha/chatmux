@@ -54,7 +54,13 @@ export function completionNotificationReducer(state: State, action: Action): Sta
   if (action.type === 'status') {
     for (const [key, record] of action.records) {
       const current = records.get(key);
-      records.set(key, { ...record, pending: action.clearPending ? false : (current?.pending ?? false), error: action.reason });
+      // A passively detected permission denial only matters to sessions the
+      // user actually watches; unwatched rows stay quiet instead of painting
+      // every sidebar row with the same environmental error.
+      const error = action.reason === 'permission_denied' && record.target?.watched !== true
+        ? null
+        : action.reason;
+      records.set(key, { ...record, pending: action.clearPending ? false : (current?.pending ?? false), error });
     }
     return { records, globalPaused: action.globalPaused, device: action.device };
   }
