@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="public/brand/readme-screenshot.png" alt="ChatMux on desktop and phone: the sidebar lists live tmux agent sessions across providers, and the selected session renders as a structured English conversation with tool activity and a composer" width="900">
+  <img src="docs/assets/readme-screenshot.png" alt="ChatMux on desktop and phone: the sidebar lists live tmux agent sessions across providers, and the selected session renders as a structured English conversation with tool activity and a composer" width="900">
 </p>
 
 <p align="center">
