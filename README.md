@@ -14,6 +14,8 @@
 
 <p align="center">
   <a href="#install"><b>Install</b></a> ·
+  <a href="#browser">Browser</a> ·
+  <a href="#mobile">Mobile</a> ·
   <a href="#agent-support">Agent support</a> ·
   <a href="#remote-access">Remote access</a> ·
   <a href="docs/INSTALL.md">Installation guide</a> ·
@@ -44,60 +46,57 @@ CLI as the same OS user that runs ChatMux.
 <a id="install"></a>
 ## Install
 
-The supported server artifact is Linux x64 with Node 22. Bootstrap from a server
-terminal or SSH session only for the first install, manual recovery, or the first
-updater-capable release:
+Linux x86_64 (glibc 2.35+) with tmux, user-level systemd, and
+`curl`/`tar`/`sha256sum`:
 
 ```bash
 curl -fsSL https://github.com/devswha/chatmux/releases/latest/download/install.sh | bash
 ```
 
+The installer downloads the canonical release archive, verifies its SHA-256,
+starts a user-level service, and prints your addresses. `chatmux status` shows
+them again any time. Pinned versions, access modes, updates, rollback, and
+recovery are covered in the [installation guide](docs/INSTALL.md); source
+development is covered in [Development](#development).
+
+<a id="browser"></a>
+## Browser
+
+Open the printed `Local` address — running tmux agents appear in the sidebar
+by themselves. Sessions with a recognized transcript render as a structured
+conversation with a composer:
+
+<p align="center">
+  <img src="docs/assets/browser-chat.png" alt="ChatMux on desktop: the sidebar lists live tmux agent sessions across providers with RUN and READY badges, and the selected Codex session renders as a structured conversation with a composer" width="900">
+</p>
+
+The `CLI output` tab of the same session is the real TUI running inside tmux,
+rendered in the browser — answer menu prompts, watch raw output, or take over
+with real keystrokes:
+
+<p align="center">
+  <img src="docs/assets/browser-cli.png" alt="The CLI output tab of the same session: the real Codex TUI running inside tmux, rendered in the browser" width="900">
+</p>
+
+<a id="mobile"></a>
+## Mobile
+
+The install output ends with a `Phone` address and a QR code. Turn on
+Tailscale on the phone, scan the QR, and use the in-app **Install app**
+button to keep ChatMux as a PWA:
+
 <p align="center">
   <img src="docs/assets/install.png" alt="install.sh output: download and verification, the local and Tailscale phone addresses, and a QR code to open ChatMux on the phone" width="760">
 </p>
 
-That root `install.sh` downloads the canonical
-`chatmux-server-<version>-linux-x64-node22.tar.gz` and its same-basename `.sha256`,
-verifies it, and starts a user-level service. It is not the routine phone update
-path. After bootstrap, the trusted owner uses **`서버 업데이트`** in the app for
-compatible server deployments; **`새 화면 적용`** only refreshes a stale PWA screen
-and never changes the server.
-
-A logged-in Tailscale host provides private HTTPS using the Tailscale identity.
-Turn Tailscale on before scanning the QR and keep it connected while using
-ChatMux. Allowed non-owner Tailscale users can use ChatMux but cannot deploy; the
-Tailscale owner can. Without Tailscale, the password-protected LAN fallback creates
-a one-time owner password and QR code.
-
-Then:
-
-1. Open the `Local` address in a browser (or the `Phone` address from your
-   phone). Running tmux agents appear in the sidebar automatically.
-2. On a phone, use the in-app **Install app** button to keep ChatMux as a PWA.
-3. Check `chatmux status` any time to see the configured addresses.
+The full roster, the conversation view, and the real TUI with a terminal key
+bar all work from the phone:
 
 <p align="center">
   <img src="docs/assets/mobile-tab.jpeg" width="255" alt="Mobile sidebar: the full cross-provider session roster with activity badges and drag handles">
   <img src="docs/assets/mobile-chat.jpeg" width="255" alt="Mobile conversation view of a Codex session with the chat composer">
   <img src="docs/assets/mobile-cli.jpeg" width="255" alt="Mobile CLI output view typing into the real Codex TUI with the terminal key bar">
 </p>
-
-Before you start, the machine needs: Linux x86_64 with glibc 2.35+, tmux,
-user-level systemd, and `curl`, `tar`, `sha256sum`. See the
-[installation guide](docs/INSTALL.md) for pinned installs, explicit access
-choices, managed paths, rollback, and recovery.
-
-For source development:
-
-```bash
-git clone https://github.com/devswha/chatmux.git
-cd chatmux
-npm ci
-npm run dev
-```
-
-Open <http://127.0.0.1:5173>. Development requires Node.js `22.22.2+` on the
-22.x line or `24.15.0+` on the 24.x line, npm, Git, tmux, and Rust `1.85.1`.
 
 <a id="agent-support"></a>
 ## Agent support
@@ -110,10 +109,6 @@ Every live row uses the same reorderable sidebar regardless of provider. Draggin
 a row across provider boundaries persists the resulting order in that browser.
 Transcript-aware activity badges surface running turns and terminal provider
 errors without replacing the underlying conversation or terminal view.
-
-<p align="center">
-  <img src="docs/assets/browser-chat.png" alt="ChatMux on desktop: the sidebar lists live tmux agent sessions across providers with RUN and READY badges, and the selected Codex session renders as a structured conversation with a composer" width="900">
-</p>
 
 | Agent | Found automatically | Chat view | Send input | Start new session |
 |---|---|---|---|---|
@@ -230,7 +225,18 @@ the tmux session identifier is rechecked before relay or termination.
 | **Appearance** | Theme, language, thinking/raw parameters, send key, project order, and editor behavior |
 | **Access** | Tailscale HTTPS address, current identity, owner, and allowed accounts |
 
+<a id="development"></a>
 ## Development and verification
+
+```bash
+git clone https://github.com/devswha/chatmux.git
+cd chatmux
+npm ci
+npm run dev
+```
+
+Open <http://127.0.0.1:5173>. Development requires Node.js `22.22.2+` on the
+22.x line or `24.15.0+` on the 24.x line, npm, Git, tmux, and Rust `1.85.1`.
 
 | Command | Purpose |
 |---|---|
