@@ -1,3 +1,19 @@
+# Changelog
+
+All notable changes to ChatMux will be documented in this file.
+
+
+## [1.5.0](https://github.com/devswha/chatmux/compare/v1.4.6...v1.5.0) (2026-07-30)
+
+### New Features
+
+* polish session workflows and harden source self-updates ([184b0eb](https://github.com/devswha/chatmux/commit/184b0eb1e7c9ea1dd2a589f4a4368824e2f20ef8))
+* streamline coding-agent session workflows ([9e283ec](https://github.com/devswha/chatmux/commit/9e283ec932a3c05337bf4c50656006780acb13da))
+
+### Bug Fixes
+
+* **sidebar:** keep passive notification permission denials off unwatched rows ([bcbbee3](https://github.com/devswha/chatmux/commit/bcbbee320b90e4ad912b3eec46331f2abbe2915b))
+
 # ChatMux changelog
 
 All notable changes to ChatMux are documented in this file. Current and
