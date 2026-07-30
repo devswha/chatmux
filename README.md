@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/assets/readme-screenshot.png" alt="ChatMux on desktop and phone: the sidebar lists live tmux agent sessions across providers, and the selected session renders as a structured English conversation with tool activity and a composer" width="900">
+  <img src="docs/assets/browser-chat.png" alt="ChatMux on desktop: the sidebar lists live tmux agent sessions across providers with RUN and READY badges, and the selected Codex session renders as a structured conversation with a composer" width="900">
 </p>
 
 <p align="center">
@@ -41,6 +41,12 @@ every session in one browser page, on your desktop or your phone:
 ChatMux does not bundle any AI subscription. Install and log in to each agent
 CLI as the same OS user that runs ChatMux.
 
+<p align="center">
+  <img src="docs/assets/mobile-tab.jpeg" width="255" alt="Mobile sidebar: the full cross-provider session roster with activity badges and drag handles">
+  <img src="docs/assets/mobile-chat.jpeg" width="255" alt="Mobile conversation view of a Codex session with the chat composer">
+  <img src="docs/assets/mobile-cli.jpeg" width="255" alt="Mobile CLI output view typing into the real Codex TUI with the terminal key bar">
+</p>
+
 <a id="install"></a>
 ## Install
 
@@ -51,6 +57,10 @@ updater-capable release:
 ```bash
 curl -fsSL https://github.com/devswha/chatmux/releases/latest/download/install.sh | bash
 ```
+
+<p align="center">
+  <img src="docs/assets/install.png" alt="install.sh output: download and verification, the local and Tailscale phone addresses, and a QR code to open ChatMux on the phone" width="760">
+</p>
 
 That root `install.sh` downloads the canonical
 `chatmux-server-<version>-linux-x64-node22.tar.gz` and its same-basename `.sha256`,
@@ -114,6 +124,10 @@ errors without replacing the underlying conversation or terminal view.
 
 Cursor sessions use the documented `agent` command. The legacy `cursor-agent`
 alias remains supported for older installations.
+
+<p align="center">
+  <img src="docs/assets/browser-cli.png" alt="The CLI output tab of the same session: the real Codex TUI running inside tmux, rendered in the browser" width="900">
+</p>
 
 <a id="remote-access"></a>
 ## Remote access
