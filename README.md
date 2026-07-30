@@ -123,10 +123,6 @@ errors without replacing the underlying conversation or terminal view.
 Cursor sessions use the documented `agent` command. The legacy `cursor-agent`
 alias remains supported for older installations.
 
-<p align="center">
-  <img src="docs/assets/browser-cli.png" alt="The CLI output tab of the same session: the real Codex TUI running inside tmux, rendered in the browser" width="900">
-</p>
-
 <a id="remote-access"></a>
 ## Remote access
 
