@@ -3,6 +3,31 @@
 All notable changes to ChatMux will be documented in this file.
 
 
+## [1.6.0](https://github.com/devswha/chatmux/compare/v1.5.0...v1.6.0) (2026-07-30)
+
+### New Features
+
+* **chat:** replace the relay interrupt button with a send/stop control ([b037d9d](https://github.com/devswha/chatmux/commit/b037d9d75243ab4f0a234f8fe149e0a1cd9a1f4e))
+
+### Documentation
+
+* add Korean, Japanese, and Simplified Chinese README translations ([e039324](https://github.com/devswha/chatmux/commit/e0393247449ef3800c2b1057f7d6b71f090720ad))
+* crop status and navigation bars off the mobile screenshots ([dcc3ff7](https://github.com/devswha/chatmux/commit/dcc3ff7139fc32e6481da74e06c0d2193a7c0911))
+* drop duplicated CLI screenshot from the agent support section ([75f610d](https://github.com/devswha/chatmux/commit/75f610d1cc28e7b05a7571d5a7a77d34020d1d8a))
+* keep only the hero banner above the install section ([494def8](https://github.com/devswha/chatmux/commit/494def87d1939b54de83f5adbcca60c28a82ccbf))
+* move README assets into docs/assets ([7fa9375](https://github.com/devswha/chatmux/commit/7fa9375fec67681a569f798feab1d87278710d1f))
+* move the install QR screenshot back into the install section ([e7da34b](https://github.com/devswha/chatmux/commit/e7da34b0df5f31a42e0f34de0c4b6f0b992b4f3c))
+* refresh README media with current product screenshots ([14c2ab0](https://github.com/devswha/chatmux/commit/14c2ab00d2a265f9258ca4b1bde771475a4c14a0))
+* reskin README with feature grid, captions, and unified badges ([a648d83](https://github.com/devswha/chatmux/commit/a648d837459d380b00f2e6f66b7c6a6fbf390737))
+* restore readme-hero banner atop the README ([9295917](https://github.com/devswha/chatmux/commit/9295917ea3a46e47d4bb6719dcf8aa6cc567babc))
+* split README into minimal install plus browser and mobile sections ([0494050](https://github.com/devswha/chatmux/commit/0494050e28d951dbd225ddaac7a951c3132b9c70))
+* trim README duplication and drop dead bundled screenshots ([30c5298](https://github.com/devswha/chatmux/commit/30c5298a703f8f139fd61311f576ca1b10cb099b))
+
+### Maintenance
+
+* **release:** declare 1.5.0 database rollback compatibility ([f83bb61](https://github.com/devswha/chatmux/commit/f83bb613f9c4df2ff476d8c9937871ca1b0d9ea8))
+* **release:** declare 1.6.0 database rollback compatibility ([79c9815](https://github.com/devswha/chatmux/commit/79c9815e8b341d2670ba9410be15515821d3cbc8))
+
 ## [1.5.0](https://github.com/devswha/chatmux/compare/v1.4.6...v1.5.0) (2026-07-30)
 
 ### New Features
