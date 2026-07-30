@@ -2,6 +2,8 @@
   <img src="docs/assets/readme-hero.svg" alt="ChatMux — every coding agent, one command deck: Codex, Claude, Gajae Code, Cursor, and OpenCode sessions multiplexed into one self-hosted interface" width="900">
 </p>
 
+<p align="center"><sub><b>English</b> · <a href="docs/readme/README.ko.md">한국어</a> · <a href="docs/readme/README.ja.md">日本語</a> · <a href="docs/readme/README.zh-CN.md">简体中文</a></sub></p>
+
 <p align="center"><b>ChatMux</b> is a self-hosted web interface for discovering, reading, and controlling<br>coding-agent sessions running in tmux — from your desktop or your phone.</p>
 
 <p align="center">
