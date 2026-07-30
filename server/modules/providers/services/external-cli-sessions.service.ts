@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { constants as fsConstants } from 'node:fs';
-import { access, readdir, readFile, realpath, stat } from 'node:fs/promises';
+import { access, readdir, readFile, readlink, realpath, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { delimiter, dirname, isAbsolute, join, relative, sep } from 'node:path';
 
@@ -36,6 +36,8 @@ const CURSOR_RESUME_SESSION_RE = /(?:^|\s)(?:--resume|resume)(?:=|\s+)([A-Za-z0-
 const OPENCODE_SESSION_RE = /(?:^|\s)--session(?:=|\s+)([A-Za-z0-9_-]{8,128})(?=\s|$)/;
 const OMP_RESUME_SESSION_RE = /(?:^|\s)(?:--resume|-r)(?:=|\s+)([A-Za-z0-9_-]{8,128})(?=\s|$)/;
 const TRANSCRIPT_FILE_SESSION_ID_RE = /_([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i;
+const CODEX_ROLLOUT_FILE_RE = /^rollout-.*-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i;
+const MAX_RUNTIME_DESCRIPTORS = 2_048;
 
 export type ExternalLocalCliKind = 'claude' | 'codex' | 'cursor' | 'opencode' | 'omp';
 export type ExternalCliKind = ExternalLocalCliKind | 'ssh' | 'shell';
@@ -157,6 +159,12 @@ export type ProcessTreeEntry = {
 
 type FreshCodexProcess = { targetKey: string; cwd: string; startedAtMs: number };
 type FreshCodexThread = { id: string; cwd: string; createdAtMs: number };
+export type OpenCodexThread = { id: string; modifiedAtMs: number };
+export type CodexThreadObservationState = {
+  processKey: string;
+  selectedId: string | null;
+  modifiedAtById: Map<string, number>;
+};
 type FreshIndexedProviderSession = {
   id: string;
   kind: ExternalLocalCliKind;
@@ -209,6 +217,111 @@ export function assignFreshCodexThreadIds(
     }
   }
   return assigned;
+}
+
+export function extractCodexThreadIdFromRolloutPath(
+  filePath: string,
+  sessionsRoot: string,
+): string | null {
+  const normalizedPath = filePath.endsWith(' (deleted)')
+    ? filePath.slice(0, -' (deleted)'.length)
+    : filePath;
+  const rel = relative(sessionsRoot, normalizedPath);
+  if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return null;
+  return CODEX_ROLLOUT_FILE_RE.exec(normalizedPath.split(sep).at(-1) ?? '')?.[1] ?? null;
+}
+
+export function selectMostRecentCodexThreadId(
+  threads: OpenCodexThread[],
+): string | null {
+  const modifiedAtById = new Map<string, number>();
+  for (const thread of threads) {
+    modifiedAtById.set(
+      thread.id,
+      Math.max(
+        modifiedAtById.get(thread.id) ?? Number.NEGATIVE_INFINITY,
+        thread.modifiedAtMs,
+      ),
+    );
+  }
+  const ordered = [...modifiedAtById]
+    .map(([id, modifiedAtMs]) => ({ id, modifiedAtMs }))
+    .sort((a, b) => b.modifiedAtMs - a.modifiedAtMs);
+  if (ordered.length === 0) return null;
+  if (ordered.length > 1 && ordered[0].modifiedAtMs === ordered[1].modifiedAtMs) {
+    return null;
+  }
+  return ordered[0].id;
+}
+
+/**
+ * Follows Codex when an existing TUI opens a new conversation or resumes one
+ * of several rollout files that the process still holds open.
+ */
+export function selectObservedCodexThread(args: {
+  processKey: string;
+  threads: OpenCodexThread[];
+  previous?: CodexThreadObservationState;
+  launchThreadId?: string;
+}): CodexThreadObservationState {
+  const modifiedAtById = new Map<string, number>();
+  for (const thread of args.threads) {
+    modifiedAtById.set(
+      thread.id,
+      Math.max(
+        modifiedAtById.get(thread.id) ?? Number.NEGATIVE_INFINITY,
+        thread.modifiedAtMs,
+      ),
+    );
+  }
+
+  const previous = args.previous?.processKey === args.processKey
+    ? args.previous
+    : undefined;
+  let selectedId: string | null = null;
+
+  if (modifiedAtById.size === 1) {
+    selectedId = modifiedAtById.keys().next().value ?? null;
+  } else if (previous) {
+    const newlyOpened = [...modifiedAtById.keys()].filter(
+      (id) => !previous.modifiedAtById.has(id),
+    );
+    if (newlyOpened.length === 1) {
+      selectedId = newlyOpened[0];
+    } else {
+      const newlyModified = [...modifiedAtById].filter(([id, modifiedAtMs]) => (
+        previous.modifiedAtById.has(id)
+        && modifiedAtMs > (previous.modifiedAtById.get(id) ?? Number.NEGATIVE_INFINITY)
+      ));
+      if (newlyModified.length === 1) {
+        selectedId = newlyModified[0][0];
+      } else if (previous.selectedId && modifiedAtById.has(previous.selectedId)) {
+        selectedId = previous.selectedId;
+      }
+    }
+  }
+
+  selectedId ??= selectMostRecentCodexThreadId(
+    [...modifiedAtById].map(([id, modifiedAtMs]) => ({ id, modifiedAtMs })),
+  );
+  if (!selectedId && args.launchThreadId && modifiedAtById.has(args.launchThreadId)) {
+    selectedId = args.launchThreadId;
+  }
+  return { processKey: args.processKey, selectedId, modifiedAtById };
+}
+
+export function isCodexMainThreadMetadata(metadata: {
+  source?: unknown;
+  thread_source?: unknown;
+  agent_role?: unknown;
+} | undefined): boolean {
+  if (!metadata) return true;
+  return metadata.thread_source !== 'subagent'
+    && metadata.agent_role == null
+    && (
+      typeof metadata.source !== 'string'
+      || !metadata.source.trimStart().startsWith('{"subagent"')
+    );
 }
 
 /**
@@ -707,6 +820,144 @@ async function inferFreshCodexThreadIds(args: {
   return assignFreshCodexThreadIds(processes, threads);
 }
 
+async function readOpenCodexThreads(
+  pid: number,
+  sessionsRoot: string,
+): Promise<OpenCodexThread[]> {
+  const threads = new Map<string, OpenCodexThread>();
+  const fdRoot = `/proc/${pid}/fd`;
+  const descriptors = await readdir(fdRoot).catch(() => []);
+  const targets = await Promise.all(
+    descriptors.slice(0, MAX_RUNTIME_DESCRIPTORS).map(
+      (descriptor) => readlink(join(fdRoot, descriptor)).catch(() => null),
+    ),
+  );
+  for (const target of targets) {
+    if (!target) continue;
+    const threadId = extractCodexThreadIdFromRolloutPath(target, sessionsRoot);
+    if (!threadId) continue;
+    const normalizedPath = target.endsWith(' (deleted)')
+      ? target.slice(0, -' (deleted)'.length)
+      : target;
+    const modifiedAtMs = await stat(normalizedPath).then(
+      (metadata) => metadata.mtimeMs,
+      () => Number.NEGATIVE_INFINITY,
+    );
+    const existing = threads.get(threadId);
+    if (!existing || modifiedAtMs > existing.modifiedAtMs) {
+      threads.set(threadId, { id: threadId, modifiedAtMs });
+    }
+  }
+  if (threads.size === 0) return [];
+
+  let db: Database.Database | null = null;
+  try {
+    db = new Database(join(homedir(), '.codex', 'state_5.sqlite'), {
+      readonly: true,
+      fileMustExist: true,
+    });
+    const readMetadata = db.prepare(`
+      SELECT source, thread_source, agent_role
+      FROM threads
+      WHERE id = ?
+      LIMIT 1
+    `);
+    return [...threads.values()].filter((thread) => (
+      isCodexMainThreadMetadata(readMetadata.get(thread.id) as {
+        source?: unknown;
+        thread_source?: unknown;
+        agent_role?: unknown;
+      } | undefined)
+    ));
+  } catch {
+    return [...threads.values()];
+  } finally {
+    db?.close();
+  }
+}
+
+const observedCodexThreadsByTarget = new Map<string, CodexThreadObservationState>();
+
+/**
+ * Reads the rollout files held open by every live Codex process. This is
+ * independent of process age and continues to follow in-TUI `/new` and
+ * `/resume` transitions.
+ */
+async function inferOpenCodexThreadIds(args: {
+  sessions: ExternalCliSession[];
+  panes: ExternalPane[];
+  procs: ProcessTreeEntry[];
+}): Promise<Map<string, string>> {
+  const codexSessions = new Map(
+    args.sessions
+      .filter((session) => session.kind === 'codex')
+      .map((session) => [tmuxPaneIdentityKey(session.tmux), session]),
+  );
+  if (codexSessions.size === 0) {
+    observedCodexThreadsByTarget.clear();
+    return new Map();
+  }
+
+  const sessionsRoot = await realpath(join(homedir(), '.codex', 'sessions')).catch(() => null);
+  if (!sessionsRoot) return new Map();
+
+  const children = new Map<number, number[]>();
+  const procByPid = new Map(args.procs.map((proc) => [proc.pid, proc]));
+  for (const proc of args.procs) {
+    const siblings = children.get(proc.ppid) ?? [];
+    siblings.push(proc.pid);
+    children.set(proc.ppid, siblings);
+  }
+
+  const observations = new Map<string, {
+    pids: Set<number>;
+    threads: OpenCodexThread[];
+  }>();
+  for (const pane of args.panes) {
+    const targetKey = tmuxPaneIdentityKey(pane.tmux);
+    if (!codexSessions.has(targetKey)) continue;
+    const codexPids = descendants(pane.pid, children).filter((pid) => {
+      const proc = procByPid.get(pid);
+      return proc ? isCodexRuntimeProcess(proc) : false;
+    });
+    for (const pid of codexPids) {
+      const openThreads = await readOpenCodexThreads(pid, sessionsRoot);
+      if (openThreads.length === 0) continue;
+      const observation = observations.get(targetKey) ?? {
+        pids: new Set<number>(),
+        threads: [],
+      };
+      observation.pids.add(pid);
+      observation.threads.push(...openThreads);
+      observations.set(targetKey, observation);
+    }
+  }
+
+  const resolved = new Map<string, string>();
+  for (const [targetKey, observation] of observations) {
+    const session = codexSessions.get(targetKey)!;
+    const launchThreadId = session.providerSessionId
+      && CODEX_THREAD_ID_RE.test(session.providerSessionId)
+      ? session.providerSessionId
+      : undefined;
+    const nextState = selectObservedCodexThread({
+      processKey: [
+        externalSessionInferenceKey(session),
+        ...[...observation.pids].sort((a, b) => a - b),
+      ].join('\0'),
+      threads: observation.threads,
+      previous: observedCodexThreadsByTarget.get(targetKey),
+      launchThreadId,
+    });
+    observedCodexThreadsByTarget.set(targetKey, nextState);
+    if (nextState.selectedId) resolved.set(targetKey, nextState.selectedId);
+  }
+  for (const targetKey of observedCodexThreadsByTarget.keys()) {
+    if (!observations.has(targetKey)) observedCodexThreadsByTarget.delete(targetKey);
+  }
+  return resolved;
+}
+
 async function inferClaudeSessionIds(args: {
   sessions: ExternalCliSession[];
   panes: ExternalPane[];
@@ -782,7 +1033,6 @@ async function inferOpenOmpSessionIds(
 ): Promise<Map<string, string>> {
   const targets = sessions.filter((session) => (
     session.kind === 'omp'
-    && !session.providerSessionId
     && session.agentPid !== undefined
   ));
   if (targets.length === 0) return new Map();
@@ -795,7 +1045,7 @@ async function inferOpenOmpSessionIds(
     const fdRoot = `/proc/${session.agentPid}/fd`;
     const descriptors = await readdir(fdRoot).catch(() => []);
     const transcriptById = new Map<string, string>();
-    await Promise.all(descriptors.slice(0, 2_048).map(async (descriptor) => {
+    await Promise.all(descriptors.slice(0, MAX_RUNTIME_DESCRIPTORS).map(async (descriptor) => {
       const transcriptPath = await realpath(join(fdRoot, descriptor)).catch(() => null);
       if (!transcriptPath) return;
       const sessionId = extractContainedTranscriptSessionId(sessionsRoot, transcriptPath);
@@ -888,18 +1138,49 @@ async function inferIndexedProviderSessionIds(
       .filter(([targetKey]) => attemptableTargetKeys.has(targetKey)),
   );
 }
+
+export function applyInferredProviderSessionIds(
+  sessions: ExternalCliSession[],
+  inferredIds: ReadonlyMap<string, string>,
+  authoritativeTargetKeys: ReadonlySet<string> = new Set(),
+): ExternalCliSession[] {
+  return sessions.map((session) => {
+    const targetKey = tmuxPaneIdentityKey(session.tmux);
+    const providerSessionId = inferredIds.get(targetKey);
+    return providerSessionId
+      && (!session.providerSessionId || authoritativeTargetKeys.has(targetKey))
+      ? { ...session, providerSessionId }
+      : session;
+  });
+}
+
+type ExternalProviderSessionInference = {
+  ids: Map<string, string>;
+  authoritativeTargetKeys: Set<string>;
+};
+
 async function inferExternalProviderSessionIds(args: {
   sessions: ExternalCliSession[];
   attemptableSessions: ExternalCliSession[];
   panes: ExternalPane[];
   procs: ProcessTreeEntry[];
-}): Promise<Map<string, string>> {
+}): Promise<ExternalProviderSessionInference> {
   const attemptableTargetKeys = new Set(
     args.attemptableSessions.map((session) => tmuxPaneIdentityKey(session.tmux)),
   );
-  if (attemptableTargetKeys.size === 0) return new Map();
 
-  const [rawCodex, inferredClaude, inferredOmp] = await Promise.all([
+  const [observedCodex, inferredClaude, inferredOmp, freshCodex] = await Promise.all([
+    inferOpenCodexThreadIds({
+      sessions: args.sessions,
+      panes: args.panes,
+      procs: args.procs,
+    }),
+    inferClaudeSessionIds({
+      sessions: args.sessions,
+      panes: args.panes,
+      procs: args.procs,
+    }),
+    inferOpenOmpSessionIds(args.sessions),
     args.attemptableSessions.some((session) => session.kind === 'codex')
       ? inferFreshCodexThreadIds({
         sessions: args.attemptableSessions,
@@ -907,33 +1188,35 @@ async function inferExternalProviderSessionIds(args: {
         procs: args.procs,
       })
       : Promise.resolve(new Map<string, string>()),
-    inferClaudeSessionIds({
-      sessions: args.attemptableSessions,
-      panes: args.panes,
-      procs: args.procs,
-    }),
-    inferOpenOmpSessionIds(args.attemptableSessions),
   ]);
-  const inferredCodex = new Map(
-    [...rawCodex].filter(([targetKey]) => attemptableTargetKeys.has(targetKey)),
+  const inferredFreshCodex = new Map(
+    [...freshCodex].filter(([targetKey]) => attemptableTargetKeys.has(targetKey)),
   );
+  const authoritativeTargetKeys = new Set([
+    ...observedCodex.keys(),
+    ...inferredClaude.keys(),
+    ...inferredOmp.keys(),
+  ]);
   const directIds = new Map([
-    ...inferredCodex,
+    ...inferredFreshCodex,
     ...inferredClaude,
     ...inferredOmp,
+    ...observedCodex,
   ]);
-  const withDirectIds = args.sessions.map((session) => {
-    const providerSessionId = directIds.get(tmuxPaneIdentityKey(session.tmux));
-    return !session.providerSessionId && providerSessionId
-      ? { ...session, providerSessionId }
-      : session;
-  });
+  const withDirectIds = applyInferredProviderSessionIds(
+    args.sessions,
+    directIds,
+    authoritativeTargetKeys,
+  );
   const inferredIndexed = args.attemptableSessions.some((session) => (
     session.kind === 'cursor' || session.kind === 'opencode' || session.kind === 'omp'
   ))
     ? await inferIndexedProviderSessionIds(withDirectIds, attemptableTargetKeys)
     : new Map<string, string>();
-  return new Map([...directIds, ...inferredIndexed]);
+  return {
+    ids: new Map([...directIds, ...inferredIndexed]),
+    authoritativeTargetKeys,
+  };
 }
 
 
@@ -1189,18 +1472,17 @@ async function discoverExternalCliSessions(
   const classified = classifyExternalSessions({ panes, procs });
   const sessions = await addExternalRuntimeMetadata({ sessions: classified, panes, procs });
   const attemptableSessions = retryBackoff.attemptableSessions(sessions);
-  const inferredProviderSessionIds = await inferExternalProviderSessionIds({
+  const inference = await inferExternalProviderSessionIds({
     sessions,
     attemptableSessions,
     panes,
     procs,
   });
-  const resolvedSessions = sessions.map((session) => {
-    const providerSessionId = inferredProviderSessionIds.get(tmuxPaneIdentityKey(session.tmux));
-    return !session.providerSessionId && providerSessionId
-      ? { ...session, providerSessionId }
-      : session;
-  });
+  const resolvedSessions = applyInferredProviderSessionIds(
+    sessions,
+    inference.ids,
+    inference.authoritativeTargetKeys,
+  );
   retryBackoff.recordResults(resolvedSessions, attemptableSessions);
   return { ok: true, sessions: resolvedSessions };
 }

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  applyInferredProviderSessionIds,
   assignFreshCodexThreadIds,
   assignFreshIndexedProviderSessionIds,
   assignUniqueIndexedProviderSessionIds,
@@ -10,6 +11,7 @@ import {
   buildExternalCliRuntimePath,
   createExternalCliSessionDiscovery,
   createExternalCliSessionInferenceRetryBackoff,
+  extractCodexThreadIdFromRolloutPath,
   extractCodexResumeThreadId,
   extractExternalResumeSessionId,
   extractContainedTranscriptSessionId,
@@ -19,6 +21,7 @@ import {
   parseExternalPanes,
   parseProcessStartTime,
   parsePsTree,
+  selectObservedCodexThread,
   selectPrimaryCodexProcessPid,
   resolveExternalCliExecutable,
   withoutNodeModulesBins,
@@ -335,6 +338,113 @@ test('assignFreshCodexThreadIds ignores threads outside the launch window', () =
     1_000,
   );
   assert.equal(assigned.size, 0);
+});
+
+test('extractCodexThreadIdFromRolloutPath accepts only contained rollout JSONL files', () => {
+  const id = '019fb3d1-08f9-7ab0-a87e-5986efb405d4';
+  assert.equal(
+    extractCodexThreadIdFromRolloutPath(
+      `/home/user/.codex/sessions/2026/07/31/rollout-2026-07-31T01-17-28-${id}.jsonl`,
+      '/home/user/.codex/sessions',
+    ),
+    id,
+  );
+  assert.equal(
+    extractCodexThreadIdFromRolloutPath(
+      `/home/user/other/rollout-2026-07-31T01-17-28-${id}.jsonl`,
+      '/home/user/.codex/sessions',
+    ),
+    null,
+  );
+  assert.equal(
+    extractCodexThreadIdFromRolloutPath(
+      `/home/user/.codex/sessions/2026/07/31/not-a-rollout-${id}.jsonl`,
+      '/home/user/.codex/sessions',
+    ),
+    null,
+  );
+});
+
+test('selectObservedCodexThread follows new and resumed rollouts without a launch window', () => {
+  const processKey = 'pane-process-generation';
+  const first = selectObservedCodexThread({
+    processKey,
+    threads: [{ id: 'old', modifiedAtMs: 10 }],
+  });
+  assert.equal(first.selectedId, 'old');
+
+  const opened = selectObservedCodexThread({
+    processKey,
+    threads: [
+      { id: 'old', modifiedAtMs: 10 },
+      { id: 'new-days-later', modifiedAtMs: 20 },
+    ],
+    previous: first,
+  });
+  assert.equal(opened.selectedId, 'new-days-later');
+
+  const resumedOld = selectObservedCodexThread({
+    processKey,
+    threads: [
+      { id: 'old', modifiedAtMs: 30 },
+      { id: 'new-days-later', modifiedAtMs: 20 },
+    ],
+    previous: opened,
+  });
+  assert.equal(resumedOld.selectedId, 'old');
+});
+
+test('selectObservedCodexThread resets state for a restarted process generation', () => {
+  const previous = selectObservedCodexThread({
+    processKey: 'old-process',
+    threads: [{ id: 'old-thread', modifiedAtMs: 100 }],
+  });
+  const restarted = selectObservedCodexThread({
+    processKey: 'new-process',
+    threads: [
+      { id: 'old-thread', modifiedAtMs: 100 },
+      { id: 'new-thread', modifiedAtMs: 200 },
+    ],
+    previous,
+  });
+  assert.equal(restarted.selectedId, 'new-thread');
+});
+
+test('selectObservedCodexThread prefers current file activity over a stale launch hint', () => {
+  const selected = selectObservedCodexThread({
+    processKey: 'live-process',
+    launchThreadId: 'stale-tag',
+    threads: [
+      { id: 'stale-tag', modifiedAtMs: 100 },
+      { id: 'current-thread', modifiedAtMs: 200 },
+    ],
+  });
+  assert.equal(selected.selectedId, 'current-thread');
+});
+
+test('runtime transcript evidence overrides stale tags but fallback inference does not', () => {
+  const session = {
+    tmuxName: 'codex',
+    tmux: tmux('$105', '@105', '%105'),
+    kind: 'codex' as const,
+    providerSessionId: 'stale-tag',
+  };
+  const targetKey = tmuxTargetKey(session.tmux);
+  assert.equal(
+    applyInferredProviderSessionIds(
+      [session],
+      new Map([[targetKey, 'runtime-thread']]),
+      new Set([targetKey]),
+    )[0].providerSessionId,
+    'runtime-thread',
+  );
+  assert.equal(
+    applyInferredProviderSessionIds(
+      [session],
+      new Map([[targetKey, 'fresh-fallback']]),
+    )[0].providerSessionId,
+    'stale-tag',
+  );
 });
 
 test('assignFreshIndexedProviderSessionIds pairs unique disk transcripts newest-first', () => {
