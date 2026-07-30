@@ -53,6 +53,10 @@ Linux x86_64 (glibc 2.35+) with tmux, user-level systemd, and
 curl -fsSL https://github.com/devswha/chatmux/releases/latest/download/install.sh | bash
 ```
 
+<p align="center">
+  <img src="docs/assets/install.png" alt="install.sh output: download and verification, the local and Tailscale phone addresses, and a QR code to open ChatMux on the phone" width="760">
+</p>
+
 The installer downloads the canonical release archive, verifies its SHA-256,
 starts a user-level service, and prints your addresses. `chatmux status` shows
 them again any time. Pinned versions, access modes, updates, rollback, and
@@ -81,13 +85,8 @@ with real keystrokes:
 <a id="mobile"></a>
 ## Mobile
 
-The install output ends with a `Phone` address and a QR code. Turn on
-Tailscale on the phone, scan the QR, and use the in-app **Install app**
-button to keep ChatMux as a PWA:
-
-<p align="center">
-  <img src="docs/assets/install.png" alt="install.sh output: download and verification, the local and Tailscale phone addresses, and a QR code to open ChatMux on the phone" width="760">
-</p>
+Turn on Tailscale on the phone, scan the QR code from the install output, and
+use the in-app **Install app** button to keep ChatMux as a PWA.
 
 The full roster, the conversation view, and the real TUI with a terminal key
 bar all work from the phone:
