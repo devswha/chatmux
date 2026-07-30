@@ -13,10 +13,6 @@
 </p>
 
 <p align="center">
-  <img src="docs/assets/browser-chat.png" alt="ChatMux on desktop: the sidebar lists live tmux agent sessions across providers with RUN and READY badges, and the selected Codex session renders as a structured conversation with a composer" width="900">
-</p>
-
-<p align="center">
   <a href="#install"><b>Install</b></a> ·
   <a href="#agent-support">Agent support</a> ·
   <a href="#remote-access">Remote access</a> ·
@@ -44,12 +40,6 @@ every session in one browser page, on your desktop or your phone:
 
 ChatMux does not bundle any AI subscription. Install and log in to each agent
 CLI as the same OS user that runs ChatMux.
-
-<p align="center">
-  <img src="docs/assets/mobile-tab.jpeg" width="255" alt="Mobile sidebar: the full cross-provider session roster with activity badges and drag handles">
-  <img src="docs/assets/mobile-chat.jpeg" width="255" alt="Mobile conversation view of a Codex session with the chat composer">
-  <img src="docs/assets/mobile-cli.jpeg" width="255" alt="Mobile CLI output view typing into the real Codex TUI with the terminal key bar">
-</p>
 
 <a id="install"></a>
 ## Install
@@ -86,6 +76,12 @@ Then:
 2. On a phone, use the in-app **Install app** button to keep ChatMux as a PWA.
 3. Check `chatmux status` any time to see the configured addresses.
 
+<p align="center">
+  <img src="docs/assets/mobile-tab.jpeg" width="255" alt="Mobile sidebar: the full cross-provider session roster with activity badges and drag handles">
+  <img src="docs/assets/mobile-chat.jpeg" width="255" alt="Mobile conversation view of a Codex session with the chat composer">
+  <img src="docs/assets/mobile-cli.jpeg" width="255" alt="Mobile CLI output view typing into the real Codex TUI with the terminal key bar">
+</p>
+
 Before you start, the machine needs: Linux x86_64 with glibc 2.35+, tmux,
 user-level systemd, and `curl`, `tar`, `sha256sum`. See the
 [installation guide](docs/INSTALL.md) for pinned installs, explicit access
@@ -114,6 +110,10 @@ Every live row uses the same reorderable sidebar regardless of provider. Draggin
 a row across provider boundaries persists the resulting order in that browser.
 Transcript-aware activity badges surface running turns and terminal provider
 errors without replacing the underlying conversation or terminal view.
+
+<p align="center">
+  <img src="docs/assets/browser-chat.png" alt="ChatMux on desktop: the sidebar lists live tmux agent sessions across providers with RUN and READY badges, and the selected Codex session renders as a structured conversation with a composer" width="900">
+</p>
 
 | Agent | Found automatically | Chat view | Send input | Start new session |
 |---|---|---|---|---|
