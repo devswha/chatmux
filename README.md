@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/assets/readme-hero.svg" alt="ChatMux — every coding agent, one command deck: Codex, Claude, Gajae Code, Cursor, and OpenCode sessions multiplexed into one self-hosted interface" width="900">
+</p>
+
 <h3 align="center">every coding agent, one command deck</h3>
 <p align="center"><b>ChatMux</b> is a self-hosted web interface for discovering, reading, and controlling coding-agent sessions running in tmux.</p>
 
