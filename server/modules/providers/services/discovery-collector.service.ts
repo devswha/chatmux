@@ -427,6 +427,11 @@ export function createDiscoveryCollector(options: DiscoveryCollectorOptions = {}
             const takenAtMs = now();
             detailed = Object.freeze({ ...detailed, takenAtMs });
             snapshot = makeSnapshot(takenAtMs);
+            // Same revision, but listeners must still see the tick: the
+            // discovery stream derives its heartbeat cadence from unchanged
+            // snapshots, and a silent skip path starves subscribed clients
+            // into declaring the stream stale and resuming REST polling.
+            for (const listener of listeners) listener(snapshot);
             return;
           }
         }

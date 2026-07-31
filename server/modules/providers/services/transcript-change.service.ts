@@ -8,6 +8,7 @@ export type TranscriptChange = Readonly<{
 
 type Listener = (change: TranscriptChange) => void;
 
+const SESSION_VERSION_MAX_ENTRIES = 2_048;
 const providerVersions = new Map<LLMProvider, number>();
 const sessionVersions = new Map<string, number>();
 const listeners = new Set<Listener>();
@@ -28,7 +29,20 @@ export function markTranscriptChanged(
 ): void {
   if (providerSessionId) {
     const key = sessionKey(provider, providerSessionId);
-    sessionVersions.set(key, (sessionVersions.get(key) ?? 0) + 1);
+    const nextVersion = (sessionVersions.get(key) ?? 0) + 1;
+    // Delete-then-set keeps insertion order as recency so the bound below
+    // evicts the least recently changed session, not an active one.
+    sessionVersions.delete(key);
+    sessionVersions.set(key, nextVersion);
+    if (sessionVersions.size > SESSION_VERSION_MAX_ENTRIES) {
+      const oldest: string = sessionVersions.keys().next().value!;
+      sessionVersions.delete(oldest);
+      // An evicted session would restart at version 0 and could resurrect a
+      // stale cached resolution; bumping its provider version keeps every
+      // combined version string fresh.
+      const oldestProvider = oldest.slice(0, oldest.indexOf('\0')) as LLMProvider;
+      providerVersions.set(oldestProvider, (providerVersions.get(oldestProvider) ?? 0) + 1);
+    }
   } else {
     providerVersions.set(provider, (providerVersions.get(provider) ?? 0) + 1);
   }
