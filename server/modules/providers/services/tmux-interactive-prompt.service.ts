@@ -376,8 +376,11 @@ function parseClaudeQuestion(screen: string): ParsedPrompt | null {
   const optionRows = rows.slice(0, customIndex);
   const multiSelect = optionRows.some((row) =>
     /^\s*(?:[›>❯]\s*)?\d+\.\s+\[[ xX✓]\]/.test(lines[row.lineIndex]));
-  const publicRows = multiSelect ? optionRows : rows;
-  const options = publicRows.map((row) => ({
+  // Public options exclude the trailing "Type something." / "Chat about this"
+  // rows (mirroring the codex parser): validateChoices caps selections at
+  // customOptionNumber, so exposing those rows as numbered options would
+  // surface phantom choices that are always rejected.
+  const options = optionRows.map((row) => ({
     label: row.label,
     ...(row.description ? { description: row.description } : {}),
   }));

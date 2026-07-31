@@ -36,3 +36,22 @@ Command: git status
   assert.equal(prompt?.rejectIndex, 1);
   assert.equal(parseOmpApprovalScreen('Allow tool: bash\nThe user said approve.'), null);
 });
+
+test('approval parsers reject a scrolled-back menu with newer output below', () => {
+  assert.equal(parseCodexApprovalScreen(`
+Would you like to run the following command?
+
+› 1. Yes, proceed
+  2. No, and tell Codex what to do differently
+
+Command finished with exit code 0.
+`), null);
+  assert.equal(parseOmpApprovalScreen(`
+Allow tool: bash
+
+› Approve
+  Deny
+
+Tool completed.
+`), null);
+});

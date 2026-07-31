@@ -56,7 +56,12 @@
     "waiting": "CLI'da yanıtın bekleniyor",
     "instruction": "Lütfen Claude'un çalıştığı terminalde bir seçenek seç.",
     "selectedOption": "✓ Claude {{number}} numaralı seçeneği seçti",
-    "instructionDetail": "CLI'da bu seçeneği ok tuşları veya numara girerek interaktif olarak seçebilirsin."
+    "instructionDetail": "CLI'da bu seçeneği ok tuşları veya numara girerek interaktif olarak seçebilirsin.",
+    "directInput": "Doğrudan giriş (Diğer)",
+    "numberInstruction": "Görüntülenen numarayı sohbette gönderin. Son numara: doğrudan giriş · 0: iptal",
+    "numberInstructionWithCustomNumber": "Görüntülenen numarayı sohbette gönderin · {{number}}: doğrudan giriş · 0: iptal",
+    "numberInstructionNoCustom": "Görüntülenen numarayı sohbette gönderin · 0: iptal",
+    "multiNumberInstruction": "Virgülle ayrılmış bir veya daha fazla numara gönderin · 0: iptal"
   },
   "thinking": {
     "title": "Düşünüyor...",
@@ -228,7 +233,14 @@
     "delivered": "İletildi",
     "queued": "Kuyruğa alındı",
     "towerUnavailable": "Kontrol kulesi çalışmıyor — gönderilemiyor",
-    "sendFailed": "Gönderilemedi"
+    "sendFailed": "Gönderilemedi",
+    "selectionNumberRequired": "Görüntülenen bir numara girin (0-{{max}}).",
+    "multiSelectionNumberRequired": "Virgülle ayrılmış bir veya daha fazla görüntülenen numara girin.",
+    "customInputReady": "Özel yanıtı yazın.",
+    "selectionDelivered": "Seçim iletildi.",
+    "selectionPlaceholder": "Seçim numarası girin (0-{{max}})…",
+    "multiSelectionPlaceholder": "Virgülle ayrılmış seçim numaralarını girin…",
+    "customInputPlaceholder": "Özel yanıtı yazın…"
   },
   "transcript": {
     "conversationTab": "Sohbet",
