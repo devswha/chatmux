@@ -287,3 +287,46 @@ up/down navigate  enter select  esc cancel
   assert.ok(first);
   assert.equal(first.id, second?.id);
 });
+
+test('Claude multi-select answers are rejected without injecting keys until the toggle sequence is verified', async () => {
+  const screen = `
+☐ Checks
+
+Which checks should run?
+
+❯ 1. [ ] Lint
+  2. [x] Tests
+  3. [ ] Build
+  4. Type something.
+────────────────────────────
+  5. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel
+`;
+  const prompt = parseTmuxInteractivePrompt('claude', screen);
+  assert.ok(prompt);
+  const calls: string[][] = [];
+  const run: TmuxRunner = async (args) => {
+    calls.push(args);
+    if (args.includes('capture-pane')) return { code: 0, output: screen };
+    if (args.includes('display-message')) return { code: 0, output: '$7\t@8\t%9\n' };
+    return { code: 0, output: '' };
+  };
+  const target = createVerifiedTmuxActionTarget(
+    {
+      socketPath: '/tmp/chatmux-interactive-test.sock',
+      sessionId: '$7',
+      windowId: '@8',
+      paneId: '%9',
+    },
+    { pid: 42, startedAtMs: 1234 },
+    'claude',
+    null,
+  );
+
+  await assert.rejects(
+    answerTmuxInteractivePrompt(target, prompt.id, [1, 3], run),
+    (error: { code?: string }) => error.code === 'TMUX_INTERACTIVE_CHOICE_UNSUPPORTED',
+  );
+  assert.equal(calls.some((args) => args.includes('send-keys')), false);
+});

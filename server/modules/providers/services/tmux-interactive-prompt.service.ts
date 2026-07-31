@@ -718,6 +718,18 @@ async function answerMultiSelect(
   choices: number[],
   run?: TmuxRunner,
 ): Promise<void> {
+  if (prompt.responder === 'claude-question') {
+    // The Enter-as-toggle assumption below is corroborated for GJC (explicit
+    // "Done selecting" row) and OMP ("Space/Enter toggle" hint), but there is
+    // no evidence for Claude's multi-select keybindings; if Enter submits
+    // instead of toggling, the first key would commit an incomplete
+    // selection into the user's pane. Detection/rendering still work —
+    // answering stays terminal-side until the real key sequence is verified.
+    throw new AppError('This CLI does not support multiple selections.', {
+      code: 'TMUX_INTERACTIVE_CHOICE_UNSUPPORTED',
+      statusCode: 400,
+    });
+  }
   if (choices.length === 0) {
     throw new AppError('Select at least one option.', {
       code: 'TMUX_INTERACTIVE_CHOICE_INVALID',
@@ -739,8 +751,6 @@ async function answerMultiSelect(
     keys.push(...navigationKeys(prompt.options.length - cursor), 'Enter');
   } else if (prompt.responder === 'omp-question') {
     keys.push('Tab', 'Enter');
-  } else if (prompt.responder === 'claude-question') {
-    keys.push('Right', 'Enter');
   } else {
     throw new AppError('This CLI does not support multiple selections.', {
       code: 'TMUX_INTERACTIVE_CHOICE_UNSUPPORTED',
