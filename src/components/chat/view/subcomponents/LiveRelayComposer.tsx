@@ -918,7 +918,7 @@ export default function LiveRelayComposer({
               disabled={showStop ? isInterrupting : (!hasDraft || status.kind === 'sending')}
               aria-label={submitLabel}
               title={submitLabel}
-              className="h-10 w-10"
+              className="h-9 w-9"
             />
           </PromptInputFooter>
         </PromptInput>
