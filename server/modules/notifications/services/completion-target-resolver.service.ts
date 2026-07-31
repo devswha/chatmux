@@ -33,10 +33,6 @@ const EXTERNAL_COMPLETION_PROVIDERS = new Set<ExternalCliSession['kind']>([
 ]);
 const APP_COMPLETION_PROVIDERS = new Set(['claude', 'codex', 'opencode', 'gjc']);
 
-function hasStandaloneActivityEvidence(session: ExternalCliSession): boolean {
-  return Boolean(session.providerSessionId)
-    && (session.kind === 'opencode' || session.kind === 'codex');
-}
 function hasMappedActivityEvidence(session: ExternalCliSession, app: AppSessionRow): boolean {
   if (session.kind === 'opencode') return true;
   if (!app.jsonl_path) return false;
@@ -141,6 +137,90 @@ function targetView(
   };
 }
 
+function resolveExternalCompletionTarget(
+  external: ExternalCliSession,
+  userId: number,
+): CompletionTargetResolution | null {
+  const generationIdentity = completionExternalGenerationIdentityFromSession(external);
+  if (!generationIdentity) return null;
+
+  const generationIdentityKey = completionExternalGenerationIdentityKey(generationIdentity);
+  const matches = appSessionsForExternal(external);
+  const active = matches.filter((match) => match.active === 1);
+  const mappingState = completionNotificationTargetsDb.mappingState(matches.length, active.length);
+  if (mappingState === 'one_active' && !hasMappedActivityEvidence(external, active[0])) return null;
+
+  const generationAlias = completionExternalGenerationAlias(generationIdentity);
+  const generationTarget = completionNotificationTargetsDb.createTarget(
+    generationIdentityKey,
+    'external_generation',
+    [generationAlias],
+  );
+  const generationId = generationTargetId(generationIdentityKey);
+
+  if (mappingState === 'none') {
+    return {
+      generationTargetId: generationId,
+      generationIdentityKey,
+      appSessionId: null,
+      target: targetView(generationTarget, generationAlias, userId),
+      mappingState,
+    };
+  }
+  if (mappingState !== 'one_active') return null;
+
+  const app = active[0];
+  const appIdentity = { provider: app.provider, sessionId: app.session_id };
+  const expectedIdentityKey = completionAppIdentityKey(appIdentity);
+  const selectedAppTarget = completionNotificationTargetsDb.createTarget(
+    expectedIdentityKey,
+    'app',
+  );
+  if (
+    selectedAppTarget.kind !== 'app'
+    || selectedAppTarget.identity_key !== expectedIdentityKey
+  ) {
+    throwCompletionTargetIdentityConflict('pre_promotion', selectedAppTarget);
+  }
+  const appTarget = completionNotificationTargetsDb.promoteGenerationToApp(
+    generationIdentityKey,
+    expectedIdentityKey,
+    [completionAppAlias(appIdentity)],
+    [generationAlias],
+  );
+  if (appTarget.kind !== 'app' || appTarget.identity_key !== expectedIdentityKey) {
+    throwCompletionTargetIdentityConflict('post_promotion', appTarget);
+  }
+  return {
+    generationTargetId: generationId,
+    generationIdentityKey,
+    appSessionId: app.session_id,
+    target: targetView(appTarget, completionAppAlias(appIdentity), userId),
+    mappingState,
+  };
+}
+
+const RESOLUTION_FAILURE_REPORT_INTERVAL_MS = 60_000;
+const resolutionFailureLastReportedAt = new Map<string, number>();
+
+/**
+ * Per-generation failures are isolated, but a persistent conflict would drop
+ * that session's bell on every scan; without this diagnostic there is zero
+ * operator signal. Identity-conflict messages are redacted by construction
+ * (diagnosticCode/stage/targetId/kind only). Throttled per provider+message
+ * because the turn monitor re-resolves every scan.
+ */
+function reportCompletionTargetResolutionFailure(provider: string, error: unknown): void {
+  const message = error instanceof Error ? error.message : String(error);
+  const key = `${provider}\0${message}`;
+  const now = Date.now();
+  const lastReportedAt = resolutionFailureLastReportedAt.get(key) ?? 0;
+  if (now - lastReportedAt < RESOLUTION_FAILURE_REPORT_INTERVAL_MS) return;
+  if (resolutionFailureLastReportedAt.size > 100) resolutionFailureLastReportedAt.clear();
+  resolutionFailureLastReportedAt.set(key, now);
+  console.error(`Completion target resolution failed for ${provider}: ${message}`);
+}
+
 /**
  * Resolves exactly one completed detailed discovery scan. Its durable generation
  * ID is server-internal; the target view remains browser-safe.
@@ -168,60 +248,14 @@ export function resolveCompletionTargetsFromDetailedScan(
 
     const generationIdentityKey = completionExternalGenerationIdentityKey(generationIdentity);
     if (identityCounts.get(generationIdentityKey) !== 1) continue;
-    const matches = appSessionsForExternal(external);
-    const active = matches.filter((match) => match.active === 1);
-    const mappingState = completionNotificationTargetsDb.mappingState(matches.length, active.length);
-    if (mappingState === 'none' && !hasStandaloneActivityEvidence(external)) continue;
-    if (mappingState === 'one_active' && !hasMappedActivityEvidence(external, active[0])) continue;
-
-    const generationAlias = completionExternalGenerationAlias(generationIdentity);
-    const generationTarget = completionNotificationTargetsDb.createTarget(
-      generationIdentityKey,
-      'external_generation',
-      [generationAlias],
-    );
-    const generationId = generationTargetId(generationIdentityKey);
-
-    if (mappingState === 'none') {
-      resolutions.push({
-        generationTargetId: generationId,
-        generationIdentityKey,
-        appSessionId: null,
-        target: targetView(generationTarget, generationAlias, userId),
-        mappingState,
-      });
-      continue;
+    try {
+      const resolution = resolveExternalCompletionTarget(external, userId);
+      if (resolution) resolutions.push(resolution);
+    } catch (error) {
+      // Keep failures local to one generation. A stale mapping is retried on
+      // the next authoritative scan and cannot hide unrelated session bells.
+      reportCompletionTargetResolutionFailure(external.kind, error);
     }
-    if (mappingState !== 'one_active') continue;
-
-    const app = active[0];
-    const appIdentity = { provider: app.provider, sessionId: app.session_id };
-    const expectedIdentityKey = completionAppIdentityKey(appIdentity);
-    const selectedAppTarget = completionNotificationTargetsDb.createTarget(
-      expectedIdentityKey,
-      'app',
-    );
-    if (
-      selectedAppTarget.kind !== 'app'
-      || selectedAppTarget.identity_key !== expectedIdentityKey
-    ) {
-      throwCompletionTargetIdentityConflict('pre_promotion', selectedAppTarget);
-    }
-    const appTarget = completionNotificationTargetsDb.promoteGenerationToApp(
-      generationIdentityKey,
-      expectedIdentityKey,
-      [completionAppAlias(appIdentity)],
-    );
-    if (appTarget.kind !== 'app' || appTarget.identity_key !== expectedIdentityKey) {
-      throwCompletionTargetIdentityConflict('post_promotion', appTarget);
-    }
-    resolutions.push({
-      generationTargetId: generationId,
-      generationIdentityKey,
-      appSessionId: app.session_id,
-      target: targetView(appTarget, completionAppAlias(appIdentity), userId),
-      mappingState,
-    });
   }
   return resolutions;
 }
@@ -306,10 +340,10 @@ export function resolveExternalCompletionStatusesFromDetailedScan(
       statuses.push({ alias, mappingState: 'none', reason: 'not_found' });
       continue;
     }
-    statuses.push(mappingStatus(
-      alias,
-      completionNotificationTargetsDb.mappingState(matches.length, active.length),
-    ));
+    const mappingState = completionNotificationTargetsDb.mappingState(matches.length, active.length);
+    statuses.push(mappingState === 'one_active'
+      ? { alias, mappingState: 'none', reason: 'not_found' }
+      : mappingStatus(alias, mappingState));
   }
   return statuses;
 }

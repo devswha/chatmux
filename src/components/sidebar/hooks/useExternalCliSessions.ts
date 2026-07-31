@@ -5,6 +5,7 @@ import { tmuxPaneIdentityKey, type TmuxPaneIdentity, type TmuxProcessGeneration 
 import { readRestSessionContainer } from '../../../utils/liveSessions';
 import { useWebSocket } from '../../../contexts/WebSocketContext';
 import { useDiscoveryStream, type DiscoveryRow } from '../../../hooks/useDiscoveryStream';
+import type { ProviderConnectionIssue } from '../../../../shared/provider-connection';
 
 export type ExternalSessionActivity = 'running' | 'waiting_user' | 'asking_user' | 'error' | 'unknown';
 
@@ -25,6 +26,7 @@ export type ExternalCliSession = {
   attachCapability?: string;
   presence?: 'present' | 'stale';
   authority?: 'stream' | 'rest' | 'none';
+  connectionIssue?: ProviderConnectionIssue;
 };
 export function mergeExternalDiscoveryRows(
   rows: DiscoveryRow[],
@@ -39,6 +41,7 @@ export function mergeExternalDiscoveryRows(
     .filter((row) => row.lane === 'external' && ['claude', 'codex', 'cursor', 'opencode', 'omp', 'ssh', 'shell'].includes(row.kind))
     .map((row) => {
       const metadata = restSessions.get(tmuxPaneIdentityKey(row.tmux)) ?? previous.get(tmuxPaneIdentityKey(row.tmux));
+      const { connectionIssue: _staleConnectionIssue, ...stableMetadata } = metadata ?? {};
       if (row.presence !== 'present') {
         return externalIdentityOnly({
           tmuxName: row.tmuxName,
@@ -49,12 +52,13 @@ export function mergeExternalDiscoveryRows(
         }, 'stream');
       }
       return {
-        ...metadata,
+        ...stableMetadata,
         tmuxName: row.tmuxName,
         tmux: row.tmux,
         process: row.process,
         kind: row.kind as ExternalCliSession['kind'],
         activity: row.activity,
+        ...(row.connectionIssue ? { connectionIssue: row.connectionIssue } : {}),
         projectPath: row.cwd ?? metadata?.projectPath,
         presence: 'present' as const,
         authority: 'stream' as const,

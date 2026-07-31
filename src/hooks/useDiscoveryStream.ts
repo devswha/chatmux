@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import type { ServerEvent } from '../contexts/WebSocketContext';
 import type { TmuxPaneIdentity, TmuxProcessGeneration } from '../../shared/tmux';
+import type { ProviderConnectionIssue } from '../../shared/provider-connection';
 
 export type DiscoveryLane = 'external' | 'live';
 export type DiscoveryRow = {
@@ -12,6 +13,7 @@ export type DiscoveryRow = {
   process: TmuxProcessGeneration | null;
   kind: string;
   providerSessionId: string | null;
+  connectionIssue?: ProviderConnectionIssue;
   activity: 'running' | 'waiting_user' | 'asking_user' | 'error' | 'unknown';
   tmuxActionable?: boolean;
   cwd: string | null;

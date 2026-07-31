@@ -444,6 +444,10 @@ export function CompletionNotificationsProvider({ children }: { children: ReactN
       if (!current(key, version, controller)) return;
       deviceSnapshotVersionRef.current += 1;
       dispatch({ type: 'status', records: new Map([[key, { item: { alias: result.target.alias, mappingState: 'one_active', reason: 'eligible', target: result.target }, target: result.target }]]), globalPaused: result.globalPaused, device: result.device, reason: typeof Notification !== 'undefined' && Notification.permission === 'denied' ? 'permission_denied' : null, clearPending: true });
+      // Multiple live panes can point at the same provider conversation. Their
+      // opaque generation aliases share one app-scoped watch, so refresh every
+      // registered descriptor after a successful toggle to keep all bells in sync.
+      scheduleRefresh();
     } catch (error) {
       devicePreparation?.abandon();
       if (!current(key, version, controller)) return;
@@ -461,7 +465,7 @@ export function CompletionNotificationsProvider({ children }: { children: ReactN
       devicePreparation?.abandon();
       if (operationsRef.current.get(key) === controller) operationsRef.current.delete(key);
     }
-  }, [abortPassiveRead, current, prepareDevice, requestStatus]);
+  }, [abortPassiveRead, current, prepareDevice, requestStatus, scheduleRefresh]);
 
   const repairDevice = useCallback((descriptor: CompletionNotificationDescriptor) => {
     const key = completionNotificationDescriptorKey(descriptor);

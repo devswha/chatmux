@@ -152,6 +152,33 @@ function extractGjcPartText(part: AnyRecord): string {
   return '';
 }
 
+function normalizeGjcToolName(value: unknown): string {
+  if (typeof value !== 'string' || !value.trim()) {
+    return 'Unknown';
+  }
+  return value.toLowerCase() === 'ask' ? 'AskUserQuestion' : value;
+}
+
+function normalizeGjcToolInput(toolName: string, value: unknown): unknown {
+  if (toolName !== 'AskUserQuestion') {
+    return value;
+  }
+  const input = readObjectRecord(value);
+  if (!input || !Array.isArray(input.questions)) {
+    return value;
+  }
+  return {
+    ...input,
+    questions: input.questions.map((question) => {
+      const record = readObjectRecord(question);
+      if (!record || typeof record.multiSelect === 'boolean' || typeof record.multi !== 'boolean') {
+        return question;
+      }
+      return { ...record, multiSelect: record.multi };
+    }),
+  };
+}
+
 /**
  * Streams a Pi-agent JSONL transcript and flattens `type:"message"` lines into
  * the compact intermediate shape consumed by `normalizeHistoryEntry`.
@@ -271,12 +298,16 @@ async function streamPiSessionMessages(
               break;
             }
             case 'toolCall': {
+              const toolName = normalizeGjcToolName(part.toolName ?? part.name);
               onMessage({
                 uuid: `${partId}:toolcall`,
                 type: 'tool_use',
                 timestamp,
-                toolName: part.toolName ?? part.name ?? 'Unknown',
-                toolInput: part.toolInput ?? part.input ?? part.arguments,
+                toolName,
+                toolInput: normalizeGjcToolInput(
+                  toolName,
+                  part.toolInput ?? part.input ?? part.arguments,
+                ),
                 toolCallId: part.toolCallId ?? part.id ?? part.callId,
               });
               break;
@@ -364,14 +395,15 @@ export class GjcSessionsProvider implements IProviderSessions {
     }
 
     if (raw.type === 'tool_use' || raw.toolName) {
+      const toolName = normalizeGjcToolName(raw.toolName);
       return [createNormalizedMessage({
         id: baseId,
         sessionId,
         timestamp: ts,
         provider: this.provider,
         kind: 'tool_use',
-        toolName: raw.toolName || 'Unknown',
-        toolInput: raw.toolInput,
+        toolName,
+        toolInput: normalizeGjcToolInput(toolName, raw.toolInput),
         toolId: raw.toolCallId || baseId,
       })];
     }

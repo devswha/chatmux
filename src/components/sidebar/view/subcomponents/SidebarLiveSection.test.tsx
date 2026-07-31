@@ -487,6 +487,24 @@ test('SidebarLiveSection renders first-message GJC panes as READY', async () => 
   assert.ok(!html.includes('이 세션의 어시스턴트 응답 준비 완료 알림'), 'synthetic idle rows omit completion bells');
 });
 
+test('SidebarLiveSection explains why an unsafe GJC binding was excluded', async () => {
+  const id = 'idle-gjc:foreign:%91';
+  const html = await renderSection({
+    projects: makeProjects(),
+    liveSessionIds: new Set([id]),
+    liveSessionNames: new Map([[id, 'foreign']]),
+    liveSessionLineage: new Set<string>(),
+    liveSessionTargets: new Map<string, TmuxPaneTarget>(),
+    liveSessionKinds: new Map([[id, 'interactive']]),
+    liveSessionRunning: new Set<string>(),
+    liveSessionConnectionIssues: new Map([[id, 'agent_home_mismatch']]),
+    selectedSession: null,
+    onProjectSelect,
+    onSessionSelect,
+  });
+  assert.ok(html.includes('GJC 연결 제외: ChatMux와 HOME 경로가 다릅니다.'));
+});
+
 test('SidebarLiveSection badges a batch gjc row (foreground command is not gjc)', async () => {
   const html = await renderSection({
     projects: makeProjects(),
@@ -524,6 +542,25 @@ test('SidebarLiveSection badges an in-progress turn as RUN, not READY', async ()
   assert.ok(html.includes('>RUN<'), 'an in-progress turn carries the RUN badge');
   assert.ok(!html.includes('>READY<'), 'the same row does not also show READY');
   assert.ok(html.includes('emerald'), 'RUN is styled green, not blue');
+});
+
+test('SidebarLiveSection gives an active GJC choice prompt INPUT precedence over RUN', async () => {
+  const html = await renderSection({
+    projects: makeProjects(),
+    liveSessionIds: new Set(['s-live']),
+    liveSessionNames: new Map([['s-live', 'omg']]),
+    liveSessionLineage: new Set(['s-live']),
+    liveSessionTargets: new Map([['s-live', target('%1', 1)]]),
+    liveSessionKinds: new Map([['s-live', 'interactive']]),
+    liveSessionRunning: new Set(['s-live']),
+    liveSessionInput: new Set(['s-live']),
+    selectedSession: null,
+    onProjectSelect,
+    onSessionSelect,
+  });
+  assert.ok(html.includes('>INPUT<'));
+  assert.ok(!html.includes('>RUN<'));
+  assert.ok(!html.includes('>READY<'));
 });
 
 test('SidebarLiveSection gives GJC provider failures ERROR precedence over RUN and READY', async () => {

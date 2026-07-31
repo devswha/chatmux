@@ -126,6 +126,148 @@ test('newer accepted pagination and refresh settle loading and reset the paginat
   }
 });
 
+test('refresh preserves the message window expanded by pagination', async () => {
+  const originalFetch = globalThis.fetch;
+  const pending: PendingRequest[] = [];
+  globalThis.fetch = ((url: string) => new Promise<Response>((resolve) => {
+    pending.push({ url, resolve });
+  })) as typeof fetch;
+
+  try {
+    const store = createStore();
+    const initial = store.fetchFromServer('session', { limit: 2 });
+    pending.shift()!.resolve(response({
+      messages: [
+        { id: 'new-1', sessionId: 'session', timestamp: '2026-01-01T00:02:00Z', kind: 'text', provider: 'claude' },
+        { id: 'new-2', sessionId: 'session', timestamp: '2026-01-01T00:03:00Z', kind: 'text', provider: 'claude' },
+      ],
+      total: 4,
+      hasMore: true,
+    }));
+    await initial;
+
+    const page = store.fetchMore('session', { limit: 2 });
+    pending.shift()!.resolve(response({
+      messages: [
+        { id: 'old-1', sessionId: 'session', timestamp: '2026-01-01T00:00:00Z', kind: 'text', provider: 'claude' },
+        { id: 'old-2', sessionId: 'session', timestamp: '2026-01-01T00:01:00Z', kind: 'text', provider: 'claude' },
+      ],
+      total: 4,
+      hasMore: false,
+    }));
+    await page;
+
+    const refresh = store.refreshFromServer('session');
+    assert.match(pending[0].url, /limit=20/);
+    pending.shift()!.resolve(response({
+      messages: [
+        { id: 'old-1', sessionId: 'session', timestamp: '2026-01-01T00:00:00Z', kind: 'text', provider: 'claude' },
+        { id: 'old-2', sessionId: 'session', timestamp: '2026-01-01T00:01:00Z', kind: 'text', provider: 'claude' },
+        { id: 'new-1', sessionId: 'session', timestamp: '2026-01-01T00:02:00Z', kind: 'text', provider: 'claude' },
+        { id: 'new-2', sessionId: 'session', timestamp: '2026-01-01T00:03:00Z', kind: 'text', provider: 'claude' },
+      ],
+      total: 4,
+      hasMore: false,
+    }));
+    const refreshedSlot = await refresh;
+
+    assert.deepEqual(
+      refreshedSlot.serverMessages.map(message => message.id),
+      ['old-1', 'old-2', 'new-1', 'new-2'],
+    );
+    assert.equal(refreshedSlot.offset, 4);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('background refresh cannot invalidate an explicit pagination request', async () => {
+  const originalFetch = globalThis.fetch;
+  const pending: PendingRequest[] = [];
+  globalThis.fetch = ((url: string) => new Promise<Response>((resolve) => {
+    pending.push({ url, resolve });
+  })) as typeof fetch;
+
+  try {
+    const store = createStore();
+    const initial = store.fetchFromServer('session', { limit: 2 });
+    pending.shift()!.resolve(response({
+      messages: [
+        { id: 'new-1', sessionId: 'session', timestamp: '2026-01-01T00:02:00Z', kind: 'text', provider: 'claude' },
+        { id: 'new-2', sessionId: 'session', timestamp: '2026-01-01T00:03:00Z', kind: 'text', provider: 'claude' },
+      ],
+      total: 4,
+      hasMore: true,
+    }));
+    await initial;
+
+    const page = store.fetchMore('session', { limit: 2 });
+    const refresh = store.refreshFromServer('session');
+    assert.equal(pending.length, 1, 'refresh reuses the pending slot instead of issuing a competing request');
+
+    pending.shift()!.resolve(response({
+      messages: [
+        { id: 'old-1', sessionId: 'session', timestamp: '2026-01-01T00:00:00Z', kind: 'text', provider: 'claude' },
+        { id: 'old-2', sessionId: 'session', timestamp: '2026-01-01T00:01:00Z', kind: 'text', provider: 'claude' },
+      ],
+      total: 4,
+      hasMore: false,
+    }));
+    const [pagedSlot, refreshedSlot] = await Promise.all([page, refresh]);
+
+    assert.equal(refreshedSlot, pagedSlot);
+    assert.deepEqual(
+      pagedSlot.serverMessages.map(message => message.id),
+      ['old-1', 'old-2', 'new-1', 'new-2'],
+    );
+    assert.equal(pagedSlot.hasMore, false);
+    assert.equal(pagedSlot.offset, 4);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('background refresh cannot invalidate a load-all request', async () => {
+  const originalFetch = globalThis.fetch;
+  const pending: PendingRequest[] = [];
+  globalThis.fetch = ((url: string) => new Promise<Response>((resolve) => {
+    pending.push({ url, resolve });
+  })) as typeof fetch;
+
+  try {
+    const store = createStore();
+    const initial = store.fetchFromServer('session', { limit: 1 });
+    pending.shift()!.resolve(response({
+      messages: [
+        { id: 'new', sessionId: 'session', timestamp: '2026-01-01T00:01:00Z', kind: 'text', provider: 'claude' },
+      ],
+      total: 2,
+      hasMore: true,
+    }));
+    await initial;
+
+    const loadAll = store.fetchFromServer('session', { limit: null, offset: 0 });
+    const refresh = store.refreshFromServer('session');
+    assert.equal(pending.length, 1, 'refresh does not compete with the full-history request');
+
+    pending.shift()!.resolve(response({
+      messages: [
+        { id: 'old', sessionId: 'session', timestamp: '2026-01-01T00:00:00Z', kind: 'text', provider: 'claude' },
+        { id: 'new', sessionId: 'session', timestamp: '2026-01-01T00:01:00Z', kind: 'text', provider: 'claude' },
+      ],
+      total: 2,
+      hasMore: false,
+    }));
+    const [fullSlot, refreshedSlot] = await Promise.all([loadAll, refresh]);
+
+    assert.equal(refreshedSlot, fullSlot);
+    assert.deepEqual(fullSlot.serverMessages.map(message => message.id), ['old', 'new']);
+    assert.equal(fullSlot.hasMore, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('inactive session slots are LRU-bounded while active and streaming slots survive until clear', () => {
   const store = createStore();
   store.getSlot('active');

@@ -1007,8 +1007,8 @@ test('activity and receipt resource contracts retain their fixed ceilings', () =
   assert.equal(ACTIVITY_MAX_RETAINED_INPUT_BYTES, 331_776);
   assert.equal(ACTIVITY_CACHE_MAX_ENTRIES, 256);
   assert.equal(TRANSCRIPT_ENRICHMENT_CONCURRENCY, 4);
-  assert.equal(RECEIPT_ATTEMPT_LIMIT, 512);
-  assert.equal(RUNTIME_RECEIPT_FALLBACK_LIMIT, 511);
+  assert.equal(RECEIPT_ATTEMPT_LIMIT, 18);
+  assert.equal(RUNTIME_RECEIPT_FALLBACK_LIMIT, 16);
   assert.equal(GJC_CMDLINE_MAX_BYTES, 64 * 1024);
 });
 
@@ -1033,7 +1033,7 @@ test('resume receipt parsing scans complete NUL argv beyond the legacy 512-byte 
 test('receipt fallback sizing cannot exceed the total attempt budget', () => {
   assert.equal(runtimeReceiptFallbackBudget(0), RUNTIME_RECEIPT_FALLBACK_LIMIT);
   assert.equal(runtimeReceiptFallbackBudget(1), RUNTIME_RECEIPT_FALLBACK_LIMIT);
-  assert.equal(runtimeReceiptFallbackBudget(2), 510);
+  assert.equal(runtimeReceiptFallbackBudget(2), RUNTIME_RECEIPT_FALLBACK_LIMIT);
   assert.equal(runtimeReceiptFallbackBudget(RECEIPT_ATTEMPT_LIMIT), 0);
   assert.equal(runtimeReceiptFallbackBudget(RECEIPT_ATTEMPT_LIMIT + 1), 0);
   assert.equal(2 + runtimeReceiptFallbackBudget(2), RECEIPT_ATTEMPT_LIMIT);

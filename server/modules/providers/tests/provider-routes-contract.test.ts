@@ -22,14 +22,11 @@ await writeFile(fixtureTmux, `#!/bin/sh
 if [ -n "$CHATMUX_CONTRACT_TMUX_FAIL" ]; then exit 1; fi
 case "$*" in
   *list-panes*)
-    case "$*" in
-      *@chatmux_cli_kind*)
-        printf '/tmp/chatmux-contract.sock\t$1\t@1\t%%1\t%s\t%s\t\${CHATMUX_CONTRACT_COMMAND:-codex}\t\t/tmp\tcodex\t\n' "\${CHATMUX_CONTRACT_EXTERNAL_NAME:-external}" "$PPID"
-        ;;
-      *)
-        printf '/tmp/chatmux-contract.sock\\t$2\\t@2\\t%%2\\tlive\\t%s\\tgjc\\t/tmp\\n' "$PPID"
-        ;;
-    esac
+    if [ "$CHATMUX_CONTRACT_DISCOVERY_LANE" = "live" ]; then
+      printf '/tmp/chatmux-contract.sock\t$2\t@2\t%%2\tlive\t%s\tgjc\t\t/tmp\t\t\n' "$PPID"
+    else
+      printf '/tmp/chatmux-contract.sock\t$1\t@1\t%%1\t%s\t%s\t\${CHATMUX_CONTRACT_COMMAND:-codex}\t\t/tmp\tcodex\t%s\n' "\${CHATMUX_CONTRACT_EXTERNAL_NAME:-external}" "$PPID" "\${CHATMUX_CONTRACT_PROVIDER_SESSION_ID:-}"
+    fi
     ;;
   *display-message*)
     if [ -n "$CHATMUX_CONTRACT_SELF_PANE_FAIL" ]; then
@@ -50,15 +47,16 @@ case "$*" in
     if [ -n "\$CHATMUX_CONTRACT_SPAWN_FAIL" ]; then exit 1; fi
     exit 0
     ;;
-  *capture-pane*) printf 'fixture pane output\\n' ;;
+  *capture-pane*) printf '%s\\n' "\${CHATMUX_CONTRACT_CAPTURE:-fixture pane output}" ;;
 esac
 `);
 await writeFile(fixtureCodex, '#!/bin/sh\nexit 0\n');
 await writeFile(fixturePs, `#!/bin/sh
-case "$*" in
-  *comm*args*) printf '%s %s %s %s\n' "$PPID" 1 "\${CHATMUX_CONTRACT_COMMAND:-codex}" "\${CHATMUX_CONTRACT_COMMAND:-codex}" ;;
-  *) printf '%s %s gjc gjc\n' "$PPID" 1 ;;
-esac
+if [ "$CHATMUX_CONTRACT_DISCOVERY_LANE" = "live" ]; then
+  printf '%s %s gjc gjc\n' "$PPID" 1
+else
+  printf '%s %s %s %s\n' "$PPID" 1 "\${CHATMUX_CONTRACT_COMMAND:-codex}" "\${CHATMUX_CONTRACT_COMMAND:-codex}"
+fi
 `);
 await chmod(fixtureTmux, 0o755);
 await chmod(fixtureCodex, 0o755);
@@ -119,6 +117,8 @@ before(async () => {
 
 after(async () => {
   delete process.env.CHATMUX_CONTRACT_EXTERNAL_NAME;
+  delete process.env.CHATMUX_CONTRACT_PROVIDER_SESSION_ID;
+  delete process.env.CHATMUX_CONTRACT_CAPTURE;
   delete process.env.TOWER_URL;
   if (originalTmuxPane === undefined) delete process.env.TMUX_PANE;
   else process.env.TMUX_PANE = originalTmuxPane;
@@ -126,6 +126,9 @@ after(async () => {
 });
 
 async function request(pathname: string, body?: unknown, authorization = `Bearer ${token}`): Promise<ApiResponse> {
+  process.env.CHATMUX_CONTRACT_DISCOVERY_LANE = pathname.startsWith('/sessions/live')
+    ? 'live'
+    : 'external';
   const response = await fetch(`${baseUrl}/api/providers${pathname}`, {
     method: body === undefined ? 'GET' : 'POST',
     headers: {
@@ -272,7 +275,7 @@ test('auth-disabled mode accepts loopback provider requests without a bearer tok
   assert.deepEqual(result.statuses, [200, 200]);
 });
 
-test('all eleven tmux provider routes have deterministic successful HTTP paths', async () => {
+test('core tmux provider routes have deterministic successful HTTP paths', async () => {
   assertSuccess(await request('/sessions/external/output', { tmux: externalTmux, process: validProcess }));
   assertSuccess(await request('/sessions/external/send', { tmux: externalTmux, process: validProcess, message: 'hello' }));
   assertSuccess(await request('/sessions/external/actions', { tmux: externalTmux, process: validProcess, action: 'interrupt' }));
@@ -285,6 +288,146 @@ test('all eleven tmux provider routes have deterministic successful HTTP paths',
   assertSuccess(await request('/sessions/live/kill', { tmux: liveTmux, process: validProcess, mode: 'pane' }));
   assertSuccess(await request('/sessions/live/spawn', { name: 'live-contract', cwd: '~' }));
   assertSuccess(await request('/sessions/live/commands'));
+});
+
+test('interactive routes read and answer active external and live TUI prompts without transcript ids', async () => {
+  try {
+    process.env.CHATMUX_CONTRACT_CAPTURE = [
+      'Question 1/1 (1 unanswered)',
+      'Choose an action',
+      '› 1. Allow',
+      '  2. Reject',
+      '  3. None of the above',
+      'tab to add notes | enter to submit answer | esc to interrupt',
+    ].join('\n');
+    const external = await request('/sessions/external/interactive', {
+      tmux: externalTmux,
+      process: validProcess,
+    });
+    assertSuccess(external);
+    const externalPrompt = external.body.data?.prompt as { id?: string; options?: unknown[] } | undefined;
+    assert.match(externalPrompt?.id ?? '', /^[a-f0-9]{32}$/);
+    assert.equal(externalPrompt?.options?.length, 2);
+    assertSuccess(await request('/sessions/external/interactive/respond', {
+      tmux: externalTmux,
+      process: validProcess,
+      promptId: externalPrompt?.id,
+      choices: [2],
+    }));
+
+    process.env.CHATMUX_CONTRACT_CAPTURE = [
+      'Choose a target',
+      '╭─────────────────────────╮',
+      '│❯ CUDA                   │',
+      '│  CPU                    │',
+      '│  Other (type your own)  │',
+      '╰─────────────────────────╯',
+      'up/down navigate  enter select  esc cancel',
+    ].join('\n');
+    const live = await request('/sessions/live/interactive', {
+      tmux: liveTmux,
+      process: validProcess,
+    });
+    assertSuccess(live);
+    const livePrompt = live.body.data?.prompt as { id?: string; options?: unknown[] } | undefined;
+    assert.match(livePrompt?.id ?? '', /^[a-f0-9]{32}$/);
+    assert.equal(livePrompt?.options?.length, 2);
+    assertSuccess(await request('/sessions/live/interactive/respond', {
+      tmux: liveTmux,
+      process: validProcess,
+      promptId: livePrompt?.id,
+      choices: [1],
+    }));
+  } finally {
+    delete process.env.CHATMUX_CONTRACT_CAPTURE;
+  }
+});
+
+test('external ask routes verify the transcript and active Codex selector before sending input', async () => {
+  const providerSessionId = '019fbd4a-08f9-7ab0-a87e-5986efb405d4';
+  const transcriptPath = path.join(fixtureBin, 'codex-ask.jsonl');
+  await writeFile(transcriptPath, `${JSON.stringify({
+    type: 'response_item',
+    timestamp: '2026-07-31T00:00:00.000Z',
+    payload: {
+      type: 'function_call',
+      name: 'request_user_input',
+      call_id: 'ask-contract-1',
+      arguments: JSON.stringify({
+        questions: [{
+          question: 'Choose an action',
+          options: [{ label: 'Allow' }, { label: 'Reject' }],
+        }],
+      }),
+    },
+  })}\n`);
+  const sessionId = sessionsDb.createSession(
+    providerSessionId,
+    'codex',
+    '/tmp',
+    'Ask route contract',
+    undefined,
+    undefined,
+    transcriptPath,
+  );
+  process.env.CHATMUX_CONTRACT_PROVIDER_SESSION_ID = providerSessionId;
+
+  try {
+    process.env.CHATMUX_CONTRACT_CAPTURE = [
+      'Choose an action',
+      '› 1. Allow',
+      '  2. Reject',
+      '  3. None of the above',
+      'tab to add notes | enter to submit answer | esc to interrupt',
+    ].join('\n');
+    assertSuccess(await request('/sessions/external/ask', {
+      tmux: externalTmux,
+      process: validProcess,
+      sessionId,
+      toolId: 'ask-contract-1',
+      optionIndex: 1,
+    }));
+
+    process.env.CHATMUX_CONTRACT_CAPTURE = [
+      'Choose an action',
+      '3. None of the above',
+      '› Add notes',
+      'tab or esc to clear notes | enter to submit answer',
+    ].join('\n');
+    assertSuccess(await request('/sessions/external/ask/custom', {
+      tmux: externalTmux,
+      process: validProcess,
+      sessionId,
+      toolId: 'ask-contract-1',
+      message: 'Use the safe fallback',
+    }));
+
+    process.env.CHATMUX_CONTRACT_CAPTURE = [
+      'Would you like to run the following command?',
+      '$ git status',
+      '› 1. Yes, proceed',
+      '  2. No, and tell Codex what to do differently',
+    ].join('\n');
+    const approval = await request('/sessions/external/approval', {
+      tmux: externalTmux,
+      process: validProcess,
+      sessionId,
+    });
+    assertSuccess(approval);
+    assert.equal(
+      (approval.body.data?.approval as { canRemember?: boolean } | undefined)?.canRemember,
+      false,
+    );
+    assertSuccess(await request('/sessions/external/approval/respond', {
+      tmux: externalTmux,
+      process: validProcess,
+      sessionId,
+      decision: 'reject',
+    }));
+  } finally {
+    delete process.env.CHATMUX_CONTRACT_PROVIDER_SESSION_ID;
+    delete process.env.CHATMUX_CONTRACT_CAPTURE;
+  }
 });
 
 test('successful spawn routes schedule an immediate discovery refresh', async () => {

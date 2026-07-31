@@ -56,7 +56,12 @@
     "waiting": "CLI에서 응답을 기다리는 중",
     "instruction": "Claude가 실행 중인 터미널에서 옵션을 선택해주세요.",
     "selectedOption": "✓ Claude가 옵션 {{number}}을(를) 선택했습니다",
-    "instructionDetail": "CLI에서 화살표 키 또는 숫자를 입력하여 이 옵션을 대화형으로 선택합니다."
+    "instructionDetail": "CLI에서 화살표 키 또는 숫자를 입력하여 이 옵션을 대화형으로 선택합니다.",
+    "directInput": "직접 입력 (Other)",
+    "numberInstruction": "채팅으로 표시된 번호를 보내세요. 마지막 번호: 직접 입력 · 0: 취소",
+    "numberInstructionWithCustomNumber": "채팅으로 표시된 번호를 보내세요 · {{number}}: 직접 입력 · 0: 취소",
+    "numberInstructionNoCustom": "채팅으로 표시된 번호를 보내세요 · 0: 취소",
+    "multiNumberInstruction": "쉼표로 구분한 번호를 하나 이상 보내세요 · 0: 취소"
   },
   "thinking": {
     "title": "생각 중...",
@@ -229,7 +234,14 @@
     "delivered": "전달됨",
     "queued": "대기열 적재됨",
     "towerUnavailable": "관제탑 미가동 — 전송 불가",
-    "sendFailed": "전송 실패"
+    "sendFailed": "전송 실패",
+    "selectionNumberRequired": "표시된 번호를 입력하세요 (0-{{max}}).",
+    "multiSelectionNumberRequired": "쉼표로 구분한 표시 번호를 하나 이상 입력하세요.",
+    "customInputReady": "직접 입력할 답변을 작성하세요.",
+    "selectionDelivered": "선택을 전달했습니다.",
+    "selectionPlaceholder": "선택 번호 입력 (0-{{max}})…",
+    "multiSelectionPlaceholder": "쉼표로 구분한 선택 번호 입력…",
+    "customInputPlaceholder": "직접 입력할 답변 작성…"
   },
   "readOnly": {
     "banner": "tmux의 gjc에서 작동 중 — 열람 전용입니다. 실시간으로 갱신되며, 조작은 tmux 쪽에서 하세요."

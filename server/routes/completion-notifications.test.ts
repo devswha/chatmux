@@ -184,8 +184,8 @@ test('active GJC app descriptors are eligible while OMP and Cursor remain exclud
   }
 });
 
-test('standalone Codex and OpenCode generations use production evidence paths while Claude, OMP, and Cursor are omitted', async () => {
-  const sessions = (['codex', 'opencode'] as const).map((kind, index) => ({
+test('standalone supported generations are watchable before a transcript exists while Cursor remains excluded', async () => {
+  const sessions = (['claude', 'codex', 'opencode', 'omp'] as const).map((kind, index) => ({
     kind,
     tmuxName: `${kind}-standalone`,
     tmux: { socketPath: `/private/${kind}.socket`, sessionId: `$${index}`, windowId: `@${index}`, paneId: `%${index}` },
@@ -218,8 +218,14 @@ test('standalone Codex and OpenCode generations use production evidence paths wh
     descriptors: sessions.map((session) => ({ kind: 'external_generation', session })),
   });
   assert.equal(response.status, 200);
-  assert.deepEqual(response.body.targets.map((target: any) => target.mappingState), ['none', 'none']);
-  assert.deepEqual(response.body.targets.map((target: any) => target.reason), ['eligible', 'eligible']);
+  assert.deepEqual(
+    response.body.targets.map((target: any) => target.mappingState),
+    sessions.map(() => 'none'),
+  );
+  assert.deepEqual(
+    response.body.targets.map((target: any) => target.reason),
+    sessions.map(() => 'eligible'),
+  );
   assert.doesNotMatch(JSON.stringify(response.body), /native-session/);
   assert.ok(response.body.targets.every((target: any) => target.target?.kind === 'external_generation'));
 
@@ -274,16 +280,16 @@ test('standalone Codex and OpenCode generations use production evidence paths wh
     'SELECT count(*) AS count FROM completion_notification_targets WHERE identity_key = ?',
   ).get(completionExternalGenerationIdentityKey(unreadableIdentity)) as { count: number };
   assert.equal(unreadableTargetCount.count, 0);
-  assert.deepEqual(
-    completionTargetResolver.resolveExternalStatuses({ ok: true, sessions: [unreadable] }, userId),
-    [{
-      alias: completionExternalGenerationAlias(unreadableIdentity),
-      mappingState: 'none',
-      reason: 'not_found',
-    }],
+  const unreadableStatuses = completionTargetResolver.resolveExternalStatuses(
+    { ok: true, sessions: [unreadable] },
+    userId,
   );
+  assert.equal(unreadableStatuses.length, 1);
+  assert.equal(unreadableStatuses[0]?.mappingState, 'none');
+  assert.equal(unreadableStatuses[0]?.reason, 'eligible');
+  assert.equal(unreadableStatuses[0]?.target?.kind, 'external_generation');
   const unreadableMapped = {
-    ...sessions[0],
+    ...sessions.find((session) => session.kind === 'codex')!,
     tmux: { socketPath: '/private/mapped.socket', sessionId: '$mapped', windowId: '@mapped', paneId: '%mapped' },
     agentPid: 40_000,
     startedAtMs: 4_000,
@@ -342,7 +348,7 @@ test('external descriptors return all resolver states from one HTTP discovery re
     completionTargetResolver.resolveExternalStatuses = original;
   }
 });
-test('identity conflict route logs retain safe diagnostics and redact identity evidence', async () => {
+test('one identity conflict is isolated without hiding unrelated session notification targets', async () => {
   const external = {
     kind: 'claude' as const,
     tmuxName: 'raw-tmux-name-evidence',
@@ -374,32 +380,44 @@ test('identity conflict route logs retain safe diagnostics and redact identity e
     }
     return createTarget.call(repository, identityKey, kind, aliases);
   }) as typeof repository.createTarget;
-  app.locals.completionStatusDetailedDiscovery = async () => ({ ok: true, sessions: [external] });
+  const healthy = {
+    kind: 'codex' as const,
+    tmuxName: 'healthy-codex',
+    tmux: {
+      socketPath: '/private/healthy.socket',
+      sessionId: '$healthy',
+      windowId: '@healthy',
+      paneId: '%healthy',
+    },
+    agentPid: 54_321,
+    startedAtMs: 2,
+  };
+  app.locals.completionStatusDetailedDiscovery = async () => ({ ok: true, sessions: [external, healthy] });
 
   const originalConsoleError = console.error;
   const captured: unknown[][] = [];
   console.error = (...args: unknown[]) => { captured.push(args); };
   try {
     const response = await request('/completion-notifications/status', 'POST', {
-      descriptors: [{ kind: 'external_generation', session: external }],
+      descriptors: [
+        { kind: 'external_generation', session: external },
+        { kind: 'external_generation', session: healthy },
+      ],
     });
-    assert.equal(response.status, 500);
-    assert.deepEqual(response.body, { error: 'Failed to fetch completion notification status' });
-
+    assert.equal(response.status, 200);
+    assert.deepEqual(response.body.targets.map((target: any) => target.reason), ['not_found', 'eligible']);
+    assert.equal(response.body.targets[1]?.target?.kind, 'external_generation');
+    // The isolated failure must still surface a redacted operator diagnostic:
+    // a silent drop would hide a persistently bell-less session.
     const output = captured.map((args) => args.map(String).join(' ')).join('\n');
     assert.match(output, /completion_target_identity_conflict/);
     assert.match(output, /pre_promotion/);
     assert.match(output, /actualTargetId.*903/);
     assert.match(output, /actualKind.*app/);
-    for (const evidence of [
-      'raw-identity-key-evidence',
-      'raw-native-session-evidence',
-      '/private/raw-socket-path-evidence',
-      '/private/raw-project-path-evidence',
-      'completion-target/v1:',
-    ]) {
-      assert.doesNotMatch(output, new RegExp(evidence.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
-    }
+    assert.equal(output.includes('raw-identity-key-evidence'), false);
+    assert.equal(output.includes('raw-native-session-evidence'), false);
+    assert.equal(output.includes('raw-socket-path-evidence'), false);
+    assert.equal(output.includes('raw-project-path-evidence'), false);
   } finally {
     console.error = originalConsoleError;
     repository.createTarget = createTarget;

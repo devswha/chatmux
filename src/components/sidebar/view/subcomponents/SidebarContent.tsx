@@ -3,6 +3,7 @@ import type { TFunction } from 'i18next';
 import { ScrollArea } from '../../../../shared/view/ui';
 import type { ExternalTerminalTarget, Project, ProjectSession } from '../../../../types/app';
 import type { TmuxPaneIdentity, TmuxPaneTarget } from '../../../../../shared/tmux';
+import type { ProviderConnectionIssue } from '../../../../../shared/provider-connection';
 import { useExternalCliSessions, type ExternalCliSession } from '../../hooks/useExternalCliSessions';
 
 import SidebarFooter from './SidebarFooter';
@@ -25,7 +26,9 @@ type SidebarContentProps = {
   liveSessionTargets: ReadonlyMap<string, TmuxPaneTarget>;
   liveSessionKinds: ReadonlyMap<string, string>;
   liveSessionRunning: ReadonlySet<string>;
+  liveSessionInput?: ReadonlySet<string>;
   liveSessionErrors: ReadonlySet<string>;
+  liveSessionConnectionIssues?: ReadonlyMap<string, ProviderConnectionIssue>;
   liveSessionsLoaded: boolean;
   onProjectSelect: (project: Project) => void;
   onSessionSelect: (session: ProjectSession, projectId?: string) => void;
@@ -59,7 +62,9 @@ export default function SidebarContent({
   liveSessionTargets,
   liveSessionKinds,
   liveSessionRunning,
+  liveSessionInput = new Set<string>(),
   liveSessionErrors,
+  liveSessionConnectionIssues = new Map(),
   liveSessionsLoaded,
   onProjectSelect,
   onSessionSelect,
@@ -115,7 +120,9 @@ export default function SidebarContent({
             liveSessionTargets={liveSessionTargets}
             liveSessionKinds={liveSessionKinds}
             liveSessionRunning={liveSessionRunning}
+            liveSessionInput={liveSessionInput}
             liveSessionErrors={liveSessionErrors}
+            liveSessionConnectionIssues={liveSessionConnectionIssues}
             onExternalTerminalOpen={onExternalTerminalOpen}
             onExternalSessionsChanged={refreshDiscoveredSessions}
           />

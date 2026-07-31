@@ -4,12 +4,14 @@ import { promises as fsPromises } from 'node:fs';
 
 import chokidar, { type FSWatcher } from 'chokidar';
 
-import { GjcSessionWatcher } from '@/modules/providers/services/gjc-session-watcher.service.js';
 import { projectsDb, sessionsDb } from '@/modules/database/index.js';
+import { generateDisplayName } from '@/modules/projects/index.js';
+import { GjcSessionWatcher } from '@/modules/providers/services/gjc-session-watcher.service.js';
 import { sessionSynchronizerService } from '@/modules/providers/services/session-synchronizer.service.js';
 import { WS_OPEN_STATE, connectedClients } from '@/modules/websocket/index.js';
 import type { LLMProvider } from '@/shared/types.js';
-import { generateDisplayName } from '@/modules/projects/index.js';
+
+import { markTranscriptChanged } from './transcript-change.service.js';
 
 type WatcherEventType = 'add' | 'change';
 
@@ -36,9 +38,11 @@ const PROVIDER_WATCH_PATHS: Array<{ provider: LLMProvider; rootPath: string }> =
   },
 ];
 
+const GJC_TERMINAL_RECEIPT_ROOT = path.join(os.homedir(), '.gjc', 'agent', 'terminal-sessions');
 const GJC_WATCH_PATHS = [...new Set([
   path.join(os.homedir(), '.gjc', 'agent', 'sessions'),
   path.resolve(process.env.GJC_LIVE_SESSION_DIR || path.join(os.tmpdir(), 'gjc-live-sessions')),
+  GJC_TERMINAL_RECEIPT_ROOT,
 ])];
 
 const WATCHER_IGNORED_PATTERNS = [
@@ -53,6 +57,9 @@ const WATCHER_IGNORED_PATTERNS = [
 
 const PROJECTS_UPDATE_DEBOUNCE_MS = 500;
 const PROJECTS_UPDATE_MAX_WAIT_MS = 2_000;
+const FILE_UPDATE_DEBOUNCE_MS = 150;
+const FILE_UPDATE_MAX_WAIT_MS = 1_000;
+const WATCHER_FALLBACK_RECONCILE_MS = 60_000;
 
 const watchers: FSWatcher[] = [];
 let gjcWatcher: GjcSessionWatcher | null = null;
@@ -80,6 +87,18 @@ let pendingWatcherUpdateStartedAt: number | null = null;
 let pendingWatcherFlushTimer: ReturnType<typeof setTimeout> | null = null;
 let watcherRefreshInFlight = false;
 let watcherRescheduleAfterRefresh = false;
+let watcherFallbackTimer: ReturnType<typeof setInterval> | null = null;
+let watcherFallbackInFlight = false;
+type PendingFileUpdate = {
+  eventType: WatcherEventType;
+  filePath: string;
+  provider: LLMProvider;
+  signal?: AbortSignal;
+  startedAtMs: number;
+  timer: ReturnType<typeof setTimeout> | null;
+};
+const pendingFileUpdates = new Map<string, PendingFileUpdate>();
+const fileUpdatesInFlight = new Set<string>();
 
 /**
  * Filters watcher events to provider-specific session artifact file types.
@@ -89,7 +108,23 @@ function isWatcherTargetFile(provider: LLMProvider, filePath: string): boolean {
     return path.basename(filePath) === 'opencode.db';
   }
 
-  return filePath.endsWith('.jsonl');
+  return filePath.endsWith('.jsonl')
+    || (provider === 'gjc' && isGjcTerminalReceiptPath(filePath));
+}
+
+function isGjcTerminalReceiptPath(filePath: string): boolean {
+  return path.basename(path.dirname(filePath)) === path.basename(GJC_TERMINAL_RECEIPT_ROOT)
+    && /^tmux-%\d+$/u.test(path.basename(filePath));
+}
+
+function providerSessionIdForIndexed(
+  provider: LLMProvider,
+  indexedSessionId: string,
+): string {
+  const session = sessionsDb.getSessionById(indexedSessionId);
+  return session?.provider === provider && session.provider_session_id
+    ? session.provider_session_id
+    : indexedSessionId;
 }
 
 function clearPendingWatcherFlushTimer(): void {
@@ -261,7 +296,12 @@ async function onUpdate(
   if (!isWatcherTargetFile(provider, filePath)) {
     return;
   }
-
+  if (provider === 'gjc' && isGjcTerminalReceiptPath(filePath)) {
+    // Pane receipts are discovery bindings, not transcript artifacts. Waking
+    // discovery is enough; transcript indexing is handled by its own event.
+    markTranscriptChanged('gjc');
+    return;
+  }
   try {
     const result = await sessionSynchronizerService.synchronizeProviderFile(
       provider,
@@ -274,6 +314,12 @@ async function onUpdate(
     if (!result.indexed) {
       return;
     }
+    markTranscriptChanged(
+      provider,
+      result.sessionId
+        ? providerSessionIdForIndexed(provider, result.sessionId)
+        : null,
+    );
 
     console.log(`Session synchronization triggered by ${eventType} event for provider "${provider}"`, {
       filePath,
@@ -285,12 +331,70 @@ async function onUpdate(
       return;
     }
     const message = error instanceof Error ? error.message : String(error);
+    markTranscriptChanged(provider);
     console.error(`Session watcher sync failed for provider "${provider}"`, {
       eventType,
       filePath,
       error: message,
     });
   }
+}
+
+function fileUpdateKey(provider: LLMProvider, filePath: string): string {
+  return `${provider}\0${filePath}`;
+}
+
+function scheduleFileUpdate(entry: PendingFileUpdate, key: string): void {
+  if (entry.timer) clearTimeout(entry.timer);
+  const elapsedMs = Date.now() - entry.startedAtMs;
+  const delayMs = Math.min(
+    FILE_UPDATE_DEBOUNCE_MS,
+    Math.max(0, FILE_UPDATE_MAX_WAIT_MS - elapsedMs),
+  );
+  entry.timer = setTimeout(() => {
+    entry.timer = null;
+    if (fileUpdatesInFlight.has(key)) {
+      entry.startedAtMs = Date.now();
+      scheduleFileUpdate(entry, key);
+      return;
+    }
+    pendingFileUpdates.delete(key);
+    fileUpdatesInFlight.add(key);
+    void onUpdate(entry.eventType, entry.filePath, entry.provider, entry.signal)
+      .finally(() => {
+        fileUpdatesInFlight.delete(key);
+        const queued = pendingFileUpdates.get(key);
+        if (queued && !queued.timer) scheduleFileUpdate(queued, key);
+      });
+  }, delayMs);
+  entry.timer.unref?.();
+}
+
+function queueFileUpdate(
+  eventType: WatcherEventType,
+  filePath: string,
+  provider: LLMProvider,
+  signal?: AbortSignal,
+): void {
+  if (!isWatcherTargetFile(provider, filePath) || signal?.aborted) return;
+  const key = fileUpdateKey(provider, filePath);
+  const existing = pendingFileUpdates.get(key);
+  if (existing) {
+    existing.eventType = eventType === 'add' ? 'add' : existing.eventType;
+    existing.signal = signal;
+    scheduleFileUpdate(existing, key);
+    return;
+  }
+  const entry: PendingFileUpdate = {
+    eventType,
+    filePath,
+    provider,
+    signal,
+    startedAtMs: Date.now(),
+    timer: null,
+  };
+  pendingFileUpdates.set(key, entry);
+  scheduleFileUpdate(entry, key);
 }
 
 function clearGjcWatcherRestartTimer(): void {
@@ -345,7 +449,7 @@ async function runGjcSessionWatcherStart(
 
   const watcher = new GjcSessionWatcher({
     roots: GJC_WATCH_PATHS,
-    onEvent: (event, signal) => onUpdate(event.kind, event.path, 'gjc', signal),
+    onEvent: (event, signal) => queueFileUpdate(event.kind, event.path, 'gjc', signal),
     onFailure: reportFailure,
     diagnostic: (message) => console.error(message),
   });
@@ -375,6 +479,10 @@ async function runGjcSessionWatcherStart(
         return;
       }
       for (const sessionId of reconciliation.sessionIds) {
+        markTranscriptChanged(
+          'gjc',
+          providerSessionIdForIndexed('gjc', sessionId),
+        );
         queuePendingWatcherUpdate('change', 'gjc', sessionId);
       }
     }
@@ -440,17 +548,17 @@ export async function initializeSessionsWatcher(): Promise<void> {
         ignoreInitial: true,
         followSymlinks: false,
         depth: 6,
-        usePolling: true,
+        usePolling: process.env.CHATMUX_SESSION_WATCH_POLLING === '1',
         interval: 6_000,
         binaryInterval: 6_000,
       });
 
       watcher
         .on('add', (filePath: string) => {
-          void onUpdate('add', filePath, provider);
+          queueFileUpdate('add', filePath, provider);
         })
         .on('change', (filePath: string) => {
-          void onUpdate('change', filePath, provider);
+          queueFileUpdate('change', filePath, provider);
         })
         .on('error', (error: unknown) => {
           const message = error instanceof Error ? error.message : String(error);
@@ -466,6 +574,35 @@ export async function initializeSessionsWatcher(): Promise<void> {
       });
     }
   }
+
+  if (!watcherFallbackTimer) {
+    watcherFallbackTimer = setInterval(() => {
+      if (watcherFallbackInFlight) return;
+      watcherFallbackInFlight = true;
+      void (async () => {
+        try {
+          for (const { provider } of PROVIDER_WATCH_PATHS) {
+            try {
+              const reconciliation = await sessionSynchronizerService.reconcileProvider(provider);
+              for (const sessionId of reconciliation.sessionIds) {
+                markTranscriptChanged(
+                  provider,
+                  providerSessionIdForIndexed(provider, sessionId),
+                );
+                queuePendingWatcherUpdate('change', provider, sessionId);
+              }
+            } catch {
+              // Native watcher events remain primary; the next bounded fallback
+              // pass retries a missed or temporarily unreadable provider root.
+            }
+          }
+        } finally {
+          watcherFallbackInFlight = false;
+        }
+      })();
+    }, WATCHER_FALLBACK_RECONCILE_MS);
+    watcherFallbackTimer.unref?.();
+  }
 }
 
 /**
@@ -476,6 +613,14 @@ export async function closeSessionsWatcher(): Promise<void> {
   gjcWatcherGeneration += 1;
   clearGjcWatcherRestartTimer();
   clearPendingWatcherFlushTimer();
+  for (const pending of pendingFileUpdates.values()) {
+    if (pending.timer) clearTimeout(pending.timer);
+  }
+  pendingFileUpdates.clear();
+  if (watcherFallbackTimer) {
+    clearInterval(watcherFallbackTimer);
+    watcherFallbackTimer = null;
+  }
   for (const controller of gjcWatcherStartAbortControllers) {
     controller.abort();
   }
@@ -510,4 +655,5 @@ export async function closeSessionsWatcher(): Promise<void> {
   pendingWatcherUpdateStartedAt = null;
   watcherRefreshInFlight = false;
   watcherRescheduleAfterRefresh = false;
+  watcherFallbackInFlight = false;
 }

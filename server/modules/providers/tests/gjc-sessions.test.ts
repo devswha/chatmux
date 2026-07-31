@@ -24,6 +24,33 @@ const createGjcSynchronizer = (
   additionalSessionDirs,
 });
 
+test('GJC and OMP ask tools use the shared single-select question shape', () => {
+  const [message] = new GjcSessionsProvider('omp').normalizeMessage({
+    uuid: 'ask-1',
+    type: 'tool_use',
+    timestamp: '2026-07-31T00:00:00.000Z',
+    toolName: 'ask',
+    toolCallId: 'call-ask',
+    toolInput: {
+      questions: [{
+        question: 'Choose',
+        options: [{ label: 'Allow' }, { label: 'Reject' }],
+        multi: false,
+      }],
+    },
+  }, 'omp-ask');
+
+  assert.equal(message?.toolName, 'AskUserQuestion');
+  assert.deepEqual(message?.toolInput, {
+    questions: [{
+      question: 'Choose',
+      options: [{ label: 'Allow' }, { label: 'Reject' }],
+      multi: false,
+      multiSelect: false,
+    }],
+  });
+});
+
 
 async function withIsolatedDatabase(runTest: () => void | Promise<void>): Promise<void> {
   const previousDatabasePath = process.env.DATABASE_PATH;

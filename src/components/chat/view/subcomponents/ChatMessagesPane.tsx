@@ -64,6 +64,7 @@ interface ChatMessagesPaneProps {
   showThinking?: boolean;
   selectedProject: Project;
   transcriptView?: boolean;
+  pendingAskToolId?: string | null;
 }
 
 function ChatMessagesPane({
@@ -111,6 +112,7 @@ function ChatMessagesPane({
   showThinking,
   selectedProject,
   transcriptView = false,
+  pendingAskToolId = null,
 }: ChatMessagesPaneProps) {
   const { t } = useTranslation('chat');
   const groupedVisibleMessages = useMemo(
@@ -262,6 +264,7 @@ function ChatMessagesPane({
                     selectedProject={selectedProject}
                     provider={provider}
                     transcriptView={transcriptView}
+                    pendingAskToolId={pendingAskToolId}
                   />
                 );
               }
@@ -283,6 +286,7 @@ function ChatMessagesPane({
                   selectedProject={selectedProject}
                   provider={provider}
                   transcriptView={transcriptView}
+                  pendingAskToolId={pendingAskToolId}
                 />
               );
             });

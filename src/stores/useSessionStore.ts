@@ -804,6 +804,16 @@ export function useSessionStore() {
   const refreshFromServer = useCallback(async (
     sessionId: string,
   ) => {
+    // Reconcile polling is lower priority than an explicit initial, paginated,
+    // or load-all request. Let that window mutation finish instead of
+    // invalidating its fetch ticket and making the UI believe an unchanged
+    // slot was successfully expanded.
+    const pendingSlot = storeRef.current.get(sessionId);
+    if (pendingSlot && pendingSlot._pendingRequests > 0) {
+      touchSlot(sessionId, pendingSlot);
+      return pendingSlot;
+    }
+
     const slot = beginRequest(sessionId);
     const fetchTicket = ++slot._fetchSeq;
     if (slot.status === 'loading') {
@@ -823,7 +833,7 @@ export function useSessionStore() {
 
       // Only the latest request may replace this session's loaded window.
       if (fetchTicket !== slot._fetchSeq) {
-        return;
+        return slot;
       }
 
       const messages: NormalizedMessage[] = data.messages || [];
@@ -844,6 +854,7 @@ export function useSessionStore() {
       );
       recomputeMergedIfNeeded(slot);
       notify(sessionId);
+      return slot;
     } catch (error) {
       console.error(`[SessionStore] refresh failed for ${sessionId}:`, error);
       if (
@@ -854,6 +865,7 @@ export function useSessionStore() {
         slot.status = 'idle';
         notify(sessionId);
       }
+      return slot;
     } finally {
       slot._pendingRequests -= 1;
       if (slot._loadingTicket === fetchTicket) {
@@ -861,7 +873,7 @@ export function useSessionStore() {
       }
       trimInactiveSlots();
     }
-  }, [beginRequest, notify, trimInactiveSlots]);
+  }, [beginRequest, notify, touchSlot, trimInactiveSlots]);
 
   /**
    * Update session status.

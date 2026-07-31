@@ -52,6 +52,17 @@ test('LiveRelayComposer uses a neutral label when no tmux name is available', ()
   assert.ok(!html.includes('$117'));
   assert.ok(!html.includes('%123'));
 });
+
+test('LiveRelayComposer asks for a number while a transcript choice is pending', () => {
+  const html = renderToStaticMarkup(createElement(LiveRelayComposer, {
+    target,
+    relayKind: 'codex',
+    transcriptSessionId: 'app-session-1',
+    pendingAsk: { toolId: 'ask-1', maxChoiceNumber: 4 },
+  }));
+  assert.ok(html.includes('Enter a choice number (0-4)'));
+});
+
 test('LiveRelayComposer file mentions only activate at a token boundary and filter relative paths', () => {
   assert.deepEqual(getActiveMentionToken('review @src/com', 15), { start: 7, query: '@src/com' });
   assert.equal(getActiveMentionToken('email@src/com', 13), null);
@@ -147,14 +158,21 @@ test('relay translations exist in every supported locale', () => {
     )) as { relay?: Record<string, string> };
     assert.deepEqual(Object.keys(translation.relay ?? {}).sort(), [
       'currentSession',
+      'customInputPlaceholder',
+      'customInputReady',
       'delivered',
       'imagePathRejected',
       'imageUploadFailed',
       'imageUploading',
       'interruptFailed',
       'interruptSent',
+      'multiSelectionNumberRequired',
+      'multiSelectionPlaceholder',
       'placeholder',
       'queued',
+      'selectionDelivered',
+      'selectionNumberRequired',
+      'selectionPlaceholder',
       'send',
       'sendFailed',
       'sending',

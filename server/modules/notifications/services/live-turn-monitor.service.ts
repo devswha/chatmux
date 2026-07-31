@@ -6,7 +6,17 @@ import {
   createCompletionDecision,
   notifyRunFailed,
 } from '@/modules/notifications/services/notification-orchestrator.service.js';
-import { getLiveGjcSessionsDetailed, IDLE_GJC_ID_PREFIX } from '@/modules/providers/index.js';
+import {
+  getLiveGjcSessionsDetailed,
+  IDLE_GJC_ID_PREFIX,
+  onTranscriptChanged,
+  type LiveGjcSessionsDetailedResult,
+} from '@/modules/providers/index.js';
+
+import {
+  startEventDrivenMonitorLoop,
+  TURN_MONITOR_FALLBACK_MS,
+} from './event-driven-monitor-loop.service.js';
 
 /**
  * Live turn monitor — "답변이 왔을 때 알림" for tmux-driven gjc sessions.
@@ -250,18 +260,21 @@ export function createLiveTurnMonitor(deps: MonitorDeps) {
   return { tick, cursorCount: () => cursors.size };
 }
 
-const DEFAULT_INTERVAL_MS = 5000;
+const DEFAULT_INTERVAL_MS = TURN_MONITOR_FALLBACK_MS;
 
 /**
  * Starts the production monitor. Disabled with CHATMUX_LIVE_NOTIFY=0.
  * Self-host is single-user: events route to the first user.
  */
-export function startLiveTurnMonitor(intervalMs = DEFAULT_INTERVAL_MS): (() => void) | null {
+export function startLiveTurnMonitor(
+  intervalMs = DEFAULT_INTERVAL_MS,
+  getDetailed: () => Promise<LiveGjcSessionsDetailedResult> = getLiveGjcSessionsDetailed,
+): (() => void) | null {
   if (process.env.CHATMUX_LIVE_NOTIFY === '0') {
     return null;
   }
   const monitor = createLiveTurnMonitor({
-    getDetailed: getLiveGjcSessionsDetailed,
+    getDetailed,
     notify: ({ userId, sessionId, tmuxName, stopReason, occurrenceKey }) => {
       if (stopReason === 'stop' && occurrenceKey) {
         createCompletionDecision({
@@ -297,11 +310,10 @@ export function startLiveTurnMonitor(intervalMs = DEFAULT_INTERVAL_MS): (() => v
       console.warn(`Live turn monitor diagnostic: ${code}${sessionId ? ` for ${sessionId}` : ''} (count ${count}).`);
     },
   });
-  const timer = setInterval(() => {
-    void monitor.tick().catch(() => {
-      // detection is best-effort; never crash the server loop
-    });
-  }, intervalMs);
-  timer.unref?.();
-  return () => clearInterval(timer);
+  return startEventDrivenMonitorLoop({
+    tick: monitor.tick,
+    subscribe: onTranscriptChanged,
+    accepts: (change) => change.provider === 'gjc',
+    fallbackMs: intervalMs,
+  });
 }

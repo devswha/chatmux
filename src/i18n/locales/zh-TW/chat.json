@@ -56,7 +56,12 @@
     "waiting": "等待您在 CLI 中回應",
     "instruction": "請在 Claude 執行的終端機中選擇一個選項。",
     "selectedOption": "✓ Claude 選擇了選項 {{number}}",
-    "instructionDetail": "在 CLI 中，您可以使用方向鍵或輸入數字來互動式地選擇此選項。"
+    "instructionDetail": "在 CLI 中，您可以使用方向鍵或輸入數字來互動式地選擇此選項。",
+    "directInput": "直接輸入（其他）",
+    "numberInstruction": "在聊天中傳送顯示的編號。最後編號：直接輸入 · 0：取消",
+    "numberInstructionWithCustomNumber": "在聊天中傳送顯示的編號 · {{number}}：直接輸入 · 0：取消",
+    "numberInstructionNoCustom": "在聊天中傳送顯示的編號 · 0：取消",
+    "multiNumberInstruction": "傳送一個或多個以逗號分隔的編號 · 0：取消"
   },
   "thinking": {
     "title": "思考中...",
@@ -264,7 +269,14 @@
     "delivered": "已送達",
     "queued": "已加入佇列",
     "towerUnavailable": "控制塔未執行 — 無法傳送",
-    "sendFailed": "傳送失敗"
+    "sendFailed": "傳送失敗",
+    "selectionNumberRequired": "請輸入顯示的編號 (0-{{max}})。",
+    "multiSelectionNumberRequired": "請輸入一個或多個顯示的編號，以逗號分隔。",
+    "customInputReady": "請輸入自訂回答。",
+    "selectionDelivered": "已送出選擇。",
+    "selectionPlaceholder": "輸入選項編號 (0-{{max}})…",
+    "multiSelectionPlaceholder": "輸入以逗號分隔的選項編號…",
+    "customInputPlaceholder": "請輸入自訂回答…"
   },
   "transcript": {
     "conversationTab": "對話",

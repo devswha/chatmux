@@ -57,7 +57,12 @@
     "waiting": "En attente de votre réponse dans le CLI",
     "instruction": "Veuillez sélectionner une option dans votre terminal où Claude s'exécute.",
     "selectedOption": "✓ Claude a sélectionné l'option {{number}}",
-    "instructionDetail": "Dans le CLI, vous sélectionneriez cette option de manière interactive avec les touches fléchées ou en tapant le numéro."
+    "instructionDetail": "Dans le CLI, vous sélectionneriez cette option de manière interactive avec les touches fléchées ou en tapant le numéro.",
+    "directInput": "Saisie libre (Autre)",
+    "numberInstruction": "Envoyez le numéro affiché dans le chat. Dernier numéro : saisie libre · 0 : annuler",
+    "numberInstructionWithCustomNumber": "Envoyez le numéro affiché dans le chat · {{number}} : saisie libre · 0 : annuler",
+    "numberInstructionNoCustom": "Envoyez le numéro affiché dans le chat · 0 : annuler",
+    "multiNumberInstruction": "Envoyez un ou plusieurs numéros séparés par des virgules · 0 : annuler"
   },
   "thinking": {
     "title": "Réflexion...",
@@ -230,7 +235,14 @@
     "delivered": "Transmis",
     "queued": "Mis en file d'attente",
     "towerUnavailable": "La tour de contrôle est arrêtée — envoi impossible",
-    "sendFailed": "Échec de l'envoi"
+    "sendFailed": "Échec de l'envoi",
+    "selectionNumberRequired": "Saisissez un numéro affiché (0-{{max}}).",
+    "multiSelectionNumberRequired": "Saisissez un ou plusieurs numéros affichés, séparés par des virgules.",
+    "customInputReady": "Saisissez la réponse personnalisée.",
+    "selectionDelivered": "Sélection transmise.",
+    "selectionPlaceholder": "Numéro du choix (0-{{max}})…",
+    "multiSelectionPlaceholder": "Numéros des choix séparés par des virgules…",
+    "customInputPlaceholder": "Saisissez la réponse personnalisée…"
   },
   "transcript": {
     "conversationTab": "Chat",

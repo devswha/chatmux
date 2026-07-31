@@ -67,6 +67,7 @@ export async function assertLineageTmuxTarget(
     process,
     'gjc',
     exact.tmuxName,
+    exact.id,
   );
 }
 

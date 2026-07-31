@@ -51,6 +51,17 @@ test('stream loss clears mutable provider activity before REST fallback', () => 
   assert.equal(cleared[2], sessions[2], 'already-unknown metadata is preserved without copying');
 });
 
+test('stream discovery propagates a deterministic connection exclusion reason', () => {
+  const row: DiscoveryRow = {
+    key: 'external:issue', lane: 'external', tmuxName: 'foreign-agent', tmux, process,
+    kind: 'codex', providerSessionId: null, activity: 'unknown', cwd: '/stream',
+    presence: 'present', connectionIssue: 'agent_home_mismatch',
+  };
+  const [session] = mergeExternalDiscoveryRows([row], new Map(), []);
+  assert.equal(session.connectionIssue, 'agent_home_mismatch');
+  assert.equal(session.authority, 'stream');
+});
+
 test('REST request generations reject a late bootstrap response', () => {
   assert.equal(shouldApplyExternalRestResponse(2, 1, false), true);
   assert.equal(

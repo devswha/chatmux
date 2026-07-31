@@ -77,3 +77,39 @@ test('still renders a well-formed question + answer', () => {
   );
   assert.ok(html.includes('Pick one?'));
 });
+
+test('pending transcript question renders numbered choices, direct input, and cancel guidance', () => {
+  const html = renderToStaticMarkup(
+    React.createElement(QuestionAnswerContent, {
+      questions: [{ question: 'Pick one?', options: [{ label: 'Allow' }, { label: 'Reject' }] }],
+      answers: {},
+      pending: true,
+    }),
+  );
+  assert.ok(html.includes('1.'));
+  assert.ok(html.includes('2.'));
+  assert.ok(html.includes('3.'));
+  assert.ok(html.includes('Direct input'));
+  assert.ok(html.includes('0: cancel'));
+  assert.ok(!html.includes('Skipped'));
+});
+
+test('a provider-native custom option does not add a second direct-input row', () => {
+  const html = renderToStaticMarkup(
+    React.createElement(QuestionAnswerContent, {
+      questions: [{
+        question: 'Ready to code?',
+        options: [
+          { label: 'Approve' },
+          { label: 'Tell Claude what to change' },
+        ],
+      }],
+      answers: {},
+      pending: true,
+      allowDirectInput: true,
+      directInputNumber: 2,
+    }),
+  );
+  assert.ok(html.includes('2.'));
+  assert.ok(!html.includes('Direct input (Other)'));
+});

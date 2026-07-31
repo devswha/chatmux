@@ -399,7 +399,7 @@ export default function ChatComposer({
 
           <PromptInputBody>
             <div ref={inputHighlightRef} aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden rounded-xl">
-              <div className="chat-input-placeholder block w-full whitespace-pre-wrap break-words px-4 py-2 text-sm leading-6 text-transparent">
+              <div className="chat-input-placeholder block min-h-14 w-full whitespace-pre-wrap break-words px-4 py-2.5 text-sm leading-6 text-transparent">
                 {renderInputWithMentions(input)}
               </div>
             </div>
@@ -585,7 +585,7 @@ export default function ChatComposer({
               disabled={isLoading ? false : !input.trim()}
               aria-label={submitAriaLabel}
               title={submitAriaLabel}
-              className="h-10 w-10 sm:h-10 sm:w-10"
+              className="h-9 w-9"
             >
               {canQueueDraft ? (
                 <ArrowUpIcon className="h-4 w-4" />

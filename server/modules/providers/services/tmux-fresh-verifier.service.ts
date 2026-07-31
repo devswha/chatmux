@@ -21,6 +21,7 @@ export type VerifiedTmuxActionTarget = Readonly<{
   process: Readonly<TmuxProcessGeneration>;
   kind: ExternalCliKind | 'gjc';
   tmuxName: string | null;
+  providerSessionId: string | null;
   readonly [verifiedTmuxActionTarget]: true;
 }>;
 
@@ -38,12 +39,14 @@ export function createVerifiedTmuxActionTarget(
   process: TmuxProcessGeneration,
   kind: ExternalCliKind | 'gjc',
   tmuxName: string | null,
+  providerSessionId: string | null = null,
 ): VerifiedTmuxActionTarget {
   return Object.freeze({
     tmux: Object.freeze({ ...tmux }),
     process: Object.freeze({ ...process }),
     kind,
     tmuxName,
+    providerSessionId,
     [verifiedTmuxActionTarget]: true as const,
   });
 }
@@ -75,5 +78,11 @@ export async function assertFreshExternalTmuxTarget(
   }
 
   await (deps.assertPaneIdentity ?? assertTmuxPaneIdentity)(tmux);
-  return createVerifiedTmuxActionTarget(tmux, process, target.kind, target.tmuxName);
+  return createVerifiedTmuxActionTarget(
+    tmux,
+    process,
+    target.kind,
+    target.tmuxName,
+    target.providerSessionId ?? null,
+  );
 }
