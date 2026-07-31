@@ -193,16 +193,29 @@ export function createTmuxControlObserver(
   };
 }
 
-async function tmuxObserverIsSafe(
+/**
+ * destroy-unattached is a session option: a session-local override survives a
+ * global "off", and any non-off mode (on/keep-last/keep-group) can destroy the
+ * observed session the moment this read-only client detaches. Read failures
+ * are treated as unsafe — attaching on unknown settings risks killing the
+ * user's live agent session.
+ */
+export async function tmuxObserverIsSafe(
   session: SessionIdentity,
   run: TmuxRunner,
 ): Promise<boolean> {
-  const [destroyUnattached, exitUnattached] = await Promise.all([
+  const [globalDestroy, sessionDestroy, exitUnattached] = await Promise.all([
     run(['-S', session.socketPath, 'show-options', '-gv', 'destroy-unattached']),
+    run(['-S', session.socketPath, 'show-options', '-t', session.sessionId, '-qv', 'destroy-unattached']),
     run(['-S', session.socketPath, 'show-options', '-gv', 'exit-unattached']),
   ]);
-  if (destroyUnattached.code !== 0 || exitUnattached.code !== 0) return false;
-  return destroyUnattached.output.trim() !== 'on'
+  if (globalDestroy.code !== 0 || sessionDestroy.code !== 0 || exitUnattached.code !== 0) {
+    return false;
+  }
+  const globalValue = globalDestroy.output.trim();
+  const sessionValue = sessionDestroy.output.trim();
+  return (globalValue === '' || globalValue === 'off')
+    && (sessionValue === '' || sessionValue === 'off')
     && exitUnattached.output.trim() !== 'on';
 }
 
@@ -296,7 +309,10 @@ export function createTmuxOutputActivityMonitor(
       }
     } catch {
       // Discovery and the fallback loop will retry. Never clear a known INPUT
-      // state merely because one pane capture failed.
+      // state merely because one pane capture failed — but keep the forced
+      // reparse pending, or an unchanged screen hash would suppress the
+      // outstanding clear-confirmation forever.
+      pane.forceParse = parseSameScreen || pane.forceParse;
     } finally {
       pane.inFlight = false;
       if (pane.pending && !pane.disposed && !disposed) {

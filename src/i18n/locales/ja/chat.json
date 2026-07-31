@@ -56,7 +56,12 @@
     "waiting": "CLIでの応答を待っています",
     "instruction": "Claudeが実行されているターミナルでオプションを選択してください。",
     "selectedOption": "✓ Claudeがオプション{{number}}を選択しました",
-    "instructionDetail": "CLIでは、矢印キーまたは番号を入力してオプションを選択します。"
+    "instructionDetail": "CLIでは、矢印キーまたは番号を入力してオプションを選択します。",
+    "directInput": "直接入力（その他）",
+    "numberInstruction": "表示された番号をチャットで送信。最後の番号: 直接入力 · 0: キャンセル",
+    "numberInstructionWithCustomNumber": "表示された番号をチャットで送信 · {{number}}: 直接入力 · 0: キャンセル",
+    "numberInstructionNoCustom": "表示された番号をチャットで送信 · 0: キャンセル",
+    "multiNumberInstruction": "カンマ区切りで番号を1つ以上送信 · 0: キャンセル"
   },
   "thinking": {
     "title": "思考中...",
@@ -218,7 +223,14 @@
     "delivered": "送信済み",
     "queued": "キューに追加されました",
     "towerUnavailable": "コントロールタワーが起動していません — 送信できません",
-    "sendFailed": "送信に失敗しました"
+    "sendFailed": "送信に失敗しました",
+    "selectionNumberRequired": "表示された番号を入力してください (0-{{max}})。",
+    "multiSelectionNumberRequired": "カンマ区切りで表示された番号を1つ以上入力してください。",
+    "customInputReady": "自由回答を入力してください。",
+    "selectionDelivered": "選択を送信しました。",
+    "selectionPlaceholder": "選択番号を入力 (0-{{max}})…",
+    "multiSelectionPlaceholder": "カンマ区切りで選択番号を入力…",
+    "customInputPlaceholder": "自由回答を入力…"
   },
   "transcript": {
     "conversationTab": "チャット",

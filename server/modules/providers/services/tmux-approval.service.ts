@@ -9,10 +9,30 @@ import {
 import type { VerifiedTmuxActionTarget } from './tmux-fresh-verifier.service.js';
 
 const ANSI_RE = /\u001b\[[0-?]*[ -/]*[@-~]/g;
+const DIVIDER_RE = /^[\s╭╮╰╯├┤┬┴┼─━═╌▔│]+$/;
 const CODEX_APPROVAL_HEADER_RE = /(?:Would you like to (?:run|make|apply|continue|grant)|Allow Codex to|Approve (?:this )?(?:app )?tool call|Do you trust the contents|Enable full access)/i;
 const CODEX_OPTION_RE = /^\s*([›>❯])?\s*(\d+)\.\s+(.+)$/;
 const CODEX_YES_RE = /^(?:Yes|Run|Apply|Allow|Proceed|Continue)\b/i;
 const CODEX_NO_RE = /^(?:No|Reject|Cancel|Deny)\b/i;
+const CODEX_APPROVAL_TAIL_RE = /press enter to confirm|esc to cancel|^\s*[›>❯]?\s*\d+\.\s+(?:No|Reject|Cancel|Deny)\b/i;
+const OMP_APPROVAL_TAIL_RE = /^[›>❯•]?\s*(?:Approve|Deny)$|esc.*cancel/i;
+
+/**
+ * A live approval menu renders at the bottom of the pane. captureTmuxPane
+ * includes scrollback, so an already-answered menu that still shows a
+ * selection marker would otherwise parse as live and route keys into
+ * whatever is actually running (mirrors promptTailIsActive in
+ * tmux-interactive-prompt.service.ts).
+ */
+function approvalTailIsActive(screen: string, tailRe: RegExp): boolean {
+  const last = screen
+    .replace(ANSI_RE, '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !DIVIDER_RE.test(line))
+    .at(-1) ?? '';
+  return tailRe.test(last);
+}
 
 export type TmuxApprovalDecision =
   | 'approve-once'
@@ -35,6 +55,7 @@ type ParsedApproval = TmuxApprovalPrompt & {
 };
 
 export function parseCodexApprovalScreen(screen: string): ParsedApproval | null {
+  if (!approvalTailIsActive(screen, CODEX_APPROVAL_TAIL_RE)) return null;
   const lines = screen.replace(ANSI_RE, '').split(/\r?\n/).map((line) => line.trimEnd());
   let headerIndex = -1;
   for (let index = 0; index < lines.length; index += 1) {
@@ -79,6 +100,7 @@ export function parseCodexApprovalScreen(screen: string): ParsedApproval | null 
 }
 
 export function parseOmpApprovalScreen(screen: string): ParsedApproval | null {
+  if (!approvalTailIsActive(screen, OMP_APPROVAL_TAIL_RE)) return null;
   const lines = screen.replace(ANSI_RE, '').split(/\r?\n/).map((line) => line.trimEnd());
   let headerIndex = -1;
   for (let index = 0; index < lines.length; index += 1) {

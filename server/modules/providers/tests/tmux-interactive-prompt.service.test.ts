@@ -71,8 +71,6 @@ Enter to select · ↑/↓ to navigate · Esc to cancel
     'LM-O',
     'YCB-V',
     'T-LESS',
-    'Type something.',
-    'Chat about this',
   ]);
   assert.equal(question?.customOptionNumber, 4);
 

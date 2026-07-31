@@ -520,12 +520,21 @@ export default function LiveRelayComposer({
     setStatus({ kind: 'sending' });
     try {
       let response: Response;
+      // When both the screen-parsed interactive prompt and a transcript
+      // pending ask describe the question, the composer renders the pendingAsk
+      // card (see the `interactivePrompt && !pendingAsk` block below), so
+      // numeric answers must follow the displayed pendingAsk numbering — not
+      // the hidden interactive prompt. A custom-input continuation stays on
+      // the interactive route that initiated it.
+      const interactiveRoute = interactivePrompt !== null
+        && (isAwaitingInteractiveCustom || !pendingAsk);
       const interactiveNumbers = !isAwaitingInteractiveCustom
+        && interactiveRoute
         && interactivePrompt
         && /^\d+(?:\s*,\s*\d+)*$/.test(message)
           ? message.split(',').map((value) => Number.parseInt(value.trim(), 10))
           : null;
-      if (interactivePrompt && !isAwaitingInteractiveCustom && !interactiveNumbers) {
+      if (interactiveRoute && interactivePrompt && !isAwaitingInteractiveCustom && !interactiveNumbers) {
         setStatus({
           kind: 'error',
           text: interactivePrompt.multiSelect
@@ -546,13 +555,19 @@ export default function LiveRelayComposer({
         if (
           interactiveNumbers.some((number) => number < 0 || number > maximum)
           || (interactiveNumbers.includes(0) && interactiveNumbers.length !== 1)
+          || (!interactivePrompt?.multiSelect && interactiveNumbers.length !== 1)
+          || new Set(interactiveNumbers).size !== interactiveNumbers.length
         ) {
           setStatus({
             kind: 'error',
-            text: t('relay.selectionNumberRequired', {
-              max: maximum,
-              defaultValue: 'Enter a displayed number (0-{{max}}).',
-            }),
+            text: interactivePrompt?.multiSelect
+              ? t('relay.multiSelectionNumberRequired', {
+                  defaultValue: 'Enter one or more displayed numbers separated by commas.',
+                })
+              : t('relay.selectionNumberRequired', {
+                  max: maximum,
+                  defaultValue: 'Enter a displayed number (0-{{max}}).',
+                }),
           });
           return;
         }
@@ -671,13 +686,13 @@ export default function LiveRelayComposer({
         return;
       }
       setInput('');
-      if (interactivePrompt && !isAwaitingInteractiveCustom && data.action === 'other') {
+      if (interactiveRoute && interactivePrompt && !isAwaitingInteractiveCustom && data.action === 'other') {
         setCustomInputPromptId(interactivePrompt.id);
         setStatus({
           kind: 'ok',
           text: t('relay.customInputReady', { defaultValue: 'Type the custom answer.' }),
         });
-      } else if (interactivePrompt) {
+      } else if (interactiveRoute && interactivePrompt) {
         setInteractivePrompt(null);
         setCustomInputPromptId(null);
         setStatus({
@@ -892,7 +907,7 @@ export default function LiveRelayComposer({
               placeholder={
                 isAwaitingInteractiveCustom || isAwaitingCustomInput
                   ? t('relay.customInputPlaceholder', { defaultValue: 'Type the custom answer…' })
-                  : interactivePrompt
+                  : interactivePrompt && !pendingAsk
                     ? interactivePrompt.multiSelect
                       ? t('relay.multiSelectionPlaceholder', {
                           defaultValue: 'Enter choice numbers separated by commas…',

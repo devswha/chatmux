@@ -56,7 +56,12 @@
     "waiting": "Ожидание вашего ответа в CLI",
     "instruction": "Пожалуйста, выберите опцию в терминале, где запущен Claude.",
     "selectedOption": "✓ Claude выбрал опцию {{number}}",
-    "instructionDetail": "В CLI вы бы выбрали эту опцию интерактивно, используя клавиши со стрелками или введя номер."
+    "instructionDetail": "В CLI вы бы выбрали эту опцию интерактивно, используя клавиши со стрелками или введя номер.",
+    "directInput": "Свой вариант (Другое)",
+    "numberInstruction": "Отправьте отображаемый номер в чат. Последний номер: свой вариант · 0: отмена",
+    "numberInstructionWithCustomNumber": "Отправьте отображаемый номер в чат · {{number}}: свой вариант · 0: отмена",
+    "numberInstructionNoCustom": "Отправьте отображаемый номер в чат · 0: отмена",
+    "multiNumberInstruction": "Отправьте один или несколько номеров через запятую · 0: отмена"
   },
   "thinking": {
     "title": "Думаю...",
@@ -228,7 +233,14 @@
     "delivered": "Доставлено",
     "queued": "Добавлено в очередь",
     "towerUnavailable": "Диспетчерская не запущена — отправка невозможна",
-    "sendFailed": "Не удалось отправить"
+    "sendFailed": "Не удалось отправить",
+    "selectionNumberRequired": "Введите отображаемый номер (0-{{max}}).",
+    "multiSelectionNumberRequired": "Введите один или несколько отображаемых номеров через запятую.",
+    "customInputReady": "Введите свой ответ.",
+    "selectionDelivered": "Выбор отправлен.",
+    "selectionPlaceholder": "Введите номер варианта (0-{{max}})…",
+    "multiSelectionPlaceholder": "Введите номера вариантов через запятую…",
+    "customInputPlaceholder": "Введите свой ответ…"
   },
   "transcript": {
     "conversationTab": "Чат",
