@@ -5,18 +5,22 @@ import {
   C_SCAN_IDLE_MS,
   C_SCAN_MS,
   FORCE_REFRESH_DEBOUNCE_MS,
+  GJC_BINDING_GRACE_TICKS,
   GRACE_TICKS_EXTERNAL,
   GRACE_TICKS_LIVE,
   UNAVAILABLE_DEGRADE_TICKS,
   createDiscoveryCollector,
   type DiscoveryRow,
 } from '@/modules/providers/services/discovery-collector.service.js';
-import { IDLE_GJC_ID_PREFIX } from '@/modules/providers/services/live-sessions.service.js';
+import {
+  IDLE_GJC_ID_PREFIX,
+  type LiveGjcSession,
+} from '@/modules/providers/services/live-sessions.service.js';
 import type { VerifiedTmuxActionTarget } from '@/modules/providers/services/tmux-fresh-verifier.service.js';
 
 const tmux = { socketPath: '/tmp/tmux-1000/default', sessionId: '$1', windowId: '@1', paneId: '%1' };
 const external = { tmuxName: 'shell', tmux, kind: 'ssh' as const, agentPid: 10, startedAtMs: 100 };
-const live = {
+const live: LiveGjcSession = {
   id: 'session-1', tmuxName: 'gjc', tmux, process: { pid: 11, startedAtMs: 101 },
   claim: 'lineage' as const, kind: 'interactive' as const, model: null, effort: null, running: true, error: false,
 };
@@ -127,12 +131,60 @@ test('live rows are removed only after their lane grace period', async () => {
   const state = scans();
   await state.collector.tick();
   state.live([]);
-  for (let tick = 0; tick < GRACE_TICKS_LIVE - 2; tick += 1) await state.collector.tick();
-  assert.equal(state.collector.currentSnapshot().rows.some((row) => row.lane === 'live'), true);
   await state.collector.tick();
   assert.equal(state.collector.currentSnapshot().rows.some((row) => row.lane === 'live'), true);
   await state.collector.tick();
   assert.equal(state.collector.currentSnapshot().rows.some((row) => row.lane === 'live'), false);
+  assert.equal(GRACE_TICKS_LIVE, 2);
+});
+
+test('a temporary GJC receipt gap preserves the bound conversation while the process stays alive', async () => {
+  const state = scans();
+  await state.collector.tick();
+  const idle = {
+    ...live,
+    id: `${IDLE_GJC_ID_PREFIX}gjc:%1`,
+    model: null,
+    effort: null,
+    running: null,
+    error: null,
+  };
+  state.live([idle]);
+
+  for (let tick = 1; tick < GJC_BINDING_GRACE_TICKS; tick += 1) {
+    await state.collector.tick();
+    const row = state.collector.currentSnapshot().rows.find((candidate) => candidate.lane === 'live');
+    assert.equal(row?.providerSessionId, 'session-1');
+    assert.equal(row?.presence, 'present');
+  }
+
+  state.live([{ ...live, id: 'session-resumed', running: false }]);
+  await state.collector.tick();
+  const resumed = state.collector.currentSnapshot().rows.find((candidate) => candidate.lane === 'live');
+  assert.equal(resumed?.providerSessionId, 'session-resumed');
+  assert.equal(resumed?.presence, 'present');
+});
+
+test('a persistent GJC receipt gap eventually exposes the safe unbound process row', async () => {
+  const state = scans();
+  await state.collector.tick();
+  const idleId = `${IDLE_GJC_ID_PREFIX}gjc:%1`;
+  state.live([{
+    ...live,
+    id: idleId,
+    model: null,
+    effort: null,
+    running: null,
+    error: null,
+  }]);
+
+  for (let tick = 0; tick < GJC_BINDING_GRACE_TICKS; tick += 1) {
+    await state.collector.tick();
+  }
+
+  const row = state.collector.currentSnapshot().rows.find((candidate) => candidate.lane === 'live');
+  assert.equal(row?.providerSessionId, idleId);
+  assert.equal(row?.presence, 'present');
 });
 
 test('a structured live row replaces an idle row in the same pane without grace', async () => {
@@ -172,6 +224,98 @@ test('epochs are unique and snapshot payloads exclude transcript paths', async (
   assert.notEqual(first.currentSnapshot().epoch, second.currentSnapshot().epoch);
   assert.equal(JSON.stringify(first.currentSnapshot()).includes('transcriptPaths'), false);
 });
+
+test('collector shares one fresh detailed scan with UI and notification consumers', async () => {
+  let now = 1_000;
+  let externalScans = 0;
+  let liveScans = 0;
+  const transcriptPaths = new Map([['session-1', '/private/transcript.jsonl']]);
+  const collector = createDiscoveryCollector({
+    now: () => now,
+    scanExternal: async () => {
+      externalScans += 1;
+      return { ok: true, sessions: [external] };
+    },
+    scanLive: async () => {
+      liveScans += 1;
+      return { ok: true, sessions: [live], transcriptPaths };
+    },
+  });
+
+  await Promise.all([
+    collector.ensureFresh(5_000),
+    collector.ensureFresh(5_000),
+    collector.tick(),
+  ]);
+  assert.equal(externalScans, 1);
+  assert.equal(liveScans, 1);
+  assert.equal(collector.currentDetailed().live?.transcriptPaths, transcriptPaths);
+  assert.equal(JSON.stringify(collector.currentSnapshot()).includes('/private/transcript.jsonl'), false);
+
+  now += 4_999;
+  await collector.ensureFresh(5_000);
+  assert.equal(externalScans, 1);
+  now += 2;
+  await collector.ensureFresh(5_000);
+  assert.equal(externalScans, 2);
+});
+
+test('stable one-second host probes skip full discovery until panes change or stale rows need confirmation', async () => {
+  let now = 1_000;
+  let externalScans = 0;
+  let liveScans = 0;
+  let hostScans = 0;
+  let externalSessions = [external];
+  let panes = [{
+    name: external.tmuxName,
+    tmux,
+    pid: external.agentPid,
+    command: 'ssh',
+  }];
+  const collector = createDiscoveryCollector({
+    now: () => now,
+    scanExternal: async () => {
+      externalScans += 1;
+      return { ok: true, sessions: externalSessions };
+    },
+    scanLive: async () => {
+      liveScans += 1;
+      return { ok: true, sessions: [] };
+    },
+    scanHost: async () => {
+      hostScans += 1;
+      return { ok: true, capturedAtMs: now, panes };
+    },
+    isProcessAlive: async () => true,
+  });
+
+  await collector.tick();
+  now += 1;
+  await collector.ensureFresh(0);
+  assert.equal(externalScans, 2, 'the first probe establishes its pane fingerprint');
+
+  now += 1;
+  await collector.ensureFresh(0);
+  assert.equal(hostScans, 2);
+  assert.equal(externalScans, 2, 'an unchanged fingerprint reuses detailed discovery');
+  assert.equal(liveScans, 2);
+
+  externalSessions = [];
+  panes = [];
+  now += 1;
+  await collector.ensureFresh(0);
+  assert.equal(externalScans, 3);
+  assert.equal(
+    collector.currentSnapshot().rows.find((row) => row.lane === 'external')?.presence,
+    'stale',
+  );
+
+  now += 1;
+  await collector.ensureFresh(0);
+  assert.equal(externalScans, 4, 'stale rows keep full scans running through removal grace');
+  assert.equal(collector.currentSnapshot().rows.some((row) => row.lane === 'external'), false);
+});
+
 test('snapshots deeply freeze rows, nested identities, processes, and lane health', async () => {
   const state = scans();
   await state.collector.tick();

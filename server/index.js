@@ -20,9 +20,11 @@ import {
     closeSessionsWatcher,
     createProviderToolApprovals,
     createDiscoveryCollector,
+    createTmuxOutputActivityMonitor,
     getCurrentTmuxPaneIdentity,
     getCurrentTmuxPaneIdentityState,
     initializeSessionsWatcher,
+    onTranscriptChanged,
     readTmuxPaneIdentity,
     runTmux,
 } from '@/modules/providers/index.js';
@@ -75,6 +77,7 @@ import settingsRoutes from './routes/settings.js';
 import projectModuleRoutes from './modules/projects/projects.routes.js';
 import userRoutes from './routes/user.js';
 import providerRoutes from './modules/providers/provider.routes.js';
+import { sessionsService } from './modules/providers/services/sessions.service.js';
 import { assetsRoutes } from './modules/assets/index.js';
 import { initializeDatabase, projectsDb, sessionsDb, userDb } from './modules/database/index.js';
 import { startCompletionOutboxDispatcher, startExternalTurnMonitor, startLiveTurnMonitor } from './modules/notifications/index.js';
@@ -127,6 +130,11 @@ const server = http.createServer(app);
 // The collector is inert until the first authenticated discovery subscription.
 const discoveryCollector = createDiscoveryCollector();
 app.locals.discoveryCollector = discoveryCollector;
+const tmuxOutputActivityMonitor = createTmuxOutputActivityMonitor(discoveryCollector);
+tmuxOutputActivityMonitor.start();
+const stopTranscriptDiscoveryRefresh = onTranscriptChanged(() => {
+    discoveryCollector.forceRefresh();
+});
 
 // Single WebSocket server for chat and shell paths.
 const wss = createWebSocketServer(server, {
@@ -407,72 +415,17 @@ app.get('/api/projects/:projectId/sessions/:sessionId/token-usage', authenticate
 
         // Handle Codex sessions
         if (provider === 'codex') {
-            const codexSessionsDir = path.join(homeDir, '.codex', 'sessions');
-
-            // Find the session file by searching for the session ID
-            const findSessionFile = async (dir) => {
-                try {
-                    const entries = await fsPromises.readdir(dir, { withFileTypes: true });
-                    for (const entry of entries) {
-                        const fullPath = path.join(dir, entry.name);
-                        if (entry.isDirectory()) {
-                            const found = await findSessionFile(fullPath);
-                            if (found) return found;
-                        } else if (entry.name.includes(providerNativeSessionId) && entry.name.endsWith('.jsonl')) {
-                            return fullPath;
-                        }
-                    }
-                } catch (error) {
-                    // Skip directories we can't read
-                }
-                return null;
-            };
-
-            const sessionFilePath = await findSessionFile(codexSessionsDir);
-
-            if (!sessionFilePath) {
-                return res.status(404).json({ error: 'Codex session file not found', sessionId: safeSessionId });
-            }
-
-            // Read and parse the Codex JSONL file
-            let fileContent;
-            try {
-                fileContent = await fsPromises.readFile(sessionFilePath, 'utf8');
-            } catch (error) {
-                if (error.code === 'ENOENT') {
-                    return res.status(404).json({ error: 'Session file not found', path: sessionFilePath });
-                }
-                throw error;
-            }
-            const lines = fileContent.trim().split('\n');
-            let inputTokens = 0;
-            let outputTokens = 0;
-            let totalTokens = 0;
-            let contextWindow = 200000; // Default for Codex/OpenAI
-
-            // Find the latest token_count event with info (scan from end)
-            for (let i = lines.length - 1; i >= 0; i--) {
-                try {
-                    const entry = JSON.parse(lines[i]);
-
-                    // Codex stores token info in event_msg with type: "token_count"
-                    if (entry.type === 'event_msg' && entry.payload?.type === 'token_count' && entry.payload?.info) {
-                        const tokenInfo = entry.payload.info;
-                        if (tokenInfo.total_token_usage) {
-                            inputTokens = tokenInfo.total_token_usage.input_tokens || 0;
-                            outputTokens = tokenInfo.total_token_usage.output_tokens || 0;
-                            totalTokens = tokenInfo.total_token_usage.total_tokens || inputTokens + outputTokens;
-                        }
-                        if (tokenInfo.model_context_window) {
-                            contextWindow = tokenInfo.model_context_window;
-                        }
-                        break; // Stop after finding the latest token count
-                    }
-                } catch (parseError) {
-                    // Skip lines that can't be parsed
-                    continue;
-                }
-            }
+            const history = await sessionsService.fetchHistory(safeSessionId, {
+                limit: 0,
+                offset: 0,
+            });
+            const tokenUsage = history.tokenUsage && typeof history.tokenUsage === 'object'
+                ? history.tokenUsage
+                : {};
+            const inputTokens = readUsageNumber(tokenUsage.inputTokens);
+            const outputTokens = readUsageNumber(tokenUsage.outputTokens);
+            const totalTokens = readUsageNumber(tokenUsage.used) || inputTokens + outputTokens;
+            const contextWindow = readUsageNumber(tokenUsage.total) || 200000;
 
             return res.json({
                 used: totalTokens,
@@ -777,8 +730,23 @@ async function startServer() {
             // Notify on tmux-driven GJC and external CLI turn completions.
             // Server-side so web push works with every tab closed.
             // Shared kill switch: CHATMUX_LIVE_NOTIFY=0.
-            startLiveTurnMonitor();
-            startExternalTurnMonitor();
+            const ensureSharedDiscovery = async () => {
+                await discoveryCollector.ensureFresh(2_000);
+                return discoveryCollector.currentDetailed();
+            };
+            startLiveTurnMonitor(2_000, async () => {
+                const latest = await ensureSharedDiscovery();
+                return latest.live
+                    ? {
+                        ...latest.live,
+                        transcriptPaths: latest.live.transcriptPaths ?? new Map(),
+                    }
+                    : { ok: false, sessions: [], transcriptPaths: new Map() };
+            });
+            startExternalTurnMonitor(2_000, async () => {
+                const latest = await ensureSharedDiscovery();
+                return latest.external ?? { ok: false, sessions: [] };
+            });
 
         });
 
@@ -789,6 +757,9 @@ async function startServer() {
                 return;
             }
             shutdownStarted = true;
+            stopTranscriptDiscoveryRefresh();
+            tmuxOutputActivityMonitor.dispose();
+            discoveryCollector.dispose();
 
             // Stop new HTTP/WebSocket work before permanently gating GJC starts.
             server.close();

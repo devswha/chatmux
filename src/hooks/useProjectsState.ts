@@ -11,6 +11,7 @@ import type {
   ProjectSession,
 } from '../types/app';
 import { tmuxPaneIdentityKey, type TmuxPaneIdentity, type TmuxPaneTarget } from '../../shared/tmux';
+import type { ProviderConnectionIssue } from '../../shared/provider-connection';
 
 import { useDiscoveryStream, type DiscoveryRow } from './useDiscoveryStream';
 import type { SessionActivityMap } from './useSessionProtection';
@@ -89,6 +90,7 @@ type LiveRestMetadata = {
   kind?: string;
   running?: boolean;
   error?: boolean;
+  connectionIssue?: ProviderConnectionIssue;
 };
 
 export function resolveLiveDiscoverySession(
@@ -156,6 +158,9 @@ export function useProjectsState({
   const [liveSessionRunning, setLiveSessionRunning] = useState<Set<string>>(new Set());
   const [liveSessionInput, setLiveSessionInput] = useState<Set<string>>(new Set());
   const [liveSessionErrors, setLiveSessionErrors] = useState<Set<string>>(new Set());
+  const [liveSessionConnectionIssues, setLiveSessionConnectionIssues] = useState<
+    Map<string, ProviderConnectionIssue>
+  >(new Map());
   // Exact pane and process generation per actionable live row.
   const [liveSessionTargets, setLiveSessionTargets] = useState<Map<string, TmuxPaneTarget>>(new Map());
   // False until the first live poll settles, so the sidebar shows a loading
@@ -193,6 +198,7 @@ export function useProjectsState({
     setLiveSessionRunning(new Set());
     setLiveSessionInput(new Set());
     setLiveSessionErrors(new Set());
+    setLiveSessionConnectionIssues(new Map());
     setLiveSessionsLoaded(true);
   }, []);
   const applyLiveIdentityOnly = useCallback((sessions: Array<{ id?: unknown; tmuxName?: unknown; tmux?: unknown }>) => {
@@ -224,6 +230,7 @@ export function useProjectsState({
     setLiveSessionRunning(new Set());
     setLiveSessionInput(new Set());
     setLiveSessionErrors(new Set());
+    setLiveSessionConnectionIssues(new Map());
     setLiveSessionsLoaded(true);
   }, []);
 
@@ -243,6 +250,7 @@ export function useProjectsState({
     const runningIds = new Set<string>();
     const inputIds = new Set<string>();
     const errorIds = new Set<string>();
+    const connectionIssues = new Map<string, ProviderConnectionIssue>();
     for (const row of rows) {
       const observation = resolveLiveDiscoverySession(
         row,
@@ -254,7 +262,9 @@ export function useProjectsState({
       panes.set(sessionId, row.tmux);
       presence.set(sessionId, row.presence);
       if (row.presence === 'present') {
-        if (row.process) targets.set(sessionId, { tmux: row.tmux, process: row.process });
+        if (row.process && !row.connectionIssue) {
+          targets.set(sessionId, { tmux: row.tmux, process: row.process });
+        }
         if (typeof metadata?.model === 'string') models.set(sessionId, metadata.model);
         if (typeof metadata?.effort === 'string') efforts.set(sessionId, metadata.effort);
         if (isLiveTmuxActionable(row, metadata?.claim)) lineage.add(sessionId);
@@ -262,6 +272,7 @@ export function useProjectsState({
         if (observation.running) runningIds.add(sessionId);
         if (row.activity === 'asking_user') inputIds.add(sessionId);
         if (observation.error) errorIds.add(sessionId);
+        if (row.connectionIssue) connectionIssues.set(sessionId, row.connectionIssue);
       }
     }
     setLiveSessionIds(new Set(names.keys()));
@@ -276,12 +287,14 @@ export function useProjectsState({
     setLiveSessionRunning(runningIds);
     setLiveSessionInput(inputIds);
     setLiveSessionErrors(errorIds);
+    setLiveSessionConnectionIssues(connectionIssues);
     setLiveSessionsLoaded(true);
   }, []);
 
   const applyLiveRestSessions = useCallback((sessions: Array<{
     id?: unknown; tmuxName?: unknown; tmux?: unknown; process?: unknown; model?: unknown;
     effort?: unknown; claim?: unknown; kind?: unknown; running?: unknown; error?: unknown;
+    connectionIssue?: unknown;
     presence?: unknown;
   }>, discoveryOk: boolean) => {
     if (!discoveryOk) {
@@ -299,6 +312,7 @@ export function useProjectsState({
     const kinds = new Map<string, string>();
     const running = new Set<string>();
     const errors = new Set<string>();
+    const connectionIssues = new Map<string, ProviderConnectionIssue>();
     const metadata = new Map<string, LiveRestMetadata>();
     for (const session of sessions) {
       if (typeof session.id !== 'string') continue;
@@ -316,20 +330,26 @@ export function useProjectsState({
           kind: present && typeof session.kind === 'string' ? session.kind : undefined,
           running: present && session.running === true,
           error: present && session.error === true,
+          connectionIssue: present && typeof session.connectionIssue === 'string'
+            ? session.connectionIssue as ProviderConnectionIssue
+            : undefined,
         });
       }
       if (typeof session.tmuxName === 'string') names.set(session.id, session.tmuxName);
       if (!present) continue;
-      if (hasPane && session.process) targets.set(session.id, {
+      if (hasPane && session.process && typeof session.connectionIssue !== 'string') targets.set(session.id, {
         tmux: session.tmux as TmuxPaneTarget['tmux'],
         process: session.process as TmuxPaneTarget['process'],
       });
       if (typeof session.model === 'string') models.set(session.id, session.model);
       if (typeof session.effort === 'string') efforts.set(session.id, session.effort);
-      if (session.claim === 'lineage') lineage.add(session.id);
+      if (session.claim === 'lineage' && typeof session.connectionIssue !== 'string') lineage.add(session.id);
       if (typeof session.kind === 'string') kinds.set(session.id, session.kind);
       if (session.running === true) running.add(session.id);
       if (session.error === true) errors.add(session.id);
+      if (typeof session.connectionIssue === 'string') {
+        connectionIssues.set(session.id, session.connectionIssue as ProviderConnectionIssue);
+      }
     }
     liveRestMetadataRef.current = metadata;
     if (liveAuthorityRef.current === 'stream' && liveRowsRef.current !== null) {
@@ -349,6 +369,7 @@ export function useProjectsState({
     setLiveSessionRunning(running);
     setLiveSessionInput(new Set());
     setLiveSessionErrors(errors);
+    setLiveSessionConnectionIssues(connectionIssues);
     setLiveSessionsLoaded(true);
   }, [applyLiveIdentityOnly, applyLiveRows]);
 
@@ -394,6 +415,7 @@ export function useProjectsState({
         container.sessions as Array<{
           id?: unknown; tmuxName?: unknown; tmux?: unknown; process?: unknown; model?: unknown;
           effort?: unknown; claim?: unknown; kind?: unknown; running?: unknown; error?: unknown;
+          connectionIssue?: unknown;
           presence?: unknown;
         }>,
         container.discoveryOk,
@@ -954,6 +976,7 @@ export function useProjectsState({
       liveSessionRunning,
       liveSessionInput,
       liveSessionErrors,
+      liveSessionConnectionIssues,
       liveSessionsLoaded,
       onProjectSelect: handleProjectSelect,
       onSessionSelect: handleSessionSelect,
@@ -977,6 +1000,7 @@ export function useProjectsState({
       liveSessionRunning,
       liveSessionInput,
       liveSessionErrors,
+      liveSessionConnectionIssues,
       liveSessionsLoaded,
       handleProjectSelect,
       handleSessionSelect,

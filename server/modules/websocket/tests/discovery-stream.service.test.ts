@@ -58,7 +58,9 @@ function collector(initial = snapshot(1), onStart?: () => void) {
     setActive: (next) => { active = next; },
     forceRefresh: () => undefined,
     tick: async () => undefined,
+    ensureFresh: async () => undefined,
     currentSnapshot: () => current,
+    currentDetailed: () => ({ takenAtMs: null, external: null, live: null }),
     onSnapshot: (listener) => { listeners.add(listener); return () => listeners.delete(listener); },
   };
   return {

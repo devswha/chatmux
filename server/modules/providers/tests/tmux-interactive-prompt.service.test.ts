@@ -171,6 +171,37 @@ up/down navigate  enter select  esc cancel
 `);
   assert.equal(ompMulti?.multiSelect, true);
   assert.deepEqual(ompMulti?.options.map((option) => option.label), ['Lint', 'Tests']);
+
+  const ompApproval = parseTmuxInteractivePrompt('omp', `
+╭─ Permission ────────────╮
+│ Allow tool: bash        │
+│ curl -I example.com     │
+│❯ Approve               │
+│  Deny                  │
+╰─────────────────────────╯
+`);
+  assert.equal(ompApproval?.kind, 'approval');
+  assert.deepEqual(ompApproval?.options.map((option) => option.label), ['Approve', 'Deny']);
+});
+
+test('parses Claude multi-select questions', () => {
+  const prompt = parseTmuxInteractivePrompt('claude', `
+☐ Checks
+
+Which checks should run?
+
+❯ 1. [ ] Lint
+  2. [x] Tests
+  3. [ ] Build
+  4. Type something.
+────────────────────────────
+  5. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel
+`);
+  assert.equal(prompt?.kind, 'question');
+  assert.equal(prompt?.multiSelect, true);
+  assert.deepEqual(prompt?.options.map((option) => option.label), ['Lint', 'Tests', 'Build']);
 });
 
 test('does not mistake ordinary transcript text for an active prompt', () => {

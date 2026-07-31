@@ -1,13 +1,15 @@
 import { randomUUID } from 'node:crypto';
+import { access } from 'node:fs/promises';
 
 import {
   tmuxPaneIdentityKey,
   type TmuxPaneIdentity,
   type TmuxProcessGeneration,
 } from '../../../../shared/tmux.js';
+import type { ProviderConnectionIssue } from '../../../../shared/provider-connection.js';
 
 import {
-  getExternalCliSessionsDetailed,
+  getExternalCliSessionsDetailedFresh,
   type ExternalCliSession,
   type ExternalCliSessionsDetailedResult,
 } from './external-cli-sessions.service.js';
@@ -17,18 +19,26 @@ import {
   type ExternalSessionDisplayActivity,
 } from './external-session-activity.service.js';
 import {
+  captureHostDiscoveryPanes,
+  type HostDiscoveryPane,
+  type HostDiscoveryPaneSnapshot,
+} from './host-discovery-snapshot.service.js';
+import {
   getLiveGjcSessionsDetailed,
+  IDLE_GJC_ID_PREFIX,
   type LiveGjcSession,
   type LiveGjcSessionsDetailedResult,
 } from './live-sessions.service.js';
 import { getCachedTmuxInteractiveActivity } from './tmux-interactive-prompt.service.js';
 
 export const C_SCAN_MS = 1_000;
-export const C_SCAN_IDLE_MS = 8_000;
+export const C_SCAN_IDLE_MS = 10_000;
 export const FORCE_REFRESH_DEBOUNCE_MS = 250;
-export const GRACE_TICKS_LIVE = 5;
+export const GRACE_TICKS_LIVE = 2;
 export const GRACE_TICKS_EXTERNAL = 2;
+export const GJC_BINDING_GRACE_TICKS = 5;
 export const UNAVAILABLE_DEGRADE_TICKS = 30;
+export const FULL_SCAN_FALLBACK_MS = 30_000;
 
 export type DiscoveryEpoch = string;
 export type DiscoveryLane = 'external' | 'live';
@@ -42,6 +52,7 @@ export type DiscoveryRow = Readonly<{
   process: TmuxProcessGeneration | null;
   kind: string;
   providerSessionId: string | null;
+  connectionIssue?: ProviderConnectionIssue;
   activity: ExternalSessionDisplayActivity;
   /** Server-authoritative proof that tmux actions may target this live row. */
   tmuxActionable?: boolean;
@@ -67,12 +78,22 @@ export type DiscoverySnapshot = Readonly<{
 
 export type DiscoveryLiveScanResult = Pick<LiveGjcSessionsDetailedResult, 'ok' | 'sessions'>;
 
+export type DiscoveryDetailedSnapshot = Readonly<{
+  takenAtMs: number | null;
+  external: ExternalCliSessionsDetailedResult | null;
+  live: (DiscoveryLiveScanResult & {
+    transcriptPaths?: LiveGjcSessionsDetailedResult['transcriptPaths'];
+  }) | null;
+}>;
+
 export type DiscoveryCollectorOptions = {
   now?: () => number;
   setTimer?: (callback: () => void, ms: number) => ReturnType<typeof setInterval>;
   clearTimer?: (timer: ReturnType<typeof setInterval>) => void;
   scanExternal?: () => Promise<ExternalCliSessionsDetailedResult>;
   scanLive?: () => Promise<DiscoveryLiveScanResult>;
+  scanHost?: (() => Promise<HostDiscoveryPaneSnapshot>) | null;
+  isProcessAlive?: (pid: number) => Promise<boolean>;
 };
 
 export type DiscoveryCollector = {
@@ -82,7 +103,9 @@ export type DiscoveryCollector = {
   setActive(active: boolean): void;
   forceRefresh(): void;
   tick(): Promise<void>;
+  ensureFresh(maxAgeMs: number): Promise<void>;
   currentSnapshot(): DiscoverySnapshot;
+  currentDetailed(): DiscoveryDetailedSnapshot;
   onSnapshot(listener: (snapshot: DiscoverySnapshot) => void): () => void;
 };
 
@@ -111,6 +134,7 @@ function sameRow(a: DiscoveryRow, b: DiscoveryRow): boolean {
     && a.process?.startedAtMs === b.process?.startedAtMs
     && a.kind === b.kind
     && a.providerSessionId === b.providerSessionId
+    && a.connectionIssue === b.connectionIssue
     && a.activity === b.activity
     && a.tmuxActionable === b.tmuxActionable
     && a.cwd === b.cwd
@@ -118,20 +142,49 @@ function sameRow(a: DiscoveryRow, b: DiscoveryRow): boolean {
     && a.staleSinceRevision === b.staleSinceRevision;
 }
 
-function defaultLiveScan(): Promise<DiscoveryLiveScanResult> {
-  return getLiveGjcSessionsDetailed().then(({ ok, sessions }) => ({ ok, sessions }));
+function hostPaneFingerprint(panes: readonly HostDiscoveryPane[]): string {
+  return panes
+    .map((pane) => [
+      tmuxPaneIdentityKey(pane.tmux),
+      pane.name,
+      pane.pid,
+      pane.command,
+      pane.cwd ?? '',
+      pane.codexThreadId ?? '',
+      pane.taggedKind ?? '',
+      pane.taggedSessionId ?? '',
+    ].join('\0'))
+    .sort()
+    .join('\n');
+}
+
+async function defaultProcessAlive(pid: number): Promise<boolean> {
+  return access(`/proc/${pid}`).then(() => true, () => false);
+}
+
+function defaultLiveScan(): Promise<DiscoveryLiveScanResult & {
+  transcriptPaths: LiveGjcSessionsDetailedResult['transcriptPaths'];
+}> {
+  return getLiveGjcSessionsDetailed();
 }
 
 export function createDiscoveryCollector(options: DiscoveryCollectorOptions = {}): DiscoveryCollector {
   const now = options.now ?? Date.now;
   const setTimer = options.setTimer ?? setInterval;
   const clearTimer = options.clearTimer ?? clearInterval;
-  const scanExternal = options.scanExternal ?? getExternalCliSessionsDetailed;
+  const scanExternal = options.scanExternal ?? getExternalCliSessionsDetailedFresh;
   const scanLive = options.scanLive ?? defaultLiveScan;
+  const scanHost = options.scanHost === undefined
+    ? options.scanExternal === undefined && options.scanLive === undefined
+      ? captureHostDiscoveryPanes
+      : null
+    : options.scanHost;
+  const isProcessAlive = options.isProcessAlive ?? defaultProcessAlive;
   const epoch = randomUUID();
   let revision = 0;
   let rows = new Map<DiscoveryRowKey, DiscoveryRow>();
   const missingTicks = new Map<DiscoveryRowKey, number>();
+  const liveBindingMissingTicks = new Map<DiscoveryRowKey, number>();
   const laneState: Record<DiscoveryLane, LaneState> = {
     external: { failures: 0, health: { ok: true, lastOkRevision: null, consecutiveFailures: 0 } },
     live: { failures: 0, health: { ok: true, lastOkRevision: null, consecutiveFailures: 0 } },
@@ -139,10 +192,20 @@ export function createDiscoveryCollector(options: DiscoveryCollectorOptions = {}
   let timer: ReturnType<typeof setInterval> | null = null;
   let forceTimer: ReturnType<typeof setInterval> | null = null;
   let active = false;
-  let inFlight = false;
+  let currentTick: Promise<void> | null = null;
+  let currentTickSatisfiesFullScan = false;
+  let fullRefreshPending = false;
+  let requireFullScan = false;
+  let lastFullScanAtMs: number | null = null;
+  let lastHostFingerprint: string | null = null;
   let disposed = false;
   const listeners = new Set<(next: DiscoverySnapshot) => void>();
   let snapshot = makeSnapshot(now());
+  let detailed: DiscoveryDetailedSnapshot = Object.freeze({
+    takenAtMs: null,
+    external: null,
+    live: null,
+  });
 
   function freezeRow(row: DiscoveryRow): DiscoveryRow {
     const tmux = Object.freeze({ ...row.tmux });
@@ -180,6 +243,7 @@ export function createDiscoveryCollector(options: DiscoveryCollectorOptions = {}
         process,
         kind: session.kind,
         providerSessionId: session.providerSessionId ?? null,
+        ...(session.connectionIssue ? { connectionIssue: session.connectionIssue } : {}),
         activity: process
           ? getCachedTmuxInteractiveActivity({ tmux: session.tmux, process }) ?? transcriptActivity
           : transcriptActivity,
@@ -202,6 +266,7 @@ export function createDiscoveryCollector(options: DiscoveryCollectorOptions = {}
         process: session.process,
         kind: 'gjc',
         providerSessionId: session.id,
+        ...(session.connectionIssue ? { connectionIssue: session.connectionIssue } : {}),
         activity: session.error === true
           ? 'error'
           : session.process
@@ -210,7 +275,9 @@ export function createDiscoveryCollector(options: DiscoveryCollectorOptions = {}
             : session.running === true
               ? 'running'
               : 'unknown',
-        tmuxActionable: session.claim === 'lineage' && session.process !== null,
+        tmuxActionable: !session.connectionIssue
+          && session.claim === 'lineage'
+          && session.process !== null,
         cwd: null,
         lastSeenRevision: revision,
         presence: 'present',
@@ -232,7 +299,32 @@ export function createDiscoveryCollector(options: DiscoveryCollectorOptions = {}
       if (previous.lane !== lane) continue;
       const observed = found.get(key);
       if (observed) {
-        const candidate = { ...observed, lastSeenRevision: revision + 1 };
+        const sameProcessGeneration = previous.process !== null
+          && observed.process !== null
+          && previous.process.pid === observed.process.pid
+          && previous.process.startedAtMs === observed.process.startedAtMs;
+        const temporarilyUnboundLiveGjc = lane === 'live'
+          && sameProcessGeneration
+          && previous.providerSessionId !== null
+          && !previous.providerSessionId.startsWith(IDLE_GJC_ID_PREFIX)
+          && observed.providerSessionId?.startsWith(IDLE_GJC_ID_PREFIX) === true;
+        let candidate: DiscoveryRow;
+        if (temporarilyUnboundLiveGjc) {
+          const misses = (liveBindingMissingTicks.get(key) ?? 0) + 1;
+          liveBindingMissingTicks.set(key, misses);
+          candidate = misses < GJC_BINDING_GRACE_TICKS
+            ? {
+                ...previous,
+                lastSeenRevision: revision + 1,
+                presence: 'present',
+                staleSinceRevision: null,
+              }
+            : { ...observed, lastSeenRevision: revision + 1 };
+          if (misses >= GJC_BINDING_GRACE_TICKS) liveBindingMissingTicks.delete(key);
+        } else {
+          liveBindingMissingTicks.delete(key);
+          candidate = { ...observed, lastSeenRevision: revision + 1 };
+        }
         const replacement = sameRow(previous, candidate) ? previous : candidate;
         if (replacement !== previous) {
           next.set(key, replacement);
@@ -245,6 +337,7 @@ export function createDiscoveryCollector(options: DiscoveryCollectorOptions = {}
       const replacementSessionId = observedSessionIds.get(tmuxSessionNameKey(previous));
       if (replacementSessionId !== undefined && replacementSessionId !== previous.tmux.sessionId) {
         missingTicks.delete(key);
+        liveBindingMissingTicks.delete(key);
         next.delete(key);
         changed = true;
         continue;
@@ -258,12 +351,14 @@ export function createDiscoveryCollector(options: DiscoveryCollectorOptions = {}
         missingTicks.set(key, misses);
         if (misses >= grace) {
           missingTicks.delete(key);
+          liveBindingMissingTicks.delete(key);
           next.delete(key);
           changed = true;
         }
       }
     }
     for (const [key, row] of found) {
+      liveBindingMissingTicks.delete(key);
       next.set(key, { ...row, lastSeenRevision: revision + 1 });
       changed = true;
     }
@@ -287,15 +382,63 @@ export function createDiscoveryCollector(options: DiscoveryCollectorOptions = {}
     return changed;
   }
 
-  async function tick(): Promise<void> {
-    if (disposed || inFlight) return;
-    inFlight = true;
-    try {
+  async function trackedProcessesAreAlive(): Promise<boolean> {
+    const pids = [...new Set(
+      [...rows.values()]
+        .map((row) => row.process?.pid)
+        .filter((pid): pid is number => pid !== undefined),
+    )];
+    if (pids.length === 0) return true;
+    return (await Promise.all(pids.map((pid) => isProcessAlive(pid)))).every(Boolean);
+  }
+
+  function runTick(forceFull: boolean): Promise<void> {
+    if (disposed) return Promise.resolve();
+    if (currentTick) {
+      if (forceFull && !currentTickSatisfiesFullScan) fullRefreshPending = true;
+      return currentTick;
+    }
+    currentTickSatisfiesFullScan = forceFull
+      || requireFullScan
+      || scanHost === null
+      || detailed.takenAtMs === null
+      || lastFullScanAtMs === null
+      || now() - lastFullScanAtMs >= FULL_SCAN_FALLBACK_MS
+      || [...rows.values()].some((row) => row.presence === 'stale');
+    const running = (async () => {
+      let probeFingerprint: string | null = null;
+      let runFullScan = currentTickSatisfiesFullScan;
+
+      if (!runFullScan && scanHost) {
+        const probe = await scanHost().catch((): HostDiscoveryPaneSnapshot => ({
+          ok: false,
+          capturedAtMs: now(),
+          panes: [],
+        }));
+        if (disposed) return;
+        if (!probe.ok) {
+          runFullScan = true;
+        } else {
+          probeFingerprint = hostPaneFingerprint(probe.panes);
+          runFullScan = probeFingerprint !== lastHostFingerprint
+            || !await trackedProcessesAreAlive();
+          currentTickSatisfiesFullScan = runFullScan;
+          if (!runFullScan) {
+            const takenAtMs = now();
+            detailed = Object.freeze({ ...detailed, takenAtMs });
+            snapshot = makeSnapshot(takenAtMs);
+            return;
+          }
+        }
+      }
+
       const [external, live] = await Promise.all([
         scanExternal().catch(() => ({ ok: false, sessions: [] })),
         scanLive().catch(() => ({ ok: false, sessions: [] })),
       ]);
       if (disposed) return;
+      const takenAtMs = now();
+      detailed = Object.freeze({ takenAtMs, external, live });
       let changed = false;
       if (external.ok) {
         changed = applyKnownSuccess('external') || changed;
@@ -310,16 +453,30 @@ export function createDiscoveryCollector(options: DiscoveryCollectorOptions = {}
         changed = applyUnavailable('live') || changed;
       }
       if (changed) revision += 1;
-      snapshot = makeSnapshot(now());
+      snapshot = makeSnapshot(takenAtMs);
       for (const listener of listeners) listener(snapshot);
-    } finally {
-      inFlight = false;
-    }
+      requireFullScan = !external.ok || !live.ok;
+      if (!requireFullScan) {
+        lastFullScanAtMs = takenAtMs;
+        if (probeFingerprint !== null) lastHostFingerprint = probeFingerprint;
+      }
+    })().finally(() => {
+      if (currentTick === running) {
+        currentTick = null;
+        currentTickSatisfiesFullScan = false;
+      }
+      if (fullRefreshPending && !disposed) {
+        fullRefreshPending = false;
+        void runTick(true);
+      }
+    });
+    currentTick = running;
+    return running;
   }
 
   function schedule(): void {
     if (timer) clearTimer(timer);
-    timer = setTimer(() => { void tick(); }, active ? C_SCAN_MS : C_SCAN_IDLE_MS);
+    timer = setTimer(() => { void runTick(false); }, active ? C_SCAN_MS : C_SCAN_IDLE_MS);
   }
 
   return {
@@ -348,11 +505,19 @@ export function createDiscoveryCollector(options: DiscoveryCollectorOptions = {}
       forceTimer = setTimer(() => {
         if (forceTimer) clearTimer(forceTimer);
         forceTimer = null;
-        void tick();
+        void runTick(true);
       }, FORCE_REFRESH_DEBOUNCE_MS);
     },
-    tick,
+    tick: () => runTick(true),
+    async ensureFresh(maxAgeMs) {
+      const ageMs = detailed.takenAtMs === null
+        ? Number.POSITIVE_INFINITY
+        : Math.max(0, now() - detailed.takenAtMs);
+      if (ageMs <= Math.max(0, maxAgeMs)) return;
+      await runTick(false);
+    },
     currentSnapshot: () => snapshot,
+    currentDetailed: () => detailed,
     onSnapshot(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);

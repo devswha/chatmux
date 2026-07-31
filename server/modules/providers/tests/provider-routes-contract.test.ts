@@ -22,14 +22,11 @@ await writeFile(fixtureTmux, `#!/bin/sh
 if [ -n "$CHATMUX_CONTRACT_TMUX_FAIL" ]; then exit 1; fi
 case "$*" in
   *list-panes*)
-    case "$*" in
-      *@chatmux_cli_kind*)
-        printf '/tmp/chatmux-contract.sock\t$1\t@1\t%%1\t%s\t%s\t\${CHATMUX_CONTRACT_COMMAND:-codex}\t\t/tmp\tcodex\t%s\n' "\${CHATMUX_CONTRACT_EXTERNAL_NAME:-external}" "$PPID" "\${CHATMUX_CONTRACT_PROVIDER_SESSION_ID:-}"
-        ;;
-      *)
-        printf '/tmp/chatmux-contract.sock\\t$2\\t@2\\t%%2\\tlive\\t%s\\tgjc\\t/tmp\\n' "$PPID"
-        ;;
-    esac
+    if [ "$CHATMUX_CONTRACT_DISCOVERY_LANE" = "live" ]; then
+      printf '/tmp/chatmux-contract.sock\t$2\t@2\t%%2\tlive\t%s\tgjc\t\t/tmp\t\t\n' "$PPID"
+    else
+      printf '/tmp/chatmux-contract.sock\t$1\t@1\t%%1\t%s\t%s\t\${CHATMUX_CONTRACT_COMMAND:-codex}\t\t/tmp\tcodex\t%s\n' "\${CHATMUX_CONTRACT_EXTERNAL_NAME:-external}" "$PPID" "\${CHATMUX_CONTRACT_PROVIDER_SESSION_ID:-}"
+    fi
     ;;
   *display-message*)
     if [ -n "$CHATMUX_CONTRACT_SELF_PANE_FAIL" ]; then
@@ -55,10 +52,11 @@ esac
 `);
 await writeFile(fixtureCodex, '#!/bin/sh\nexit 0\n');
 await writeFile(fixturePs, `#!/bin/sh
-case "$*" in
-  *comm*args*) printf '%s %s %s %s\n' "$PPID" 1 "\${CHATMUX_CONTRACT_COMMAND:-codex}" "\${CHATMUX_CONTRACT_COMMAND:-codex}" ;;
-  *) printf '%s %s gjc gjc\n' "$PPID" 1 ;;
-esac
+if [ "$CHATMUX_CONTRACT_DISCOVERY_LANE" = "live" ]; then
+  printf '%s %s gjc gjc\n' "$PPID" 1
+else
+  printf '%s %s %s %s\n' "$PPID" 1 "\${CHATMUX_CONTRACT_COMMAND:-codex}" "\${CHATMUX_CONTRACT_COMMAND:-codex}"
+fi
 `);
 await chmod(fixtureTmux, 0o755);
 await chmod(fixtureCodex, 0o755);
@@ -128,6 +126,9 @@ after(async () => {
 });
 
 async function request(pathname: string, body?: unknown, authorization = `Bearer ${token}`): Promise<ApiResponse> {
+  process.env.CHATMUX_CONTRACT_DISCOVERY_LANE = pathname.startsWith('/sessions/live')
+    ? 'live'
+    : 'external';
   const response = await fetch(`${baseUrl}/api/providers${pathname}`, {
     method: body === undefined ? 'GET' : 'POST',
     headers: {

@@ -262,9 +262,21 @@ fn frame_for_path(kind: OutputEvent, path: &Path, roots: &[PathBuf]) -> Option<V
 }
 
 fn frame_for_resolved_path(kind: OutputEvent, path: &Path, roots: &[PathBuf]) -> Option<Vec<u8>> {
-    if path.extension() != Some(OsStr::new("jsonl"))
-        || !roots.iter().any(|root| is_inside_root(path, root))
-    {
+    let inside_root = roots.iter().any(|root| is_inside_root(path, root));
+    let is_jsonl = path.extension() == Some(OsStr::new("jsonl"));
+    let is_pane_receipt = path.parent().is_some_and(|parent| {
+        roots.iter().any(|root| parent == root)
+            && path
+                .file_name()
+                .and_then(OsStr::to_str)
+                .is_some_and(|name| {
+                    name.strip_prefix("tmux-%").is_some_and(|pane_id| {
+                        !pane_id.is_empty()
+                            && pane_id.chars().all(|character| character.is_ascii_digit())
+                    })
+                })
+    });
+    if !inside_root || (!is_jsonl && !is_pane_receipt) {
         return None;
     }
     let path = path.to_str()?;
@@ -329,7 +341,7 @@ mod tests {
     }
 
     #[test]
-    fn frames_only_canonical_jsonl_paths_inside_roots() {
+    fn frames_only_supported_canonical_paths_inside_roots() {
         let container = std::env::temp_dir().join(format!(
             "chatmux-core-watch-frame-test-{}-{}",
             std::process::id(),
@@ -344,12 +356,32 @@ mod tests {
         let root = fs::canonicalize(root).unwrap();
         let session = transcripts.join("session.jsonl");
         let ignored = transcripts.join("session.txt");
+        let pane_receipt = root.join("tmux-%7");
         fs::write(&session, b"{}\n").unwrap();
         fs::write(&ignored, b"ignored").unwrap();
+        fs::write(&pane_receipt, b"/workspace\n/session.jsonl\n").unwrap();
 
         assert!(frame_for_path(OutputEvent::Add, &session, std::slice::from_ref(&root),).is_some());
+        assert!(
+            frame_for_path(
+                OutputEvent::Change,
+                &pane_receipt,
+                std::slice::from_ref(&root),
+            )
+            .is_some()
+        );
         assert_eq!(
             frame_for_path(OutputEvent::Change, &ignored, std::slice::from_ref(&root),),
+            None
+        );
+        let nested_receipt = transcripts.join("tmux-%8");
+        fs::write(&nested_receipt, b"ignored").unwrap();
+        assert_eq!(
+            frame_for_path(
+                OutputEvent::Change,
+                &nested_receipt,
+                std::slice::from_ref(&root),
+            ),
             None
         );
 

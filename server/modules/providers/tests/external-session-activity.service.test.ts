@@ -106,6 +106,34 @@ test('Claude result evidence requires an exact success subtype', () => {
   );
 });
 
+test('Claude turn_duration closes an interrupted input without creating a completion outcome', () => {
+  assert.deepEqual(
+    parseExternalJsonlActivityEvidence('claude', [
+      line({
+        type: 'assistant',
+        message: {
+          role: 'assistant',
+          stop_reason: 'tool_use',
+          content: [{ type: 'tool_use', name: 'AskUserQuestion' }],
+        },
+      }),
+      line({
+        type: 'user',
+        message: {
+          role: 'user',
+          content: [{ type: 'text', text: '[Request interrupted by user for tool use]' }],
+        },
+      }),
+      line({ type: 'system', subtype: 'turn_duration' }),
+    ].join('\n')),
+    { activity: 'waiting_user', terminalOutcome: 'none' },
+  );
+  assert.equal(parseExternalJsonlActivity('claude', [
+    line({ type: 'system', subtype: 'turn_duration' }),
+    line({ type: 'user', message: { role: 'user', content: 'new turn' } }),
+  ].join('\n')), 'running');
+});
+
 test('Claude API overloaded responses are promoted to ERROR evidence', () => {
   const overloaded = {
     type: 'error',

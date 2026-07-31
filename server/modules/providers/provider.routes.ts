@@ -213,6 +213,16 @@ function readInteractiveChoices(value: unknown): number[] {
   return value as number[];
 }
 
+function refreshDiscoveryForInteractiveActivity(
+  req: Request,
+  target: VerifiedTmuxActionTarget,
+  previous: 'asking_user' | null,
+): void {
+  if (getCachedTmuxInteractiveActivity(target) !== previous) {
+    (req.app.locals.discoveryCollector as DiscoveryCollector | undefined)?.forceRefresh();
+  }
+}
+
 async function handleTmuxAskSelection(
   target: VerifiedTmuxActionTarget,
   body: { sessionId?: unknown; toolId?: unknown; optionIndex?: unknown },
@@ -252,6 +262,7 @@ function snapshotExternalSessions(rows: readonly DiscoveryRow[]): ExternalCliSes
     cwd: row.cwd ?? undefined,
     agentPid: row.process?.pid,
     startedAtMs: row.process?.startedAtMs,
+    connectionIssue: row.connectionIssue,
   }));
 }
 
@@ -266,6 +277,7 @@ function snapshotLiveSessions(rows: readonly DiscoveryRow[]): LiveGjcSession[] {
       kind: null,
       model: null,
       effort: null,
+      connectionIssue: row.connectionIssue,
       running: row.activity === 'running',
       error: row.activity === 'error',
     }]
@@ -883,6 +895,7 @@ router.get(
         process: externalProcessGeneration(session),
         kind: session.kind,
         presence: rowPresence(presence, session.tmux),
+        connectionIssue: session.connectionIssue,
       };
       if (session.kind === 'ssh' || session.kind === 'shell') {
         const attachCapability = await attachCapabilityService.issue(
@@ -1023,7 +1036,9 @@ router.post(
   asyncHandler(async (req: Request, res: Response) => {
     const body = (req.body ?? {}) as { tmux?: unknown; process?: unknown };
     const target = await assertFreshExternalTmuxTarget(body.tmux, body.process);
+    const previousActivity = getCachedTmuxInteractiveActivity(target);
     const prompt = await getTmuxInteractivePrompt(target);
+    refreshDiscoveryForInteractiveActivity(req, target, previousActivity);
     res.json(createApiSuccessResponse({ prompt }));
   }),
 );
@@ -1037,11 +1052,13 @@ router.post(
       choices?: unknown;
     };
     const target = await assertFreshExternalTmuxTarget(body.tmux, body.process);
+    const previousActivity = getCachedTmuxInteractiveActivity(target);
     const result = await answerTmuxInteractivePrompt(
       target,
       readInteractivePromptId(body.promptId),
       readInteractiveChoices(body.choices),
     );
+    refreshDiscoveryForInteractiveActivity(req, target, previousActivity);
     res.json(createApiSuccessResponse({ ok: true, ...result }));
   }),
 );
@@ -1055,11 +1072,13 @@ router.post(
       message?: unknown;
     };
     const target = await assertFreshExternalTmuxTarget(body.tmux, body.process);
+    const previousActivity = getCachedTmuxInteractiveActivity(target);
     await submitTmuxInteractiveCustomResponse(
       target,
       readInteractivePromptId(body.promptId),
       typeof body.message === 'string' ? body.message : '',
     );
+    refreshDiscoveryForInteractiveActivity(req, target, previousActivity);
     res.json(createApiSuccessResponse({ ok: true }));
   }),
 );
@@ -1198,7 +1217,9 @@ router.post(
     const tmux = readTmuxPaneIdentity(body.tmux);
     const processGeneration = readTmuxProcessGeneration(body.process);
     const target = await assertLineageTmuxTarget(tmux, processGeneration);
+    const previousActivity = getCachedTmuxInteractiveActivity(target);
     const prompt = await getTmuxInteractivePrompt(target);
+    refreshDiscoveryForInteractiveActivity(req, target, previousActivity);
     res.json(createApiSuccessResponse({ prompt }));
   }),
 );
@@ -1214,11 +1235,13 @@ router.post(
     const tmux = readTmuxPaneIdentity(body.tmux);
     const processGeneration = readTmuxProcessGeneration(body.process);
     const target = await assertLineageTmuxTarget(tmux, processGeneration);
+    const previousActivity = getCachedTmuxInteractiveActivity(target);
     const result = await answerTmuxInteractivePrompt(
       target,
       readInteractivePromptId(body.promptId),
       readInteractiveChoices(body.choices),
     );
+    refreshDiscoveryForInteractiveActivity(req, target, previousActivity);
     res.json(createApiSuccessResponse({ ok: true, ...result }));
   }),
 );
@@ -1234,11 +1257,13 @@ router.post(
     const tmux = readTmuxPaneIdentity(body.tmux);
     const processGeneration = readTmuxProcessGeneration(body.process);
     const target = await assertLineageTmuxTarget(tmux, processGeneration);
+    const previousActivity = getCachedTmuxInteractiveActivity(target);
     await submitTmuxInteractiveCustomResponse(
       target,
       readInteractivePromptId(body.promptId),
       typeof body.message === 'string' ? body.message : '',
     );
+    refreshDiscoveryForInteractiveActivity(req, target, previousActivity);
     res.json(createApiSuccessResponse({ ok: true }));
   }),
 );

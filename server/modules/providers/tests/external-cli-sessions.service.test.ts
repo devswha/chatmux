@@ -80,6 +80,32 @@ test('external CLI discovery refreshes only after its one-second TTL expires', a
   assert.equal(scanCount, 2);
 });
 
+test('fresh detailed discovery bypasses a completed display-cache result', async () => {
+  let freshScans = 0;
+  const freshSession = {
+    tmuxName: 'fresh',
+    tmux: tmux('$8', '@8', '%8'),
+    kind: 'shell' as const,
+  };
+  const discovery = createExternalCliSessionDiscovery({
+    discover: async () => ({ ok: true, sessions: [] }),
+    discoverFresh: async () => {
+      freshScans += 1;
+      return { ok: true, sessions: [freshSession] };
+    },
+  });
+
+  assert.deepEqual(await discovery.getExternalCliSessionsDetailed(), {
+    ok: true,
+    sessions: [],
+  });
+  assert.deepEqual(await discovery.getExternalCliSessionsDetailedFresh(), {
+    ok: true,
+    sessions: [freshSession],
+  });
+  assert.equal(freshScans, 1);
+});
+
 test('external CLI discovery shares one in-flight scan across concurrent callers', async () => {
   let scanCount = 0;
   let releaseScan!: () => void;

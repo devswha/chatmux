@@ -79,6 +79,8 @@ type CachedPrompt = {
 };
 
 const promptCache = new Map<string, CachedPrompt>();
+const observedActivityCache = new Set<string>();
+const observedPromptContextCache = new Map<string, ParsedPrompt>();
 const customPromptCache = new Map<string, { expiresAt: number; prompt: ParsedPrompt }>();
 
 function targetKey(target: Pick<VerifiedTmuxActionTarget, 'tmux' | 'process'>): string {
@@ -582,6 +584,7 @@ export function getCachedTmuxInteractiveActivity(
   target: Pick<VerifiedTmuxActionTarget, 'tmux' | 'process'>,
 ): 'asking_user' | null {
   const key = targetKey(target);
+  if (observedActivityCache.has(key)) return 'asking_user';
   const cached = promptCache.get(key);
   if (!cached) return null;
   if (cached.expiresAt <= Date.now()) {
@@ -589,6 +592,46 @@ export function getCachedTmuxInteractiveActivity(
     return null;
   }
   return cached.activity;
+}
+
+/**
+ * Stores the server-side terminal observer's authoritative prompt state.
+ * Unlike the short request cache, this remains valid while the captured
+ * screen is unchanged and is cleared by the next observed screen transition.
+ */
+export function setObservedTmuxInteractiveActivity(
+  target: Pick<VerifiedTmuxActionTarget, 'tmux' | 'process'>,
+  active: boolean,
+): boolean {
+  const key = targetKey(target);
+  const previous = observedActivityCache.has(key);
+  if (active) observedActivityCache.add(key);
+  else {
+    observedActivityCache.delete(key);
+    observedPromptContextCache.delete(key);
+  }
+  return previous !== active;
+}
+
+/**
+ * Recognizes both a native menu and the provider-specific direct-input screen
+ * that may replace it after "Other" is selected outside ChatMux.
+ */
+export function tmuxScreenHasInteractivePrompt(
+  target: Pick<VerifiedTmuxActionTarget, 'tmux' | 'process' | 'kind'>,
+  screen: string,
+): boolean {
+  const key = targetKey(target);
+  const parsed = parseTmuxInteractivePrompt(target.kind, screen);
+  if (parsed) {
+    observedPromptContextCache.set(key, parsed);
+    return true;
+  }
+  const custom = customPromptCache.get(key);
+  const context = custom && custom.expiresAt > Date.now()
+    ? custom.prompt
+    : observedPromptContextCache.get(key);
+  return context ? customInputIsActive(context, screen) : false;
 }
 
 export async function getTmuxInteractivePrompt(

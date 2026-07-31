@@ -9,6 +9,7 @@ import {
 } from '@/modules/database/index.js';
 import {
   getExternalCliSessionsDetailed,
+  onTranscriptChanged,
   resolveExternalSessionActivity,
   type ExternalCliSession,
   type ExternalCliSessionsDetailedResult,
@@ -16,6 +17,10 @@ import {
 } from '@/modules/providers/index.js';
 
 import { wakeCompletionOutboxDispatcher } from './completion-outbox-dispatcher.service.js';
+import {
+  startEventDrivenMonitorLoop,
+  TURN_MONITOR_FALLBACK_MS,
+} from './event-driven-monitor-loop.service.js';
 import {
   completionTargetResolver,
   isSupportedExternalCompletionProvider,
@@ -26,7 +31,8 @@ type TerminalCompletionDecision = Parameters<typeof completionNotificationOutbox
 type TerminalCompletionDecisionResult = ReturnType<typeof completionNotificationOutboxDb.recordTerminalDecision>;
 type GenerationObservation = Parameters<typeof completionNotificationTargetsDb.observeGeneration>[2];
 
-const DEFAULT_INTERVAL_MS = 5000;
+const DEFAULT_INTERVAL_MS = TURN_MONITOR_FALLBACK_MS;
+const EVENT_DRIVEN_EXTERNAL_PROVIDERS = new Set(['claude', 'codex', 'omp', 'opencode']);
 
 type ResolvedActivity = Extract<ExternalSessionActivityResolutionResult, { status: 'resolved' }>;
 type MonitorResolvedActivity = ResolvedActivity & {
@@ -421,10 +427,13 @@ export function createExternalTurnMonitor(deps: MonitorDeps) {
   return { tick, generationCount, stats: () => Object.freeze({ ...stats }) };
 }
 
-export function startExternalTurnMonitor(intervalMs = DEFAULT_INTERVAL_MS): (() => void) | null {
+export function startExternalTurnMonitor(
+  intervalMs = DEFAULT_INTERVAL_MS,
+  getDetailed: () => Promise<ExternalCliSessionsDetailedResult> = getExternalCliSessionsDetailed,
+): (() => void) | null {
   if (process.env.CHATMUX_LIVE_NOTIFY === '0') return null;
   const monitor = createExternalTurnMonitor({
-    getDetailed: getExternalCliSessionsDetailed,
+    getDetailed,
     resolve: resolveExternalSessionActivity,
     getUserId: () => {
       try {
@@ -435,11 +444,10 @@ export function startExternalTurnMonitor(intervalMs = DEFAULT_INTERVAL_MS): (() 
     },
     diagnostic: createRateLimitedProductionDiagnosticSink(),
   });
-  const timer = setInterval(() => {
-    void monitor.tick().catch(() => {
-      // Detection is best-effort; never crash the server loop.
-    });
-  }, intervalMs);
-  timer.unref?.();
-  return () => clearInterval(timer);
+  return startEventDrivenMonitorLoop({
+    tick: monitor.tick,
+    subscribe: onTranscriptChanged,
+    accepts: (change) => EVENT_DRIVEN_EXTERNAL_PROVIDERS.has(change.provider),
+    fallbackMs: intervalMs,
+  });
 }

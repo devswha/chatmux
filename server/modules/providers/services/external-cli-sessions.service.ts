@@ -17,8 +17,16 @@ import {
   tmuxPaneIdentityKey,
   type TmuxPaneIdentity,
 } from '../../../../shared/tmux.js';
+import type { ProviderConnectionIssue } from '../../../../shared/provider-connection.js';
 
 import { recordHostCommand } from './host-command-metrics.service.js';
+import {
+  hostDiscoverySnapshotSource,
+  parseHostDiscoveryPanes,
+  parseHostDiscoveryProcesses,
+  type HostDiscoverySnapshot,
+} from './host-discovery-snapshot.service.js';
+import { validateLocalAgentContext } from './local-agent-context.service.js';
 
 /**
  * Discovers every tmux pane. GJC keeps its dedicated live lane; Claude,
@@ -49,6 +57,7 @@ export type ExternalCliSession = {
   cwd?: string;
   agentPid?: number;
   startedAtMs?: number;
+  connectionIssue?: ProviderConnectionIssue;
 };
 export type ExternalCliSessionsDetailedResult = {
   ok: boolean;
@@ -71,7 +80,10 @@ export type ExternalCliSessionInferenceRetryBackoffOptions = {
 function isUnresolvedExternalLocalCliSession(
   session: ExternalCliSession,
 ): session is ExternalCliSession & { kind: ExternalLocalCliKind } {
-  return session.kind !== 'ssh' && session.kind !== 'shell' && !session.providerSessionId;
+  return session.kind !== 'ssh'
+    && session.kind !== 'shell'
+    && !session.providerSessionId
+    && !session.connectionIssue;
 }
 
 function externalSessionInferenceKey(session: ExternalCliSession): string {
@@ -438,84 +450,23 @@ export function assignUniqueIndexedProviderSessionIds(
 
 /** Parses pane identity and ChatMux's optional provider/session user-options. */
 export function parseExternalPanes(output: string): ExternalPane[] {
-  const panes: ExternalPane[] = [];
-  for (const raw of output.split(/\r?\n/)) {
-    if (!raw.trim()) continue;
-    const fields = raw.split(TMUX_FIELD_SEP);
-    if (fields.length < 11) continue;
-    const [
-      rawSocketPath,
-      rawSessionId,
-      rawWindowId,
-      rawPaneId,
-      rawName,
-      rawPid,
-      rawCommand,
-      rawCodexThreadId,
-      rawCwd,
-      rawKind,
-      rawProviderSessionId,
-    ] = fields;
-    const tmux: TmuxPaneIdentity = {
-      socketPath: rawSocketPath.trim(),
-      sessionId: rawSessionId.trim(),
-      windowId: rawWindowId.trim(),
-      paneId: rawPaneId.trim(),
-    };
-    const name = rawName.trim();
-    const pid = Number.parseInt(rawPid.trim(), 10);
-    const command = rawCommand.trim();
-    const codexThreadId = rawCodexThreadId?.trim() ?? '';
-    const cwd = rawCwd?.trim() ?? '';
-    const taggedKind = rawKind?.trim() as ExternalLocalCliKind | undefined;
-    const taggedSessionId = rawProviderSessionId?.trim() ?? '';
-    if (
-      !tmux.socketPath
-      || !/^\$\d+$/.test(tmux.sessionId)
-      || !/^@\d+$/.test(tmux.windowId)
-      || !/^%\d+$/.test(tmux.paneId)
-      || !name
-      || !Number.isFinite(pid)
-    ) {
-      continue;
-    }
-    panes.push({
-      name,
-      tmux,
-      pid,
-      command,
-      ...(codexThreadId ? { codexThreadId } : {}),
-      ...(cwd ? { cwd } : {}),
-      ...(taggedKind && ['claude', 'codex', 'cursor', 'opencode', 'omp'].includes(taggedKind)
-        ? { taggedKind }
-        : {}),
-      ...(taggedSessionId ? { taggedSessionId } : {}),
-    });
-  }
-  return panes;
+  return parseHostDiscoveryPanes(output).map((pane) => ({
+    name: pane.name,
+    tmux: pane.tmux,
+    pid: pane.pid,
+    command: pane.command,
+    ...(pane.codexThreadId ? { codexThreadId: pane.codexThreadId } : {}),
+    ...(pane.cwd ? { cwd: pane.cwd } : {}),
+    ...(pane.taggedKind && ['claude', 'codex', 'cursor', 'opencode', 'omp'].includes(pane.taggedKind)
+      ? { taggedKind: pane.taggedKind as ExternalLocalCliKind }
+      : {}),
+    ...(pane.taggedSessionId ? { taggedSessionId: pane.taggedSessionId } : {}),
+  }));
 }
 
 /** Parses `ps -eo pid,ppid,comm[,args]` output (header tolerated). */
 export function parsePsTree(output: string): ProcessTreeEntry[] {
-  const rows: ProcessTreeEntry[] = [];
-  for (const raw of output.split(/\r?\n/)) {
-    const line = raw.trim();
-    if (!line) {
-      continue;
-    }
-    const match = /^(\d+)\s+(\d+)\s+(\S+)(?:\s+(.*))?$/.exec(line);
-    if (!match) {
-      continue; // header or malformed line
-    }
-    const processArgs = match[4]?.trim();
-    rows.push({
-      pid: Number.parseInt(match[1], 10),
-      ppid: Number.parseInt(match[2], 10),
-      comm: match[3],
-      ...(processArgs ? { args: processArgs } : {}),
-    });
-  }
-  return rows;
+  return parseHostDiscoveryProcesses(output);
 }
 
 export function parseClaudeRuntimeSession(
@@ -1072,6 +1023,19 @@ async function addExternalRuntimeMetadata(args: {
   return Promise.all(args.sessions.map(async (session) => {
     if (session.kind === 'ssh' || session.agentPid === undefined) return session;
     const startedAtMs = await processStartMs(session.agentPid);
+    const connectionIssue = await validateLocalAgentContext({
+      pid: session.agentPid,
+      startedAtMs,
+      socketPath: session.tmux.socketPath,
+    });
+    if (connectionIssue) {
+      const { providerSessionId: _providerSessionId, ...unbound } = session;
+      return {
+        ...unbound,
+        ...(startedAtMs === null ? {} : { startedAtMs }),
+        connectionIssue,
+      };
+    }
     return startedAtMs === null ? session : { ...session, startedAtMs };
   }));
 }
@@ -1145,6 +1109,10 @@ export function applyInferredProviderSessionIds(
   authoritativeTargetKeys: ReadonlySet<string> = new Set(),
 ): ExternalCliSession[] {
   return sessions.map((session) => {
+    if (session.connectionIssue) {
+      const { providerSessionId: _providerSessionId, ...unbound } = session;
+      return unbound;
+    }
     const targetKey = tmuxPaneIdentityKey(session.tmux);
     const providerSessionId = inferredIds.get(targetKey);
     return providerSessionId
@@ -1165,22 +1133,23 @@ async function inferExternalProviderSessionIds(args: {
   panes: ExternalPane[];
   procs: ProcessTreeEntry[];
 }): Promise<ExternalProviderSessionInference> {
+  const safeSessions = args.sessions.filter((session) => !session.connectionIssue);
   const attemptableTargetKeys = new Set(
     args.attemptableSessions.map((session) => tmuxPaneIdentityKey(session.tmux)),
   );
 
   const [observedCodex, inferredClaude, inferredOmp, freshCodex] = await Promise.all([
     inferOpenCodexThreadIds({
-      sessions: args.sessions,
+      sessions: safeSessions,
       panes: args.panes,
       procs: args.procs,
     }),
     inferClaudeSessionIds({
-      sessions: args.sessions,
+      sessions: safeSessions,
       panes: args.panes,
       procs: args.procs,
     }),
-    inferOpenOmpSessionIds(args.sessions),
+    inferOpenOmpSessionIds(safeSessions),
     args.attemptableSessions.some((session) => session.kind === 'codex')
       ? inferFreshCodexThreadIds({
         sessions: args.attemptableSessions,
@@ -1204,7 +1173,7 @@ async function inferExternalProviderSessionIds(args: {
     ...observedCodex,
   ]);
   const withDirectIds = applyInferredProviderSessionIds(
-    args.sessions,
+    safeSessions,
     directIds,
     authoritativeTargetKeys,
   );
@@ -1454,21 +1423,40 @@ async function runDiscoveryCommand(
 async function discoverExternalCliSessions(
   retryBackoff: ExternalCliSessionInferenceRetryBackoff,
   commandRunner: ExternalCliSessionCommandRunner = runCommand,
+  hostSnapshot?: HostDiscoverySnapshot,
 ): Promise<ExternalCliSessionsDetailedResult> {
-  let tmuxOutput: string;
-  let psOutput: string;
-  try {
-    tmuxOutput = await runDiscoveryCommand(commandRunner, 'tmux', [
-      'list-panes', '-a', '-F',
-      `#{socket_path}${TMUX_FIELD_SEP}#{session_id}${TMUX_FIELD_SEP}#{window_id}${TMUX_FIELD_SEP}#{pane_id}${TMUX_FIELD_SEP}#{session_name}${TMUX_FIELD_SEP}#{pane_pid}${TMUX_FIELD_SEP}#{pane_current_command}${TMUX_FIELD_SEP}#{@chatmux_codex_thread_id}${TMUX_FIELD_SEP}#{pane_current_path}${TMUX_FIELD_SEP}#{@chatmux_cli_kind}${TMUX_FIELD_SEP}#{@chatmux_provider_session_id}`,
-    ]);
-    psOutput = await runDiscoveryCommand(commandRunner, 'ps', ['-eo', 'pid,ppid,comm,args']);
-  } catch {
-    return { ok: false, sessions: [] };
+  let panes: ExternalPane[];
+  let procs: ProcessTreeEntry[];
+  if (hostSnapshot) {
+    if (!hostSnapshot.ok) return { ok: false, sessions: [] };
+    panes = hostSnapshot.panes.map((pane) => ({
+      name: pane.name,
+      tmux: pane.tmux,
+      pid: pane.pid,
+      command: pane.command,
+      ...(pane.codexThreadId ? { codexThreadId: pane.codexThreadId } : {}),
+      ...(pane.cwd ? { cwd: pane.cwd } : {}),
+      ...(pane.taggedKind && ['claude', 'codex', 'cursor', 'opencode', 'omp'].includes(pane.taggedKind)
+        ? { taggedKind: pane.taggedKind as ExternalLocalCliKind }
+        : {}),
+      ...(pane.taggedSessionId ? { taggedSessionId: pane.taggedSessionId } : {}),
+    }));
+    procs = [...hostSnapshot.processes];
+  } else {
+    let tmuxOutput: string;
+    let psOutput: string;
+    try {
+      tmuxOutput = await runDiscoveryCommand(commandRunner, 'tmux', [
+        'list-panes', '-a', '-F',
+        `#{socket_path}${TMUX_FIELD_SEP}#{session_id}${TMUX_FIELD_SEP}#{window_id}${TMUX_FIELD_SEP}#{pane_id}${TMUX_FIELD_SEP}#{session_name}${TMUX_FIELD_SEP}#{pane_pid}${TMUX_FIELD_SEP}#{pane_current_command}${TMUX_FIELD_SEP}#{@chatmux_codex_thread_id}${TMUX_FIELD_SEP}#{pane_current_path}${TMUX_FIELD_SEP}#{@chatmux_cli_kind}${TMUX_FIELD_SEP}#{@chatmux_provider_session_id}`,
+      ]);
+      psOutput = await runDiscoveryCommand(commandRunner, 'ps', ['-eo', 'pid,ppid,comm,args']);
+    } catch {
+      return { ok: false, sessions: [] };
+    }
+    panes = parseExternalPanes(tmuxOutput);
+    procs = parsePsTree(psOutput);
   }
-
-  const panes = parseExternalPanes(tmuxOutput);
-  const procs = parsePsTree(psOutput);
   const classified = classifyExternalSessions({ panes, procs });
   const sessions = await addExternalRuntimeMetadata({ sessions: classified, panes, procs });
   const attemptableSessions = retryBackoff.attemptableSessions(sessions);
@@ -1489,6 +1477,7 @@ async function discoverExternalCliSessions(
 
 export type ExternalCliSessionDiscovery = {
   getExternalCliSessionsDetailed(): Promise<ExternalCliSessionsDetailedResult>;
+  getExternalCliSessionsDetailedFresh(): Promise<ExternalCliSessionsDetailedResult>;
   getExternalCliSessions(): Promise<ExternalCliSession[]>;
   getExternalCliSessionsFresh(): Promise<ExternalCliSession[]>;
 };
@@ -1497,7 +1486,12 @@ export type ExternalCliSessionDiscoveryOptions = {
   commandRunner?: ExternalCliSessionCommandRunner;
   now?: () => number;
   cacheTtlMs?: number;
+  hostSnapshot?: () => Promise<HostDiscoverySnapshot>;
+  freshHostSnapshot?: () => Promise<HostDiscoverySnapshot>;
   discover?: (
+    retryBackoff: ExternalCliSessionInferenceRetryBackoff,
+  ) => Promise<ExternalCliSessionsDetailedResult>;
+  discoverFresh?: (
     retryBackoff: ExternalCliSessionInferenceRetryBackoff,
   ) => Promise<ExternalCliSessionsDetailedResult>;
 };
@@ -1518,7 +1512,21 @@ export function createExternalCliSessionDiscovery(
     : 1_000;
   const retryBackoff = createExternalCliSessionInferenceRetryBackoff({ now });
   const discover = options.discover
-    ?? ((backoff) => discoverExternalCliSessions(backoff, options.commandRunner));
+    ?? (options.hostSnapshot
+      ? async (backoff) => discoverExternalCliSessions(
+        backoff,
+        options.commandRunner,
+        await options.hostSnapshot!(),
+      )
+      : (backoff) => discoverExternalCliSessions(backoff, options.commandRunner));
+  const discoverFresh = options.discoverFresh
+    ?? (options.freshHostSnapshot
+      ? async (backoff) => discoverExternalCliSessions(
+        backoff,
+        options.commandRunner,
+        await options.freshHostSnapshot!(),
+      )
+      : discover);
   let cached: { result: ExternalCliSessionsDetailedResult; expiresAtMs: number } | null = null;
   let inFlight: Promise<ExternalCliSessionsDetailedResult> | null = null;
 
@@ -1542,20 +1550,31 @@ export function createExternalCliSessionDiscovery(
 
   return {
     getExternalCliSessionsDetailed,
+    async getExternalCliSessionsDetailedFresh() {
+      return discoverFresh(retryBackoff).catch(() => ({ ok: false, sessions: [] }));
+    },
     async getExternalCliSessions() {
       return (await getExternalCliSessionsDetailed()).sessions;
     },
     async getExternalCliSessionsFresh() {
-      return (await discover(retryBackoff)).sessions;
+      return (await discoverFresh(retryBackoff)).sessions;
     },
   };
 }
 
-const defaultExternalCliSessionDiscovery = createExternalCliSessionDiscovery();
+const defaultExternalCliSessionDiscovery = createExternalCliSessionDiscovery({
+  hostSnapshot: hostDiscoverySnapshotSource.get,
+  freshHostSnapshot: hostDiscoverySnapshotSource.getFresh,
+});
 
 /** Distinguishes a confirmed empty discovery from unavailable tmux/ps evidence. */
 export function getExternalCliSessionsDetailed(): Promise<ExternalCliSessionsDetailedResult> {
   return defaultExternalCliSessionDiscovery.getExternalCliSessionsDetailed();
+}
+
+/** Bypasses completed-result caching after an authoritative host-roster change. */
+export function getExternalCliSessionsDetailedFresh(): Promise<ExternalCliSessionsDetailedResult> {
+  return defaultExternalCliSessionDiscovery.getExternalCliSessionsDetailedFresh();
 }
 
 /** Compatible session-only wrapper for existing callers. */

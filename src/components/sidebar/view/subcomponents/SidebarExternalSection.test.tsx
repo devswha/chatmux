@@ -118,6 +118,22 @@ test('SidebarExternalSection uses the tmux name as primary and transcript metada
   assert.ok(!html.includes('%1'));
 });
 
+test('SidebarExternalSection explains why an unsafe agent binding was excluded', async () => {
+  const html = await renderSection('ko', {
+    sessions: [external('foreign-codex', 'codex', '%91', 191, {
+      authority: 'stream',
+      presence: 'present',
+      connectionIssue: 'agent_user_mismatch',
+    })],
+    projects: [project],
+    onOpen,
+    onChanged: noop,
+  });
+  assert.ok(html.includes('Codex CLI 연결 제외: ChatMux와 실행 사용자가 다릅니다.'));
+  assert.ok(html.includes('>ERROR<'));
+  assert.ok(!html.includes(koSidebar.externalSessions.closeSessionTitle.replace('{{name}}', 'foreign-codex')));
+});
+
 test('SidebarExternalSection renders an actionable external-only row without Projects', () => {
   const html = renderToStaticMarkup(
     createElement(

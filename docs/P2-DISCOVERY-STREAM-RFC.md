@@ -642,7 +642,8 @@ rev.1은 «폴링 주기가 2초였으므로 실효 유예 ≈2초»라 적었�
 
 ```
 // discovery-collector.service.ts 상단
-export const GRACE_TICKS_LIVE = 5;          // 5 tick × C_SCAN_MS(1000) = 5s — 현행 체감 보존
+export const GRACE_TICKS_LIVE = 2;          // 실제 GJC 프로세스 소멸은 2 tick 후 제거
+export const GJC_BINDING_GRACE_TICKS = 5;   // 실행 중 receipt 교체는 기존 대화 연결을 잠시 보존
 export const GRACE_TICKS_EXTERNAL = 2;      // 2 tick × 1000 = 2s — 신규 유예(D12)
 export const UNAVAILABLE_DEGRADE_TICKS = 30; // 30s
 ```
@@ -862,7 +863,7 @@ B13~B15-3에서 스트림과 C0 live roster 폴이 동시에 동작한다. C0는
 | U1 | revision 증가 규칙 | 변화 없는 tick은 revision 불변, 변화 있는 tick만 +1, strictly increasing |
 | U2 | diff 생성기 | added/updated/stale/removed 4종 분류. **same-pane respawn은 removed+added가 아니라 updated(process 변경)** (§4.2) |
 | U3 | snapshot + delta 적용 | property test: 임의의 스캔 시퀀스에서 `apply(snapshot@R, deltas R+1..R+k) === snapshot@R+k` |
-| U4 | grace 상태기 | GRACE_TICKS_LIVE=5 / GRACE_TICKS_EXTERNAL=2, unavailable 시 미제거, 승격 시 즉시 제거(§6.2 예외) — **`retainTransientlyMissingLiveRows` 테스트 케이스 이름 그대로 이식**(§6.3) |
+| U4 | grace 상태기 | GRACE_TICKS_LIVE=2 / GRACE_TICKS_EXTERNAL=2, GJC receipt 바인딩 유예=5, unavailable 시 미제거, 승격 시 즉시 제거(§6.2 예외) — **`retainTransientlyMissingLiveRows` 테스트 케이스 이름 그대로 이식**(§6.3) |
 | U5 | 구독 race | 등록↔스냅샷 사이 delta 주입 시 baselineRevision 필터가 중복/유실 0 (§5.4) |
 | U6 | **기존 경계 테스트 allowlist 확장** | `server/modules/providers/tests/tmux-fresh-verifier.service.test.ts`의 기존 source-lock 테스트(`:84`, allowlist `:91-95`, 식별자 검사 `:107-113`, 완료 `:116`)가 `createVerifiedTmuxActionTarget` 언급을 server 전역에서 검사한다. P2 파일을 추가할 때 허용 파일은 두 verifier와 barrel뿐임을 유지/확장하여 N3을 잠근다. **신규 코드 검색 테스트를 만들지 않는다.** |
 | U7 | bounded queue | 65번째 메시지에서 큐가 비워지고 `resync_required{queue_overflow}` 1건만 남음 |
@@ -961,7 +962,7 @@ e2e는 실 tmux 의존이므로 tmux 부재 환경에서는 skip되며, skip 여
 |---|---|---|---|
 | 1 | process epoch + monotonic revision | **§4.2, §4.3** | 서버 기동당 UUID epoch(미영속) + 변화 시에만 +1 하는 단조 정수 revision |
 | 2 | reconnect 시 full snapshot 후 strictly ordered delta | **§5.4**, 스키마 §5.2 | 등록→스냅샷 동기 블록 + `baselineRevision` 필터. 링버퍼 내면 delta 재생 |
-| 3 | unavailable / empty / removed 구분 + grace policy | **§6.1, §6.2** | 3상태 정의 + GRACE_TICKS_LIVE=5 / GRACE_TICKS_EXTERNAL=2(현행 1회 유예 보존), unavailable 시 미제거, 30 tick 후 degrade 배너 |
+| 3 | unavailable / empty / removed 구분 + grace policy | **§6.1, §6.2** | 3상태 정의 + 프로세스 제거 grace 2 tick, GJC receipt 바인딩 grace 5 tick, unavailable 시 미제거, 30 tick 후 degrade 배너 |
 | 4 | gap 감지 시 resync, bounded queue/backpressure, slow-client disconnect | **§5.5, §5.6** | `prevRevision` 단절로 gap 감지 → resync(10s 3회 상한). 큐 64/1 MiB → resync_required. bufferedAmount 4 MiB·10초 → `close(1013)` |
 | 5 | scanner cadence/lifecycle/shutdown 및 lane 통합 여부(Q7) | **§4.4, §4.5, §4.6** | cadence 1s/idle 8s, dispose 계약, **Q7=분리 스캐너+단일 퍼블리셔**(5축 코드 근거 기록) |
 | 6 | `session_upserted`와 discovery stream namespace 분리 | **§5.3** | `discovery.` 접두사 강제, `session_upserted` 스키마·소비자 변경 0줄, revision 비공유 |

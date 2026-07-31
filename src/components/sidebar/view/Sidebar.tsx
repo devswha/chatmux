@@ -10,6 +10,7 @@ import SidebarCollapsed from './subcomponents/SidebarCollapsed';
 import SidebarContent from './subcomponents/SidebarContent';
 import SidebarModals from './subcomponents/SidebarModals';
 const EMPTY_SESSION_IDS = new Set<string>();
+const EMPTY_CONNECTION_ISSUES = new Map();
 
 function Sidebar({
   projects,
@@ -26,6 +27,7 @@ function Sidebar({
   liveSessionRunning,
   liveSessionInput = EMPTY_SESSION_IDS,
   liveSessionErrors = EMPTY_SESSION_IDS,
+  liveSessionConnectionIssues = EMPTY_CONNECTION_ISSUES,
   liveSessionsLoaded,
   onProjectSelect,
   onSessionSelect,
@@ -139,6 +141,7 @@ function Sidebar({
           liveSessionRunning={liveSessionRunning}
           liveSessionInput={liveSessionInput}
           liveSessionErrors={liveSessionErrors}
+          liveSessionConnectionIssues={liveSessionConnectionIssues}
           liveSessionsLoaded={liveSessionsLoaded}
           onProjectSelect={onProjectSelect}
           onSessionSelect={onSessionSelect}

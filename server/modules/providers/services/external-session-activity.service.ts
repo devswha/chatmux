@@ -13,6 +13,7 @@ import {
   type ExternalLocalCliKind,
 } from './external-cli-sessions.service.js';
 import { recordHostCommand } from './host-command-metrics.service.js';
+import { transcriptChangeVersion } from './transcript-change.service.js';
 
 export type ExternalSessionActivity = 'running' | 'waiting_user' | 'asking_user' | 'unknown';
 export type ExternalSessionTerminalOutcome = 'reply_ready' | 'failed' | 'none' | 'unknown';
@@ -254,6 +255,7 @@ const isErrorRecord = (record: JsonRecord): boolean => (
 );
 
 const parseClaudeEvidence = (records: JsonRecord[]): ExternalSessionParsedActivityEvidence => {
+  let turnEnded = false;
   for (let index = records.length - 1; index >= 0; index -= 1) {
     const record = records[index];
     const type = readString(record.type)?.toLowerCase();
@@ -269,9 +271,20 @@ const parseClaudeEvidence = (records: JsonRecord[]): ExternalSessionParsedActivi
       }
       return evidence('unknown', 'unknown');
     }
+    if (
+      type === 'system'
+      && readString(record.subtype)?.toLowerCase() === 'turn_duration'
+    ) {
+      turnEnded = true;
+      continue;
+    }
     if (type !== 'assistant' && type !== 'user') continue;
     const role = readString(message?.role) ?? type;
-    if (role === 'user') return evidence('running', 'none');
+    if (role === 'user') {
+      return turnEnded
+        ? evidence('waiting_user', 'none')
+        : evidence('running', 'none');
+    }
     if (role !== 'assistant') continue;
     if (containsAskingTool(message?.content)) return evidence('asking_user', 'none');
     const stopReason = readString(message?.stop_reason) ?? readString(message?.stopReason);
@@ -813,7 +826,7 @@ const appSessionMetadata = (
  * Resolves app-owned transcript metadata and external CLI activity once so the
  * route and completion monitor make the same availability decision.
  */
-export async function resolveExternalSessionActivity(
+async function resolveExternalSessionActivityUncached(
   session: Pick<ExternalCliSession, 'kind' | 'providerSessionId'>,
   dependencies: ExternalSessionActivityResolverDependencies = {},
 ): Promise<ExternalSessionActivityResolutionResult> {
@@ -924,4 +937,52 @@ export async function resolveExternalSessionActivity(
     appSession: appSessionMetadata(appSession),
     transcriptEnded: transcriptEndedResult.transcriptEnded,
   };
+}
+
+const ACTIVITY_RESOLUTION_CACHE_MS = 30_000;
+const ACTIVITY_RESOLUTION_CACHE_MAX_ENTRIES = 512;
+const activityResolutionCache = new Map<string, {
+  version: string;
+  expiresAtMs: number;
+  result: ExternalSessionActivityResolutionResult;
+}>();
+
+/**
+ * Watcher events invalidate the exact provider/session resolution immediately.
+ * The bounded TTL remains a correctness fallback for missed filesystem events.
+ */
+export async function resolveExternalSessionActivity(
+  session: Pick<ExternalCliSession, 'kind' | 'providerSessionId'>,
+  dependencies: ExternalSessionActivityResolverDependencies = {},
+): Promise<ExternalSessionActivityResolutionResult> {
+  if (
+    Object.keys(dependencies).length > 0
+    || session.kind === 'ssh'
+    || session.kind === 'shell'
+    || !session.providerSessionId
+  ) {
+    return resolveExternalSessionActivityUncached(session, dependencies);
+  }
+
+  const key = `${session.kind}\0${session.providerSessionId}`;
+  const version = transcriptChangeVersion(session.kind, session.providerSessionId);
+  const now = Date.now();
+  const cached = activityResolutionCache.get(key);
+  if (cached && cached.version === version && cached.expiresAtMs > now) {
+    activityResolutionCache.delete(key);
+    activityResolutionCache.set(key, cached);
+    return cached.result;
+  }
+
+  const result = await resolveExternalSessionActivityUncached(session);
+  activityResolutionCache.delete(key);
+  activityResolutionCache.set(key, {
+    version,
+    expiresAtMs: now + ACTIVITY_RESOLUTION_CACHE_MS,
+    result,
+  });
+  if (activityResolutionCache.size > ACTIVITY_RESOLUTION_CACHE_MAX_ENTRIES) {
+    activityResolutionCache.delete(activityResolutionCache.keys().next().value!);
+  }
+  return result;
 }

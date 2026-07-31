@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -131,6 +131,52 @@ test('Codex synchronizer leaves indexed sessions untitled when no name is availa
   }
 });
 
+test('Codex synchronizer finds the last completed title without loading a large tail at once', { concurrency: false }, async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-session-sync-tail-title-'));
+  const workspacePath = path.join(tempRoot, 'workspace');
+  await mkdir(workspacePath, { recursive: true });
+  const restoreHomeDir = patchHomeDir(tempRoot);
+
+  try {
+    const transcriptPath = await writeCodexTranscript(
+      tempRoot,
+      'codex-indexed-tail-title',
+      workspacePath,
+    );
+    await appendFile(transcriptPath, [
+      JSON.stringify({
+        type: 'event_msg',
+        payload: {
+          type: 'task_complete',
+          last_agent_message: 'Recovered from the completed turn',
+        },
+      }),
+      JSON.stringify({
+        type: 'response_item',
+        payload: {
+          type: 'function_call_output',
+          call_id: 'large-tail',
+          output: 'x'.repeat(300 * 1024),
+        },
+      }),
+      '',
+    ].join('\n'), 'utf8');
+
+    await withIsolatedDatabase(async () => {
+      const synchronizer = new CodexSessionSynchronizer();
+      await synchronizer.synchronize();
+
+      assert.equal(
+        sessionsDb.getSessionById('codex-indexed-tail-title')?.custom_name,
+        'Recovered from the completed turn',
+      );
+    });
+  } finally {
+    restoreHomeDir();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test('CodexSessionsProvider.normalizeMessage surfaces a top-level SDK error as an error message', () => {
   const provider = new CodexSessionsProvider();
   const out = provider.normalizeMessage({ type: 'error', message: 'stream disconnected' }, 's1');
@@ -144,4 +190,175 @@ test('CodexSessionsProvider.normalizeMessage still maps turn_failed to an error'
   const out = provider.normalizeMessage({ type: 'turn_failed', error: { message: 'boom' } }, 's1');
   assert.equal(out[0]?.kind, 'error');
   assert.equal(out[0]?.content, 'boom');
+});
+
+test('Codex history incrementally appends complete JSONL records', { concurrency: false }, async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-history-incremental-'));
+  const workspacePath = path.join(tempRoot, 'workspace');
+  await mkdir(workspacePath, { recursive: true });
+
+  try {
+    const sessionId = 'codex-incremental-history';
+    const transcriptPath = await writeCodexTranscript(
+      tempRoot,
+      sessionId,
+      workspacePath,
+      'First prompt',
+    );
+
+    await withIsolatedDatabase(async () => {
+      sessionsDb.createSession(
+        sessionId,
+        'codex',
+        workspacePath,
+        undefined,
+        undefined,
+        undefined,
+        transcriptPath,
+      );
+      const provider = new CodexSessionsProvider();
+
+      const initial = await provider.fetchHistory(sessionId);
+      assert.deepEqual(initial.messages.map((message) => message.content), ['First prompt']);
+
+      await appendFile(transcriptPath, `${JSON.stringify({
+        type: 'response_item',
+        timestamp: '2026-07-31T00:00:01.000Z',
+        payload: {
+          type: 'message',
+          role: 'assistant',
+          content: [{ type: 'output_text', text: 'First answer' }],
+        },
+      })}\n`, 'utf8');
+
+      const appended = await provider.fetchHistory(sessionId);
+      assert.deepEqual(
+        appended.messages.map((message) => message.content),
+        ['First prompt', 'First answer'],
+      );
+
+      const partialLine = JSON.stringify({
+        type: 'event_msg',
+        timestamp: '2026-07-31T00:00:02.000Z',
+        payload: { type: 'user_message', message: 'Second prompt' },
+      });
+      const splitAt = Math.floor(partialLine.length / 2);
+      await appendFile(transcriptPath, partialLine.slice(0, splitAt), 'utf8');
+
+      const incomplete = await provider.fetchHistory(sessionId);
+      assert.deepEqual(
+        incomplete.messages.map((message) => message.content),
+        ['First prompt', 'First answer'],
+      );
+
+      await appendFile(transcriptPath, `${partialLine.slice(splitAt)}\n`, 'utf8');
+      const completed = await provider.fetchHistory(sessionId);
+      assert.deepEqual(
+        completed.messages.map((message) => message.content),
+        ['First prompt', 'First answer', 'Second prompt'],
+      );
+
+      await appendFile(transcriptPath, `${JSON.stringify({
+        type: 'event_msg',
+        timestamp: '2026-07-31T00:00:02.500Z',
+        payload: {
+          type: 'token_count',
+          info: {
+            model_context_window: 200000,
+            total_token_usage: {
+              input_tokens: 120,
+              output_tokens: 30,
+              total_tokens: 150,
+            },
+          },
+        },
+      })}\n`, 'utf8');
+      const withUsage = await provider.fetchHistory(sessionId);
+      assert.deepEqual(withUsage.tokenUsage, {
+        used: 150,
+        total: 200000,
+        inputTokens: 120,
+        outputTokens: 30,
+        breakdown: {
+          input: 120,
+          output: 30,
+        },
+      });
+
+      await appendFile(transcriptPath, `${JSON.stringify({
+        type: 'response_item',
+        timestamp: '2026-07-31T00:00:03.000Z',
+        payload: {
+          type: 'function_call',
+          name: 'exec_command',
+          arguments: JSON.stringify({ cmd: 'pwd' }),
+          call_id: 'call-incremental',
+        },
+      })}\n`, 'utf8');
+      const toolStarted = await provider.fetchHistory(sessionId);
+      const toolUse = toolStarted.messages.find((message) => message.kind === 'tool_use');
+      assert.equal(toolUse?.toolName, 'exec_command');
+      assert.equal(toolUse?.toolResult, undefined);
+
+      await appendFile(transcriptPath, `${JSON.stringify({
+        type: 'response_item',
+        timestamp: '2026-07-31T00:00:04.000Z',
+        payload: {
+          type: 'function_call_output',
+          call_id: 'call-incremental',
+          output: '/workspace',
+        },
+      })}\n`, 'utf8');
+      const toolFinished = await provider.fetchHistory(sessionId);
+      const completedToolUse = toolFinished.messages.find((message) => message.kind === 'tool_use');
+      assert.deepEqual(completedToolUse?.toolResult, {
+        content: '/workspace',
+        isError: false,
+      });
+    });
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('Codex history cache resets when a rollout file is truncated', { concurrency: false }, async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-history-truncate-'));
+  const workspacePath = path.join(tempRoot, 'workspace');
+  await mkdir(workspacePath, { recursive: true });
+
+  try {
+    const sessionId = 'codex-truncated-history';
+    const transcriptPath = await writeCodexTranscript(
+      tempRoot,
+      sessionId,
+      workspacePath,
+      'A deliberately long original prompt that makes the replacement file smaller.',
+    );
+
+    await withIsolatedDatabase(async () => {
+      sessionsDb.createSession(
+        sessionId,
+        'codex',
+        workspacePath,
+        undefined,
+        undefined,
+        undefined,
+        transcriptPath,
+      );
+      const provider = new CodexSessionsProvider();
+      const initial = await provider.fetchHistory(sessionId);
+      assert.equal(initial.messages[0]?.content, 'A deliberately long original prompt that makes the replacement file smaller.');
+
+      await writeFile(transcriptPath, `${JSON.stringify({
+        type: 'event_msg',
+        timestamp: '2026-07-31T00:00:03.000Z',
+        payload: { type: 'user_message', message: 'Replacement' },
+      })}\n`, 'utf8');
+
+      const replaced = await provider.fetchHistory(sessionId);
+      assert.deepEqual(replaced.messages.map((message) => message.content), ['Replacement']);
+    });
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
 });

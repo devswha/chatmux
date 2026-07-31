@@ -3,6 +3,15 @@
     "hideSidebar": "사이드바 숨기기",
     "refresh": "프로젝트 및 세션 새로고침 (Ctrl+R)"
   },
+  "connectionIssues": {
+    "agent_user_mismatch": "{{agent}} 연결 제외: ChatMux와 실행 사용자가 다릅니다.",
+    "agent_home_mismatch": "{{agent}} 연결 제외: ChatMux와 HOME 경로가 다릅니다.",
+    "agent_context_unreadable": "{{agent}} 연결 제외: 프로세스 정보를 읽을 권한이 없습니다.",
+    "tmux_socket_owner_mismatch": "{{agent}} 연결 제외: tmux 서버 소유자가 다릅니다.",
+    "tmux_pane_ambiguous": "{{agent}} 연결 제외: tmux pane 식별자가 중복되었습니다.",
+    "transcript_ambiguous": "{{agent}} 연결 제외: 현재 대화 기록을 하나로 식별할 수 없습니다.",
+    "transcript_permission_denied": "{{agent}} 연결 제외: 대화 기록을 읽을 권한이 없습니다."
+  },
   "completionNotifications": {
     "pending": "어시스턴트 응답 준비 완료 알림 확인 중",
     "unsupported": "이 기기에서는 어시스턴트 응답 준비 완료 알림을 지원하지 않습니다",
