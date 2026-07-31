@@ -279,8 +279,12 @@ function ChatInterface({
   // reply shows up in place. Ref keeps refreshFromServer out of the effect deps.
   const refreshFromServerRef = useRef(sessionStore.refreshFromServer);
   refreshFromServerRef.current = sessionStore.refreshFromServer;
+  // External CLI kinds (claude/codex/...) refresh on the faster
+  // refreshCurrentMessages interval above; gjc and cwd-fallback live sessions
+  // (liveSessionKind === null: in liveSessionIds without confirmed lineage)
+  // have no other refresh path, so this poll must keep covering both.
   const liveOpenSessionId =
-    isSessionReadOnly && liveSessionKind === 'gjc'
+    isSessionReadOnly && (liveSessionKind === 'gjc' || liveSessionKind == null)
       ? (selectedSession?.id ?? null)
       : null;
   useEffect(() => {

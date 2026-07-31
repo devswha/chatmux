@@ -200,6 +200,27 @@ function resolveExternalCompletionTarget(
   };
 }
 
+const RESOLUTION_FAILURE_REPORT_INTERVAL_MS = 60_000;
+const resolutionFailureLastReportedAt = new Map<string, number>();
+
+/**
+ * Per-generation failures are isolated, but a persistent conflict would drop
+ * that session's bell on every scan; without this diagnostic there is zero
+ * operator signal. Identity-conflict messages are redacted by construction
+ * (diagnosticCode/stage/targetId/kind only). Throttled per provider+message
+ * because the turn monitor re-resolves every scan.
+ */
+function reportCompletionTargetResolutionFailure(provider: string, error: unknown): void {
+  const message = error instanceof Error ? error.message : String(error);
+  const key = `${provider}\0${message}`;
+  const now = Date.now();
+  const lastReportedAt = resolutionFailureLastReportedAt.get(key) ?? 0;
+  if (now - lastReportedAt < RESOLUTION_FAILURE_REPORT_INTERVAL_MS) return;
+  if (resolutionFailureLastReportedAt.size > 100) resolutionFailureLastReportedAt.clear();
+  resolutionFailureLastReportedAt.set(key, now);
+  console.error(`Completion target resolution failed for ${provider}: ${message}`);
+}
+
 /**
  * Resolves exactly one completed detailed discovery scan. Its durable generation
  * ID is server-internal; the target view remains browser-safe.
@@ -230,9 +251,10 @@ export function resolveCompletionTargetsFromDetailedScan(
     try {
       const resolution = resolveExternalCompletionTarget(external, userId);
       if (resolution) resolutions.push(resolution);
-    } catch {
+    } catch (error) {
       // Keep failures local to one generation. A stale mapping is retried on
       // the next authoritative scan and cannot hide unrelated session bells.
+      reportCompletionTargetResolutionFailure(external.kind, error);
     }
   }
   return resolutions;

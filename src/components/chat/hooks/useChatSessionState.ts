@@ -934,11 +934,10 @@ export function useChatSessionState({
 
       if (currentSessionId !== requestSessionId) return;
 
-      const loadedEverything = Boolean(
-        slot
-        && !slot.hasMore
-        && slot.serverMessages.length >= slot.total,
-      );
+      // `hasMore === false` is the server's whole-transcript signal. Comparing
+      // serverMessages.length to slot.total would re-introduce a silent no-op
+      // whenever client-side id dedupe drops a row from a complete response.
+      const loadedEverything = Boolean(slot && !slot.hasMore);
       if (slot && loadedEverything) {
 
         setHasMoreMessages(false);
