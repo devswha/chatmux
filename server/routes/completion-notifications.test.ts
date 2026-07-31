@@ -407,7 +407,17 @@ test('one identity conflict is isolated without hiding unrelated session notific
     assert.equal(response.status, 200);
     assert.deepEqual(response.body.targets.map((target: any) => target.reason), ['not_found', 'eligible']);
     assert.equal(response.body.targets[1]?.target?.kind, 'external_generation');
-    assert.deepEqual(captured, []);
+    // The isolated failure must still surface a redacted operator diagnostic:
+    // a silent drop would hide a persistently bell-less session.
+    const output = captured.map((args) => args.map(String).join(' ')).join('\n');
+    assert.match(output, /completion_target_identity_conflict/);
+    assert.match(output, /pre_promotion/);
+    assert.match(output, /actualTargetId.*903/);
+    assert.match(output, /actualKind.*app/);
+    assert.equal(output.includes('raw-identity-key-evidence'), false);
+    assert.equal(output.includes('raw-native-session-evidence'), false);
+    assert.equal(output.includes('raw-socket-path-evidence'), false);
+    assert.equal(output.includes('raw-project-path-evidence'), false);
   } finally {
     console.error = originalConsoleError;
     repository.createTarget = createTarget;
