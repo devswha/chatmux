@@ -9,6 +9,7 @@ import { getCachedTmuxInteractiveActivity } from '@/modules/providers/services/t
 import {
   createTmuxOutputActivityMonitor,
   tmuxControlOutputPaneId,
+  tmuxObserverIsSafe,
   type TmuxControlObserverFactory,
 } from '@/modules/providers/services/tmux-output-activity-monitor.service.js';
 import { createVerifiedTmuxActionTarget } from '@/modules/providers/services/tmux-fresh-verifier.service.js';
@@ -481,4 +482,29 @@ test('falls back to screen inspection when control-mode observation is unsafe', 
   assert.equal(observers, 0);
   assert.ok(captures >= 1);
   monitor.dispose();
+});
+
+test('control-mode observation is unsafe when destroy-unattached is set at any scope', async () => {
+  const identity = { socketPath: '/tmp/tmux-x/default', sessionId: '$7' };
+  const runner = (values: { global: string; session: string; exit: string }, failSession = false) =>
+    async (args: string[]) => {
+      if (args.includes('exit-unattached')) return { code: 0, output: `${values.exit}\n` };
+      if (args.includes('-t')) {
+        return failSession
+          ? { code: 1, output: '' }
+          : { code: 0, output: `${values.session}\n` };
+      }
+      return { code: 0, output: `${values.global}\n` };
+    };
+
+  assert.equal(await tmuxObserverIsSafe(identity, runner({ global: 'off', session: '', exit: 'off' })), true);
+  // Session-local override must be honored even when the global value is off.
+  assert.equal(await tmuxObserverIsSafe(identity, runner({ global: 'off', session: 'on', exit: 'off' })), false);
+  // keep-last / keep-group can still destroy the observed session.
+  assert.equal(await tmuxObserverIsSafe(identity, runner({ global: 'off', session: 'keep-last', exit: 'off' })), false);
+  assert.equal(await tmuxObserverIsSafe(identity, runner({ global: 'keep-group', session: '', exit: 'off' })), false);
+  assert.equal(await tmuxObserverIsSafe(identity, runner({ global: 'on', session: '', exit: 'off' })), false);
+  assert.equal(await tmuxObserverIsSafe(identity, runner({ global: 'off', session: '', exit: 'on' })), false);
+  // Unknown settings are unsafe, never a green light to attach.
+  assert.equal(await tmuxObserverIsSafe(identity, runner({ global: 'off', session: '', exit: 'off' }, true)), false);
 });
