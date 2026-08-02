@@ -144,6 +144,7 @@ ChatMux uses trunk-based development: `main` plus short-lived branches. There is
 2. **Group related small fixes into one PR**; keep unrelated changes out.
 3. **Only release bookkeeping commits go directly to `main`**: the `chore(release): declare X database rollback compatibility` and `chore(release): vX` commits, plus trivial typo/doc-only fixes.
 4. **Never batch-merge a long-lived integration branch into `main`.** If a change is too big for one PR, land it as a series of PRs that each keep `main` green.
+5. **Branch protection enforces the gate**: `main` requires the `Verify Node 22` / `Verify Node 24` checks to pass before a PR can merge, and force-pushes/deletions are blocked. Admins may bypass only for the release bookkeeping commits above or to unblock a proven CI-infrastructure flake (prefer re-running the failed job).
 
 ## Releases
 
