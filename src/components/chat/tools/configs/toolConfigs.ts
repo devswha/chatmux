@@ -41,6 +41,51 @@ export interface ToolDisplayConfig {
   };
 }
 
+export type ParsedTodoItem = {
+  content: string;
+  status: 'completed' | 'in_progress' | 'pending';
+};
+
+/**
+ * OMP's lowercase `todo` tool returns the authoritative list as formatted
+ * text in toolResult.content (unlike Claude TodoWrite, whose input owns a
+ * structured `todos` array). Prefer the indented phase checklist to avoid
+ * duplicating the shorter "Remaining items" summary at the top.
+ */
+export function parseOmpTodoResult(result: unknown): ParsedTodoItem[] {
+  const content = result
+    && typeof result === 'object'
+    && 'content' in result
+    ? result.content
+    : null;
+  if (typeof content !== 'string' || !content.trim()) return [];
+
+  const lines = content.split(/\r?\n/);
+  const parseLines = (minimumIndent: number): ParsedTodoItem[] => {
+    const items: ParsedTodoItem[] = [];
+    const seen = new Set<string>();
+    for (const line of lines) {
+      const match = /^(\s*)- \[([xX ])\]\s+(.+?)\s*$/.exec(line);
+      if (!match || match[1].length < minimumIndent) continue;
+      const raw = match[3].trim();
+      const inProgress = /\s+\(in progress\)$/i.test(raw);
+      const item = raw.replace(/\s+\(in progress\)$/i, '').trim();
+      if (!item || seen.has(item)) continue;
+      seen.add(item);
+      items.push({
+        content: item,
+        status: match[2].toLowerCase() === 'x'
+          ? 'completed'
+          : inProgress ? 'in_progress' : 'pending',
+      });
+    }
+    return items;
+  };
+
+  const phaseItems = parseLines(4);
+  return phaseItems.length > 0 ? phaseItems : parseLines(1);
+}
+
 export const TOOL_CONFIGS: Record<string, ToolDisplayConfig> = {
   // ============================================================================
   // COMMAND TOOLS
@@ -230,6 +275,7 @@ export const TOOL_CONFIGS: Record<string, ToolDisplayConfig> = {
     }
   },
 
+
   // ============================================================================
   // TODO TOOLS
   // ============================================================================
@@ -249,6 +295,31 @@ export const TOOL_CONFIGS: Record<string, ToolDisplayConfig> = {
       contentType: 'success-message',
       getMessage: () => 'Todo list updated'
     }
+  },
+
+  // Oh My Pi exposes the current list in the result text of its lowercase
+  // `todo` tool. Keep this snapshot visible instead of falling back to a raw
+  // Parameters card.
+  todo: {
+    input: {
+      type: 'collapsible',
+      icon: 'todo',
+      label: 'Todo list',
+      title: 'Todo list',
+      defaultOpen: true,
+      contentType: 'todo-list',
+      getContentProps: (_input, helpers) => ({
+        todos: parseOmpTodoResult(helpers?.toolResult),
+        isResult: true,
+      }),
+      colorScheme: {
+        border: 'border-violet-400 dark:border-violet-500',
+        icon: 'text-violet-600 dark:text-violet-400',
+      },
+    },
+    result: {
+      hidden: true,
+    },
   },
 
   TodoRead: {

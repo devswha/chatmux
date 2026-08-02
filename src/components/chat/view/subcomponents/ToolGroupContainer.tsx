@@ -76,7 +76,7 @@ export default function ToolGroupContainer({
   pendingAskToolId = null,
   onAskChoiceSelect,
 }: ToolGroupContainerProps) {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(group.toolName === 'todo');
   const config = getToolConfig(group.toolName).input;
   const label = config.label || group.toolName;
   const borderClass = config.colorScheme?.border || 'border-border';
