@@ -236,6 +236,7 @@
     "sendFailed": "Invio non riuscito",
     "selectionNumberRequired": "Inserisci un numero visualizzato (0-{{max}}).",
     "multiSelectionNumberRequired": "Inserisci uno o più numeri visualizzati separati da virgole.",
+    "claudeMultiSelectUnsupported": "Le selezioni multiple di Claude devono essere effettuate nel terminale. Inserisci 0 per annullare il prompt.",
     "customInputReady": "Digita la risposta personalizzata.",
     "selectionDelivered": "Selezione inviata.",
     "selectionPlaceholder": "Inserisci il numero della scelta (0-{{max}})…",

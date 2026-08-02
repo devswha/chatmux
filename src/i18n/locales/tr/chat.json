@@ -236,6 +236,7 @@
     "sendFailed": "Gönderilemedi",
     "selectionNumberRequired": "Görüntülenen bir numara girin (0-{{max}}).",
     "multiSelectionNumberRequired": "Virgülle ayrılmış bir veya daha fazla görüntülenen numara girin.",
+    "claudeMultiSelectUnsupported": "Claude çoklu seçim yanıtları terminalde yapılmalıdır. İstemi iptal etmek için 0 girin.",
     "customInputReady": "Özel yanıtı yazın.",
     "selectionDelivered": "Seçim iletildi.",
     "selectionPlaceholder": "Seçim numarası girin (0-{{max}})…",

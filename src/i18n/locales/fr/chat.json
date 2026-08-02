@@ -238,6 +238,7 @@
     "sendFailed": "Échec de l'envoi",
     "selectionNumberRequired": "Saisissez un numéro affiché (0-{{max}}).",
     "multiSelectionNumberRequired": "Saisissez un ou plusieurs numéros affichés, séparés par des virgules.",
+    "claudeMultiSelectUnsupported": "Les sélections multiples de Claude doivent être effectuées dans le terminal. Saisissez 0 pour annuler l'invite.",
     "customInputReady": "Saisissez la réponse personnalisée.",
     "selectionDelivered": "Sélection transmise.",
     "selectionPlaceholder": "Numéro du choix (0-{{max}})…",

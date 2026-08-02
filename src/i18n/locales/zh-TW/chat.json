@@ -272,6 +272,7 @@
     "sendFailed": "傳送失敗",
     "selectionNumberRequired": "請輸入顯示的編號 (0-{{max}})。",
     "multiSelectionNumberRequired": "請輸入一個或多個顯示的編號，以逗號分隔。",
+    "claudeMultiSelectUnsupported": "Claude 多選需要在終端機中直接回答。輸入 0 可取消該提示。",
     "customInputReady": "請輸入自訂回答。",
     "selectionDelivered": "已送出選擇。",
     "selectionPlaceholder": "輸入選項編號 (0-{{max}})…",

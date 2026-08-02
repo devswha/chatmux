@@ -250,6 +250,7 @@
     "sendFailed": "Failed to send",
     "selectionNumberRequired": "Enter a displayed number (0-{{max}}).",
     "multiSelectionNumberRequired": "Enter one or more displayed numbers separated by commas.",
+    "claudeMultiSelectUnsupported": "Claude multi-select answers must be made in the terminal. Enter 0 to cancel the prompt.",
     "customInputReady": "Type the custom answer.",
     "selectionDelivered": "Selection delivered.",
     "selectionPlaceholder": "Enter a choice number (0-{{max}})…",

@@ -36,3 +36,15 @@ test('findPendingRelayAsk exposes the newest unanswered choice range', () => {
     },
   }]), null);
 });
+
+test('findPendingRelayAsk rejects multi-question asks so the screen-derived prompt stays active', () => {
+  assert.equal(findPendingRelayAsk([{
+    ...pending,
+    toolInput: {
+      questions: [
+        { question: 'Format?', options: [{ label: 'ONNX' }, { label: 'TensorRT' }] },
+        { question: 'Precision?', options: [{ label: 'FP16' }, { label: 'INT8' }] },
+      ],
+    },
+  }]), null);
+});

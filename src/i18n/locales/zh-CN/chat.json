@@ -236,6 +236,7 @@
     "sendFailed": "发送失败",
     "selectionNumberRequired": "请输入显示的编号 (0-{{max}})。",
     "multiSelectionNumberRequired": "请输入一个或多个显示的编号，用逗号分隔。",
+    "claudeMultiSelectUnsupported": "Claude 多选需要在终端中直接回答。输入 0 可取消该提示。",
     "customInputReady": "请输入自定义回答。",
     "selectionDelivered": "已发送选择。",
     "selectionPlaceholder": "输入选项编号 (0-{{max}})…",

@@ -236,6 +236,7 @@
     "sendFailed": "Не удалось отправить",
     "selectionNumberRequired": "Введите отображаемый номер (0-{{max}}).",
     "multiSelectionNumberRequired": "Введите один или несколько отображаемых номеров через запятую.",
+    "claudeMultiSelectUnsupported": "Множественный выбор Claude нужно выполнять в терминале. Введите 0, чтобы отменить запрос.",
     "customInputReady": "Введите свой ответ.",
     "selectionDelivered": "Выбор отправлен.",
     "selectionPlaceholder": "Введите номер варианта (0-{{max}})…",

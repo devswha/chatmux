@@ -226,6 +226,7 @@
     "sendFailed": "送信に失敗しました",
     "selectionNumberRequired": "表示された番号を入力してください (0-{{max}})。",
     "multiSelectionNumberRequired": "カンマ区切りで表示された番号を1つ以上入力してください。",
+    "claudeMultiSelectUnsupported": "Claude の複数選択はターミナルで直接回答してください。0 を入力するとプロンプトをキャンセルします。",
     "customInputReady": "自由回答を入力してください。",
     "selectionDelivered": "選択を送信しました。",
     "selectionPlaceholder": "選択番号を入力 (0-{{max}})…",
