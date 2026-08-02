@@ -701,9 +701,9 @@ export function buildInstallArgs(options, remainingArgs = []) {
 }
 
 
-// Main CLI handler
-async function main() {
-    const args = process.argv.slice(2);
+// Main CLI handler. Exported so the release runtime wrapper can invoke the
+// CLI after enforcing its pinned platform and Node.js contract.
+export async function runChatmuxCli(args = process.argv.slice(2)) {
     const { command, options, remainingArgs } = parseArgs(args);
 
     // Apply CLI options to environment variables
@@ -762,7 +762,7 @@ async function main() {
 
 // Run the CLI
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-    main().catch(error => {
+    runChatmuxCli().catch(error => {
         console.error('\n❌ Error:', error.message);
         process.exit(1);
     });
