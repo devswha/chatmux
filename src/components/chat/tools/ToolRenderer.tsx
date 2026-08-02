@@ -28,6 +28,7 @@ interface ToolRendererProps {
   rawToolInput?: string;
   isSubagentContainer?: boolean;
   pendingAsk?: boolean;
+  onAskChoiceSelect?: (choiceNumber: number) => void;
   subagentState?: {
     childTools: SubagentChildTool[];
     currentToolIndex: number;
@@ -85,6 +86,7 @@ export const ToolRenderer: React.FC<ToolRendererProps> = memo(({
   isSubagentContainer,
   subagentState,
   pendingAsk = false,
+  onAskChoiceSelect,
 }) => {
   const config = getToolConfig(toolName);
   const displayConfig: any = mode === 'input' ? config.input : config.result;
@@ -274,6 +276,7 @@ export const ToolRenderer: React.FC<ToolRendererProps> = memo(({
             questions={contentProps.questions || []}
             answers={contentProps.answers || {}}
             pending={pendingAsk}
+            onSelectChoice={pendingAsk ? onAskChoiceSelect : undefined}
           />
         );
         break;

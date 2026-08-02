@@ -10,6 +10,11 @@ interface QuestionAnswerContentProps {
   pending?: boolean;
   allowDirectInput?: boolean;
   directInputNumber?: number;
+  /**
+   * When set (pending, single-select only), option and direct-input rows
+   * become tap targets that submit the displayed choice number directly.
+   */
+  onSelectChoice?: (choiceNumber: number) => void;
 }
 
 // Exception to the stateless ContentRenderer pattern: multi-question navigation requires local state.
@@ -20,6 +25,7 @@ export const QuestionAnswerContent: React.FC<QuestionAnswerContentProps> = ({
   pending = false,
   allowDirectInput = true,
   directInputNumber,
+  onSelectChoice,
 }) => {
   const { t } = useTranslation('chat');
   const [expandedIdx, setExpandedIdx] = useState<number | null>(pending ? 0 : null);
@@ -141,13 +147,22 @@ export const QuestionAnswerContent: React.FC<QuestionAnswerContentProps> = ({
                 <div className="ml-6.5 space-y-1">
                   {options.map((opt, optionIndex) => {
                     const wasSelected = answerLabels.includes(opt.label);
+                    const clickable = pending && !q.multiSelect && Boolean(onSelectChoice);
+                    const RowTag = clickable ? 'button' : 'div';
                     return (
-                      <div
+                      <RowTag
                         key={opt.label}
+                        {...(clickable
+                          ? { type: 'button' as const, onClick: () => onSelectChoice?.(optionIndex + 1) }
+                          : {})}
                         className={`flex items-start gap-2 rounded-lg px-2.5 py-1.5 text-[12px] ${
+                          clickable
+                            ? 'w-full cursor-pointer text-left text-gray-600 transition-colors hover:bg-blue-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-blue-900/20 dark:hover:text-gray-100'
+                            : ''
+                        } ${
                           wasSelected
                             ? 'border border-blue-200/60 bg-blue-50/80 dark:border-blue-800/40 dark:bg-blue-900/20'
-                            : 'text-gray-400 dark:text-gray-500'
+                            : clickable ? '' : 'text-gray-400 dark:text-gray-500'
                         }`}
                       >
                         {pending && (
@@ -178,18 +193,32 @@ export const QuestionAnswerContent: React.FC<QuestionAnswerContentProps> = ({
                             </span>
                           )}
                         </div>
-                      </div>
+                      </RowTag>
                     );
                   })}
 
                   {pending && allowDirectInput && (directInputNumber ?? options.length + 1) > options.length && (
-                    <div className="flex items-start gap-2 rounded-lg border border-dashed border-blue-300/70 px-2.5 py-1.5 text-[12px] text-blue-700 dark:border-blue-700/60 dark:text-blue-300">
-                      <span className="w-4 flex-shrink-0 pt-0.5 text-right font-mono text-[11px] font-semibold">
-                        {directInputNumber ?? options.length + 1}.
-                      </span>
-                      <div className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 rounded-full border-[1.5px] border-blue-300 dark:border-blue-700" />
-                      <span>{t('interactive.directInput', { defaultValue: 'Direct input (Other)' })}</span>
-                    </div>
+                    onSelectChoice && !q.multiSelect ? (
+                      <button
+                        type="button"
+                        onClick={() => onSelectChoice(directInputNumber ?? options.length + 1)}
+                        className="flex w-full cursor-pointer items-start gap-2 rounded-lg border border-dashed border-blue-300/70 px-2.5 py-1.5 text-left text-[12px] text-blue-700 transition-colors hover:bg-blue-50 dark:border-blue-700/60 dark:text-blue-300 dark:hover:bg-blue-900/20"
+                      >
+                        <span className="w-4 flex-shrink-0 pt-0.5 text-right font-mono text-[11px] font-semibold">
+                          {directInputNumber ?? options.length + 1}.
+                        </span>
+                        <div className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 rounded-full border-[1.5px] border-blue-300 dark:border-blue-700" />
+                        <span>{t('interactive.directInput', { defaultValue: 'Direct input (Other)' })}</span>
+                      </button>
+                    ) : (
+                      <div className="flex items-start gap-2 rounded-lg border border-dashed border-blue-300/70 px-2.5 py-1.5 text-[12px] text-blue-700 dark:border-blue-700/60 dark:text-blue-300">
+                        <span className="w-4 flex-shrink-0 pt-0.5 text-right font-mono text-[11px] font-semibold">
+                          {directInputNumber ?? options.length + 1}.
+                        </span>
+                        <div className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 rounded-full border-[1.5px] border-blue-300 dark:border-blue-700" />
+                        <span>{t('interactive.directInput', { defaultValue: 'Direct input (Other)' })}</span>
+                      </div>
+                    )
                   )}
 
                   {answerLabels.filter(lbl => !options.some(o => o.label === lbl)).map(lbl => (
@@ -222,7 +251,8 @@ export const QuestionAnswerContent: React.FC<QuestionAnswerContentProps> = ({
       })}
 
       {pending && (
-        <div className="rounded-md bg-blue-50 px-2.5 py-1.5 text-[11px] text-blue-700 dark:bg-blue-950/30 dark:text-blue-300">
+        <div className="flex items-center justify-between gap-2 rounded-md bg-blue-50 px-2.5 py-1.5 text-[11px] text-blue-700 dark:bg-blue-950/30 dark:text-blue-300">
+          <span>
           {questions.some((question) => question?.multiSelect)
             ? t('interactive.multiNumberInstruction', {
                 defaultValue: 'Send one or more numbers separated by commas · 0: cancel',
@@ -239,6 +269,16 @@ export const QuestionAnswerContent: React.FC<QuestionAnswerContentProps> = ({
               : t('interactive.numberInstructionNoCustom', {
                   defaultValue: 'Send the displayed number in chat · 0: cancel',
                 })}
+          </span>
+          {onSelectChoice && !questions.some((question) => question?.multiSelect) && (
+            <button
+              type="button"
+              onClick={() => onSelectChoice(0)}
+              className="flex-shrink-0 cursor-pointer rounded border border-blue-200/80 px-1.5 py-0.5 font-medium transition-colors hover:bg-blue-100 dark:border-blue-800/60 dark:hover:bg-blue-900/40"
+            >
+              {t('interactive.cancelChoice', { defaultValue: 'Cancel (0)' })}
+            </button>
+          )}
         </div>
       )}
 

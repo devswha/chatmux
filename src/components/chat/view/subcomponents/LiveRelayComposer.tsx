@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ClipboardEvent, DragEvent, FormEvent, KeyboardEvent, MouseEvent } from 'react';
+import type { ClipboardEvent, DragEvent, FormEvent, KeyboardEvent, MouseEvent, MutableRefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { api } from '../../../../utils/api';
@@ -85,6 +85,7 @@ export default function LiveRelayComposer({
   isProcessing = false,
   transcriptSessionId = null,
   pendingAsk = null,
+  choiceSubmitRef,
 }: {
   target: TmuxPaneTarget;
   model?: string | null;
@@ -96,6 +97,12 @@ export default function LiveRelayComposer({
   isProcessing?: boolean;
   transcriptSessionId?: string | null;
   pendingAsk?: PendingRelayAsk | null;
+  /**
+   * Receives the composer's choice submitter so transcript-rendered ask cards
+   * (which live outside this component) can deliver a tapped choice number
+   * through the same validated relay path as typed answers.
+   */
+  choiceSubmitRef?: MutableRefObject<((choiceNumber: number) => void) | null>;
 }) {
   const commandTrigger = relayKind === 'codex' ? '$' : '/';
   const { t } = useTranslation('chat');
@@ -512,8 +519,8 @@ export default function LiveRelayComposer({
     }
   }, []);
 
-  const send = useCallback(async () => {
-    const message = input.trim();
+  const send = useCallback(async (overrideMessage?: string) => {
+    const message = (overrideMessage ?? input).trim();
     if (!message || status.kind === 'sending') {
       return;
     }
@@ -702,7 +709,8 @@ export default function LiveRelayComposer({
         });
         return;
       }
-      setInput('');
+      // A tapped choice must not discard an unrelated typed draft.
+      if (overrideMessage === undefined) setInput('');
       if (interactiveRoute && interactivePrompt && !isAwaitingInteractiveCustom && data.action === 'other') {
         setCustomInputPromptId(interactivePrompt.id);
         setStatus({
@@ -743,6 +751,17 @@ export default function LiveRelayComposer({
     relayKind,
     t,
   ]);
+
+  // Expose the choice submitter to the transcript-rendered pending ask card.
+  useEffect(() => {
+    if (!choiceSubmitRef) return undefined;
+    choiceSubmitRef.current = (choiceNumber: number) => {
+      void send(String(choiceNumber));
+    };
+    return () => {
+      choiceSubmitRef.current = null;
+    };
+  }, [choiceSubmitRef, send]);
   const interrupt = useCallback(async () => {
     if (!canInterrupt || isInterrupting) {
       return;
@@ -873,6 +892,9 @@ export default function LiveRelayComposer({
               pending
               allowDirectInput={interactivePrompt.customOptionNumber !== null}
               directInputNumber={interactivePrompt.customOptionNumber ?? undefined}
+              onSelectChoice={interactivePrompt.multiSelect
+                ? undefined
+                : (choiceNumber) => { void send(String(choiceNumber)); }}
             />
           </div>
         )}
