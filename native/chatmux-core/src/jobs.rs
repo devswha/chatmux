@@ -163,7 +163,10 @@ impl JobAuthority {
             return Err(AuthorityError::StaleLease);
         }
         if let Some(index) = job.event_sequences.get(event_id).copied() {
-            let existing = &job.events[index];
+            let existing = job.events.get(index).ok_or(AuthorityError::Storage)?;
+            if existing.event_id != event_id {
+                return Err(AuthorityError::Storage);
+            }
             return if existing.payload == payload {
                 Ok(existing.clone())
             } else {
@@ -196,9 +199,16 @@ impl JobAuthority {
         let mut changed = Vec::new();
         for job_id in ids {
             let job = self.jobs.get_mut(&job_id).expect("collected job exists");
-            if matches!(job.state, JobState::Running | JobState::Aborting) {
+            let was_active = matches!(job.state, JobState::Running | JobState::Aborting);
+            let had_lease = job.lease.is_some();
+            let cleared_lease = had_lease && !job.state.is_terminal();
+            if was_active {
                 job.state = JobState::Interrupted;
+            }
+            if cleared_lease {
                 job.lease = None;
+            }
+            if was_active || cleared_lease {
                 changed.push(self.snapshot(&job_id).expect("collected job exists"));
             }
         }
@@ -214,6 +224,20 @@ impl JobAuthority {
             lease: job.lease.clone(),
             last_sequence: job.events.len() as u64,
         })
+    }
+
+    fn validate_event_sequences(&self) -> Result<(), AuthorityError> {
+        for job in self.jobs.values() {
+            if job.event_sequences.len() != job.events.len() {
+                return Err(AuthorityError::Storage);
+            }
+            for (index, event) in job.events.iter().enumerate() {
+                if job.event_sequences.get(&event.event_id) != Some(&index) {
+                    return Err(AuthorityError::Storage);
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -246,6 +270,7 @@ impl PersistentAuthority {
             Some(encoded) => serde_json::from_str(&encoded).map_err(|_| AuthorityError::Storage)?,
             None => JobAuthority::default(),
         };
+        authority.validate_event_sequences()?;
         let mut persistent = Self {
             authority,
             connection,
@@ -596,6 +621,20 @@ mod tests {
     }
 
     #[test]
+    fn clears_queued_leases_during_reconciliation() {
+        let mut authority = JobAuthority::default();
+        authority.create("job-1").unwrap();
+        authority.acquire("job-1", "owner-1").unwrap();
+
+        let changed = authority.reconcile();
+
+        assert_eq!(changed.len(), 1);
+        assert_eq!(changed[0].state, JobState::Queued);
+        assert!(changed[0].lease.is_none());
+        assert!(authority.acquire("job-1", "owner-2").is_ok());
+    }
+
+    #[test]
     fn persists_state_and_reconciles_active_jobs_on_reopen() {
         let directory = std::env::temp_dir().join(format!(
             "chatmux-core-jobs-{}-{}",
@@ -635,6 +674,54 @@ mod tests {
         assert_eq!(version, 1);
         drop(second);
 
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn rejects_persisted_event_sequence_indexes_that_do_not_match_events() {
+        let directory = std::env::temp_dir().join(format!(
+            "chatmux-core-jobs-events-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+        ));
+        std::fs::create_dir(&directory).unwrap();
+        let database = directory.join("jobs.sqlite3");
+
+        let mut first = PersistentAuthority::open(&database).unwrap();
+        first.mutate(|inner| inner.create("job-1")).unwrap();
+        let lease = first
+            .mutate(|inner| inner.acquire("job-1", "owner-1"))
+            .unwrap();
+        first
+            .mutate(|inner| inner.append_event("job-1", &lease, "event-1", json!({"value": 1})))
+            .unwrap();
+        drop(first);
+
+        let connection = rusqlite::Connection::open(&database).unwrap();
+        let encoded: String = connection
+            .query_row(
+                "SELECT state_json FROM job_authority WHERE id = 1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let mut state: serde_json::Value = serde_json::from_str(&encoded).unwrap();
+        state["jobs"]["job-1"]["event_sequences"]["event-1"] = json!(1);
+        connection
+            .execute(
+                "UPDATE job_authority SET state_json = ?1 WHERE id = 1",
+                [serde_json::to_string(&state).unwrap()],
+            )
+            .unwrap();
+        drop(connection);
+
+        assert_eq!(
+            PersistentAuthority::open(&database).err(),
+            Some(AuthorityError::Storage)
+        );
         std::fs::remove_dir_all(directory).unwrap();
     }
 
