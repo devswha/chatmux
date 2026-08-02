@@ -357,6 +357,14 @@ function ChatInterface({
       : null
   ), [chatMessages, isSessionReadOnly, liveSessionKind]);
 
+  // Bridges transcript-rendered ask cards to the relay composer: the composer
+  // registers its choice submitter here, and tapped choices reuse the same
+  // validated relay path as typed numbers.
+  const askChoiceSubmitRef = useRef<((choiceNumber: number) => void) | null>(null);
+  const handleAskChoiceSelect = useCallback((choiceNumber: number) => {
+    askChoiceSubmitRef.current?.(choiceNumber);
+  }, []);
+
   if (!selectedProject) {
     const selectedProviderLabel =
       provider === 'cursor'
@@ -434,6 +442,7 @@ function ChatInterface({
           selectedProject={selectedProject}
           transcriptView={Boolean(liveSessionKind && liveSessionKind !== 'gjc')}
           pendingAskToolId={pendingRelayAsk?.toolId ?? null}
+          onAskChoiceSelect={handleAskChoiceSelect}
         />
 
         <div className="relative flex-shrink-0">
@@ -473,6 +482,7 @@ function ChatInterface({
                 isProcessing={liveSessionProcessing}
                 transcriptSessionId={selectedSession?.id ?? null}
                 pendingAsk={pendingRelayAsk}
+                choiceSubmitRef={askChoiceSubmitRef}
               />
             ) : (
               <div className="chat-composer-shell relative flex-shrink-0 px-2 pb-3 pt-2 sm:px-4">

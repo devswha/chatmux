@@ -28,6 +28,7 @@ interface ToolGroupContainerProps {
   provider: Provider | string;
   transcriptView?: boolean;
   pendingAskToolId?: string | null;
+  onAskChoiceSelect?: (choiceNumber: number) => void;
 }
 
 function parseToolInput(toolInput: unknown): unknown {
@@ -73,6 +74,7 @@ export default function ToolGroupContainer({
   provider,
   transcriptView = false,
   pendingAskToolId = null,
+  onAskChoiceSelect,
 }: ToolGroupContainerProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const config = getToolConfig(group.toolName).input;
@@ -141,6 +143,7 @@ export default function ToolGroupContainer({
               provider={provider}
               transcriptView={transcriptView}
               pendingAskToolId={pendingAskToolId}
+              onAskChoiceSelect={onAskChoiceSelect}
             />
           ))}
         </div>

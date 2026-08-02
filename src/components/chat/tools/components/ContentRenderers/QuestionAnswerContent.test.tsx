@@ -94,6 +94,40 @@ test('pending transcript question renders numbered choices, direct input, and ca
   assert.ok(!html.includes('Skipped'));
 });
 
+test('pending single-select choices become buttons only when a choice handler is provided', () => {
+  const withHandler = renderToStaticMarkup(
+    React.createElement(QuestionAnswerContent, {
+      questions: [{ question: 'Pick one?', options: [{ label: 'Allow' }, { label: 'Reject' }] }],
+      answers: {},
+      pending: true,
+      onSelectChoice: () => {},
+    }),
+  );
+  // Option rows, the direct-input row, and the cancel affordance are all tappable.
+  assert.ok((withHandler.match(/<button type="button"/g) ?? []).length >= 4);
+  assert.ok(withHandler.includes('Cancel (0)'));
+
+  const withoutHandler = renderToStaticMarkup(
+    React.createElement(QuestionAnswerContent, {
+      questions: [{ question: 'Pick one?', options: [{ label: 'Allow' }, { label: 'Reject' }] }],
+      answers: {},
+      pending: true,
+    }),
+  );
+  assert.ok(!withoutHandler.includes('Cancel (0)'));
+
+  const multiSelect = renderToStaticMarkup(
+    React.createElement(QuestionAnswerContent, {
+      questions: [{ question: 'Pick many?', options: [{ label: 'A' }, { label: 'B' }], multiSelect: true }],
+      answers: {},
+      pending: true,
+      onSelectChoice: () => {},
+    }),
+  );
+  // Multi-select stays typed: no tappable option rows, no cancel button.
+  assert.ok(!multiSelect.includes('Cancel (0)'));
+});
+
 test('a provider-native custom option does not add a second direct-input row', () => {
   const html = renderToStaticMarkup(
     React.createElement(QuestionAnswerContent, {
