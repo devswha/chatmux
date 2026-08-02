@@ -3,6 +3,33 @@
 All notable changes to ChatMux will be documented in this file.
 
 
+## [1.7.0](https://github.com/devswha/chatmux/compare/v1.6.1...v1.7.0) (2026-08-02)
+
+### New Features
+
+* **discovery:** detect local agent state from runtime events ([c2b4894](https://github.com/devswha/chatmux/commit/c2b48944555ecedd1d0787959cebce14909f811e))
+* **relay:** answer transcript choices from chat ([7691544](https://github.com/devswha/chatmux/commit/769154450b88d187ecd39f33869e1c6831cf4749))
+* **relay:** support Claude transcript choices ([c64500b](https://github.com/devswha/chatmux/commit/c64500bf4da38005e0b0b03515965fd14079f268))
+* **relay:** unify native CLI prompt controls ([30de2aa](https://github.com/devswha/chatmux/commit/30de2aa0fe478c74e7bfd963c1095eebdce1bc34))
+
+### Bug Fixes
+
+* **chat:** keep polling kind-unconfirmed live sessions and finish load-all on hasMore ([4a5f015](https://github.com/devswha/chatmux/commit/4a5f015601c3ea79178ca28574899e77f7d0714d))
+* **chat:** preserve expanded transcript windows ([011a186](https://github.com/devswha/chatmux/commit/011a1860d8c8090fc6b03d1ff43b05f5eb8f6efd))
+* **discovery:** emit skip-path snapshots and bound transcript version maps ([ded09bf](https://github.com/devswha/chatmux/commit/ded09bf8bb8e5b66a66bbe5b49f6ea9f969a0ab8))
+* **external-cli:** follow active resumed transcripts ([dd43b85](https://github.com/devswha/chatmux/commit/dd43b85e5bf0c2050ab14f05555a5532bb28a8be))
+* **notifications:** follow external conversation remaps ([6da5f85](https://github.com/devswha/chatmux/commit/6da5f8522bdfb31304fec4f5c4305de741f0a525))
+* **notifications:** log redacted diagnostic for isolated resolution failures ([57f1ef8](https://github.com/devswha/chatmux/commit/57f1ef865793849cf0cd7bd7f25e96c7c835d071))
+* **pwa:** allow all screen orientations ([ca813ff](https://github.com/devswha/chatmux/commit/ca813ff814cce434f9d4f7021e0714e6ba15d30e))
+* **relay:** align native prompt answers with the displayed card ([0f01d5e](https://github.com/devswha/chatmux/commit/0f01d5eacc28cf351ea49b94860911b63182524f))
+* **relay:** gate Claude multi-select answers until the toggle keys are verified ([7799451](https://github.com/devswha/chatmux/commit/7799451ffc7f9f9c072d3c43b84fc68fa1ea1334))
+* **tmux-observer:** honor session-scoped destroy-unattached and keep clear-confirm alive ([ba58ed8](https://github.com/devswha/chatmux/commit/ba58ed8f580fcec0aa166f92e9dd6c8b15057fe0))
+* **ui:** rebalance chat composer height ([115372f](https://github.com/devswha/chatmux/commit/115372f29c670c121a84aea330a1cda47d2ca642))
+
+### Maintenance
+
+* **release:** declare 1.7.0 database rollback compatibility ([def86f0](https://github.com/devswha/chatmux/commit/def86f051487d0facaaa41849ac6922289c29b9d))
+
 ## [1.6.1](https://github.com/devswha/chatmux/compare/v1.6.0...v1.6.1) (2026-07-30)
 
 ### Bug Fixes
