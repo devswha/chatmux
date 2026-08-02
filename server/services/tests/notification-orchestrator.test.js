@@ -18,7 +18,11 @@ import {
   sessionsDb,
   userDb,
 } from '../../modules/database/index.js';
-import { notifyLiveTurnEnded, notifyRunStopped } from '../notification-orchestrator.js';
+import {
+  notifyInputRequired,
+  notifyLiveTurnEnded,
+  notifyRunStopped,
+} from '../notification-orchestrator.js';
 
 async function withIsolatedDatabase(runTest) {
   const previousDatabasePath = process.env.DATABASE_PATH;
@@ -100,6 +104,44 @@ test('push payload uses the app session id when notified with a provider session
       assert.equal(payload?.navigation?.href, `/session/${encodeURIComponent('app-session-1')}`);
       assert.equal(payload?.navigation?.title, 'ChatMux');
       assert.equal(sentPayloads.length, 0, 'completion producers only create durable outbox decisions');
+    });
+  } finally {
+    webPush.sendNotification = originalSendNotification;
+  }
+});
+
+test('INPUT notification uses the action preference and navigates to the mapped app session', async () => {
+  const originalSendNotification = webPush.sendNotification;
+  const sentPayloads = [];
+  webPush.sendNotification = async (_subscription, payload) => {
+    sentPayloads.push(JSON.parse(payload));
+    return {};
+  };
+
+  try {
+    await withIsolatedDatabase(async () => {
+      const userId = Number(userDb.createUser('input-user', 'hash').id);
+      notificationPreferencesDb.updateCompletionPreferencesAndDeliveryState(userId, {
+        channels: { webPush: true },
+        events: { actionRequired: true, stop: false, liveStop: false, error: false },
+      }, Date.now(), true);
+      pushSubscriptionsDb.saveSubscription(userId, 'https://example.test/input-push', 'p256dh', 'auth');
+      sessionsDb.createAppSession('input-app-session', 'codex', '/workspace/demo');
+      sessionsDb.assignProviderSessionId('input-app-session', 'codex', 'codex-native-input');
+
+      notifyInputRequired({
+        userId,
+        provider: 'codex',
+        sessionId: 'codex-native-input',
+        sessionName: 'codex-pane',
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+
+      assert.equal(sentPayloads.length, 1);
+      assert.equal(sentPayloads[0].title, 'codex-pane');
+      assert.equal(sentPayloads[0].body, 'Codex: Input required — the tmux session is waiting for you');
+      assert.equal(sentPayloads[0].data.sessionId, 'input-app-session');
+      assert.equal(sentPayloads[0].data.code, 'input.required');
     });
   } finally {
     webPush.sendNotification = originalSendNotification;

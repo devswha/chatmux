@@ -4,17 +4,26 @@ import test from 'node:test';
 import { createLiveTurnMonitor, findAssistantTurnEnds } from '@/modules/notifications/services/live-turn-monitor.service.js';
 
 const line = (reason: 'stop' | 'error' = 'stop') => JSON.stringify({ type: 'message', message: { role: 'assistant', stopReason: reason } });
+const askLine = () => JSON.stringify({
+  type: 'message',
+  message: {
+    role: 'assistant',
+    stopReason: 'toolUse',
+    content: [{ type: 'toolCall', name: 'ask', id: 'ask-1', arguments: { question: 'Continue?' } }],
+  },
+});
 function harness() {
   let text = ''; let available = true; let rows: Array<any> = [{ id: 's1', tmuxName: 'pane', claim: 'lineage' }];
-  const notices: any[] = []; const diagnostics: any[] = []; let failStop = false;
+  const notices: any[] = []; const actionNotices: any[] = []; const diagnostics: any[] = []; let failStop = false;
   const monitor = createLiveTurnMonitor({
     getUserId: () => 1,
     getDetailed: async () => ({ ok: available, sessions: rows, transcriptPaths: new Map(rows.filter((row) => row.id !== 'no-path').map((row) => [row.id, `/tmp/${row.id}`])) }),
     statSize: async () => Buffer.byteLength(text), readDelta: async (_path, start, end) => Buffer.from(text).subarray(start, end).toString(),
     notify: async (notice) => { notices.push(notice); if (failStop && notice.stopReason === 'stop') throw new Error('outbox unavailable'); },
+    notifyActionRequired: async (notice) => { actionNotices.push(notice); },
     diagnostic: (diagnostic) => { diagnostics.push(diagnostic); },
   });
-  return { monitor, notices, diagnostics, append: (value: string) => { text += value; }, rows: (value: any[]) => { rows = value; }, available: (value: boolean) => { available = value; }, failStop: (value: boolean) => { failStop = value; } };
+  return { monitor, notices, actionNotices, diagnostics, append: (value: string) => { text += value; }, rows: (value: any[]) => { rows = value; }, available: (value: boolean) => { available = value; }, failStop: (value: boolean) => { failStop = value; } };
 }
 
 test('findAssistantTurnEnds preserves stable occurrence order and ignores incomplete or non-terminal records', () => {
@@ -31,6 +40,22 @@ test('monitor baselines then emits a byte-stable occurrence key for each appende
   h.append(`${line()}\n`); await h.monitor.tick();
   assert.equal(h.notices.length, 2);
   assert.notEqual(h.notices[1].occurrenceKey, first.occurrenceKey);
+});
+
+test('monitor baselines old prompts and emits one action event for each appended GJC ask', async () => {
+  const h = harness();
+  h.append(`${askLine()}\n`);
+  await h.monitor.tick();
+  assert.equal(h.actionNotices.length, 0, 'historical INPUT is not replayed');
+
+  h.append(`${askLine()}\n`);
+  await h.monitor.tick();
+  await h.monitor.tick();
+  assert.deepEqual(h.actionNotices, [{ userId: 1, sessionId: 's1', tmuxName: 'pane' }]);
+
+  h.append(`${line()}\n${askLine()}\n`);
+  await h.monitor.tick();
+  assert.equal(h.actionNotices.length, 2);
 });
 
 test('a failed completion notification retries the same post-commit cursor occurrence', async () => {

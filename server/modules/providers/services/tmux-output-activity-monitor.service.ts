@@ -62,6 +62,7 @@ export type TmuxOutputActivityMonitorOptions = {
   observerFactory?: TmuxControlObserverFactory;
   canObserveSession?: (session: SessionIdentity) => Promise<boolean>;
   subscribeTranscript?: (listener: (change: TranscriptChange) => void) => () => void;
+  onInputRequired?: (target: TmuxOutputActivityTarget) => unknown;
   warn?: (message: string) => void;
 };
 
@@ -270,6 +271,13 @@ export function createTmuxOutputActivityMonitor(
   const publishPrompt = (pane: PaneState, active: boolean, syncObservers = true): void => {
     const activityChanged = pane.observedPrompt !== active;
     pane.observedPrompt = active;
+    if (activityChanged && active && pane.row.activity === 'running') {
+      try {
+        void Promise.resolve(options.onInputRequired?.(pane.target)).catch(() => undefined);
+      } catch {
+        // Notification delivery must never interrupt INPUT state publication.
+      }
+    }
     if (setObservedTmuxInteractiveActivity(pane.target, active)) {
       collector.forceRefresh();
     }

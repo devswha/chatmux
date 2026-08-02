@@ -1,9 +1,14 @@
 import { createHash } from 'node:crypto';
 import { open, stat } from 'node:fs/promises';
 
-import { userDb } from '@/modules/database/index.js';
+import {
+  completionAppAlias,
+  completionNotificationTargetsDb,
+  userDb,
+} from '@/modules/database/index.js';
 import {
   createCompletionDecision,
+  notifyInputRequired,
   notifyRunFailed,
 } from '@/modules/notifications/services/notification-orchestrator.service.js';
 import {
@@ -93,6 +98,11 @@ type MonitorDeps = {
     stopReason: LiveTurnEnd;
     occurrenceKey?: string;
   }) => unknown;
+  notifyActionRequired?: (args: {
+    userId: number;
+    sessionId: string;
+    tmuxName: string | null;
+  }) => unknown;
   getUserId: () => number | null;
   readDelta?: (path: string, start: number, end: number) => Promise<string | Buffer>;
   statSize?: (path: string) => Promise<number>;
@@ -161,11 +171,38 @@ export function createLiveTurnMonitor(deps: MonitorDeps) {
         const line = lineBytes.toString('utf8');
         if (line.includes('"stopReason"') && line.includes('"message"')) {
           try {
-            const record = JSON.parse(line) as { type?: unknown; message?: { role?: unknown; stopReason?: unknown } };
-            const { role, stopReason } = record.message ?? {};
+            const record = JSON.parse(line) as {
+              type?: unknown;
+              message?: { role?: unknown; stopReason?: unknown; content?: unknown };
+            };
+            const { role, stopReason, content } = record.message ?? {};
             const terminalStopReason: LiveTurnEnd | null = (
               stopReason === 'stop' || stopReason === 'error'
             ) ? stopReason : null;
+            const asksForInput = record.type === 'message'
+              && role === 'assistant'
+              && stopReason === 'toolUse'
+              && Array.isArray(content)
+              && content.some((item) => (
+                item
+                && typeof item === 'object'
+                && (item as { type?: unknown }).type === 'toolCall'
+                && ['ask', 'AskUserQuestion', 'request_user_input'].includes(
+                  String((item as { name?: unknown }).name ?? ''),
+                )
+              ));
+            if (asksForInput) {
+              try {
+                await deps.notifyActionRequired?.({
+                  userId,
+                  sessionId,
+                  tmuxName: cursor.tmuxName,
+                });
+              } catch {
+                cursor.offset = lineStart;
+                return;
+              }
+            }
             if (record.type === 'message' && role === 'assistant' && terminalStopReason) {
               const notification = {
                 userId,
@@ -296,6 +333,17 @@ export function startLiveTurnMonitor(
         sessionId,
         sessionName: tmuxName,
         error: 'GJC turn ended with an error',
+      });
+    },
+    notifyActionRequired: ({ userId, sessionId, tmuxName }) => {
+      const alias = completionAppAlias({ provider: 'gjc', sessionId });
+      const target = completionNotificationTargetsDb.resolveAlias(alias);
+      if (!target || !completionNotificationTargetsDb.getWatch(userId, target.id)) return;
+      notifyInputRequired({
+        userId,
+        provider: 'gjc',
+        sessionId,
+        sessionName: tmuxName,
       });
     },
     getUserId: () => {

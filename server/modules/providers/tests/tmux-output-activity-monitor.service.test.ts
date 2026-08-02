@@ -383,6 +383,53 @@ test('uses the transcript bell for a mapped RUN pane without keeping a control c
   monitor.dispose();
 });
 
+test('emits one action edge when a RUN pane becomes INPUT', async () => {
+  const session = row('codex', 26);
+  const collector = fakeCollector(snapshot([session]));
+  const transcriptRef: { current: ((change: {
+    provider: SupportedKind;
+    providerSessionId: string | null;
+    changedAtMs: number;
+  }) => void) | null } = { current: null };
+  let screen = 'Working';
+  const actions: string[] = [];
+  const monitor = createTmuxOutputActivityMonitor(collector.source, {
+    quietMs: 5,
+    clearConfirmMs: 5,
+    fallbackMs: 60_000,
+    canObserveSession: async () => true,
+    observerFactory: () => ({ close: () => undefined }),
+    capture: async () => screen,
+    subscribeTranscript: (listener) => {
+      transcriptRef.current = listener;
+      return () => { transcriptRef.current = null; };
+    },
+    onInputRequired: (target) => { actions.push(target.tmux.paneId); },
+  });
+  const emitTranscript = () => transcriptRef.current?.({
+    provider: 'codex',
+    providerSessionId: session.providerSessionId,
+    changedAtMs: Date.now(),
+  });
+
+  monitor.start();
+  await waitFor(() => transcriptRef.current !== null);
+  screen = SCREENS.codex;
+  emitTranscript();
+  await waitFor(() => actions.length === 1);
+  emitTranscript();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.deepEqual(actions, [session.tmux.paneId], 'the same visible prompt is not repeated');
+
+  screen = 'Working';
+  emitTranscript();
+  await waitFor(() => getCachedTmuxInteractiveActivity(targetFor(session)) === null);
+  screen = SCREENS.codex;
+  emitTranscript();
+  await waitFor(() => actions.length === 2);
+  monitor.dispose();
+});
+
 test('keeps INPUT while every provider switches from Other to direct input', async () => {
   const rows = (Object.keys(CUSTOM_SCREENS) as SupportedKind[])
     .map((kind, index) => row(kind, index + 40));

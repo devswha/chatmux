@@ -177,6 +177,7 @@ function buildNotificationPayload(event) {
     'permission.required': normalizedEvent.meta?.toolName
       ? `Action Required: Tool "${normalizedEvent.meta.toolName}" needs approval`
       : 'Action Required: A tool needs your approval',
+    'input.required': 'Input required — the tmux session is waiting for you',
     'run.stopped': normalizedEvent.meta?.stopReason || 'Run Stopped: The run has stopped',
     'run.failed': normalizedEvent.meta?.error ? `Run Failed: ${normalizedEvent.meta.error}` : 'Run Failed: The run encountered an error',
     'live.turn_end': normalizedEvent.meta?.stopReason === 'error'
@@ -366,6 +367,29 @@ function notifyRunFailed({ userId, provider, sessionId = null, error, sessionNam
 }
 
 /**
+ * A tmux-driven agent has stopped running and is waiting for a choice,
+ * approval, or direct answer. Per-session watch policy is checked by the
+ * producer because external generations and app sessions use different
+ * durable target identities.
+ *
+ * @param {{ userId: number, provider: string, sessionId?: string | null, sessionName?: string | null }} args
+ */
+function notifyInputRequired({ userId, provider, sessionId = null, sessionName = null }) {
+  notifyUserIfEnabled({
+    userId,
+    event: createNotificationEvent({
+      provider,
+      sessionId,
+      kind: 'action_required',
+      code: 'input.required',
+      meta: { sessionName },
+      severity: 'warning',
+      requiresUserAction: true,
+    }),
+  });
+}
+
+/**
  * Turn completion of a tmux-driven session. The monitor must provide its
  * durable generation occurrence key; no session-based fallback is permitted.
  *
@@ -404,6 +428,7 @@ export {
   notifyUserIfEnabled,
   notifyRunStopped,
   notifyRunFailed,
+  notifyInputRequired,
   notifyLiveTurnEnded,
   createCompletionDecision,
 };
