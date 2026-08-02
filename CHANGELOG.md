@@ -3,6 +3,36 @@
 All notable changes to ChatMux will be documented in this file.
 
 
+## [1.8.0](https://github.com/devswha/chatmux/compare/v1.7.0...v1.8.0) (2026-08-02)
+
+### New Features
+
+* **chat:** answer ask prompts by tapping choices ([e401a74](https://github.com/devswha/chatmux/commit/e401a7481c205d2ad72a97c0eb6c03f211de618a))
+* **notifications:** notify when tmux agents require input ([591759f](https://github.com/devswha/chatmux/commit/591759fef3318ebf59b111f8813478157178b313))
+* **update:** show release notes before applying a server update ([ab8674e](https://github.com/devswha/chatmux/commit/ab8674e924abeda3bdb86486dfe22e13fc091bf8))
+
+### Bug Fixes
+
+* **chat:** render Oh My Pi todo snapshots ([c47511d](https://github.com/devswha/chatmux/commit/c47511df874555e81cdcdf2345aac85c54410a2b))
+* **ci:** repair lint and typecheck breakage from the fix wave ([73b637f](https://github.com/devswha/chatmux/commit/73b637f65a3b4aceece05f398ef432c74d761f59))
+* **infra:** harden release and server defaults ([2b2743b](https://github.com/devswha/chatmux/commit/2b2743b199bce098f64cdb3050327bd4adb5b54a))
+* **native-core:** recover stale leases and watcher failures ([a8509fd](https://github.com/devswha/chatmux/commit/a8509fd18de91c64f6c79b843469bb8f8a6f54c3))
+* **notifications:** preserve completion delivery correctness ([5af5a2c](https://github.com/devswha/chatmux/commit/5af5a2cffc99ae0cd59f796c9a5a084d333483e4))
+* **providers:** harden watcher and transcript lifecycle ([f8b22f8](https://github.com/devswha/chatmux/commit/f8b22f8d6f47c49cdaaff362b67cda2cd9759011))
+* **relay:** enable verified Claude multi-select answers ([e807f93](https://github.com/devswha/chatmux/commit/e807f93c32c57bcd86e5810d3c0bf2ab8c7449cc))
+* **relay:** include the approval body in interactive prompt identity ([ad882df](https://github.com/devswha/chatmux/commit/ad882dfae996095e6198c8f41b242c9ab2639e42))
+* **relay:** make Claude transcript asks reachable and honest ([bd40740](https://github.com/devswha/chatmux/commit/bd40740deb9d38c908b5190217ef70f9e6d4a52d))
+* **stream:** defer stale state until resync ([ee16368](https://github.com/devswha/chatmux/commit/ee1636802a81a9287d62f1d35d38b45f145a9142))
+
+### Documentation
+
+* document trunk-based branching and release policy ([dcd3bca](https://github.com/devswha/chatmux/commit/dcd3bca903c9b1d3ffe67fab3b3b9ff76404c1b2))
+* record main branch protection in the maintainer policy ([8948e18](https://github.com/devswha/chatmux/commit/8948e18049e296a44461caff042a741cc9c43d80))
+
+### Maintenance
+
+* **release:** declare 1.8.0 database rollback compatibility ([7952914](https://github.com/devswha/chatmux/commit/7952914e728c56558ccce3af2bc4b72ea3ee4deb))
+
 ## [1.7.0](https://github.com/devswha/chatmux/compare/v1.6.1...v1.7.0) (2026-08-02)
 
 ### New Features
