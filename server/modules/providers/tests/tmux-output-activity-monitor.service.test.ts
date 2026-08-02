@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 
 import type {
@@ -7,6 +10,7 @@ import type {
 } from '@/modules/providers/services/discovery-collector.service.js';
 import { getCachedTmuxInteractiveActivity } from '@/modules/providers/services/tmux-interactive-prompt.service.js';
 import {
+  createTmuxControlObserver,
   createTmuxOutputActivityMonitor,
   tmuxControlOutputPaneId,
   tmuxObserverIsSafe,
@@ -200,9 +204,9 @@ function fakeCollector(initial: DiscoverySnapshot) {
   };
 }
 
-async function waitFor(predicate: () => boolean, timeoutMs = 1_000): Promise<void> {
+async function waitFor(predicate: () => boolean | Promise<boolean>, timeoutMs = 1_000): Promise<void> {
   const started = Date.now();
-  while (!predicate()) {
+  while (!(await predicate())) {
     if (Date.now() - started > timeoutMs) throw new Error('condition timed out');
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
@@ -230,6 +234,51 @@ test('parses normal and extended tmux control-mode output bells', () => {
   assert.equal(tmuxControlOutputPaneId('%extended-output %31 25 : hello'), '%31');
   assert.equal(tmuxControlOutputPaneId('%session-changed $1 demo'), null);
   assert.equal(tmuxControlOutputPaneId('ordinary terminal output'), null);
+});
+
+test('control-mode observers exclude their client from tmux size calculation', { concurrency: false }, async () => {
+  const tempDirectory = await mkdtemp(path.join(os.tmpdir(), 'tmux-observer-'));
+  const executable = path.join(tempDirectory, 'tmux');
+  const argsFile = path.join(tempDirectory, 'args');
+  const originalPath = process.env.PATH;
+  const originalArgsFile = process.env.TMUX_ARGS_FILE;
+
+  try {
+    await writeFile(executable, '#!/bin/sh\nprintf "%s\\n" "$@" > "$TMUX_ARGS_FILE"\n', { mode: 0o755 });
+    process.env.PATH = `${tempDirectory}:${originalPath ?? ''}`;
+    process.env.TMUX_ARGS_FILE = argsFile;
+    createTmuxControlObserver(
+      { socketPath: '/tmp/tmux-test.sock', sessionId: '$42' },
+      () => undefined,
+      () => undefined,
+    );
+
+    await waitFor(async () => {
+      try {
+        return (await readFile(argsFile, 'utf8')).length > 0;
+      } catch {
+        return false;
+      }
+    });
+    const args = (await readFile(argsFile, 'utf8')).trim().split('\n');
+    assert.deepEqual(args, [
+      '-C',
+      '-S',
+      '/tmp/tmux-test.sock',
+      'attach-session',
+      '-r',
+      '-f',
+      'active-pane,ignore-size',
+      '-t',
+      '$42',
+    ]);
+  } finally {
+    if (originalPath === undefined) delete process.env.PATH;
+    else process.env.PATH = originalPath;
+    if (originalArgsFile === undefined) delete process.env.TMUX_ARGS_FILE;
+    else process.env.TMUX_ARGS_FILE = originalArgsFile;
+    await rm(tempDirectory, { recursive: true, force: true });
+  }
 });
 
 test('keeps GJC, Codex, OMP, and Claude INPUT states without an open chat', async () => {

@@ -16,6 +16,7 @@ import {
   extractExternalResumeSessionId,
   extractContainedTranscriptSessionId,
   isCodexRuntimeProcess,
+  isClaudeRuntimeProcess,
   normalizeExternalPaneOutput,
   parseClaudeRuntimeSession,
   parseExternalPanes,
@@ -176,6 +177,17 @@ test('Codex process selection accepts the npm wrapper and native child pair', ()
   }), true);
   assert.equal(selectPrimaryCodexProcessPid([89009, 89076]), 89009);
   assert.equal(selectPrimaryCodexProcessPid([]), null);
+});
+
+test('Claude receipt inference recognizes argv-wrapped Claude runtimes', () => {
+  assert.equal(isClaudeRuntimeProcess({
+    comm: 'node',
+    args: 'node /opt/homebrew/bin/claude --resume session-id',
+  }), true);
+  assert.equal(isClaudeRuntimeProcess({
+    comm: 'node',
+    args: 'node /opt/homebrew/bin/codex',
+  }), false);
 });
 
 test('external CLI resolution excludes app-local npm shims', async () => {

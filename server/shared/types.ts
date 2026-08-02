@@ -310,6 +310,7 @@ export type FetchHistoryResult = {
   offset: number;
   limit: number | null;
   tokenUsage?: unknown;
+  sourceStatus?: 'available' | 'missing' | 'unreadable';
 };
 
 // ---------------------------

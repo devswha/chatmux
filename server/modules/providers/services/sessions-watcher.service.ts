@@ -88,7 +88,9 @@ let pendingWatcherFlushTimer: ReturnType<typeof setTimeout> | null = null;
 let watcherRefreshInFlight = false;
 let watcherRescheduleAfterRefresh = false;
 let watcherFallbackTimer: ReturnType<typeof setInterval> | null = null;
-let watcherFallbackInFlight = false;
+let watcherFallbackTask: Promise<void> | null = null;
+let watcherFallbackAbortController: AbortController | null = null;
+let watcherFallbackGeneration = 0;
 type PendingFileUpdate = {
   eventType: WatcherEventType;
   filePath: string;
@@ -523,6 +525,50 @@ function startGjcSessionWatcher(reconcileAfterStart = false): Promise<void> {
   return trackedTask;
 }
 
+function fallbackPassIsActive(generation: number, signal: AbortSignal): boolean {
+  return !signal.aborted
+    && !sessionWatchersClosing
+    && generation === watcherFallbackGeneration;
+}
+
+function startWatcherFallbackPass(): void {
+  if (watcherFallbackTask) return;
+
+  const generation = watcherFallbackGeneration;
+  const controller = new AbortController();
+  watcherFallbackAbortController = controller;
+  const { signal } = controller;
+  const task = (async () => {
+    try {
+      for (const { provider } of PROVIDER_WATCH_PATHS) {
+        if (!fallbackPassIsActive(generation, signal)) return;
+        try {
+          const reconciliation = await sessionSynchronizerService.reconcileProvider(provider, signal);
+          if (!fallbackPassIsActive(generation, signal)) return;
+          for (const sessionId of reconciliation.sessionIds) {
+            if (!fallbackPassIsActive(generation, signal)) return;
+            markTranscriptChanged(
+              provider,
+              providerSessionIdForIndexed(provider, sessionId),
+            );
+            queuePendingWatcherUpdate('change', provider, sessionId);
+          }
+        } catch {
+          if (!fallbackPassIsActive(generation, signal)) return;
+          // Native watcher events remain primary; the next bounded fallback
+          // pass retries a missed or temporarily unreadable provider root.
+        }
+      }
+    } finally {
+      if (watcherFallbackTask === task) {
+        watcherFallbackTask = null;
+        watcherFallbackAbortController = null;
+      }
+    }
+  })();
+  watcherFallbackTask = task;
+}
+
 /**
  * Starts provider filesystem watchers and performs initial DB synchronization.
  */
@@ -576,31 +622,7 @@ export async function initializeSessionsWatcher(): Promise<void> {
   }
 
   if (!watcherFallbackTimer) {
-    watcherFallbackTimer = setInterval(() => {
-      if (watcherFallbackInFlight) return;
-      watcherFallbackInFlight = true;
-      void (async () => {
-        try {
-          for (const { provider } of PROVIDER_WATCH_PATHS) {
-            try {
-              const reconciliation = await sessionSynchronizerService.reconcileProvider(provider);
-              for (const sessionId of reconciliation.sessionIds) {
-                markTranscriptChanged(
-                  provider,
-                  providerSessionIdForIndexed(provider, sessionId),
-                );
-                queuePendingWatcherUpdate('change', provider, sessionId);
-              }
-            } catch {
-              // Native watcher events remain primary; the next bounded fallback
-              // pass retries a missed or temporarily unreadable provider root.
-            }
-          }
-        } finally {
-          watcherFallbackInFlight = false;
-        }
-      })();
-    }, WATCHER_FALLBACK_RECONCILE_MS);
+    watcherFallbackTimer = setInterval(startWatcherFallbackPass, WATCHER_FALLBACK_RECONCILE_MS);
     watcherFallbackTimer.unref?.();
   }
 }
@@ -610,6 +632,7 @@ export async function initializeSessionsWatcher(): Promise<void> {
  */
 export async function closeSessionsWatcher(): Promise<void> {
   sessionWatchersClosing = true;
+  watcherFallbackGeneration += 1;
   gjcWatcherGeneration += 1;
   clearGjcWatcherRestartTimer();
   clearPendingWatcherFlushTimer();
@@ -621,6 +644,8 @@ export async function closeSessionsWatcher(): Promise<void> {
     clearInterval(watcherFallbackTimer);
     watcherFallbackTimer = null;
   }
+  watcherFallbackAbortController?.abort();
+  const fallbackTask = watcherFallbackTask;
   for (const controller of gjcWatcherStartAbortControllers) {
     controller.abort();
   }
@@ -648,6 +673,9 @@ export async function closeSessionsWatcher(): Promise<void> {
     ...startTasks.map((task) => task.catch(() => {
       console.error('Failed to stop GJC native session watcher startup.');
     })),
+    fallbackTask?.catch(() => {
+      console.error('Failed to stop session watcher fallback reconciliation.');
+    }),
   ]);
   watchers.length = 0;
   gjcWatcherRestartDelayMs = 1_000;
@@ -655,5 +683,6 @@ export async function closeSessionsWatcher(): Promise<void> {
   pendingWatcherUpdateStartedAt = null;
   watcherRefreshInFlight = false;
   watcherRescheduleAfterRefresh = false;
-  watcherFallbackInFlight = false;
+  watcherFallbackTask = null;
+  watcherFallbackAbortController = null;
 }

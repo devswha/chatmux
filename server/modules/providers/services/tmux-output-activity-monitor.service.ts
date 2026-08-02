@@ -139,7 +139,7 @@ export function createTmuxControlObserver(
     '-S', session.socketPath,
     'attach-session',
     '-r',
-    '-f', 'active-pane',
+    '-f', 'active-pane,ignore-size',
     '-t', session.sessionId,
   ], {
     stdio: ['pipe', 'pipe', 'pipe'],
