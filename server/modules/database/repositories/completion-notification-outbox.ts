@@ -298,6 +298,16 @@ export class CompletionNotificationOutboxRepository {
   acknowledge(deliveryId: number, claimToken: string, now: number): boolean {
     return this.finishClaim(deliveryId, claimToken, `state = 'acknowledged', acknowledged_at = ?, error_class = NULL`, [now]);
   }
+
+  /** A sent push whose acknowledgement could not be persisted must never be reclaimed. */
+  sentUnacknowledged(deliveryId: number, claimToken: string): boolean {
+    return this.finishClaim(
+      deliveryId,
+      claimToken,
+      `state = 'permanent_failed', error_class = 'sent_unacknowledged'`,
+      [],
+    );
+  }
   /**
    * Call immediately before transport. A paused policy wins the token CAS and
    * does not consume an attempt; only a permitted transport increments it.

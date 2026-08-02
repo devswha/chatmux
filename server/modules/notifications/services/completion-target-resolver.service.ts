@@ -158,6 +158,9 @@ function resolveExternalCompletionTarget(
   );
   const generationId = generationTargetId(generationIdentityKey);
 
+  // A prior promotion makes createTarget resolve this generation through its
+  // former app target. When that app mapping is now absent, never expose it.
+  if (mappingState === 'none' && generationTarget.kind !== 'external_generation') return null;
   if (mappingState === 'none') {
     return {
       generationTargetId: generationId,

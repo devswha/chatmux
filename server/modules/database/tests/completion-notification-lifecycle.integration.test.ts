@@ -307,6 +307,16 @@ function detailedSession() {
   };
 }
 
+test('resolver does not expose a previously promoted app target after its mapping disappears', async () => {
+  await withIsolatedDatabase(() => {
+    sessionsDb.createSession('resolver-session', 'claude', '/workspace/resolver', undefined, undefined, undefined, process.execPath);
+    assert.equal(resolveCompletionTargetsFromDetailedScan(detailedSession(), 1)[0]?.target.kind, 'app');
+
+    sessionsDb.deleteSessionById('resolver-session');
+    assert.deepEqual(resolveCompletionTargetsFromDetailedScan(detailedSession(), 1), []);
+  });
+});
+
 test('resolver contains pre- and post-promotion identity conflicts without exposing identity keys', async () => {
   await withIsolatedDatabase(() => {
     sessionsDb.createSession('resolver-session', 'claude', '/workspace/resolver', undefined, undefined, undefined, process.execPath);

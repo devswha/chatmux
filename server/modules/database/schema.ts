@@ -245,6 +245,8 @@ CREATE INDEX IF NOT EXISTS idx_completion_notification_watch_mutations_target
     ON completion_notification_watch_mutations(target_id);
 CREATE INDEX IF NOT EXISTS idx_completion_notification_outbox_user_created
     ON completion_notification_outbox(user_id, created_at, id);
+CREATE INDEX IF NOT EXISTS idx_completion_notification_outbox_decision_key
+    ON completion_notification_outbox(decision_key, user_id, id);
 CREATE INDEX IF NOT EXISTS idx_completion_notification_deliveries_due
     ON completion_notification_deliveries(state, next_due_at, id);
 CREATE INDEX IF NOT EXISTS idx_completion_notification_deliveries_subscription

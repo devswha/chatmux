@@ -243,3 +243,16 @@ test('read backoff resets when a provider binding changes', async () => {
   current = session({ providerSessionId: 'late' }); await monitor.tick();
   assert.equal(calls, 3, 'binding change clears the pending backoff');
 });
+
+test('removing an external generation clears its read backoff', async () => {
+  const h = harness();
+  h.setAnswer({ status: 'unavailable', activity: 'unknown', reasonCode: 'transcript_read_unavailable', appSession: null, transcriptEnded: false });
+  await h.monitor.tick();
+  assert.equal(h.monitor.stats().read_unavailable, 1);
+
+  h.setSessions([]);
+  await h.monitor.tick();
+  h.setSessions([session()]);
+  await h.monitor.tick();
+  assert.equal(h.monitor.stats().read_unavailable, 2);
+});

@@ -605,6 +605,14 @@ const MIGRATIONS: Migration[] = [
       db.exec('DROP TABLE IF EXISTS user_credentials');
     },
   },
+  {
+    version: 16,
+    migrate: (db) => {
+      if (!tableExists(db, 'completion_notification_outbox')) return;
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_completion_notification_outbox_decision_key
+        ON completion_notification_outbox(decision_key, user_id, id)`);
+    },
+  },
 ];
 
 export const runMigrations = (db: Database) => {

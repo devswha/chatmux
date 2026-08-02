@@ -70,6 +70,26 @@ test('an event during a slow tick queues one non-overlapping follow-up', async (
   stop();
 });
 
+test('fallback intervals do not queue catch-up ticks behind a slow monitor tick', async () => {
+  let release!: () => void;
+  let ticks = 0;
+  const stop = startEventDrivenMonitorLoop({
+    tick: async () => {
+      ticks += 1;
+      if (ticks === 1) await new Promise<void>((resolve) => { release = resolve; });
+    },
+    subscribe: () => () => {},
+    accepts: () => true,
+    fallbackMs: 50,
+  });
+  await wait(70);
+  assert.equal(ticks, 1);
+  release();
+  await wait(5);
+  assert.equal(ticks, 1);
+  stop();
+});
+
 test('the fallback catches a missed event without constant polling', async () => {
   let ticks = 0;
   const stop = startEventDrivenMonitorLoop({

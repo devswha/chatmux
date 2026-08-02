@@ -103,7 +103,7 @@ export type DiscoveryCollector = {
   setActive(active: boolean): void;
   forceRefresh(): void;
   tick(): Promise<void>;
-  ensureFresh(maxAgeMs: number): Promise<void>;
+  ensureFresh(maxAgeMs: number, forceFull?: boolean): Promise<void>;
   currentSnapshot(): DiscoverySnapshot;
   currentDetailed(): DiscoveryDetailedSnapshot;
   onSnapshot(listener: (snapshot: DiscoverySnapshot) => void): () => void;
@@ -395,7 +395,10 @@ export function createDiscoveryCollector(options: DiscoveryCollectorOptions = {}
   function runTick(forceFull: boolean): Promise<void> {
     if (disposed) return Promise.resolve();
     if (currentTick) {
-      if (forceFull && !currentTickSatisfiesFullScan) fullRefreshPending = true;
+      if (forceFull && !currentTickSatisfiesFullScan) {
+        fullRefreshPending = true;
+        return currentTick.then(() => runTick(true));
+      }
       return currentTick;
     }
     currentTickSatisfiesFullScan = forceFull
@@ -514,12 +517,12 @@ export function createDiscoveryCollector(options: DiscoveryCollectorOptions = {}
       }, FORCE_REFRESH_DEBOUNCE_MS);
     },
     tick: () => runTick(true),
-    async ensureFresh(maxAgeMs) {
+    async ensureFresh(maxAgeMs, forceFull = false) {
       const ageMs = detailed.takenAtMs === null
         ? Number.POSITIVE_INFINITY
         : Math.max(0, now() - detailed.takenAtMs);
-      if (ageMs <= Math.max(0, maxAgeMs)) return;
-      await runTick(false);
+      if (!forceFull && ageMs <= Math.max(0, maxAgeMs)) return;
+      await runTick(forceFull);
     },
     currentSnapshot: () => snapshot,
     currentDetailed: () => detailed,

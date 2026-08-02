@@ -250,6 +250,10 @@ export function createLiveTurnMonitor(deps: MonitorDeps) {
       for (const id of cursors.keys()) {
         if (!seen.has(id)) cursors.delete(id);
       }
+      for (const key of diagnosticLastReported.keys()) {
+        const sessionId = key.slice(key.indexOf('\0') + 1);
+        if (sessionId && !seen.has(sessionId)) diagnosticLastReported.delete(key);
+      }
     } catch {
       emitDiagnostic('tick_unavailable');
     } finally {

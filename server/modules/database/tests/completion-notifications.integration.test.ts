@@ -95,7 +95,7 @@ const appDecision = (userId: number, targetIdentityKey: string, sessionId = 'ses
 test('v13 clamps legacy liveStop and direct valid JSON writes while completion policy remains all-off', () => {
   withDatabase((db) => {
     assert.deepEqual(all<{ version: number }>(db, 'SELECT version FROM schema_migrations ORDER BY version').map((row) => row.version),
-      Array.from({ length: 15 }, (_, index) => index + 1));
+      Array.from({ length: 16 }, (_, index) => index + 1));
     addUser(db, 1);
     assert.deepEqual(get<Row>(db, 'SELECT desired_web_push, consent_configured, enforcement_enabled FROM completion_notification_policy WHERE user_id = 1'),
       { desired_web_push: 0, consent_configured: 0, enforcement_enabled: 1 });
@@ -444,6 +444,30 @@ test('terminal decisions fan out owners once and enforce delivery claims, pause,
     assert.equal(outbox.endpointGone(retry.id, retry.claimToken), true);
     assert.equal(get<Row>(db, "SELECT * FROM push_subscriptions WHERE endpoint = 'https://push/shared'"), undefined);
     assert.equal(outbox.getDeliveryState(retry.id), 'endpoint_removed');
+  });
+});
+
+test('a sent-but-unacknowledged delivery is terminal and cannot be reclaimed', () => {
+  withDatabase((db) => {
+    addUser(db, 1);
+    addSubscription(db, 1);
+    enablePush(db, 1);
+    db.prepare(`INSERT INTO completion_notification_outbox
+      (decision_id, decision_key, user_id, event_code, target_alias_snapshot, payload_json, notification_tag)
+      VALUES ('sent-decision', 'sent-key', 1, 'reply_ready', 'target', '{}', 'tag')`).run();
+    const outboxId = get<{ id: number }>(db,
+      "SELECT id FROM completion_notification_outbox WHERE decision_id = 'sent-decision'")!.id;
+    db.prepare(`INSERT INTO completion_notification_deliveries
+      (outbox_id, subscription_id, subscription_id_at_creation, endpoint_owner_id, endpoint_snapshot, next_due_at)
+      VALUES (?, 1, 1, 1, 'https://push/1', 0)`).run(outboxId);
+    const outbox = new CompletionNotificationOutboxRepository(db);
+    const claim = outbox.claimDue(0, 1, 10)[0]!;
+    assert.equal(outbox.prepareSend(claim.id, claim.claimToken), true);
+    assert.equal(outbox.sentUnacknowledged(claim.id, claim.claimToken), true);
+    assert.deepEqual(get<{ state: string; error_class: string }>(db,
+      'SELECT state, error_class FROM completion_notification_deliveries WHERE id = ?', claim.id),
+    { state: 'permanent_failed', error_class: 'sent_unacknowledged' });
+    assert.deepEqual(outbox.claimDue(10_000, 1, 10), []);
   });
 });
 test('duplicate panes observing the same conversation and terminal evidence create one notification', () => {

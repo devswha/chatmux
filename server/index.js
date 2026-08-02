@@ -731,7 +731,7 @@ async function startServer() {
             // Server-side so web push works with every tab closed.
             // Shared kill switch: CHATMUX_LIVE_NOTIFY=0.
             const ensureSharedDiscovery = async () => {
-                await discoveryCollector.ensureFresh(2_000);
+                await discoveryCollector.ensureFresh(2_000, true);
                 return discoveryCollector.currentDetailed();
             };
             startLiveTurnMonitor(2_000, async () => {
