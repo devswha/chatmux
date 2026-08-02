@@ -144,6 +144,10 @@
       "sourceAvailable": "Cible : {{version}} (dernier commit de main). Les mises à jour source n’ont pas de version de publication fixe.",
       "releaseAvailable": "Une cible de version exacte est disponible{{version}}."
     },
+    "releaseNotes": {
+      "title": "Nouveautés de la v{{version}}",
+      "viewFull": "Voir les notes de version complètes"
+    },
     "confirm": {
       "message": "Le serveur sera mis à jour et redémarré. Le travail web en cours peut être interrompu."
     },

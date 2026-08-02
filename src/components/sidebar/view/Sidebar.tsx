@@ -49,6 +49,8 @@ function Sidebar({
     clientRefreshAvailable,
     installMode,
     latestVersion,
+    releaseNotes,
+    releaseUrl,
     currentVersion,
     runningVersion,
     serverUpdateAvailable,
@@ -104,6 +106,8 @@ function Sidebar({
         currentVersion={currentVersion}
         runningVersion={runningVersion}
         latestVersion={latestVersion}
+        releaseNotes={releaseNotes}
+        releaseUrl={releaseUrl}
         installMode={installMode}
         clientRefreshAvailable={clientRefreshAvailable}
         serverUpdateAvailable={serverUpdateAvailable}

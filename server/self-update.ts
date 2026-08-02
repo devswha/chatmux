@@ -254,7 +254,26 @@ export function exactUpdateRequestGuard(req: Request, res: ExpressResponse, next
   next();
 }
 
-type Discovery = { release: ReleaseDescriptor; compatibility: CompatibilityMetadata };
+type ReleaseNotes = { body: string | null; url: string | null };
+type Discovery = { release: ReleaseDescriptor; compatibility: CompatibilityMetadata; notes: ReleaseNotes };
+
+const RELEASE_NOTES_MAX_CHARS = 8_000;
+
+/**
+ * Display-only release notes. Kept OUT of ReleaseDescriptor on purpose: the
+ * descriptor is a closed validated contract persisted into updater job state,
+ * while notes are untrusted presentation text served to the UI as-is.
+ */
+export function releaseNotesFromLatest(latest: { body?: unknown; html_url?: unknown }, tag: string): ReleaseNotes {
+  const body = typeof latest.body === 'string' && latest.body.trim()
+    ? latest.body.trim().slice(0, RELEASE_NOTES_MAX_CHARS)
+    : null;
+  const url = typeof latest.html_url === 'string'
+    && latest.html_url === `https://github.com/devswha/chatmux/releases/tag/${tag}`
+    ? latest.html_url
+    : null;
+  return { body, url };
+}
 interface FetchResponse {
   ok: boolean;
   status: number;
@@ -412,7 +431,7 @@ async function downloadCanonicalChecksum(fetcher: FetchLike, checksumUrl: string
 
 /** Server-owned canonical stable release resolution; callers cannot select repository, tag, or assets. */
 export async function discoverCanonicalRelease(fetcher: FetchLike = fetch): Promise<Discovery> {
-  const latest = await readJson(await discoveryFetch(fetcher, 'https://api.github.com/repos/devswha/chatmux/releases/latest')) as { tag_name?: unknown; published_at?: unknown; prerelease?: unknown; draft?: unknown; assets?: unknown };
+  const latest = await readJson(await discoveryFetch(fetcher, 'https://api.github.com/repos/devswha/chatmux/releases/latest')) as { tag_name?: unknown; published_at?: unknown; prerelease?: unknown; draft?: unknown; assets?: unknown; body?: unknown; html_url?: unknown };
   if (latest.prerelease || latest.draft || typeof latest.tag_name !== 'string' || !latest.tag_name.startsWith('v') || !parseStrictSemVer(latest.tag_name.slice(1)) || typeof latest.published_at !== 'string' || !Array.isArray(latest.assets)) throw new Error('Canonical stable release is invalid.');
   const version = latest.tag_name.slice(1); const archiveName = archiveNameForVersion(version)!; const checksumName = `${archiveName}.sha256`;
   const expectedNames = [archiveName, checksumName, 'install.sh'];
@@ -428,7 +447,7 @@ export async function discoverCanonicalRelease(fetcher: FetchLike = fetch): Prom
   const metadata = await readJson(await discoveryFetch(fetcher, `https://raw.githubusercontent.com/devswha/chatmux/${latest.tag_name}/packaging/release/update-compatibility.json`)) as { schema?: unknown; releases?: Record<string, unknown> };
   const compatibility = metadata.schema === 1 ? validateCompatibilityMetadata(metadata.releases?.[version]) : null;
   if (!compatibility) throw new Error('Canonical release compatibility metadata is invalid.');
-  return { release: { repository: 'devswha/chatmux', tag: latest.tag_name, version, archiveName, checksumName, bootstrapName: 'install.sh', archiveSha256: match[1], publishedAt: latest.published_at }, compatibility };
+  return { release: { repository: 'devswha/chatmux', tag: latest.tag_name, version, archiveName, checksumName, bootstrapName: 'install.sh', archiveSha256: match[1], publishedAt: latest.published_at }, compatibility, notes: releaseNotesFromLatest(latest, latest.tag_name) };
 }
 
 export interface SystemRouterOptions {
@@ -504,7 +523,7 @@ export function createSystemRouter(options: SystemRouterOptions): Router {
     }
     try {
       const target = await cachedDiscovery();
-      return res.json({ ...base, source, release: { available: compareStrictSemVer(target.release.version, releaseVersion!.version) === 1, targetVersion: target.release.version }, activeJob });
+      return res.json({ ...base, source, release: { available: compareStrictSemVer(target.release.version, releaseVersion!.version) === 1, targetVersion: target.release.version, notes: target.notes.body, url: target.notes.url }, activeJob });
     } catch {
       return res.json({ ...base, source, release: null, activeJob });
     }

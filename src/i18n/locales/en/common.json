@@ -149,6 +149,10 @@
       "sourceAvailable": "Target: {{version}} (latest main commit). Source updates do not have a fixed release version.",
       "releaseAvailable": "An exact release target is available{{version}}."
     },
+    "releaseNotes": {
+      "title": "What's new in v{{version}}",
+      "viewFull": "View full release notes"
+    },
     "confirm": {
       "message": "The server will update and restart. Active web work may disconnect."
     },

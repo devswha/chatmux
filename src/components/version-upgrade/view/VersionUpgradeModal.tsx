@@ -12,6 +12,8 @@ interface VersionUpgradeModalProps {
     currentVersion: string;
     runningVersion: string | null;
     latestVersion: string | null;
+    releaseNotes: string | null;
+    releaseUrl: string | null;
     installMode: InstallMode;
     clientRefreshAvailable: boolean;
     serverUpdateAvailable: boolean;
@@ -156,6 +158,8 @@ export function VersionUpgradeModal({
     currentVersion,
     runningVersion,
     latestVersion,
+    releaseNotes,
+    releaseUrl,
     installMode,
     clientRefreshAvailable,
     serverUpdateAvailable,
@@ -349,6 +353,20 @@ export function VersionUpgradeModal({
                         {installMode === 'source'
                             ? t('versionUpdate.serverUpdate.sourceAvailable', { version: latestVersion ?? 'main' })
                             : t('versionUpdate.serverUpdate.releaseAvailable', { version: latestVersion ? ` v${latestVersion}` : '' })}
+                    </div>
+                )}
+
+                {serverUpdateAvailable && installMode === 'release' && releaseNotes && (
+                    <div className="space-y-1.5">
+                        <h3 className="text-sm font-medium text-gray-900 dark:text-white">
+                            {t('versionUpdate.releaseNotes.title', { version: latestVersion ?? '' })}
+                        </h3>
+                        <pre className="max-h-48 overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-gray-200 bg-gray-50 p-3 font-sans text-xs leading-relaxed text-gray-700 dark:border-gray-700 dark:bg-gray-900/40 dark:text-gray-300">{releaseNotes}</pre>
+                        {releaseUrl && (
+                            <a href={releaseUrl} target="_blank" rel="noreferrer" className="inline-block text-xs text-blue-600 underline dark:text-blue-400">
+                                {t('versionUpdate.releaseNotes.viewFull')}
+                            </a>
+                        )}
                     </div>
                 )}
 

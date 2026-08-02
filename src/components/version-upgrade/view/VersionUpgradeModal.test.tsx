@@ -23,7 +23,31 @@ const baseProps = {
   activeJob: null,
   sourceUpdateInFlight: false,
   sourceUpdate: null,
+  releaseNotes: null,
+  releaseUrl: null,
 };
+
+test('release notes render only for release-mode updates that carry notes', () => {
+  const withNotes = renderToStaticMarkup(createElement(VersionUpgradeModal, {
+    ...baseProps,
+    releaseNotes: '## What\u2019s Changed\n* fix(relay): example fix',
+    releaseUrl: 'https://github.com/devswha/chatmux/releases/tag/v1.1.0',
+  }));
+  assert.ok(withNotes.includes('versionUpdate.releaseNotes.title'));
+  assert.ok(withNotes.includes('example fix'));
+  assert.ok(withNotes.includes('versionUpdate.releaseNotes.viewFull'));
+  assert.ok(withNotes.includes('https://github.com/devswha/chatmux/releases/tag/v1.1.0'));
+
+  const withoutNotes = renderToStaticMarkup(createElement(VersionUpgradeModal, baseProps));
+  assert.ok(!withoutNotes.includes('versionUpdate.releaseNotes.title'));
+
+  const sourceMode = renderToStaticMarkup(createElement(VersionUpgradeModal, {
+    ...baseProps,
+    installMode: 'source' as const,
+    releaseNotes: 'irrelevant',
+  }));
+  assert.ok(!sourceMode.includes('versionUpdate.releaseNotes.title'));
+});
 
 const succeededJob: UpdateJob = { id: 'abcdefghijklmnopqrstuv', phase: 'succeeded', targetVersion: '1.1.0' };
 

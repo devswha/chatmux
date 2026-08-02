@@ -114,6 +114,10 @@
       "sourceAvailable": "Ziel: {{version}} (neuester Commit auf main). Quell-Updates haben keine feste Release-Version.",
       "releaseAvailable": "Ein exaktes Release-Ziel ist verfügbar{{version}}."
     },
+    "releaseNotes": {
+      "title": "Neu in v{{version}}",
+      "viewFull": "Vollständige Release Notes ansehen"
+    },
     "confirm": {
       "message": "Der Server wird aktualisiert und neu gestartet. Aktive Web-Arbeit kann unterbrochen werden."
     },

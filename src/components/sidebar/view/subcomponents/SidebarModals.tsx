@@ -18,6 +18,8 @@ type SidebarModalsProps = {
   currentVersion: string;
   runningVersion: string | null;
   latestVersion: string | null;
+  releaseNotes: string | null;
+  releaseUrl: string | null;
   installMode: InstallMode;
   clientRefreshAvailable: boolean;
   serverUpdateAvailable: boolean;
@@ -51,6 +53,8 @@ export default function SidebarModals({
   currentVersion,
   runningVersion,
   latestVersion,
+  releaseNotes,
+  releaseUrl,
   installMode,
   clientRefreshAvailable,
   serverUpdateAvailable,
@@ -84,6 +88,8 @@ export default function SidebarModals({
         currentVersion={currentVersion}
         runningVersion={runningVersion}
         latestVersion={latestVersion}
+        releaseNotes={releaseNotes}
+        releaseUrl={releaseUrl}
         installMode={installMode}
         clientRefreshAvailable={clientRefreshAvailable}
         serverUpdateAvailable={serverUpdateAvailable}
