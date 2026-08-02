@@ -338,7 +338,7 @@ test('answers are rejected as stale when a same-shaped prompt with a different b
   assert.equal(calls.some((args) => args.includes('send-keys')), false);
 });
 
-test('Claude multi-select answers are rejected without injecting keys until the toggle sequence is verified', async () => {
+test('Claude multi-select answers reconcile checked options and submit through the review tab', async () => {
   const screen = `
 ☐ Checks
 
@@ -374,9 +374,9 @@ Enter to select · ↑/↓ to navigate · Esc to cancel
     null,
   );
 
-  await assert.rejects(
-    answerTmuxInteractivePrompt(target, prompt.id, [1, 3], run),
-    (error: { code?: string }) => error.code === 'TMUX_INTERACTIVE_CHOICE_UNSUPPORTED',
+  await answerTmuxInteractivePrompt(target, prompt.id, [1, 3], run);
+  assert.deepEqual(
+    calls.filter((args) => args.includes('send-keys')).map((args) => args.at(-1)),
+    ['Enter', 'Down', 'Enter', 'Down', 'Enter', 'Right', 'Enter'],
   );
-  assert.equal(calls.some((args) => args.includes('send-keys')), false);
 });
