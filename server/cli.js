@@ -19,6 +19,8 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import { fileURLToPath } from 'url';
+
 
 import { findAppRoot, getModuleDir } from './utils/runtime-paths.js';
 
@@ -642,24 +644,38 @@ async function runAccess(args) {
 }
 
 // Parse CLI arguments
-function parseArgs(args) {
+export function parseArgs(args) {
     const parsed = { command: 'start', options: {} };
+    const commands = new Set(['start', 'sandbox', 'install', 'access', 'browser-mcp-cleanup', 'status', 'info']);
+
+    const readOptionValue = (option, index) => {
+        const value = args[index + 1];
+        if (!value || value.startsWith('-') || commands.has(value)) {
+            throw new Error(`${option} requires a value`);
+        }
+        return value;
+    };
 
     for (let i = 0; i < args.length; i++) {
         const arg = args[i];
 
         if (arg === '--port' || arg === '-p') {
-            parsed.options.serverPort = args[++i];
+            parsed.options.serverPort = readOptionValue(arg, i);
+            i += 1;
         } else if (arg.startsWith('--port=')) {
-            parsed.options.serverPort = arg.split('=')[1];
+            parsed.options.serverPort = arg.slice('--port='.length);
         } else if (arg === '--host') {
-            parsed.options.host = args[++i];
+            parsed.options.host = readOptionValue(arg, i);
+            i += 1;
         } else if (arg.startsWith('--host=')) {
-            parsed.options.host = arg.split('=')[1];
+            parsed.options.host = arg.slice('--host='.length);
         } else if (arg === '--database-path') {
-            parsed.options.databasePath = args[++i];
+            parsed.options.databasePath = readOptionValue(arg, i);
+            i += 1;
         } else if (arg.startsWith('--database-path=')) {
-            parsed.options.databasePath = arg.split('=')[1];
+            parsed.options.databasePath = arg.slice('--database-path='.length);
+        } else if (arg === '--yes' || arg === '-y') {
+            parsed.options.yes = true;
         } else if (arg === '--help' || arg === '-h') {
             parsed.command = 'help';
         } else if (arg === '--version' || arg === '-v') {
@@ -675,6 +691,15 @@ function parseArgs(args) {
 
     return parsed;
 }
+
+export function buildInstallArgs(options, remainingArgs = []) {
+    return [
+        ...(options.yes ? ['--yes'] : []),
+        ...(options.serverPort ? [`--port=${options.serverPort}`] : []),
+        ...remainingArgs,
+    ];
+}
+
 
 // Main CLI handler
 async function main() {
@@ -692,6 +717,8 @@ async function main() {
         process.env.HOST = options.host;
     }
 
+    const installArgs = buildInstallArgs(options, remainingArgs);
+
     switch (command) {
         case 'start':
             await startServer();
@@ -700,7 +727,7 @@ async function main() {
             await sandboxCommand(remainingArgs || []);
             break;
         case 'install':
-            await runInstall(remainingArgs || []);
+            await runInstall(installArgs);
             break;
         case 'access':
             await runAccess(remainingArgs || []);
@@ -734,7 +761,9 @@ async function main() {
 }
 
 // Run the CLI
-main().catch(error => {
-    console.error('\n❌ Error:', error.message);
-    process.exit(1);
-});
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+    main().catch(error => {
+        console.error('\n❌ Error:', error.message);
+        process.exit(1);
+    });
+}
