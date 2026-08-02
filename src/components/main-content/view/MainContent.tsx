@@ -9,9 +9,10 @@ import { useFileOpenResolver } from '../../../hooks/useFileOpenResolver';
 import { api } from '../../../utils/api';
 import { useEditorSidebar } from '../../code-editor/hooks/useEditorSidebar';
 import LiveRelayComposer from '../../chat/view/subcomponents/LiveRelayComposer';
-import type { ExternalTerminalTarget } from '../../../types/app';
+import { isHerdrExternalTerminal, type ExternalTerminalTarget } from '../../../types/app';
 import type { ShellAttachTarget } from '../../shell/types/types';
-import { paneSubscriptionKey, tmuxPaneIdentityKey, type TmuxPaneIdentity, type TmuxProcessGeneration } from '../../../../shared/tmux';
+import { tmuxPaneIdentityKey, type TmuxPaneIdentity, type TmuxProcessGeneration } from '../../../../shared/tmux';
+import { publicTerminalKey, type PublicTerminalTarget } from '../../../../shared/terminal-runtime';
 import { useWebSocket } from '../../../contexts/WebSocketContext';
 
 import MainContentHeader from './subcomponents/MainContentHeader';
@@ -55,6 +56,7 @@ export function shouldShowPendingRelay(externalTerminal: ExternalTerminalTarget 
   // for a session whose process is still observable.
   return Boolean(
     externalTerminal
+    && !isHerdrExternalTerminal(externalTerminal)
     && externalTerminal.cliKind !== 'ssh'
     && externalTerminal.cliKind !== 'shell'
     && externalTerminal.process
@@ -62,6 +64,11 @@ export function shouldShowPendingRelay(externalTerminal: ExternalTerminalTarget 
   );
 }
 export function buildExternalAttachTarget(externalTerminal: ExternalTerminalTarget): ShellAttachTarget | null {
+  if (isHerdrExternalTerminal(externalTerminal)) {
+    return externalTerminal.mode === 'control'
+      ? { runtime: 'herdr', target: externalTerminal.terminal, mode: 'control' }
+      : null;
+  }
   const isAttachOnly = externalTerminal.cliKind === 'ssh'
     || externalTerminal.cliKind === 'shell'
     || !externalTerminal.process;
@@ -131,8 +138,10 @@ function MainContent({
   const [externalPaneOutput, setExternalPaneOutput] = useState('');
   const [externalPaneError, setExternalPaneError] = useState('');
   const [externalTranscriptView, setExternalTranscriptView] = useState<ExternalTranscriptView>('conversation');
+  const herdrExternalTerminal = isHerdrExternalTerminal(externalTerminal) ? externalTerminal : null;
+  const tmuxExternalTerminal = isHerdrExternalTerminal(externalTerminal) ? null : externalTerminal;
   const transcriptCliTarget = useMemo(() => {
-    if (externalTranscript?.process) {
+    if (externalTranscript && !isHerdrExternalTerminal(externalTranscript) && externalTranscript.process) {
       return {
         tmux: externalTranscript.tmux,
         process: externalTranscript.process,
@@ -153,27 +162,43 @@ function MainContent({
   );
   const transcriptCliProviderLabel = externalTranscript?.kind
     ?? (liveSessionKind === 'gjc' ? 'GJC' : null);
-  const transcriptCliTmuxName = externalTranscript?.tmuxName
-    ?? (liveSessionKind === 'gjc' ? liveSessionName : null);
-  const externalOutputTarget = useMemo(() => {
+  const transcriptCliTmuxName = externalTranscript && !isHerdrExternalTerminal(externalTranscript)
+    ? externalTranscript.tmuxName
+    : (liveSessionKind === 'gjc' ? liveSessionName : null);
+  const externalOutputTarget = useMemo((): { lane: 'external' | 'live'; target: PublicTerminalTarget } | null => {
+    if (herdrExternalTerminal?.mode === 'observe') {
+      return { lane: 'external', target: herdrExternalTerminal.terminal };
+    }
     if (externalTranscriptView !== 'cli') {
       return null;
     }
-    if (externalTerminal && externalTerminal.cliKind !== 'ssh' && externalTerminal.cliKind !== 'shell') {
+    if (tmuxExternalTerminal && tmuxExternalTerminal.cliKind !== 'ssh' && tmuxExternalTerminal.cliKind !== 'shell') {
       // Attachable panes mount the interactive terminal instead; the
       // read-only mirror stream would just duplicate the same bytes.
       return null;
     }
     // Attach-capable transcript targets also use the interactive terminal.
-    return transcriptCliAttachTarget ? null : transcriptCliTarget;
-  }, [externalTerminal, externalTranscriptView, transcriptCliAttachTarget, transcriptCliTarget]);
+    return transcriptCliAttachTarget || !transcriptCliTarget
+      ? null
+      : {
+          lane: transcriptCliTarget.lane,
+          target: {
+            runtime: 'tmux',
+            tmux: transcriptCliTarget.tmux,
+            process: transcriptCliTarget.process!,
+            targetClass: 'local-agent',
+          },
+        };
+  }, [externalTranscriptView, herdrExternalTerminal, tmuxExternalTerminal, transcriptCliAttachTarget, transcriptCliTarget]);
 
 
   const externalViewTargetKey = transcriptCliTarget
     ? tmuxPaneIdentityKey(transcriptCliTarget.tmux)
-    : externalTerminal
-      ? tmuxPaneIdentityKey(externalTerminal.tmux)
-      : null;
+    : herdrExternalTerminal
+      ? publicTerminalKey('external', herdrExternalTerminal.terminal)
+      : tmuxExternalTerminal
+        ? tmuxPaneIdentityKey(tmuxExternalTerminal.tmux)
+        : null;
 
   useEffect(() => {
     setExternalTranscriptView('conversation');
@@ -214,7 +239,7 @@ function MainContent({
     externalOutputTargetRef.current = externalOutputTarget;
   });
   const externalOutputTargetKey = externalOutputTarget
-    ? paneSubscriptionKey(externalOutputTarget.lane, externalOutputTarget.tmux, externalOutputTarget.process)
+    ? publicTerminalKey(externalOutputTarget.lane, externalOutputTarget.target)
     : null;
 
   useEffect(() => {
@@ -235,12 +260,12 @@ function MainContent({
       controller = new AbortController();
       try {
         const response = target.lane === 'live'
-          ? await api.liveSessionOutput(target.tmux, target.process, controller.signal)
-          : await api.externalCliSessionOutput(target.tmux, target.process, controller.signal);
+          ? await api.liveSessionOutput(target.target, undefined, { signal: controller.signal })
+          : await api.externalCliSessionOutput(target.target, undefined, { signal: controller.signal });
         const payload = await response.json().catch(() => null);
         if (cancelled) return;
         if (response.ok) {
-          setExternalPaneOutput(typeof payload?.data?.output === 'string' ? payload.data.output : '');
+          setExternalPaneOutput(typeof payload?.data?.pane?.ansi === 'string' ? payload.data.pane.ansi : '');
           setExternalPaneError('');
         } else {
           // Keep the last frame: the error panel replaces the view, and a
@@ -278,10 +303,9 @@ function MainContent({
       const target = externalOutputTargetRef.current;
       if (target) sendMessage({
         type: 'pane.subscribe',
-        protocolVersion: 1,
+        protocolVersion: 2,
         lane: target.lane,
-        tmux: target.tmux,
-        process: target.process,
+        target: target.target,
       });
     }
     const fallbackTimer = window.setInterval(() => {
@@ -316,6 +340,7 @@ function MainContent({
   // the chat before the provider creates its first transcript record.
   if (
     externalTerminal
+    && !isHerdrExternalTerminal(externalTerminal)
     && externalTerminal.cliKind !== 'ssh'
     && externalTerminal.cliKind !== 'shell'
     && shouldShowPendingRelay(externalTerminal)
@@ -413,10 +438,9 @@ function MainContent({
     );
   }
 
-  // Targets without a locally observable process remain terminal-only.
-  if (externalTerminal) {
-    const targetKey = tmuxPaneIdentityKey(externalTerminal.tmux);
-    const attachTarget = buildExternalAttachTarget(externalTerminal);
+  if (herdrExternalTerminal) {
+    const targetKey = publicTerminalKey('external', herdrExternalTerminal.terminal);
+    const attachTarget = buildExternalAttachTarget(herdrExternalTerminal);
     return (
       <div className="flex h-full flex-col">
         <div className="flex flex-shrink-0 items-center justify-between border-b border-border/50 px-3 py-2">
@@ -432,9 +456,68 @@ function MainContent({
               </button>
             )}
             <SquareTerminal className="h-4 w-4 shrink-0 text-emerald-500" aria-hidden />
-            <span className="truncate text-sm font-semibold text-foreground">tmux: {externalTerminal.tmuxName}</span>
+            <span className="truncate text-sm font-semibold text-foreground">
+              Herdr: {herdrExternalTerminal.terminal.sourceId}
+            </span>
             <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">
-              {t('transcript.detachHint', { kind: externalTerminal.kind })}
+              {herdrExternalTerminal.mode === 'control' ? 'Interactive control' : 'Read-only output'}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={onExternalTerminalClose}
+            title={t('transcript.closeTerminal')}
+            className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-hidden">
+          {attachTarget ? (
+            <Suspense fallback={null}>
+              <StandaloneShell
+                key={targetKey}
+                project={null}
+                attachTarget={attachTarget}
+                isActive
+                minimal
+                onComplete={() => onExternalTerminalClose()}
+              />
+            </Suspense>
+          ) : externalPaneError ? (
+            <div className="flex h-full items-center justify-center bg-zinc-950 px-6 text-center">
+              <div role="alert" className="max-w-md text-sm text-zinc-300">{externalPaneError}</div>
+            </div>
+          ) : (
+            <PendingExternalCliOutput providerLabel="Herdr" output={externalPaneOutput} />
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // Targets without a locally observable process remain terminal-only.
+  if (tmuxExternalTerminal) {
+    const targetKey = tmuxPaneIdentityKey(tmuxExternalTerminal.tmux);
+    const attachTarget = buildExternalAttachTarget(tmuxExternalTerminal);
+    return (
+      <div className="flex h-full flex-col">
+        <div className="flex flex-shrink-0 items-center justify-between border-b border-border/50 px-3 py-2">
+          <div className="flex min-w-0 items-center gap-2">
+            {isMobile && (
+              <button
+                type="button"
+                onClick={onMenuClick}
+                className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+                aria-label="Open sidebar"
+              >
+                <Menu className="h-4 w-4" />
+              </button>
+            )}
+            <SquareTerminal className="h-4 w-4 shrink-0 text-emerald-500" aria-hidden />
+            <span className="truncate text-sm font-semibold text-foreground">tmux: {tmuxExternalTerminal.tmuxName}</span>
+            <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">
+              {t('transcript.detachHint', { kind: tmuxExternalTerminal.kind })}
             </span>
           </div>
           <button
@@ -452,8 +535,8 @@ function MainContent({
               <StandaloneShell
                 // Switching exact pane targets must remount the Shell.
                 key={targetKey}
-                project={externalTerminal.project}
-                projectPath={'projectPath' in externalTerminal ? externalTerminal.projectPath : undefined}
+                project={tmuxExternalTerminal.project}
+                projectPath={'projectPath' in tmuxExternalTerminal ? tmuxExternalTerminal.projectPath : undefined}
                 attachTarget={attachTarget}
                 isActive
                 minimal

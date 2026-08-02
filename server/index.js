@@ -20,13 +20,23 @@ import {
     closeSessionsWatcher,
     createProviderToolApprovals,
     createDiscoveryCollector,
+    createPaneOutputStream,
     getCurrentTmuxPaneIdentity,
     getCurrentTmuxPaneIdentityState,
     initializeSessionsWatcher,
     readTmuxPaneIdentity,
     runTmux,
+    createTmuxRuntimeAdapter,
 } from '@/modules/providers/index.js';
 import { createWebSocketServer } from '@/modules/websocket/index.js';
+import {
+    HerdrAdmissionService,
+    HerdrControlBridgeService,
+    HerdrRuntimeAdapter,
+    RuntimeOperationPolicyService,
+    RuntimeRegistryService,
+    readHerdrRuntimeConfig,
+} from '@/modules/terminal-runtimes/index.js';
 
 import { getConnectableHost } from '../shared/networkHosts.js';
 
@@ -124,9 +134,39 @@ const app = express();
 app.set('trust proxy', 1);
 const server = http.createServer(app);
 
+const herdrConfig = readHerdrRuntimeConfig();
+const terminalRuntimeRegistry = new RuntimeRegistryService();
+terminalRuntimeRegistry.register(createTmuxRuntimeAdapter());
+const herdrPolicy = new RuntimeOperationPolicyService(
+    herdrConfig.startupCapabilities,
+    herdrConfig.sources.map((source) => source.sourceId),
+    herdrConfig.policyPath,
+);
+const herdrAdmissions = new HerdrAdmissionService();
+const herdrAdapter = herdrConfig.enabled
+    ? new HerdrRuntimeAdapter(
+        herdrConfig,
+        herdrPolicy,
+        undefined,
+        undefined,
+        () => randomUUID(),
+    )
+    : null;
+if (herdrAdapter) terminalRuntimeRegistry.register(herdrAdapter);
+const herdrControl = new HerdrControlBridgeService(terminalRuntimeRegistry, herdrAdmissions);
+let herdrRevocation = Promise.resolve();
+herdrPolicy.onReduction(() => {
+    herdrRevocation = herdrControl.releaseAll();
+    discoveryCollector?.forceRefresh?.();
+});
+app.locals.terminalRuntimeRegistry = terminalRuntimeRegistry;
+app.locals.herdrAdmissions = herdrAdmissions;
+app.locals.herdrConfig = herdrConfig;
+app.locals.runtimeOperationPolicy = herdrPolicy;
 // The collector is inert until the first authenticated discovery subscription.
-const discoveryCollector = createDiscoveryCollector();
+const discoveryCollector = createDiscoveryCollector({ runtimeRegistry: terminalRuntimeRegistry });
 app.locals.discoveryCollector = discoveryCollector;
+const paneOutputStream = createPaneOutputStream({ runtimeRegistry: terminalRuntimeRegistry });
 
 // Single WebSocket server for chat and shell paths.
 const wss = createWebSocketServer(server, {
@@ -178,6 +218,8 @@ const wss = createWebSocketServer(server, {
         runTmux,
     },
     discovery: discoveryCollector,
+    panes: paneOutputStream,
+    herdrControl,
 });
 
 // Make WebSocket server available to routes
@@ -714,6 +756,12 @@ async function removeLocalServerMarker() {
 // Initialize database and start server
 async function startServer() {
     try {
+        if (herdrConfig.policyPath) {
+            const policyReload = await herdrPolicy.reload();
+            if (policyReload.errorCode) {
+                console.warn(`[WARN] Herdr policy disabled all Herdr capabilities: ${policyReload.errorCode}`);
+            }
+        }
         // Initialize authentication database
         await initializeDatabase();
 
@@ -792,11 +840,14 @@ async function startServer() {
 
             // Stop new HTTP/WebSocket work before permanently gating GJC starts.
             server.close();
+            await herdrControl.releaseAll();
             for (const client of wss.clients) {
                 client.terminate();
             }
             wss.close();
             server.closeAllConnections?.();
+            discoveryCollector.dispose();
+            terminalRuntimeRegistry.dispose();
 
             try {
                 await completionOutboxDispatcher.stop();
@@ -815,6 +866,14 @@ async function startServer() {
             }
             process.exit(0);
         };
+        process.on('SIGHUP', () => {
+            void (async () => {
+                const { errorCode } = await herdrPolicy.reload();
+                await herdrRevocation;
+                discoveryCollector.forceRefresh();
+                if (errorCode) console.warn(`[WARN] Herdr policy disabled all Herdr capabilities: ${errorCode}`);
+            })();
+        });
         process.on('SIGTERM', () => void shutdownRuntimeServices());
         process.on('SIGINT', () => void shutdownRuntimeServices());
     } catch (error) {

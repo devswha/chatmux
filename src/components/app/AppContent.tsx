@@ -17,7 +17,7 @@ import {
   hasGjcTerminalTarget,
   readRestSessionContainer,
 } from '../../utils/liveSessions';
-import type { ExternalTerminalTarget, Project, ProjectSession } from '../../types/app';
+import { isHerdrExternalTerminal, type ExternalTerminalTarget, type Project, type ProjectSession } from '../../types/app';
 import type { ExternalCliSession } from '../sidebar/hooks/useExternalCliSessions';
 import { tmuxPaneIdentityKey } from '../../../shared/tmux';
 
@@ -50,25 +50,36 @@ const parseStartedAt = (value: unknown): number | undefined => {
 export const isSameExternalTerminal = (
   current: ExternalTerminalTarget | null,
   expected: ExternalTerminalTarget,
-): boolean => Boolean(
-  current
-  && current.cliKind === expected.cliKind
-  && current.tmux.socketPath === expected.tmux.socketPath
-  && current.tmux.sessionId === expected.tmux.sessionId
-  && current.tmux.windowId === expected.tmux.windowId
-  && current.tmux.paneId === expected.tmux.paneId
-  && (
-    current.process === null && expected.process === null
-    || current.process !== null
-      && expected.process !== null
-      && current.process.pid === expected.process.pid
-      && current.process.startedAtMs === expected.process.startedAtMs
-  ),
-);
+): boolean => {
+  if (!current) return false;
+  const currentHerdr = isHerdrExternalTerminal(current);
+  const expectedHerdr = isHerdrExternalTerminal(expected);
+  if (currentHerdr || expectedHerdr) {
+    return currentHerdr && expectedHerdr
+      && current.terminal.sourceId === expected.terminal.sourceId
+      && current.terminal.targetId === expected.terminal.targetId
+      && current.mode === expected.mode;
+  }
+  return current.cliKind === expected.cliKind
+    && current.tmux.socketPath === expected.tmux.socketPath
+    && current.tmux.sessionId === expected.tmux.sessionId
+    && current.tmux.windowId === expected.tmux.windowId
+    && current.tmux.paneId === expected.tmux.paneId
+    && (
+      current.process === null && expected.process === null
+      || current.process !== null
+        && expected.process !== null
+        && current.process.pid === expected.process.pid
+        && current.process.startedAtMs === expected.process.startedAtMs
+    );
+};
 export function refreshExternalTerminalAttachCapability(
   target: ExternalTerminalTarget | null,
   sessions: readonly ExternalCliSession[],
 ): ExternalTerminalTarget | null {
+  if (isHerdrExternalTerminal(target)) {
+    return target;
+  }
   if (!target || target.cliKind === 'gjc') {
     return target;
   }
@@ -110,6 +121,9 @@ export function refreshExternalTerminalAttachCapability(
 export function resolveExternalTerminalRoute(
   target: ExternalTerminalTarget,
 ): 'transcript' | 'terminal' {
+  if (isHerdrExternalTerminal(target)) {
+    return 'terminal';
+  }
   // B8: a forced attach always wins — it exists specifically so the
   // asking_user badge can bypass the structured transcript and land the
   // user on the exact pane's terminal, even once that pane is indexed.
@@ -154,6 +168,7 @@ export function useExternalTerminalDiscoveryAuthority({
   useEffect(() => {
     if (
       !externalTerminal
+      || isHerdrExternalTerminal(externalTerminal)
       || externalTerminal.cliKind === 'gjc'
       || externalTerminal.cliKind === 'ssh'
       || externalTerminal.cliKind === 'shell'
@@ -226,7 +241,7 @@ export function useExternalTerminalDiscoveryAuthority({
     };
     void poll();
     const unsubscribe = subscribe((event) => {
-      if (event.kind === 'discovery.snapshot' || event.kind === 'discovery.delta') void poll();
+      if (event.kind === 'discovery.v2.snapshot') void poll();
     });
     return () => {
       cancelled = true;
@@ -337,7 +352,7 @@ export function useExternalTerminalDiscoveryAuthority({
     };
     void poll();
     const unsubscribe = subscribe((event) => {
-      if (event.kind === 'discovery.snapshot' || event.kind === 'discovery.delta') void poll();
+      if (event.kind === 'discovery.v2.snapshot') void poll();
     });
     return () => {
       cancelled = true;
@@ -425,6 +440,8 @@ function AppContentInner() {
     // indexed transcript, so fold its request into the target before routing.
     const routed: ExternalTerminalTarget = options?.forceAttach ? { ...target, forceAttach: true } : target;
     if (
+      !isHerdrExternalTerminal(routed)
+      &&
       routed.cliKind !== 'gjc'
       && routed.cliKind !== 'ssh'
       && routed.cliKind !== 'shell'
@@ -483,6 +500,7 @@ function AppContentInner() {
   }), [sidebarSharedProps, openExternalTerminal, refreshExternalTerminalCapability]);
 
   const activeExternalTranscript = externalTranscript
+    && !isHerdrExternalTerminal(externalTranscript)
     && externalTranscript.cliKind !== 'ssh'
     && externalTranscript.cliKind !== 'shell'
     && externalTranscript.cliKind !== 'gjc'
@@ -685,7 +703,7 @@ function AppContentInner() {
           liveSessionName={activeExternalTranscript?.tmuxName
             ?? (selectedSession ? (sidebarSharedProps.liveSessionNames.get(selectedSession.id) ?? null) : null)}
           liveSessionKind={activeExternalTranscript
-            ? activeExternalTranscript.cliKind as Exclude<ExternalTerminalTarget['cliKind'], 'ssh' | 'shell'>
+            ? activeExternalTranscript.cliKind as Exclude<ExternalTerminalTarget['cliKind'], 'ssh' | 'shell' | 'herdr'>
             : selectedSession && sidebarSharedProps.liveSessionLineage.has(selectedSession.id)
               ? 'gjc'
               : null}

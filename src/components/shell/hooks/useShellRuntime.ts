@@ -46,15 +46,17 @@ export function useShellRuntime({
     onProcessCompleteRef.current = onProcessComplete;
   }, [selectedProject, projectPath, selectedSession, initialCommand, isPlainShell, attachTarget, onProcessComplete]);
 
-  const terminalIdentityKey = attachTarget
-    ? JSON.stringify([
-        attachTarget.targetClass,
-        tmuxPaneIdentityKey(attachTarget.tmux),
-        attachTarget.targetClass === 'local-agent'
-          ? [attachTarget.process.pid, attachTarget.process.startedAtMs]
-          : attachTarget.capability,
-      ])
-    : selectedProject?.fullPath || selectedProject?.path || '';
+  const terminalIdentityKey = attachTarget?.runtime === 'herdr'
+    ? JSON.stringify(['herdr', attachTarget.mode, attachTarget.target])
+    : attachTarget
+      ? JSON.stringify([
+          attachTarget.targetClass,
+          tmuxPaneIdentityKey(attachTarget.tmux),
+          attachTarget.targetClass === 'local-agent'
+            ? [attachTarget.process.pid, attachTarget.process.startedAtMs]
+            : attachTarget.capability,
+        ])
+      : selectedProject?.fullPath || selectedProject?.path || '';
 
   const closeSocket = useCallback(() => {
     const activeSocket = wsRef.current;
@@ -81,9 +83,10 @@ export function useShellRuntime({
     minimal,
     isRestarting,
     closeSocket,
+    herdrProtocol: attachTarget?.runtime === 'herdr',
   });
 
-  const { isConnected, isConnecting, isProtocolOutdated, connectToShell, disconnectFromShell } = useShellConnection({
+  const { isConnected, isConnecting, isProtocolOutdated, isAttachCapabilityUnavailable, connectToShell, disconnectFromShell } = useShellConnection({
     wsRef,
     terminalRef,
     fitAddonRef,
@@ -136,6 +139,7 @@ export function useShellRuntime({
     isInitialized,
     isConnecting,
     isProtocolOutdated,
+    isAttachCapabilityUnavailable,
     connectToShell,
     disconnectFromShell,
   };

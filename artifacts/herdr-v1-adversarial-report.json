@@ -1,0 +1,131 @@
+{
+  "schemaVersion": 1,
+  "kind": "black-box-api-test-report",
+  "generatedAt": "2026-07-30T21:06:44.311Z",
+  "passed": true,
+  "runs": [
+    {
+      "id": "server-adversarial",
+      "env": {
+        "TSX_TSCONFIG_PATH": "server/tsconfig.json"
+      },
+      "command": [
+        "node",
+        "--import",
+        "tsx",
+        "--test",
+        "server/modules/terminal-runtimes/tests/*.test.ts",
+        "server/modules/providers/tests/discovery-collector.service.test.ts",
+        "server/modules/providers/tests/discovery-cost.test.ts",
+        "server/modules/providers/tests/pane-output-stream.service.test.ts",
+        "server/modules/providers/tests/provider-routes-contract.test.ts",
+        "server/modules/websocket/tests/discovery-stream.service.test.ts",
+        "server/modules/websocket/tests/shell-websocket-protocol.test.ts",
+        "server/herdr-status.contract.test.ts"
+      ],
+      "cwd": ".",
+      "exitCode": 0,
+      "timedOut": false,
+      "passCount": 126,
+      "outputSha256": "06943d1704780f98cb1049d54d1648e8e31c4fbd62b2ff4fd10bb3cde8ba91ed",
+      "outputTail": "d.\n[INFO] Shell websocket connected\n✔ attach-only lease reconnects after capability expiry only for its principal and pane (52.243979ms)\n[INFO] Shell websocket connected\n[ERROR] Shell WebSocket error: The existing typed attach session is not leased to this target.\n[INFO] Shell websocket connected\n[INFO] Shell websocket connected\n[INFO] Shell websocket connected\n[ERROR] Shell WebSocket error: The typed attach capability is invalid or expired.\n[INFO] Shell websocket connected\n[INFO] Shell websocket connected\n[INFO] Shell websocket connected\n[ERROR] Shell WebSocket error: The typed attach capability is invalid or expired.\n[INFO] Shell websocket connected\n[INFO] Shell websocket connected\n✔ attach-only forceRestart preserves an existing PTY when its lease or capability is invalid (93.843706ms)\n[INFO] Shell websocket connected\n[ERROR] Shell WebSocket error: spawn failed\n[INFO] Shell websocket connected\n[INFO] Shell websocket connected\n✔ forceRestart spawn failure close preserves the original PTY websocket binding (31.932489ms)\n[INFO] Shell websocket connected\n[INFO] Shell websocket connected\n[INFO] Shell websocket connected\n[INFO] Shell websocket connected\n✔ overlapping forceRestart requests replace the current PTY without orphaning either replacement (42.377074ms)\n✔ full redraw strips stale terminal queries without altering visible ANSI output (0.183707ms)\n[INFO] Shell websocket connected\n[INFO] Shell websocket connected\n[INFO] Shell websocket connected\n[INFO] Shell websocket connected\n✔ reconnect with an acknowledged seq resumes seamlessly; legacy and gapped clients redraw (42.276995ms)\n[INFO] Shell websocket connected\nShell attach diagnostic: { code: 'attach_refused_identity', provider: 'attach-only', count: 1 }\n[ERROR] Shell WebSocket error: The tmux target identity verifier is unavailable.\n[INFO] Shell websocket connected\n[ERROR] Shell WebSocket error: The tmux target identity verifier is unavailable.\n[INFO] Shell websocket connected\n[ERROR] Shell WebSocket error: The tmux target identity verifier is unavailable.\n[INFO] Shell websocket connected\n[ERROR] Shell WebSocket error: The tmux target identity verifier is unavailable.\n[INFO] Shell websocket connected\nShell attach diagnostic: { code: 'attach_refused_protected', provider: 'attach-only', count: 1 }\n[ERROR] Shell WebSocket error: The tmux target protection status could not be verified.\n✔ attach-only rejects missing, wrong-principal, wrong-pane, expired, and changed-generation capabilities (50.976916ms)\n[INFO] Shell websocket connected\n[ERROR] Shell WebSocket error: The tmux target protection status could not be verified.\n[INFO] Shell websocket connected\n[ERROR] Shell WebSocket error: The tmux target protection status could not be verified.\n[INFO] Shell websocket connected\n[ERROR] Shell WebSocket error: tmux failed\n[INFO] Shell websocket connected\n[ERROR] Shell WebSocket error: The ChatMux tmux pane protection status could not be verified.\n[INFO] Shell websocket connected\n[ERROR] Shell WebSocket error: This tmux target is protected.\n✔ attach-only rejects when tmux target or ChatMux pane protection cannot be read (51.92137ms)\n[INFO] Shell websocket connected\n[ERROR] Shell WebSocket error: This tmux target is protected.\n[INFO] Shell websocket connected\n[ERROR] Shell WebSocket error: This tmux target is protected.\n[INFO] Shell websocket connected\n[ERROR] Shell WebSocket error: This tmux target is protected.\n✔ attach diagnostics are rate-limited across connections and resume after one minute (31.965421ms)\n[INFO] Shell websocket connected\n✔ attach refusal diagnostics contain only code, provider, and count (9.973286ms)\n✔ client source contains no tmux attach command string (15.19092ms)\n[INFO] Shell websocket connected\n[INFO] Shell websocket connected\n✔ Herdr v3 malformed and gap controller frames release the no-takeover lease (2123.575999ms)\n[INFO] Shell websocket connected\n✔ Herdr v3 disconnect releases controller (1061.479621ms)\n[INFO] Shell websocket connected\n✔ Herdr control blocks pre-ack writes, revalidates post-ack writes, and preserves split UTF-8 controller data (14.682009ms)\n[INFO] Shell websocket connected\n✔ Herdr idle identity polling invalidates an acknowledged controller (2061.694634ms)\n[INFO] Shell websocket connected\n✔ Herdr revocation callback synchronously blocks writes and awaits controller exit (12.344364ms)\n[INFO] Shell websocket connected\n✔ Herdr closes and releases on the first controller stderr byte (11.811327ms)\n[INFO] Shell websocket connected\n✔ Herdr serializes deferred verifier input and resize writes in FIFO order (14.158109ms)\n[INFO] Shell websocket connected\n✔ Herdr releases when the bounded input queue overflows (13.689133ms)\n[INFO] Shell websocket connected\n✔ Herdr fails and releases when controller input writing throws (13.207634ms)\n✔ Herdr output queue rejects the candidate frame that exceeds 256 pending frames (14.14785ms)\nℹ tests 126\nℹ suites 0\nℹ pass 126\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 40695.866061\n"
+    },
+    {
+      "id": "client-protocol",
+      "env": {
+        "TSX_TSCONFIG_PATH": "tsconfig.json"
+      },
+      "command": [
+        "node",
+        "--import",
+        "tsx",
+        "--test",
+        "src/components/shell/shellProtocol.test.ts",
+        "src/components/main-content/view/MainContent.test.ts",
+        "src/hooks/useDiscoveryStream.test.ts",
+        "src/components/sidebar/hooks/useExternalCliSessions.test.ts",
+        "src/components/app/AppContent.discoveryAuthority.test.tsx"
+      ],
+      "cwd": ".",
+      "exitCode": 0,
+      "timedOut": false,
+      "passCount": 36,
+      "outputSha256": "885303630849e118d6ffcc47ed2b68c44606a3ba6f3045461cd65b778d473557",
+      "outputTail": "✔ mounted production authority clears external target on newest failed discovery and fences older promotion (33.57003ms)\n✔ mounted production authority clears GJC target on newest failed discovery and fences older typed promotion (1.719357ms)\n✔ mounted production authority promotes only the newest exact external transcript (1.838883ms)\n✔ mounted production authority promotes only the newest exact GJC session (2.080218ms)\n✔ applies attached and output frames for the shared pane subscription key (1.14377ms)\n✔ keeps an attached pane on stream output without repeated REST fallback reads (5.127805ms)\n✔ M5b B8: forceAttach skips the pending relay surface for a local-agent pane with an observable process (0.25934ms)\n✔ M5b B8: forced attach resolves to the exact pane 4-tuple as a local-agent shell target, never another pane (0.208524ms)\n✔ Herdr read targets never attach while explicit control targets use shell v3 (0.154903ms)\n✔ M5b B8 AC3: a ssh/shell row without an issued attachCapability never attaches, regardless of forceAttach (0.139023ms)\n✔ CLI output tab upgrades to an exact-4-tuple interactive attach only with a process identity (0.140715ms)\n✔ pending CLI output hides the duplicate chat composer while terminal input is active (1.565447ms)\n✔ typed attach init uses coordinates without an initial command (1.20732ms)\n✔ attach-only init includes its capability without a process or initial command (0.16391ms)\n✔ Herdr attach uses strict shell v3 without legacy project or session fields (0.134354ms)\n✔ null-project typed attach uses explicit context without session or command authority (0.122491ms)\n✔ plain shell init keeps its existing fields and adds the protocol version (0.140966ms)\n✔ shell consumers retain their command props and no client tmux command builder remains (0.336135ms)\n✔ shell view permits only typed attach without a Project (0.274218ms)\n✔ external terminal targets do not attach without a server-issued capability (0.283956ms)\n✔ CLIENT_RELOAD_REQUIRED is terminal and suppresses automatic reconnect (24.430419ms)\n✔ init carries the acknowledged output seq only when one exists (0.260913ms)\n✔ Herdr disconnect never replays its consumed admission capability (2.596744ms)\n✔ typed tmux target reconnects after a socket close (0.875042ms)\n✔ hydrates external metadata onto a discovery row that arrived first (1.44044ms)\n✔ stream loss clears mutable provider activity before REST fallback (0.246115ms)\n✔ REST request generations reject a late bootstrap response (0.140325ms)\n✔ newest generation wins across recovery and unmount fencing (0.12175ms)\n✔ a malformed newest external container fences an older successful response (0.205768ms)\n✔ false discovery sanitizes reported-present external rows to identity only (0.182464ms)\n✔ uses strict v2 discovery transport (1.222258ms)\n✔ keeps independent Herdr sources and opaque identities (0.356343ms)\n✔ projects authoritative source/lane pairs without clearing peer Herdr or tmux terminals (0.227199ms)\n✔ preserves tmux projection only in its explicitly declared lane (0.161515ms)\n✔ requires exact authoritative source/lane coverage but not a matching global revision (0.136187ms)\n✔ rejects stale clients, pair regressions, and same-revision disagreement (0.237969ms)\nℹ tests 36\nℹ suites 0\nℹ pass 36\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 529.352262\n"
+    }
+  ],
+  "cases": [
+    {
+      "id": "discovery-v1-reload-required",
+      "status": "passed",
+      "evidence": "Discovery stream rejects protocolVersion 1 with CLIENT_RELOAD_REQUIRED before subscriber registration or collector start; v2 snapshots/heartbeats and bounded resync pass."
+    },
+    {
+      "id": "per-source-failure-isolation",
+      "status": "passed",
+      "evidence": "Runtime registry and discovery collector tests preserve adapter-provided source outcomes and independent source/lane failure and grace state."
+    },
+    {
+      "id": "pair-local-authority",
+      "status": "passed",
+      "evidence": "Client discovery authority tests require exact source/lane coverage while allowing unrelated global revisions and rejecting pair regressions or disagreement."
+    },
+    {
+      "id": "stale-local-agent",
+      "status": "passed",
+      "evidence": "HerdrTargetRegistry tests reject changed local-agent process generation while retaining attach-only foreground replacement."
+    },
+    {
+      "id": "attach-foreground-replacement",
+      "status": "passed",
+      "evidence": "Registry tests and artifacts/herdr-v1-live-report.json verify attach-only control survives ordinary foreground replacement."
+    },
+    {
+      "id": "source-restart-stale-target",
+      "status": "passed",
+      "evidence": "artifacts/herdr-v1-live-report.json denies the original opaque target after named Herdr server restart/socket incarnation change."
+    },
+    {
+      "id": "principal-bound-single-use",
+      "status": "passed",
+      "evidence": "Herdr control bridge tests cover wrong principal, one-time capability use, expiry, duplicate controller denial, policy reduction, and release."
+    },
+    {
+      "id": "pre-ack-and-hot-disable",
+      "status": "passed",
+      "evidence": "Shell websocket tests block pre-ack writes, reverify post-ack and each write, continuously reverify identity, and release controllers after malformed frames, gaps, policy reduction, and disconnect."
+    },
+    {
+      "id": "legacy-malformed-protocol",
+      "status": "passed",
+      "evidence": "Terminal runtime, discovery stream, and shell websocket tests reject malformed, v1, v2-shell, and version-confused contracts before authority acquisition."
+    },
+    {
+      "id": "frame-and-command-bounds",
+      "status": "passed",
+      "evidence": "Herdr client/probe and shell protocol tests reject malformed NDJSON and enforce stdout, stderr, line, frame, timeout, sequence, UTF-8, and input bounds."
+    },
+    {
+      "id": "disconnect-release-cleanup",
+      "status": "passed",
+      "evidence": "Control bridge and websocket tests prove exactly-once release and bounded teardown; live report proves no-takeover reacquisition and disposable named-session cleanup."
+    },
+    {
+      "id": "tmux-non-regression",
+      "status": "passed",
+      "evidence": "Runtime adapter, shell protocol, discovery cost, pane stream, and provider route suites exercise existing tmux authority, attach, capture, actions, and constant-cost contracts."
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "live-v1",
+      "kind": "black-box-api-test-report",
+      "path": "artifacts/herdr-v1-live-report.json"
+    },
+    {
+      "id": "phase0",
+      "kind": "phase0-contract-fixture",
+      "path": "server/modules/terminal-runtimes/tests/fixtures/herdr/v0.7.5-phase0.json"
+    }
+  ]
+}

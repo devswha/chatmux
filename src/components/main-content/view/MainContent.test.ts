@@ -114,9 +114,33 @@ test('M5b B8: forced attach resolves to the exact pane 4-tuple as a local-agent 
 
   const otherPane = { ...target, tmux: { ...tmux, paneId: '%9' } };
   const otherAttachTarget = buildExternalAttachTarget(otherPane);
-  assert.notDeepEqual(otherAttachTarget?.tmux, attachTarget?.tmux);
+  assert.ok(otherAttachTarget && attachTarget && 'tmux' in otherAttachTarget && 'tmux' in attachTarget);
+  assert.notDeepEqual(otherAttachTarget.tmux, attachTarget.tmux);
 });
 
+test('Herdr read targets never attach while explicit control targets use shell v3', () => {
+  const terminal = {
+    runtime: 'herdr' as const,
+    sourceId: 'hsrc_abcdefghijklmnopqrstuv',
+    targetId: 'htgt_abcdefghijklmnopqrstuv',
+    targetClass: 'local-agent' as const,
+    process: { pid: 4242, startedAtMs: 1_700_000_000_000 },
+  };
+  const base = {
+    runtime: 'herdr' as const,
+    terminal,
+    kind: 'Herdr' as const,
+    cliKind: 'herdr' as const,
+    project: null,
+  };
+
+  assert.equal(buildExternalAttachTarget({ ...base, mode: 'observe' }), null);
+  assert.deepEqual(buildExternalAttachTarget({ ...base, mode: 'control' }), {
+    runtime: 'herdr',
+    target: terminal,
+    mode: 'control',
+  });
+});
 test('M5b B8 AC3: a ssh/shell row without an issued attachCapability never attaches, regardless of forceAttach', () => {
   const sshTarget = {
     tmuxName: 'remote',

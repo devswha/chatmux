@@ -8,6 +8,7 @@ import {
   GRACE_TICKS_EXTERNAL,
   GRACE_TICKS_LIVE,
   UNAVAILABLE_DEGRADE_TICKS,
+  HERDR_UNAVAILABLE_GRACE_TICKS_EXTERNAL,
   createDiscoveryCollector,
   type DiscoveryRow,
 } from '@/modules/providers/services/discovery-collector.service.js';
@@ -224,4 +225,79 @@ test('collector transitions between idle and active cadence, debounces refresh, 
   assert.ok(cleared.length >= 2);
   await collector.tick();
   assert.equal(scansRun, 1);
+});
+test('runtime discovery keeps Herdr source grace and failures independent without exposing source internals', async () => {
+  const sourceA = 'hsrc_aaaaaaaaaaaaaaaaaaaaaa';
+  const sourceB = 'hsrc_bbbbbbbbbbbbbbbbbbbbbb';
+  const terminal = (sourceId: string, targetId: string) => ({
+    runtime: 'herdr' as const, sourceId, targetId, targetClass: 'local-agent' as const, process: { pid: 20, startedAtMs: 200 },
+  });
+  const descriptors: Array<{ runtime: 'herdr'; sourceId: string; readiness: 'ready' | 'offline' }> = [
+    { runtime: 'herdr' as const, sourceId: sourceA, readiness: 'ready' as const },
+    { runtime: 'herdr' as const, sourceId: sourceB, readiness: 'ready' as const },
+  ];
+  let outcomes = [
+    { runtime: 'herdr' as const, sourceId: sourceA, ok: true, terminals: [terminal(sourceA, 'htgt_aaaaaaaaaaaaaaaaaaaaaa')] },
+    { runtime: 'herdr' as const, sourceId: sourceB, ok: true, terminals: [terminal(sourceB, 'htgt_bbbbbbbbbbbbbbbbbbbbbb')] },
+  ];
+  const collector = createDiscoveryCollector({
+    scanExternal: async () => ({ ok: true, sessions: [] }),
+    scanLive: async () => ({ ok: true, sessions: [] }),
+    runtimeRegistry: {
+      sources: async () => descriptors,
+      discoverOutcomes: async () => outcomes,
+      capabilities: () => ({ discovery: true, output: false, actions: false, attach: false, create: false }),
+    },
+  });
+  await collector.tick();
+  outcomes = [
+    { runtime: 'herdr' as const, sourceId: sourceA, ok: false, terminals: [] },
+    { runtime: 'herdr' as const, sourceId: sourceB, ok: true, terminals: [terminal(sourceB, 'htgt_bbbbbbbbbbbbbbbbbbbbbb')] },
+  ];
+  await collector.tick();
+  let snapshot = collector.currentSnapshot().v2!;
+  assert.equal(snapshot.terminals.some((value) => value.lane === 'external' && value.terminal.runtime === 'herdr' && value.terminal.sourceId === sourceA), true);
+  assert.equal(snapshot.terminals.some((value) => value.lane === 'external' && value.terminal.runtime === 'herdr' && value.terminal.sourceId === sourceB), true);
+  let sources = snapshot.sourceLanes.filter((value) => value.runtime === 'herdr');
+  assert.equal(sources.find((value) => value.sourceId === sourceA)?.coverage, 'retained');
+  assert.equal(sources.find((value) => value.sourceId === sourceA)?.capabilities.discovery, false);
+  assert.equal(sources.find((value) => value.sourceId === sourceB)?.coverage, 'authoritative');
+
+  await collector.tick();
+  snapshot = collector.currentSnapshot().v2!;
+  assert.equal(snapshot.terminals.some((value) => value.terminal.runtime === 'herdr' && value.terminal.sourceId === sourceA), false);
+  assert.equal(snapshot.terminals.some((value) => value.terminal.runtime === 'herdr' && value.terminal.sourceId === sourceB), true);
+  sources = snapshot.sourceLanes.filter((value) => value.runtime === 'herdr');
+  assert.equal(sources.find((value) => value.sourceId === sourceA)?.consecutiveFailures, HERDR_UNAVAILABLE_GRACE_TICKS_EXTERNAL);
+  assert.equal(sources.find((value) => value.sourceId === sourceA)?.coverage, 'none');
+  assert.equal(sources.find((value) => value.sourceId === sourceB)?.consecutiveFailures, 0);
+  assert.equal(JSON.stringify(collector.currentSnapshot().v2).includes('selector'), false);
+  assert.equal(JSON.stringify(collector.currentSnapshot().v2).includes('socket'), false);
+});
+test('policy-disabled Herdr sources remove targets immediately without weakening tmux discovery', async () => {
+  const sourceId = 'hsrc_policy_disabled';
+  const terminal = {
+    runtime: 'herdr' as const, sourceId, targetId: 'htgt_policy_disabled', targetClass: 'local-agent' as const, process: { pid: 20, startedAtMs: 200 },
+  };
+  let disabled = false;
+  const collector = createDiscoveryCollector({
+    scanExternal: async () => ({ ok: true, sessions: [external] }),
+    scanLive: async () => ({ ok: true, sessions: [] }),
+    runtimeRegistry: {
+      sources: async () => [{ runtime: 'herdr' as const, sourceId, readiness: disabled ? 'disabled' as const : 'ready' as const }],
+      discoverOutcomes: async () => [{ runtime: 'herdr' as const, sourceId, ok: true, terminals: [terminal] }],
+      capabilities: () => ({ discovery: true, output: false, actions: false, attach: false, create: false }),
+    },
+  });
+  await collector.tick();
+  disabled = true;
+  await collector.tick();
+
+  const snapshot = collector.currentSnapshot().v2!;
+  const source = snapshot.sourceLanes.find((value) => value.sourceId === sourceId)!;
+  assert.equal(snapshot.terminals.some((value) => value.terminal.runtime === 'herdr' && value.terminal.sourceId === sourceId), false);
+  assert.equal(source.coverage, 'none');
+  assert.equal(source.capabilities.discovery, false);
+  assert.equal(source.consecutiveFailures, 0);
+  assert.equal(snapshot.tmuxRows?.some((row) => row.lane === 'external'), true);
 });

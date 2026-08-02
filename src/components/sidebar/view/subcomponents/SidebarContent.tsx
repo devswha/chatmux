@@ -1,9 +1,12 @@
+import { useState } from 'react';
 import type { TFunction } from 'i18next';
 
 import { ScrollArea } from '../../../../shared/view/ui';
 import type { ExternalTerminalTarget, Project, ProjectSession } from '../../../../types/app';
 import type { TmuxPaneIdentity, TmuxPaneTarget } from '../../../../../shared/tmux';
-import { useExternalCliSessions, type ExternalCliSession } from '../../hooks/useExternalCliSessions';
+import { readPublicTerminalTarget } from '../../../../../shared/terminal-runtime';
+import { api } from '../../../../utils/api';
+import { useExternalCliSessions, type ExternalCliSession, type HerdrTerminalSession } from '../../hooks/useExternalCliSessions';
 
 import SidebarFooter from './SidebarFooter';
 import SidebarHeader from './SidebarHeader';
@@ -77,12 +80,66 @@ export default function SidebarContent({
   onExternalSessionsChange,
   t,
 }: SidebarContentProps) {
-  const { sessions: externalSessions, loading: externalLoading, refresh: refreshDiscoveredSessions } = useExternalCliSessions(onExternalSessionsChange);
+  const {
+    sessions: externalSessions,
+    herdrSessions,
+    loading: externalLoading,
+    refresh: refreshDiscoveredSessions,
+  } = useExternalCliSessions(onExternalSessionsChange);
+  const [herdrOpeningKey, setHerdrOpeningKey] = useState<string | null>(null);
+  const [herdrOpenError, setHerdrOpenError] = useState<string | null>(null);
   // The hook's refresh sends a unified discovery resync, updating both live and external rows.
-  const sessionCount = liveSessionIds.size + externalSessions.length;
+  const sessionCount = liveSessionIds.size + externalSessions.length + herdrSessions.length;
   const refreshAllSessions = () => {
     refreshDiscoveredSessions();
     onRefresh();
+  };
+  const openHerdr = async (session: HerdrTerminalSession, mode: 'observe' | 'control') => {
+    if (herdrOpeningKey) return;
+    setHerdrOpenError(null);
+    if (mode === 'observe') {
+      onExternalTerminalOpen({
+        runtime: 'herdr',
+        terminal: session.target,
+        kind: 'Herdr',
+        cliKind: 'herdr',
+        project: null,
+        mode,
+      });
+      return;
+    }
+
+    setHerdrOpeningKey(session.key);
+    try {
+      let controlTarget = session.target;
+      if (session.target.targetClass === 'attach-only') {
+        const response = await api.externalCliSessionAdmission(session.target);
+        const body = await response.json().catch(() => null);
+        const admitted = readPublicTerminalTarget(body?.data?.terminal);
+        if (
+          !response.ok
+          || admitted?.runtime !== 'herdr'
+          || admitted.targetClass !== 'attach-only'
+          || admitted.sourceId !== session.target.sourceId
+          || admitted.targetId !== session.target.targetId
+        ) {
+          throw new Error(body?.error?.message ?? 'Herdr control is unavailable.');
+        }
+        controlTarget = admitted;
+      }
+      onExternalTerminalOpen({
+        runtime: 'herdr',
+        terminal: controlTarget,
+        kind: 'Herdr',
+        cliKind: 'herdr',
+        project: null,
+        mode,
+      });
+    } catch (error) {
+      setHerdrOpenError(error instanceof Error ? error.message : 'Herdr control is unavailable.');
+    } finally {
+      setHerdrOpeningKey(null);
+    }
   };
 
   return (
@@ -99,26 +156,57 @@ export default function SidebarContent({
       <ScrollArea className="flex-1 overflow-y-auto overscroll-contain md:px-1.5 md:py-2">
         <SidebarNewSession onCreated={refreshDiscoveredSessions} />
         {sessionCount > 0 ? (
-          <SidebarLiveSection
-            projects={projects}
-            liveSessionIds={liveSessionIds}
-            externalSessions={externalSessions}
-            selectedSession={selectedSession}
-            onProjectSelect={onProjectSelect}
-            onSessionSelect={onSessionSelect}
-            liveSessionNames={liveSessionNames}
-            liveSessionModels={liveSessionModels}
-            liveSessionEfforts={liveSessionEfforts}
-            liveSessionLineage={liveSessionLineage}
-            liveSessionPanes={liveSessionPanes}
-            liveSessionPresence={liveSessionPresence}
-            liveSessionTargets={liveSessionTargets}
-            liveSessionKinds={liveSessionKinds}
-            liveSessionRunning={liveSessionRunning}
-            liveSessionErrors={liveSessionErrors}
-            onExternalTerminalOpen={onExternalTerminalOpen}
-            onExternalSessionsChanged={refreshDiscoveredSessions}
-          />
+          <>
+            <SidebarLiveSection
+              projects={projects}
+              liveSessionIds={liveSessionIds}
+              externalSessions={externalSessions}
+              selectedSession={selectedSession}
+              onProjectSelect={onProjectSelect}
+              onSessionSelect={onSessionSelect}
+              liveSessionNames={liveSessionNames}
+              liveSessionModels={liveSessionModels}
+              liveSessionEfforts={liveSessionEfforts}
+              liveSessionLineage={liveSessionLineage}
+              liveSessionPanes={liveSessionPanes}
+              liveSessionPresence={liveSessionPresence}
+              liveSessionTargets={liveSessionTargets}
+              liveSessionKinds={liveSessionKinds}
+              liveSessionRunning={liveSessionRunning}
+              liveSessionErrors={liveSessionErrors}
+              onExternalTerminalOpen={onExternalTerminalOpen}
+              onExternalSessionsChanged={refreshDiscoveredSessions}
+            />
+            {herdrSessions.length > 0 && (
+              <div className="space-y-1 px-4 pb-3">
+                <div className="px-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Herdr
+                </div>
+                {herdrSessions.map((session) => (
+                  <div key={session.key} className="flex items-center justify-between gap-2 rounded-md border border-border/60 px-2 py-1.5">
+                    <span className="min-w-0 truncate text-xs text-foreground">
+                      {session.sourceId}
+                    </span>
+                    <span className="flex shrink-0 gap-1">
+                      {session.capabilities.output && (
+                        <button type="button" className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => void openHerdr(session, 'observe')}>
+                          View
+                        </button>
+                      )}
+                      {session.capabilities.attach && (
+                        <button type="button" disabled={herdrOpeningKey === session.key} className="rounded bg-emerald-700 px-2 py-1 text-xs text-white disabled:opacity-50" onClick={() => void openHerdr(session, 'control')}>
+                          {herdrOpeningKey === session.key ? 'Opening…' : 'Control'}
+                        </button>
+                      )}
+                    </span>
+                  </div>
+                ))}
+                {herdrOpenError && (
+                  <div role="alert" className="px-1 text-xs text-red-500">{herdrOpenError}</div>
+                )}
+              </div>
+            )}
+          </>
         ) : (!liveSessionsLoaded || externalLoading) ? (
           <div className="flex items-center justify-center gap-2 px-4 py-8 text-sm text-muted-foreground" role="status" aria-live="polite">
             <span className="h-4 w-4 animate-spin rounded-full border-2 border-muted-foreground/40 border-t-muted-foreground" aria-hidden />

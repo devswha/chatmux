@@ -8,9 +8,11 @@ import {
 
 import { ensureXtermFocusStyles } from './terminalStyles';
 
-test('terminal typography prefers the platform UI monospace and avoids Courier New', () => {
+test('terminal typography prefers installed Nerd Fonts with platform monospace fallbacks', () => {
   assert.equal(TERMINAL_OPTIONS.fontFamily, TERMINAL_FONT_FAMILY);
-  assert.match(TERMINAL_FONT_FAMILY, /^ui-monospace,/);
+  assert.match(TERMINAL_FONT_FAMILY, /^"JetBrainsMono Nerd Font",/);
+  assert.match(TERMINAL_FONT_FAMILY, /"MesloLGS NF"/);
+  assert.match(TERMINAL_FONT_FAMILY, /ui-monospace/);
   assert.doesNotMatch(TERMINAL_FONT_FAMILY, /Courier New/i);
   assert.match(TERMINAL_FONT_FAMILY, /Liberation Mono/);
 });

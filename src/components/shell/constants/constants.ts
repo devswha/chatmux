@@ -12,6 +12,10 @@ export const PROMPT_MAX_OPTIONS = 5;
 export const PROMPT_MIN_OPTIONS = 2;
 
 export const TERMINAL_FONT_FAMILY = [
+  '"JetBrainsMono Nerd Font"',
+  '"JetBrainsMono Nerd Font Mono"',
+  '"MesloLGS NF"',
+  '"Hack Nerd Font Mono"',
   'ui-monospace',
   'SFMono-Regular',
   'Menlo',

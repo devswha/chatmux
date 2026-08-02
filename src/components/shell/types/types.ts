@@ -4,8 +4,15 @@ import type { Terminal } from '@xterm/xterm';
 
 import type { Project, ProjectSession } from '../../../types/app';
 import type { TmuxPaneIdentity, TmuxProcessGeneration } from '../../../../shared/tmux';
+import type { PublicTerminalTarget, ShellV3ClientMessage, ShellV3InitRequest, ShellV3ServerMessage } from '../../../../shared/terminal-runtime';
+export const CLIENT_RELOAD_REQUIRED = 'CLIENT_RELOAD_REQUIRED';
 
 export type ShellAttachTarget = {
+  runtime: 'herdr';
+  target: Extract<PublicTerminalTarget, { runtime: 'herdr' }>;
+  mode: 'observe' | 'control';
+} | ({
+  runtime?: 'tmux';
   tmux: TmuxPaneIdentity;
 } & ({
   targetClass: 'local-agent';
@@ -13,11 +20,11 @@ export type ShellAttachTarget = {
 } | {
   targetClass: 'attach-only';
   capability: string;
-});
+}));
 
-export type ShellInitMessage = {
-  type: 'init';
-  shellProtocolVersion: 2;
+type TmuxShellV3InitBase = {
+  type: 'terminal.init';
+  protocolVersion: 3;
   projectPath: string;
   sessionId: string | null;
   hasSession: boolean;
@@ -25,22 +32,20 @@ export type ShellInitMessage = {
   cols: number;
   rows: number;
   forceRestart?: boolean;
-  /** Last output seq this client rendered — enables seamless server-side resume. */
   lastSeq?: number;
-} & ({
-  mode: 'plain-shell';
-  initialCommand: string | null | undefined;
-  isPlainShell: boolean;
-} | ({
-  mode: 'typed-attach';
-  tmux: TmuxPaneIdentity;
-} & ({
-  targetClass: 'local-agent';
-  process: TmuxProcessGeneration;
-} | {
-  targetClass: 'attach-only';
-  capability: string;
-})));
+};
+
+export type ShellInitMessage = ShellV3InitRequest | (TmuxShellV3InitBase & (
+  | {
+      mode: 'plain-shell';
+      initialCommand: string | null | undefined;
+      isPlainShell: boolean;
+    }
+  | {
+      mode: 'typed-attach';
+      target: Extract<PublicTerminalTarget, { runtime: 'tmux' }>;
+    }
+));
 
 export type ShellResizeMessage = {
   type: 'resize';
@@ -53,9 +58,9 @@ export type ShellInputMessage = {
   data: string;
 };
 
-export type ShellOutgoingMessage = ShellInitMessage | ShellResizeMessage | ShellInputMessage;
+export type ShellOutgoingMessage = ShellInitMessage | ShellV3ClientMessage | ShellResizeMessage | ShellInputMessage;
 
-export type ShellIncomingMessage =
+export type ShellIncomingMessage = ShellV3ServerMessage
   | { type: 'output'; data: string; seq?: number }
   | { type: 'replay_start'; mode?: 'resume' | 'redraw' }
   | { type: 'auth_url'; url?: string }
@@ -98,6 +103,7 @@ export type UseShellRuntimeResult = {
   isInitialized: boolean;
   isConnecting: boolean;
   isProtocolOutdated: boolean;
+  isAttachCapabilityUnavailable: boolean;
   connectToShell: (options?: { forceRestart?: boolean; automatic?: boolean }) => void;
   disconnectFromShell: (options?: { suppressAutoConnect?: boolean }) => void;
 };

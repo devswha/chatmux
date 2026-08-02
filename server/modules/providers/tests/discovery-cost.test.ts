@@ -9,7 +9,6 @@ import {
 import { createExternalTurnMonitor } from '@/modules/notifications/index.js';
 import {
   createDiscoveryCollector,
-  type DiscoveryRow,
 } from '@/modules/providers/services/discovery-collector.service.js';
 import {
   createExternalCliSessionDiscovery,
@@ -25,6 +24,8 @@ import {
   type LiveGjcSessionCommandRunner,
 } from '@/modules/providers/services/live-sessions.service.js';
 import { createDiscoveryStream } from '@/modules/websocket/index.js';
+
+import type { DiscoveryTerminal } from '../../../../shared/terminal-runtime.js';
 
 const T_MS = 20_000;
 const C_SCAN_MS = 1_000;
@@ -50,7 +51,7 @@ class FakeWebSocket {
   close(): void {}
 }
 
-type Client = { ws: FakeWebSocket; rows: Map<string, DiscoveryRow> };
+type Client = { ws: FakeWebSocket; terminals: DiscoveryTerminal[] };
 
 const EXTERNAL_TMUX = '/tmp/test\t$1\t@1\t%1\texternal-ssh\t101\tssh\t\t/work\t\t\n';
 const LIVE_TMUX = '/tmp/test\t$1\t@1\t%2\tlive-empty\t102\tbash\t/work\n';
@@ -76,24 +77,8 @@ function createLiveRunner(): LiveGjcSessionCommandRunner {
 
 function applyFrames(client: Client): void {
   for (const frame of client.ws.sent.splice(0)) {
-    const event = JSON.parse(frame) as { kind?: string; rows?: DiscoveryRow[]; changes?: Array<Record<string, unknown>> };
-    if (event.kind === 'discovery.snapshot') {
-      client.rows = new Map((event.rows ?? []).map((row) => [row.key, row]));
-      continue;
-    }
-    if (event.kind !== 'discovery.delta') continue;
-    for (const change of event.changes ?? []) {
-      if (change.op === 'added') {
-        const row = change.row as DiscoveryRow;
-        client.rows.set(row.key, row);
-      } else if (change.op === 'updated' && typeof change.key === 'string') {
-        const row = client.rows.get(change.key);
-        if (row) client.rows.set(change.key, { ...row, ...(change.patch as Partial<DiscoveryRow>) });
-      } else if (change.op === 'stale' && typeof change.key === 'string') {
-        const row = client.rows.get(change.key);
-        if (row) client.rows.set(change.key, { ...row, presence: 'stale' });
-      } else if (change.op === 'removed' && typeof change.key === 'string') client.rows.delete(change.key);
-    }
+    const event = JSON.parse(frame) as { kind?: string; discovery?: { terminals?: DiscoveryTerminal[] } };
+    if (event.kind === 'discovery.v2.snapshot') client.terminals = event.discovery?.terminals ?? [];
   }
 }
 
@@ -114,7 +99,7 @@ function assertCostBounds(counters: HostCommandCounters, subscribers: number): v
 async function runScenario(subscribers: number, subscriberPolling = false): Promise<{
   counters: HostCommandCounters;
   clients: Client[];
-  expected: readonly DiscoveryRow[];
+  expected: readonly DiscoveryTerminal[];
   monitorScannerCalls: number;
   monitorAdapterCalls: number;
   monitorTicks: number;
@@ -135,8 +120,8 @@ async function runScenario(subscribers: number, subscriberPolling = false): Prom
     scanLive: () => live.getLiveGjcSessionsDetailed(),
   });
   const stream = createDiscoveryStream(collector, () => now);
-  const clients = Array.from({ length: subscribers }, () => ({ ws: new FakeWebSocket(), rows: new Map<string, DiscoveryRow>() }));
-  for (const client of clients) stream.handle(client.ws as never, { type: 'discovery.subscribe', protocolVersion: 1 });
+  const clients = Array.from({ length: subscribers }, () => ({ ws: new FakeWebSocket(), terminals: [] as DiscoveryTerminal[] }));
+  for (const client of clients) stream.handle(client.ws as never, { type: 'discovery.subscribe', protocolVersion: 2 });
   const monitor = createExternalTurnMonitor({
     getDetailed: async () => {
       monitorScannerCalls += 1;
@@ -205,7 +190,7 @@ async function runScenario(subscribers: number, subscriberPolling = false): Prom
   const result = {
     counters: snapshotHostCommandCounters(),
     clients,
-    expected: collector.currentSnapshot().rows,
+    expected: collector.currentSnapshot().v2?.terminals ?? [],
     monitorScannerCalls,
     monitorAdapterCalls,
     monitorTicks,
@@ -226,7 +211,7 @@ test('asserts A-G: production discovery scanners have constant host cost for 1, 
     assert.equal(result.monitorAdapterCalls, 4, `assert E: turn monitor activity adapter was not run with N=${subscribers}`);
     assert.equal(result.monitorTicks, 4, `assert E: turn monitor was not run with N=${subscribers}`);
     for (const client of result.clients) {
-      assert.deepEqual([...client.rows.values()], result.expected, `assert F: subscriber missed latest snapshot/delta (N=${subscribers})`);
+      assert.deepEqual(client.terminals, result.expected, `assert F: subscriber missed latest v2 snapshot (N=${subscribers})`);
     }
   }
   for (const key of Object.keys(K_KEY_PER_S)) {
@@ -283,8 +268,8 @@ test('I11: stream and REST-fallback authority remove a killed live row within T_
     }] : [], transcriptPaths: new Map() }),
   });
   const stream = createDiscoveryStream(collector, () => now);
-  const client: Client = { ws: new FakeWebSocket(), rows: new Map() };
-  stream.handle(client.ws as never, { type: 'discovery.subscribe', protocolVersion: 1, lanes: ['live'] });
+  const client: Client = { ws: new FakeWebSocket(), terminals: [] };
+  stream.handle(client.ws as never, { type: 'discovery.subscribe', protocolVersion: 2, lanes: ['live'] });
   await collector.tick();
   applyFrames(client);
   livePresent = false;
@@ -295,7 +280,7 @@ test('I11: stream and REST-fallback authority remove a killed live row within T_
     await collector.tick();
     applyFrames(client);
     const restFallbackRows = collector.currentSnapshot().rows.filter((row) => row.lane === 'live');
-    if (client.rows.size === 0 && restFallbackRows.length === 0) { removedAt = now; break; }
+    if (client.terminals.length === 0 && restFallbackRows.length === 0) { removedAt = now; break; }
   }
   assert.notEqual(removedAt, null, 'I11: removed live row was never cleared');
   assert.ok(removedAt! - killedAt <= T_RESIDUE_MS, `I11: residue ${removedAt! - killedAt}ms exceeded ${T_RESIDUE_MS}ms`);

@@ -3,41 +3,29 @@ import type { WebSocket } from 'ws';
 import type {
   DiscoveryCollector,
   DiscoveryLane,
-  DiscoveryRow,
-  DiscoverySnapshot,
 } from '@/modules/providers/index.js';
 import { WS_OPEN_STATE } from '@/modules/websocket/index.js';
 import type { AnyRecord } from '@/shared/types.js';
+
+import type { DiscoveryV2 } from '../../../../shared/terminal-runtime.js';
 
 export const MAX_QUEUED_MESSAGES = 64;
 export const MAX_QUEUED_BYTES = 1_024 * 1_024;
 export const MAX_BUFFERED_AMOUNT = 4 * 1_024 * 1_024;
 export const SLOW_CLIENT_MS = 10_000;
-export const DELTA_RING_SIZE = 256;
 export const HEARTBEAT_CADENCE = 5;
 export const RESYNC_WINDOW_MS = 10_000;
 export const MAX_RESYNCS_PER_WINDOW = 3;
 
-type Change =
-  | { op: 'added'; row: DiscoveryRow }
-  | { op: 'updated'; key: string; patch: Partial<DiscoveryRow> }
-  | { op: 'stale'; key: string; since: number }
-  | { op: 'removed'; key: string; reason: 'confirmed_gone' };
-
-type Delta = Readonly<{ epoch: string; revision: number; prevRevision: number; changes: readonly Change[]; health: DiscoverySnapshot['health'] }>;
 type Subscriber = {
   ws: WebSocket;
+  protocolVersion: 2;
   lanes: readonly DiscoveryLane[];
-  baselineRevision: number;
   queue: string[];
   queuedBytes: number;
   slowSince: number | null;
   resyncs: number[];
 };
-
-function selected(snapshot: DiscoverySnapshot, lanes: readonly DiscoveryLane[]): DiscoverySnapshot {
-  return { ...snapshot, rows: snapshot.rows.filter((row) => lanes.includes(row.lane)) };
-}
 function send(ws: WebSocket, payload: unknown): boolean {
   if (ws.readyState !== WS_OPEN_STATE) return false;
   ws.send(JSON.stringify(payload));
@@ -48,50 +36,48 @@ function readLanes(value: unknown): DiscoveryLane[] | null {
   if (!Array.isArray(value) || value.some((lane) => lane !== 'external' && lane !== 'live')) return null;
   return [...new Set(value)] as DiscoveryLane[];
 }
-function diff(previous: DiscoverySnapshot, next: DiscoverySnapshot): Change[] {
-  const oldRows = new Map(previous.rows.map((row) => [row.key, row]));
-  const changes: Change[] = [];
-  for (const row of next.rows) {
-    const old = oldRows.get(row.key);
-    oldRows.delete(row.key);
-    if (!old) { changes.push({ op: 'added', row }); continue; }
-    if (old.presence !== 'stale' && row.presence === 'stale') { changes.push({ op: 'stale', key: row.key, since: row.staleSinceRevision ?? next.revision }); continue; }
-    const patch: Record<string, unknown> = {};
-    for (const key of Object.keys(row) as (keyof DiscoveryRow)[]) {
-      if (key === 'key' || JSON.stringify(old[key]) === JSON.stringify(row[key])) continue;
-      patch[key] = row[key];
-    }
-    if (Object.keys(patch).length) changes.push({ op: 'updated', key: row.key, patch });
-  }
-  for (const row of oldRows.values()) changes.push({ op: 'removed', key: row.key, reason: 'confirmed_gone' });
-  return changes;
+
+export function projectDiscoveryV2(discovery: DiscoveryV2, lanes: readonly DiscoveryLane[]): DiscoveryV2 {
+  const admitted = new Set(lanes);
+  const sourceLanes = discovery.sourceLanes.filter((source) => admitted.has(source.lane));
+  const sourceIds = new Set(sourceLanes.map((source) => source.sourceId));
+  return {
+    ...discovery,
+    terminals: discovery.terminals.filter((entry) => admitted.has(entry.lane)),
+    tmuxRows: discovery.tmuxRows?.filter((row) => admitted.has(row.lane)),
+    sourceDescriptors: discovery.sourceDescriptors.filter((source) => sourceIds.has(source.sourceId)),
+    sourceLanes,
+    coverageByLane: {
+      external: admitted.has('external')
+        ? discovery.coverageByLane.external
+        : { lane: 'external', state: 'unavailable', expectedSourceLaneKeys: [], authoritativeSourceLaneKeys: [], retainedSourceLaneKeys: [], unavailableSourceLaneKeys: [] },
+      live: admitted.has('live')
+        ? discovery.coverageByLane.live
+        : { lane: 'live', state: 'unavailable', expectedSourceLaneKeys: [], authoritativeSourceLaneKeys: [], retainedSourceLaneKeys: [], unavailableSourceLaneKeys: [] },
+    },
+  };
 }
 
 /** Discovery protocol fan-out. It only renders collector state; it is never an authorization input. */
 export function createDiscoveryStream(collector: DiscoveryCollector, now = Date.now) {
   const subscribers = new Map<WebSocket, Subscriber>();
-  const deltas: Delta[] = [];
-  let previous = collector.currentSnapshot();
+  let previousRevision = collector.currentSnapshot().revision;
   let unchangedTicks = 0;
   const unsubscribe = collector.onSnapshot((snapshot) => {
-    if (snapshot.revision === previous.revision) {
+    if (snapshot.revision === previousRevision) {
       unchangedTicks += 1;
       if (unchangedTicks % HEARTBEAT_CADENCE === 0) {
         for (const subscriber of subscribers.values()) {
-          if (subscriber.queue.length === 0) {
-            enqueue(subscriber, { kind: 'discovery.heartbeat', epoch: snapshot.epoch, revision: snapshot.revision, takenAtMs: snapshot.takenAtMs });
+          if (subscriber.queue.length === 0 && snapshot.v2) {
+            enqueue(subscriber, { kind: 'discovery.v2.heartbeat', version: 2, epoch: snapshot.v2.epoch, globalRevision: snapshot.v2.globalRevision });
           }
         }
       }
-      previous = snapshot;
       return;
     }
+    previousRevision = snapshot.revision;
     unchangedTicks = 0;
-    const delta: Delta = { epoch: snapshot.epoch, revision: snapshot.revision, prevRevision: previous.revision, changes: diff(previous, snapshot), health: snapshot.health };
-    previous = snapshot;
-    deltas.push(delta);
-    if (deltas.length > DELTA_RING_SIZE) deltas.shift();
-    for (const subscriber of subscribers.values()) enqueueDelta(subscriber, delta);
+    for (const subscriber of subscribers.values()) snapshotV2(subscriber, snapshot);
   });
   function flush(subscriber: Subscriber): void {
     if (subscriber.ws.bufferedAmount > MAX_BUFFERED_AMOUNT) {
@@ -117,47 +103,45 @@ export function createDiscoveryStream(collector: DiscoveryCollector, now = Date.
     }
     flush(subscriber);
   }
-  function enqueueDelta(subscriber: Subscriber, delta: Delta): void {
-    if (delta.revision <= subscriber.baselineRevision) return;
-    const changes = delta.changes.filter((change) => {
-      const lane = change.op === 'added' ? change.row.lane : change.op === 'updated' ? change.patch.lane : undefined;
-      return lane === undefined || subscriber.lanes.includes(lane as DiscoveryLane);
-    });
-    enqueue(subscriber, { kind: 'discovery.delta', ...delta, changes });
-  }
-  function snapshot(subscriber: Subscriber): void {
-    const current = collector.currentSnapshot();
-    subscriber.baselineRevision = current.revision;
-    enqueue(subscriber, { kind: 'discovery.snapshot', ...selected(current, subscriber.lanes) });
+  function snapshotV2(subscriber: Subscriber, current = collector.currentSnapshot()): void {
+    if (!current.v2) {
+      enqueue(subscriber, { kind: 'protocol_error', code: 'RUNTIME_DISCOVERY_UNAVAILABLE', error: 'Runtime discovery v2 is unavailable.' });
+      return;
+    }
+    enqueue(subscriber, { kind: 'discovery.v2.snapshot', version: 2, discovery: projectDiscoveryV2(current.v2, subscriber.lanes) });
   }
   function subscribe(ws: WebSocket, data: AnyRecord): void {
-    if (data.protocolVersion !== 1) { send(ws, { kind: 'protocol_error', code: 'INVALID_PROTOCOL_VERSION', error: 'discovery.subscribe requires protocolVersion 1.' }); return; }
-    const lanes = readLanes(data.lanes);
-    if (!lanes) { send(ws, { kind: 'protocol_error', code: 'INVALID_DISCOVERY_LANES', error: 'Invalid discovery lanes.' }); return; }
-    if (subscribers.has(ws)) subscribers.delete(ws);
-    const subscriber: Subscriber = {
+    if (data.protocolVersion !== 2) {
+      send(ws, { kind: 'protocol_error', code: 'CLIENT_RELOAD_REQUIRED', error: 'Runtime discovery requires protocolVersion 2.' });
+      return;
+    }
+    if (!collector.currentSnapshot().v2) {
+      send(ws, { kind: 'protocol_error', code: 'RUNTIME_DISCOVERY_UNAVAILABLE', error: 'Runtime discovery v2 is unavailable.' });
+      return;
+    }
+    const requestedLanes = readLanes(data.lanes);
+    if (!requestedLanes) { send(ws, { kind: 'protocol_error', code: 'INVALID_DISCOVERY_LANES', error: 'Invalid discovery lanes.' }); return; }
+    const existing = subscribers.get(ws);
+    const lanes = existing
+      ? [...new Set([...existing.lanes, ...requestedLanes])] as DiscoveryLane[]
+      : requestedLanes;
+    const lanesChanged = !!existing && lanes.length !== existing.lanes.length;
+    const subscriber: Subscriber = existing ?? {
       ws,
+      protocolVersion: 2,
       lanes,
-      baselineRevision: collector.currentSnapshot().revision,
       queue: [],
       queuedBytes: 0,
       slowSince: null,
       resyncs: [],
     };
+    subscriber.lanes = lanes;
     subscribers.set(ws, subscriber);
     const known = data.known as AnyRecord | null | undefined;
     const current = collector.currentSnapshot();
-    if (known && known.epoch === current.epoch && known.revision === current.revision) {
-      enqueue(subscriber, { kind: 'discovery.heartbeat', epoch: current.epoch, revision: current.revision, takenAtMs: current.takenAtMs });
-    }
-    else if (known && known.epoch === current.epoch && typeof known.revision === 'number') {
-      const replay = deltas.filter((delta) => delta.revision > known.revision!);
-      if (replay.length && replay[0]!.prevRevision === known.revision) { subscriber.baselineRevision = known.revision; for (const delta of replay) enqueueDelta(subscriber, delta); }
-      else {
-        enqueue(subscriber, { kind: 'discovery.resync_required', epoch: current.epoch, reason: 'replay_unavailable' });
-        snapshot(subscriber);
-      }
-    } else snapshot(subscriber);
+    if (!lanesChanged && known && known.epoch === current.v2!.epoch && known.globalRevision === current.v2!.globalRevision) {
+      enqueue(subscriber, { kind: 'discovery.v2.heartbeat', version: 2, epoch: current.v2!.epoch, globalRevision: current.v2!.globalRevision });
+    } else snapshotV2(subscriber, current);
     collector.setActive(true);
     collector.start();
   }
@@ -177,7 +161,7 @@ export function createDiscoveryStream(collector: DiscoveryCollector, now = Date.
           ws.close(1008, 'discovery_resync_rate_limited');
         } else {
           subscriber.resyncs.push(now());
-          snapshot(subscriber);
+          snapshotV2(subscriber);
         }
       }
       return true;

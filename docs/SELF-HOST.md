@@ -119,6 +119,42 @@ port. `chatmux status` reports the configured address.
 
 Use `loginctl enable-linger "$USER"` only when the host policy permits the
 service to continue after logout.
+## Optional Herdr terminal runtime
+
+Herdr support is optional and is available only on Linux x64. Configure it in the
+environment used by `chatmux.service`:
+
+```sh
+CHATMUX_HERDR_RUNTIME=1
+CHATMUX_HERDR_SOURCES='[{"alias":"ops","selector":"production","binary":"/home/chatmux/.local/bin/herdr"}]'
+CHATMUX_HERDR_CAPABILITIES=discovery,output,actions,attach
+# Optional: owner-only, absolute policy file
+CHATMUX_HERDR_POLICY_FILE=/home/chatmux/.config/chatmux/herdr-policy.json
+```
+
+`CHATMUX_HERDR_SOURCES` is a JSON array of up to eight source objects. Each
+object has a unique `alias`, a validated named `selector`, and an absolute
+`binary` path. Aliases and selectors use letters, digits, `_`, and `-` (and
+must start with a letter or digit); the selector `default` is rejected.
+The binary must be a regular file owned by the ChatMux service user and must
+not be group- or world-writable.
+`CHATMUX_HERDR_CAPABILITIES` is a capability ceiling and accepts only
+`discovery`, `output`, `actions`, and `attach`. An empty or omitted capability
+value grants no access. `CHATMUX_HERDR_POLICY_FILE`, when used, must be an
+absolute owner-only path.
+
+ChatMux never installs, starts, upgrades, repairs, or removes Herdr. Herdr is
+not an LLM provider, and v1 excludes GJC, completion, and create operations.
+Use `chatmux status` to see only whether the Herdr configuration is enabled,
+the configured source count, enabled capability names, and whether a policy
+is configured. The status command deliberately performs no Herdr I/O and
+labels runtime readiness as unprobed; authenticated discovery reports current
+source readiness. It never prints source aliases, selectors, binaries, policy
+paths, tokens, sockets, arguments, or raw environment values. Invalid
+configuration is shown only as disabled with safe summary fields. Actions are
+available only to targets whose local-agent identity can be proven; generic
+v1 panes remain attach-only and never gain action authority.
+
 
 Installation automatically selects the access path:
 

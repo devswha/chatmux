@@ -221,8 +221,8 @@ for (const { name, target, projectPath, expected } of [
     },
     projectPath: '/workspace/local-agent',
     expected: {
-      type: 'init',
-      shellProtocolVersion: 2,
+      type: 'terminal.init',
+      protocolVersion: 3,
       projectPath: '/workspace/local-agent',
       sessionId: null,
       hasSession: false,
@@ -231,9 +231,12 @@ for (const { name, target, projectPath, expected } of [
       rows: 42,
       forceRestart: false,
       mode: 'typed-attach',
-      targetClass: 'local-agent',
-      tmux,
-      process: { pid: 4242, startedAtMs: 1_700_000_004_242 },
+      target: {
+        runtime: 'tmux',
+        targetClass: 'local-agent',
+        tmux,
+        process: { pid: 4242, startedAtMs: 1_700_000_004_242 },
+      },
     },
   },
   {
@@ -245,8 +248,8 @@ for (const { name, target, projectPath, expected } of [
     },
     projectPath: undefined,
     expected: {
-      type: 'init',
-      shellProtocolVersion: 2,
+      type: 'terminal.init',
+      protocolVersion: 3,
       projectPath: '',
       sessionId: null,
       hasSession: false,
@@ -255,9 +258,12 @@ for (const { name, target, projectPath, expected } of [
       rows: 42,
       forceRestart: false,
       mode: 'typed-attach',
-      targetClass: 'attach-only',
-      tmux,
-      capability: 'attach-capability-9',
+      target: {
+        runtime: 'tmux',
+        targetClass: 'attach-only',
+        tmux,
+        admissionCapability: 'attach-capability-9',
+      },
     },
   },
 ]) {

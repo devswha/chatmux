@@ -52,7 +52,40 @@ function dependencies(overrides: Partial<ShellWebSocketDependencies> = {}): Shel
 }
 
 async function sendInit(ws: FakeWebSocket, message: Record<string, unknown>): Promise<void> {
-  ws.emit('message', Buffer.from(JSON.stringify({ type: 'init', projectPath: process.cwd(), ...message })));
+  if (message.shellProtocolVersion !== SHELL_PROTOCOL_VERSION) {
+    ws.emit('message', Buffer.from(JSON.stringify({ type: 'init', projectPath: process.cwd(), ...message })));
+  } else if (message.mode === 'typed-attach') {
+    const { shellProtocolVersion: _shellProtocolVersion, ...typed } = message;
+    const target = message.targetClass === 'local-agent'
+      ? { runtime: 'tmux', tmux: message.tmux, targetClass: 'local-agent', process: message.process }
+      : { runtime: 'tmux', tmux: message.tmux, targetClass: 'attach-only', admissionCapability: message.capability };
+    ws.emit('message', Buffer.from(JSON.stringify({
+      type: 'terminal.init',
+      protocolVersion: 3,
+      projectPath: process.cwd(),
+      sessionId: null,
+      hasSession: false,
+      provider: 'claude',
+      cols: 80,
+      rows: 24,
+      ...typed,
+      target,
+    })));
+  } else {
+    const { shellProtocolVersion: _shellProtocolVersion, ...plain } = message;
+    ws.emit('message', Buffer.from(JSON.stringify({
+      type: 'terminal.init',
+      protocolVersion: 3,
+      projectPath: process.cwd(),
+      sessionId: null,
+      hasSession: false,
+      provider: 'claude',
+      cols: 80,
+      rows: 24,
+      isPlainShell: true,
+      ...plain,
+    })));
+  }
   await new Promise((resolve) => setTimeout(resolve, 10));
 }
 
@@ -68,8 +101,8 @@ test('missing or obsolete protocol rejects harmless command before spawn', async
     await sendInit(ws, { shellProtocolVersion, mode: 'plain-shell', initialCommand: 'npx task-master init' });
     assert.equal(spawned, 0);
     assert.deepEqual(error(ws), {
-      type: 'error', code: 'SHELL_PROTOCOL_OUTDATED',
-      message: 'Shell protocol is outdated. Reload ChatMux and try again.', reloadRequired: true,
+      type: 'error', code: 'CLIENT_RELOAD_REQUIRED',
+      message: 'CLIENT_RELOAD_REQUIRED', reloadRequired: true,
     });
     assert.equal(ws.closed, true);
   }
@@ -511,8 +544,21 @@ test('overlapping forceRestart requests replace the current PTY without orphanin
   const second = new FakeWebSocket();
   handleShellConnection(first as never, restartDependencies);
   handleShellConnection(second as never, restartDependencies);
-  first.emit('message', Buffer.from(JSON.stringify({ type: 'init', projectPath: process.cwd(), ...init, forceRestart: true })));
-  second.emit('message', Buffer.from(JSON.stringify({ type: 'init', projectPath: process.cwd(), ...init, forceRestart: true })));
+  const restart = {
+    type: 'terminal.init',
+    protocolVersion: 3,
+    mode: 'typed-attach',
+    projectPath: process.cwd(),
+    sessionId: init.sessionId,
+    hasSession: false,
+    provider: 'claude',
+    cols: 80,
+    rows: 24,
+    forceRestart: true,
+    target: { runtime: 'tmux', tmux, targetClass: 'attach-only', admissionCapability: capability },
+  };
+  first.emit('message', Buffer.from(JSON.stringify(restart)));
+  second.emit('message', Buffer.from(JSON.stringify(restart)));
   await new Promise((resolve) => setTimeout(resolve, 10));
   releaseVerification?.();
   await new Promise((resolve) => setTimeout(resolve, 10));
@@ -744,4 +790,282 @@ test('client source contains no tmux attach command string', () => {
     const source = fs.readFileSync(path.join(sourceRoot, relativePath), 'utf8');
     assert.equal(/\btmux\s+attach(?:-session)?\b/.test(source), false, relativePath);
   }
+});
+function herdrTarget(): Record<string, unknown> {
+  return {
+    runtime: 'herdr',
+    sourceId: 'hsrc_jtP2rWhblZ6tcCJRjhr3bA',
+    targetId: 'htgt_jtP2rWhblZ6tcCJRjhr3bA',
+    targetClass: 'attach-only',
+    admissionCapability: 'capability-123456',
+  };
+}
+
+function herdrController() {
+  const stdout = new EventEmitter();
+  const stderr = new EventEmitter();
+  const lifecycle = new EventEmitter();
+  const writes: string[] = [];
+  let killed = 0;
+  return {
+    process: {
+      stdin: { write: (chunk: string) => { writes.push(chunk); return true; }, end: () => undefined },
+      stdout,
+      stderr,
+      on: (event: string, listener: (...args: unknown[]) => void) => lifecycle.on(event, listener),
+      kill: () => { killed += 1; },
+    },
+    stdout,
+    stderr,
+    writes,
+    lifecycle,
+    killed: () => killed,
+  };
+}
+
+async function sendV3Init(ws: FakeWebSocket): Promise<void> {
+  ws.emit('message', Buffer.from(JSON.stringify({ type: 'terminal.init', protocolVersion: 3, mode: 'control', target: herdrTarget(), cols: 80, rows: 24 })));
+  await new Promise((resolve) => setTimeout(resolve, 10));
+}
+
+test('Herdr v3 malformed and gap controller frames release the no-takeover lease', async () => {
+  for (const line of [
+    '{"type":"terminal.frame","seq":1,"encoding":"ansi","width":80,"height":24,"full":true,"bytes":"%"}\n',
+    '{"type":"terminal.frame","seq":2,"encoding":"ansi","width":80,"height":24,"full":true,"bytes":"YQ=="}\n',
+  ]) {
+    const ws = new FakeWebSocket();
+    const controller = herdrController();
+    let released = 0;
+    handleShellConnection(ws as never, dependencies({
+      herdrControl: {
+        acquireController: async () => ({ command: '/opt/herdr', args: [], release: () => { released += 1; }, assertFreshIdentity: async () => true }),
+        observe: async () => null,
+      },
+      spawnHerdrController: () => controller.process as never,
+    }));
+    await sendV3Init(ws);
+    controller.stdout.emit('data', Buffer.from(line));
+    await new Promise((resolve) => setTimeout(resolve, 1_050));
+    assert.equal(released, 1);
+    assert.equal(controller.killed(), 1);
+  }
+});
+
+test('Herdr v3 disconnect releases controller', async () => {
+  const ws = new FakeWebSocket();
+  const controller = herdrController();
+  let released = 0;
+  handleShellConnection(ws as never, dependencies({
+    herdrControl: {
+      acquireController: async () => ({ command: '/opt/herdr', args: [], release: () => { released += 1; }, assertFreshIdentity: async () => true }),
+      observe: async () => null,
+    },
+    spawnHerdrController: () => controller.process as never,
+  }));
+  await sendV3Init(ws);
+  ws.emit('close');
+  await new Promise((resolve) => setTimeout(resolve, 1_050));
+  assert.equal(released, 1);
+  assert.equal(controller.killed(), 1);
+});
+test('Herdr control blocks pre-ack writes, revalidates post-ack writes, and preserves split UTF-8 controller data', async () => {
+  const ws = new FakeWebSocket();
+  const controller = herdrController();
+  let valid = true;
+  handleShellConnection(ws as never, dependencies({
+    herdrControl: {
+      acquireController: async () => ({ command: '/opt/herdr', args: [], release: () => undefined, assertFreshIdentity: async () => valid }),
+      observe: async () => null,
+    },
+    spawnHerdrController: () => controller.process as never,
+  }));
+  await sendV3Init(ws);
+  ws.emit('message', Buffer.from(JSON.stringify({ type: 'terminal.input', text: 'before' })));
+  await new Promise((resolve) => setTimeout(resolve, 1));
+  assert.deepEqual(controller.writes, []);
+
+  const frame = '{"type":"terminal.frame","seq":1,"encoding":"ansi","width":80,"height":24,"full":true,"bytes":"YQ==","note":"€"}\n';
+  const encoded = Buffer.from(frame);
+  const split = encoded.indexOf(Buffer.from('€')) + 1;
+  controller.stdout.emit('data', encoded.subarray(0, split));
+  controller.stdout.emit('data', encoded.subarray(split));
+  await new Promise((resolve) => setTimeout(resolve, 1));
+  assert.match(ws.sent.join('\n'), /"state":"ready"/);
+
+  valid = false;
+  ws.emit('message', Buffer.from(JSON.stringify({ type: 'terminal.input', text: 'after' })));
+  await new Promise((resolve) => setTimeout(resolve, 1));
+  assert.doesNotMatch(controller.writes.join('\n'), /"text":"after"/);
+  assert.match(ws.sent.join('\n'), /identity_invalidated/);
+});
+test('Herdr idle identity polling invalidates an acknowledged controller', async () => {
+  const ws = new FakeWebSocket();
+  const controller = herdrController();
+  let valid = true;
+  handleShellConnection(ws as never, dependencies({
+    herdrControl: {
+      acquireController: async () => ({ command: '/opt/herdr', args: [], release: () => undefined, assertFreshIdentity: async () => valid }),
+      observe: async () => null,
+    },
+    spawnHerdrController: () => controller.process as never,
+  }));
+  await sendV3Init(ws);
+  controller.stdout.emit('data', Buffer.from('{"type":"terminal.frame","seq":1,"encoding":"ansi","width":80,"height":24,"full":true,"bytes":"YQ=="}\n'));
+  await new Promise((resolve) => setTimeout(resolve, 1));
+  valid = false;
+  await new Promise((resolve) => setTimeout(resolve, 2_050));
+  assert.match(ws.sent.join('\n'), /identity_invalidated/);
+});
+test('Herdr revocation callback synchronously blocks writes and awaits controller exit', async () => {
+  const ws = new FakeWebSocket();
+  const controller = herdrController();
+  let revoke: (() => void | Promise<void>) | null = null;
+  handleShellConnection(ws as never, dependencies({
+    herdrControl: {
+      acquireController: async () => ({
+        command: '/opt/herdr',
+        args: [],
+        release: () => undefined,
+        onRevoke: (callback) => {
+          revoke = callback;
+          return () => { revoke = null; };
+        },
+        assertFreshIdentity: async () => true,
+      }),
+      observe: async () => null,
+    },
+    spawnHerdrController: () => controller.process as never,
+  }));
+  await sendV3Init(ws);
+  controller.stdout.emit('data', Buffer.from('{"type":"terminal.frame","seq":1,"encoding":"ansi","width":80,"height":24,"full":true,"bytes":"YQ=="}\n'));
+  await new Promise((resolve) => setTimeout(resolve, 1));
+  const revocation = (revoke as (() => void | Promise<void>) | null)?.();
+  ws.emit('message', Buffer.from(JSON.stringify({ type: 'terminal.input', text: 'after-revoke' })));
+  assert.match(controller.writes.join('\n'), /"type":"terminal.release"/);
+  assert.doesNotMatch(controller.writes.join('\n'), /after-revoke/);
+  let completed = false;
+  const completion = Promise.resolve(revocation).then(() => { completed = true; });
+  await Promise.resolve();
+  assert.equal(completed, false);
+  controller.lifecycle.emit('exit');
+  await completion;
+  assert.equal(completed, true);
+});
+test('Herdr closes and releases on the first controller stderr byte', async () => {
+  const ws = new FakeWebSocket();
+  const controller = herdrController();
+  let released = 0;
+  handleShellConnection(ws as never, dependencies({
+    herdrControl: {
+      acquireController: async () => ({ command: '/opt/herdr', args: [], release: () => { released += 1; }, assertFreshIdentity: async () => true }),
+      observe: async () => null,
+    },
+    spawnHerdrController: () => controller.process as never,
+  }));
+  await sendV3Init(ws);
+  controller.stderr.emit('data', Buffer.from('x'));
+  controller.lifecycle.emit('exit');
+  await new Promise((resolve) => setTimeout(resolve, 1));
+  assert.equal(released, 1);
+  assert.equal(ws.closed, true);
+  assert.match(ws.sent.join('\n'), /Controller wrote to stderr/);
+});
+test('Herdr serializes deferred verifier input and resize writes in FIFO order', async () => {
+  const ws = new FakeWebSocket();
+  const controller = herdrController();
+  let resolveVerification: (() => void) | null = null;
+  const deferredVerification = new Promise<void>((resolve) => { resolveVerification = resolve; });
+  let verifications = 0;
+  handleShellConnection(ws as never, dependencies({
+    herdrControl: {
+      acquireController: async () => ({
+        command: '/opt/herdr',
+        args: [],
+        release: () => undefined,
+        assertFreshIdentity: async () => {
+          verifications += 1;
+          if (verifications === 2) await deferredVerification;
+          return true;
+        },
+      }),
+      observe: async () => null,
+    },
+    spawnHerdrController: () => controller.process as never,
+  }));
+  await sendV3Init(ws);
+  controller.stdout.emit('data', Buffer.from('{"type":"terminal.frame","seq":1,"encoding":"ansi","width":80,"height":24,"full":true,"bytes":"YQ=="}\n'));
+  await new Promise((resolve) => setTimeout(resolve, 1));
+  ws.emit('message', Buffer.from(JSON.stringify({ type: 'terminal.input', text: 'first' })));
+  ws.emit('message', Buffer.from(JSON.stringify({ type: 'terminal.resize', cols: 100, rows: 40 })));
+  await new Promise((resolve) => setTimeout(resolve, 1));
+  assert.deepEqual(controller.writes, []);
+  (resolveVerification as (() => void) | null)?.();
+  await new Promise((resolve) => setTimeout(resolve, 1));
+  assert.match(controller.writes[0] ?? '', /"text":"first"/);
+  assert.match(controller.writes[1] ?? '', /"cols":100/);
+});
+test('Herdr releases when the bounded input queue overflows', async () => {
+  const ws = new FakeWebSocket();
+  const controller = herdrController();
+  let resolveVerification: (() => void) | null = null;
+  const deferredVerification = new Promise<void>((resolve) => { resolveVerification = resolve; });
+  let verifications = 0;
+  handleShellConnection(ws as never, dependencies({
+    herdrControl: {
+      acquireController: async () => ({
+        command: '/opt/herdr',
+        args: [],
+        release: () => undefined,
+        assertFreshIdentity: async () => {
+          verifications += 1;
+          if (verifications === 2) await deferredVerification;
+          return true;
+        },
+      }),
+      observe: async () => null,
+    },
+    spawnHerdrController: () => controller.process as never,
+  }));
+  await sendV3Init(ws);
+  controller.stdout.emit('data', Buffer.from('{"type":"terminal.frame","seq":1,"encoding":"ansi","width":80,"height":24,"full":true,"bytes":"YQ=="}\n'));
+  await new Promise((resolve) => setTimeout(resolve, 1));
+  for (let index = 0; index <= 257; index += 1) ws.emit('message', Buffer.from(JSON.stringify({ type: 'terminal.input', text: `${index}` })));
+  assert.match(ws.sent.join('\n'), /Terminal input queue exceeded limit/);
+  (resolveVerification as (() => void) | null)?.();
+});
+
+test('Herdr fails and releases when controller input writing throws', async () => {
+  const ws = new FakeWebSocket();
+  const controller = herdrController();
+  controller.process.stdin.write = () => { throw new Error('broken pipe'); };
+  handleShellConnection(ws as never, dependencies({
+    herdrControl: {
+      acquireController: async () => ({ command: '/opt/herdr', args: [], release: () => undefined, assertFreshIdentity: async () => true }),
+      observe: async () => null,
+    },
+    spawnHerdrController: () => controller.process as never,
+  }));
+  await sendV3Init(ws);
+  controller.stdout.emit('data', Buffer.from('{"type":"terminal.frame","seq":1,"encoding":"ansi","width":80,"height":24,"full":true,"bytes":"YQ=="}\n'));
+  await new Promise((resolve) => setTimeout(resolve, 1));
+  ws.emit('message', Buffer.from(JSON.stringify({ type: 'terminal.input', text: 'break' })));
+  await new Promise((resolve) => setTimeout(resolve, 1));
+  assert.match(ws.sent.join('\n'), /Controller input write failed/);
+});
+
+test('Herdr output queue rejects the candidate frame that exceeds 256 pending frames', async () => {
+  const ws = new FakeWebSocket();
+  const controller = herdrController();
+  handleShellConnection(ws as never, dependencies({
+    herdrControl: {
+      acquireController: async () => ({ command: '/opt/herdr', args: [], release: () => undefined, assertFreshIdentity: async () => true }),
+      observe: async () => null,
+    },
+    spawnHerdrController: () => controller.process as never,
+  }));
+  await sendV3Init(ws);
+  for (let seq = 1; seq <= 257; seq += 1) {
+    controller.stdout.emit('data', Buffer.from(`${JSON.stringify({ type: 'terminal.frame', seq, encoding: 'ansi', width: 80, height: 24, full: true, bytes: 'YQ==' })}\n`));
+  }
+  assert.match(ws.sent.join('\n'), /Terminal output queue exceeded limit/);
 });

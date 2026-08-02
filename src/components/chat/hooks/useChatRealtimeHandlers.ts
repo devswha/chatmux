@@ -164,14 +164,12 @@ export function useChatRealtimeHandlers({
         case 'loading_progress':
           return;
 
-        // Discovery stream frames (`discovery.snapshot` / `discovery.delta` /
-        // `discovery.heartbeat`) — owned by useDiscoveryStream. They carry no
+        // Discovery stream frames are owned by useDiscoveryStream. They carry no
         // sessionId, so without this guard they would fall through to the
-        // catch-all store append below, be attributed to the currently viewed
-        // session, and poison its slot with an id-less pseudo message.
-        case 'discovery.snapshot':
-        case 'discovery.delta':
-        case 'discovery.heartbeat':
+        // catch-all store append below and poison the active session slot.
+        case 'discovery.v2.snapshot':
+        case 'discovery.v2.heartbeat':
+        case 'discovery.resync_required':
           return;
 
         default:

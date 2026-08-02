@@ -18,7 +18,7 @@ class FakeWebSocket extends EventEmitter {
 const tmux = { socketPath: '/tmp/tmux', sessionId: '$1', windowId: '@1', paneId: '%1' };
 const process = { pid: 42, startedAtMs: 100 };
 const target = createVerifiedTmuxActionTarget(tmux, process, 'claude', 'agent');
-const data = { protocolVersion: 1, lane: 'external', tmux, process };
+const data = { protocolVersion: 2, lane: 'external', target: { runtime: 'tmux' as const, tmux, process, targetClass: 'local-agent' as const } };
 
 function events(ws: FakeWebSocket): Record<string, unknown>[] { return ws.sent.map((frame) => JSON.parse(frame) as Record<string, unknown>); }
 function matchingSnapshot(): DiscoverySnapshot {
@@ -123,5 +123,49 @@ test('slow sockets retain only the newest pane output while fast fanout continue
   const slowEvents = events(slow);
   assert.deepEqual(slowEvents.map((event) => event.kind), ['pane.attached', 'pane.output']);
   assert.equal(slowEvents[1]?.output, 'output-12');
+  stream.dispose();
+});
+test('Herdr output uses only fresh pane.read and never acquires a controller', async () => {
+  const ws = new FakeWebSocket();
+  let reads = 0;
+  const { stream, tick } = fixture({
+    runtimeRegistry: {
+      read: async () => { reads += 1; return { ansi: `output-${reads}`, truncated: false }; },
+    } as never,
+  });
+  const herdr = {
+    protocolVersion: 2,
+    lane: 'external',
+    target: {
+      runtime: 'herdr' as const,
+      sourceId: 'hsrc_aaaaaaaaaaaaaaaaaaaaaa',
+      targetId: 'htgt_bbbbbbbbbbbbbbbbbbbbbb',
+      targetClass: 'local-agent' as const,
+      process,
+    },
+  };
+  stream.start();
+  await stream.subscribe(ws as never, herdr);
+  await tick();
+  assert.equal(reads, 2);
+  assert.equal(events(ws)[0]?.kind, 'pane.attached');
+  stream.dispose();
+});
+
+test('a stale or disabled Herdr target fails closed', async () => {
+  const ws = new FakeWebSocket();
+  const { stream } = fixture({ runtimeRegistry: { read: async () => null } as never });
+  await stream.subscribe(ws as never, {
+    protocolVersion: 2,
+    lane: 'external',
+    target: {
+      runtime: 'herdr',
+      sourceId: 'hsrc_aaaaaaaaaaaaaaaaaaaaaa',
+      targetId: 'htgt_bbbbbbbbbbbbbbbbbbbbbb',
+      targetClass: 'local-agent',
+      process,
+    },
+  });
+  assert.equal(events(ws)[0]?.reason, 'unauthorized');
   stream.dispose();
 });

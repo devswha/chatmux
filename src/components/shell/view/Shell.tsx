@@ -65,6 +65,7 @@ export default function Shell({
     isInitialized,
     isConnecting,
     isProtocolOutdated,
+    isAttachCapabilityUnavailable,
     connectToShell,
     disconnectFromShell,
   } = useShellRuntime({
@@ -183,9 +184,11 @@ export default function Shell({
 
   const sendInput = useCallback(
     (data: string) => {
-      sendSocketMessage(wsRef.current, { type: 'input', data });
+      sendSocketMessage(wsRef.current, attachTarget?.runtime === 'herdr'
+        ? { type: 'terminal.input', text: data }
+        : { type: 'input', data });
     },
-    [wsRef],
+    [attachTarget, wsRef],
   );
 
   const sessionDisplayName = useMemo(() => getSessionDisplayName(selectedSession), [selectedSession]);
@@ -252,6 +255,11 @@ export default function Shell({
             {t('shell.protocolOutdated')}
           </div>
         )}
+        {isAttachCapabilityUnavailable && (
+          <div role="alert" className="shrink-0 bg-amber-900/80 px-3 py-2 text-sm text-amber-100">
+            {t('shell.attachCapabilityUnavailable')}
+          </div>
+        )}
         <div className="min-h-0 flex-1">
           <ShellMinimalView terminalContainerRef={terminalContainerRef} />
         </div>
@@ -259,12 +267,15 @@ export default function Shell({
           wsRef={wsRef}
           terminalRef={terminalRef}
           isConnected={isConnected}
+          herdrProtocol={attachTarget?.runtime === 'herdr'}
         />
       </div>
     );
   }
 
-  const contextLabel = selectedProject?.displayName || attachTarget?.tmux.sessionId || 'terminal';
+  const contextLabel = selectedProject?.displayName
+    || (attachTarget?.runtime === 'herdr' ? `Herdr ${attachTarget.target.sourceId}` : attachTarget?.tmux.sessionId)
+    || 'terminal';
   const readyDescription = isPlainShell
     ? t('shell.runCommand', {
         command: initialCommand || t('shell.defaultCommand'),
@@ -289,6 +300,11 @@ export default function Shell({
       {isProtocolOutdated && (
         <div role="alert" className="bg-amber-900/80 px-3 py-2 text-sm text-amber-100">
           {t('shell.protocolOutdated')}
+        </div>
+      )}
+      {isAttachCapabilityUnavailable && (
+        <div role="alert" className="bg-amber-900/80 px-3 py-2 text-sm text-amber-100">
+          {t('shell.attachCapabilityUnavailable')}
         </div>
       )}
       <ShellHeader
@@ -367,6 +383,7 @@ export default function Shell({
         wsRef={wsRef}
         terminalRef={terminalRef}
         isConnected={isConnected}
+        herdrProtocol={attachTarget?.runtime === 'herdr'}
       />
 
     </div>

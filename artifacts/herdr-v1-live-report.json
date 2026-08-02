@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "kind": "black-box-api-test-report",
+  "passed": true,
+  "execution": {
+    "command": [
+      "node",
+      "--import",
+      "tsx",
+      "server/modules/terminal-runtimes/tests/herdr-runtime-live-probe.ts"
+    ],
+    "cwd": ".",
+    "requiredEnvironment": [
+      "CHATMUX_HERDR_TEST_ASSET"
+    ],
+    "expectedAssetSha256": "3dc83288073e4c2d3c679a30e7be97bcca9141c6fd17dbbb9219142e95c59253",
+    "exitCode": 0
+  },
+  "checks": {
+    "provenanceSha256": "3dc83288073e4c2d3c679a30e7be97bcca9141c6fd17dbbb9219142e95c59253",
+    "readiness": "ready",
+    "targetClass": "attach-only",
+    "outputMarkerObserved": true,
+    "outputFresh": true,
+    "attachFresh": true,
+    "genericPaneActionsDenied": true,
+    "duplicateControllerDenied": true,
+    "resizeFrameObserved": true,
+    "reacquiredAfterRelease": true,
+    "staleTargetDeniedAfterSourceRestart": true,
+    "productManagedCreationUsed": false
+  },
+  "cleanup": {
+    "serverStopped": true,
+    "sessionDeleteExit": 0,
+    "sessionAbsent": true,
+    "runRootAbsent": true
+  }
+}

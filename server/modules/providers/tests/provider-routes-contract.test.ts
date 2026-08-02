@@ -74,6 +74,8 @@ const { authenticateToken, generateToken, AUTH_MODE } = await import('@/middlewa
 assert.equal(AUTH_MODE, 'password');
 const { default: providerRoutes } = await import('../provider.routes.js');
 const { getCurrentTmuxPaneIdentityState } = await import('../services/external-cli-sessions.service.js');
+const { RuntimeRegistryService } = await import('@/modules/terminal-runtimes/index.js');
+const { createTmuxRuntimeAdapter } = await import('../services/tmux-runtime-adapter.service.js');
 const { initializeDatabase, sessionsDb, userDb } = await import('@/modules/database/index.js');
 
 type ApiError = { error?: string; code?: string };
@@ -87,6 +89,13 @@ let validProcess: { pid: number; startedAtMs: number };
 
 const externalTmux = { socketPath: '/tmp/chatmux-contract.sock', sessionId: '$1', windowId: '@1', paneId: '%1' };
 const liveTmux = { socketPath: '/tmp/chatmux-contract.sock', sessionId: '$2', windowId: '@2', paneId: '%2' };
+const herdrTarget = {
+  runtime: 'herdr' as const,
+  sourceId: 'hsrc_abcdefghijklmnopqrstuv',
+  targetId: 'htgt_abcdefghijklmnopqrstuv',
+  targetClass: 'attach-only' as const,
+  admissionCapability: 'discovery-placeholder',
+};
 
 before(async () => {
   await initializeDatabase();
@@ -94,8 +103,22 @@ before(async () => {
   token = generateToken({ id: Number(created.id), username: created.username });
   validProcess = { pid: process.pid, startedAtMs: (await stat(`/proc/${process.pid}`)).mtimeMs };
 
+  const terminalRuntimeRegistry = new RuntimeRegistryService();
+  terminalRuntimeRegistry.register(createTmuxRuntimeAdapter());
+  terminalRuntimeRegistry.register({
+    runtime: 'herdr',
+    sourceDescriptors: async () => [{ runtime: 'herdr', sourceId: herdrTarget.sourceId, readiness: 'ready' }],
+    capabilities: () => ({ discovery: true, output: true, actions: false, attach: true, create: false }),
+    discover: async () => [],
+    read: async () => ({ ansi: '\u001b[32mherdr output\u001b[0m', truncated: false }),
+    verify: async () => true,
+  });
   app = express();
   app.use(express.json());
+  app.locals.terminalRuntimeRegistry = terminalRuntimeRegistry;
+  app.locals.herdrAdmissions = {
+    issue: () => 'principal-bound-admission',
+  };
   // The live-spawn service reads TOWER_URL at request time.
   app.post('/spawn', (_req, res) => res.status(201).send('created'));
   app.use('/api/providers', authenticateToken);
@@ -126,13 +149,22 @@ after(async () => {
 });
 
 async function request(pathname: string, body?: unknown, authorization = `Bearer ${token}`): Promise<ApiResponse> {
+  const terminalOperation = /^\/sessions\/(external|live)\/(output|send|actions|kill)$/.test(pathname);
+  const legacy = body && typeof body === 'object' && !Array.isArray(body) ? body as Record<string, unknown> : null;
+  const terminalBody = terminalOperation && legacy && 'tmux' in legacy && 'process' in legacy
+    ? {
+      apiVersion: 2,
+      target: { runtime: 'tmux', tmux: legacy.tmux, process: legacy.process, targetClass: 'local-agent' },
+      ...Object.fromEntries(Object.entries(legacy).filter(([key]) => key !== 'tmux' && key !== 'process')),
+    }
+    : body;
   const response = await fetch(`${baseUrl}/api/providers${pathname}`, {
-    method: body === undefined ? 'GET' : 'POST',
+    method: terminalBody === undefined ? 'GET' : 'POST',
     headers: {
-      ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+      ...(terminalBody === undefined ? {} : { 'content-type': 'application/json' }),
       ...(authorization ? { authorization } : {}),
     },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    ...(terminalBody === undefined ? {} : { body: JSON.stringify(terminalBody) }),
   });
   const responseText = await response.text();
   let responseBody: ApiResponse['body'];
@@ -442,6 +474,30 @@ test('unavailable roster responses retain authoritative stale snapshot rows whil
   }
 });
 
+test('terminal v2 rejects stale authority before a capture or action', async () => {
+  const response = await fetch(`${baseUrl}/api/providers/sessions/external/output`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ tmux: externalTmux, process: validProcess }),
+  });
+  assert.equal(response.status, 409);
+  assert.equal((await response.json() as ApiError).code, 'CLIENT_RELOAD_REQUIRED');
+});
+test('Herdr v2 output and principal admission work only on the external lane', async () => {
+  const output = await request('/sessions/external/output', { apiVersion: 2, target: herdrTarget });
+  assert.equal(output.status, 200);
+  assert.equal((output.body.data as { pane?: { ansi?: string } } | undefined)?.pane?.ansi, '\u001b[32mherdr output\u001b[0m');
+
+  const admission = await request('/sessions/external/admission', { apiVersion: 2, target: herdrTarget });
+  assert.equal(admission.status, 200);
+  const admitted = (admission.body.data as { terminal?: Record<string, unknown> } | undefined)?.terminal;
+  assert.equal(admitted?.runtime, 'herdr');
+  assert.equal(admitted?.admissionCapability, 'principal-bound-admission');
+
+  const live = await request('/sessions/live/output', { apiVersion: 2, target: herdrTarget });
+  assert.equal(live.status, 409);
+  assert.equal(live.body.code, 'TERMINAL_OPERATION_UNSUPPORTED');
+});
 test('external output, send, and kill preserve their format-error contracts', async () => {
   assertError(await request('/sessions/external/output', { tmux: { paneId: 'bad' }, process: validProcess }), 400, 'INVALID_TMUX_PANE_IDENTITY');
   assertError(await request('/sessions/external/send', { tmux: externalTmux, process: validProcess, message: '  ' }), 400, 'EMPTY_MESSAGE');

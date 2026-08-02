@@ -4,7 +4,7 @@ import { api } from '../../../utils/api';
 import { tmuxPaneIdentityKey, type TmuxPaneIdentity, type TmuxProcessGeneration } from '../../../../shared/tmux';
 import { readRestSessionContainer } from '../../../utils/liveSessions';
 import { useWebSocket } from '../../../contexts/WebSocketContext';
-import { useDiscoveryStream, type DiscoveryRow } from '../../../hooks/useDiscoveryStream';
+import { useDiscoveryStream, type DiscoveryRow, type RuntimeDiscoveryRow } from '../../../hooks/useDiscoveryStream';
 
 export type ExternalSessionActivity = 'running' | 'waiting_user' | 'asking_user' | 'error' | 'unknown';
 
@@ -25,6 +25,13 @@ export type ExternalCliSession = {
   attachCapability?: string;
   presence?: 'present' | 'stale';
   authority?: 'stream' | 'rest' | 'none';
+};
+
+export type HerdrTerminalSession = {
+  key: string;
+  sourceId: string;
+  target: Extract<RuntimeDiscoveryRow['terminal'], { runtime: 'herdr' }>;
+  capabilities: RuntimeDiscoveryRow['capabilities'];
 };
 export function mergeExternalDiscoveryRows(
   rows: DiscoveryRow[],
@@ -104,11 +111,13 @@ export function useExternalCliSessions(
   onSessionsChange?: (sessions: ExternalCliSession[]) => void,
 ): {
   sessions: ExternalCliSession[];
+  herdrSessions: HerdrTerminalSession[];
   loading: boolean;
   discoveryOk: boolean;
   refresh: () => void;
 } {
   const [sessions, setSessions] = useState<ExternalCliSession[]>([]);
+  const [herdrSessions, setHerdrSessions] = useState<HerdrTerminalSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [discoveryOk, setDiscoveryOk] = useState(true);
   const [refreshToken, setRefreshToken] = useState(0);
@@ -136,6 +145,7 @@ export function useExternalCliSessions(
     streamRowsRef.current = null;
     restSessionsRef.current = new Map();
     publish(identities.map((session) => externalIdentityOnly(session)));
+    setHerdrSessions([]);
     setLoading(false);
   }, [publish]);
 
@@ -147,6 +157,18 @@ export function useExternalCliSessions(
     publish(next);
     setLoading(false);
   }, [publish]);
+  const applyRuntimeRows = useCallback((rows: RuntimeDiscoveryRow[]) => {
+    setHerdrSessions(rows
+      .filter((row): row is RuntimeDiscoveryRow & {
+        terminal: Extract<RuntimeDiscoveryRow['terminal'], { runtime: 'herdr' }>;
+      } => row.lane === 'external' && row.runtime === 'herdr' && row.terminal.runtime === 'herdr')
+      .map((row) => ({
+        key: row.key,
+        sourceId: row.sourceId,
+        target: row.terminal,
+        capabilities: row.capabilities,
+      })));
+  }, []);
 
   const applyRestSessions = useCallback((list: ExternalCliSession[], responseDiscoveryOk: boolean) => {
     const supported = list.filter((session) => (
@@ -233,11 +255,12 @@ export function useExternalCliSessions(
   const handleStreamHealthChange = useCallback((healthy: boolean) => {
     if (healthy) {
       streamEverHealthyRef.current = true;
+      void requestRestSessions();
       return;
     }
     invalidateRestRequests();
     applyNone();
-  }, [applyNone, invalidateRestRequests]);
+  }, [applyNone, invalidateRestRequests, requestRestSessions]);
 
   const streamHealthy = useDiscoveryStream({
     lanes: ['external'],
@@ -245,9 +268,9 @@ export function useExternalCliSessions(
     sendMessage,
     subscribe,
     onRows: (rows) => {
-      invalidateRestRequests();
       applyRows(rows);
     },
+    onRuntimeRows: applyRuntimeRows,
     onHealthChange: handleStreamHealthChange,
   });
 
@@ -268,6 +291,7 @@ export function useExternalCliSessions(
 
   return {
     sessions,
+    herdrSessions,
     loading,
     discoveryOk,
     refresh: () => {

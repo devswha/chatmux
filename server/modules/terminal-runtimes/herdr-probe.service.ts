@@ -1,0 +1,58 @@
+import { createHash } from 'node:crypto';
+
+import type { RuntimeCapabilities, SourceReadiness } from '../../../shared/terminal-runtime.js';
+
+import type { HerdrConfiguredSource } from './herdr-config.service.js';
+import { HERDR_LIMITS, HerdrClient } from './herdr-client.service.js';
+
+export const HERDR_VERSION = '0.7.5';
+export const HERDR_PROTOCOL = 17;
+export const HERDR_SEMANTIC_FINGERPRINT = '4d7b299bb4b7924c3fb0d0251a303ac3c92ed77bdc8ba1dac4b4bbed3fa51583';
+const REQUIRED_METHODS = ['agent.list', 'events.subscribe', 'pane.get', 'pane.list', 'pane.move', 'pane.process_info', 'pane.read', 'pane.send_keys', 'pane.send_text', 'session.snapshot'];
+const METHOD_RESULT_TAGS = { 'agent.list': 'agent_list', 'events.subscribe': 'subscription_started', 'pane.get': 'pane_info', 'pane.list': 'pane_list', 'pane.move': 'pane_move', 'pane.process_info': 'pane_process_info', 'pane.read': 'pane_read', 'pane.send_keys': 'ok', 'pane.send_text': 'ok', 'session.snapshot': 'session_snapshot' } as const;
+const CONTROL_SEMANTICS = { transport: { executable: 'verified absolute path', argv: ['--session', '<validated-name>', 'terminal', 'session', 'control', '<pane-id>', '--cols', '<1..1000>', '--rows', '<1..1000>'], stdin: 'newline-delimited JSON', stdout: 'newline-delimited JSON', shell: false, pty: false, takeover: false }, inputVariants: [{ type: { const: 'terminal.input' }, text: { type: 'string' }, exclusiveWith: 'bytes' }, { type: { const: 'terminal.input' }, bytes: { type: 'string', encoding: 'base64' }, exclusiveWith: 'text' }], resize: { type: { const: 'terminal.resize' }, cols: { type: 'integer', minimum: 1 }, rows: { type: 'integer', minimum: 1 } }, scroll: { type: { const: 'terminal.scroll' }, direction: { enum: ['up', 'down'] }, lines: { type: 'integer', minimum: 1 } }, release: { type: { const: 'terminal.release' }, effect: 'controller exits and no-takeover reacquisition succeeds' }, frame: { required: ['type', 'seq', 'encoding', 'width', 'height', 'full', 'bytes'], properties: { type: { const: 'terminal.frame' }, seq: { type: 'integer', ordering: 'strictly contiguous within one controller' }, encoding: { const: 'ansi' }, width: { type: 'integer', minimum: 1 }, height: { type: 'integer', minimum: 1 }, full: { type: 'boolean' }, bytes: { type: 'string', encoding: 'base64' } } }, closed: { required: ['type', 'reason'], properties: { type: { const: 'terminal.closed' }, reason: { type: 'string' } } }, busy: { record: 'terminal.closed', reasonContains: 'already has an attached client', processExitCodeAuthoritative: false }, sourceSelection: { namedSessionRequired: true, missingSnapshotFails: true, missingStatusNotRunning: true, missingControlFails: true, postControlSocketAbsent: true } } as const;
+type JsonObject = Record<string, unknown>;
+export type HerdrProbeResult = { sourceId: string; readiness: SourceReadiness; version: string | null; semanticFingerprint: string | null; transport: 'herdr terminal session control' | null; capabilities: RuntimeCapabilities; reasonCode: string | null };
+export type HerdrCompatibility = Readonly<{ readiness: SourceReadiness; version: string | null; semanticFingerprint: string | null; capabilities: RuntimeCapabilities; reasonCode: string | null }>;
+
+function noCapabilities(): RuntimeCapabilities { return { discovery: false, output: false, actions: false, attach: false, create: false }; }
+function result(source: HerdrConfiguredSource, readiness: SourceReadiness, reasonCode: string | null, capabilities = noCapabilities(), version: string | null = null, fingerprint: string | null = null): HerdrProbeResult { return { sourceId: source.sourceId, readiness, version, semanticFingerprint: fingerprint, transport: readiness === 'ready' || readiness === 'degraded' ? 'herdr terminal session control' : null, capabilities, reasonCode }; }
+export function canonicalJson(value: unknown): string { if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`; if (value && typeof value === 'object') { const object = value as JsonObject; return `{${Object.keys(object).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(object[key])}`).join(',')}}`; } return JSON.stringify(value); }
+export function canonicalJsonSha256(value: unknown): string { return createHash('sha256').update(canonicalJson(value), 'utf8').digest('hex'); }
+function refs(value: unknown): { schemaName: string; definitionName: string }[] { return [...canonicalJson(value).matchAll(/#\/schemas\/([^/]+)\/\$defs\/([^"]+)/g)].map((match) => ({ schemaName: match[1], definitionName: match[2] })); }
+function object(value: unknown): JsonObject { if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('schema_shape'); return value as JsonObject; }
+function definitionClosure(schemas: JsonObject, retained: unknown[]): JsonObject {
+  const selected: JsonObject = {}; const pending = retained.flatMap(refs);
+  while (pending.length) { const ref = pending.shift()!; const namespace = selected[ref.schemaName] ??= {}; const definitions = object(namespace); if (definitions[ref.definitionName]) continue; const sourceSchema = object(schemas[ref.schemaName]); const definition = object(sourceSchema.$defs)[ref.definitionName]; if (definition === undefined) throw new Error('schema_reference'); definitions[ref.definitionName] = definition; pending.push(...refs(definition)); }
+  return Object.fromEntries(Object.entries(selected).sort(([a], [b]) => a.localeCompare(b)).map(([name, definitions]) => [name, Object.fromEntries(Object.entries(object(definitions)).sort(([a], [b]) => a.localeCompare(b)))]));
+}
+function assertClosure(manifest: JsonObject): void { const definitions = object(object(manifest.api).definitions); for (const ref of refs(manifest)) if (object(definitions[ref.schemaName])[ref.definitionName] === undefined) throw new Error('schema_reference'); }
+export function selectedHerdrSemanticManifest(schema: unknown): JsonObject | null {
+  try {
+    const root = object(schema); const schemas = object(root.schemas); const requestSchema = object(schemas.request); const requestVariants = requestSchema.oneOf; if (!Array.isArray(requestVariants)) throw new Error('schema_request');
+    const requests = REQUIRED_METHODS.map((method) => { const request = requestVariants.find((value) => object(object(value).properties).method && object(object(object(value).properties).method).const === method); if (!request) throw new Error('schema_method'); const item = object(request); return { method, required: [...(Array.isArray(item.required) ? item.required : [])].sort(), params: object(item.properties).params ?? null }; });
+    const successSchema = object(schemas.success_response); const resultVariants = Object.values(METHOD_RESULT_TAGS).map((tag) => { const variants = object(object(successSchema.$defs).ResponseResult).oneOf; if (!Array.isArray(variants)) throw new Error('schema_result'); const variant = variants.find((value) => object(object(value).properties).type && object(object(object(value).properties).type).const === tag); if (!variant) throw new Error('schema_result'); return variant; });
+    const withoutDefinitions = (value: unknown) => Object.fromEntries(Object.entries(object(value)).filter(([key]) => key !== '$defs'));
+    const successEnvelope = withoutDefinitions(successSchema); object(successEnvelope.properties).result = { oneOf: resultVariants };
+    const errorEnvelope = withoutDefinitions(schemas.error_response); const eventEnvelope = withoutDefinitions(schemas.event); const subscriptionEventEnvelope = withoutDefinitions(schemas.subscription_event);
+    const retained = [...requests.map((request) => request.params), ...resultVariants, successEnvelope, errorEnvelope, eventEnvelope, subscriptionEventEnvelope];
+    const manifest: JsonObject = { version: 3, protocol: HERDR_PROTOCOL, schemaVersion: root.schema_version, api: { requests, methodResultTags: METHOD_RESULT_TAGS, successEnvelope, selectedResultVariants: resultVariants, errorEnvelope, eventEnvelope, subscriptionEventEnvelope, definitions: definitionClosure(schemas, retained) }, control: CONTROL_SEMANTICS };
+    assertClosure(manifest); return manifest;
+  } catch { return null; }
+}
+export function semanticFingerprint(schema: unknown): string | null { const manifest = selectedHerdrSemanticManifest(schema); return manifest ? canonicalJsonSha256(manifest) : null; }
+export async function probeHerdrStaticCompatibility(source: HerdrConfiguredSource, startupCapabilities: RuntimeCapabilities, client: HerdrClient, platform = process.platform, arch = process.arch): Promise<HerdrCompatibility> {
+  if (platform !== 'linux' || arch !== 'x64') return { readiness: 'platform_unsupported', version: null, semanticFingerprint: null, capabilities: noCapabilities(), reasonCode: 'platform_unsupported' };
+  const version = await client.version(source); if (version.spawnError) return { readiness: 'missing', version: null, semanticFingerprint: null, capabilities: noCapabilities(), reasonCode: 'binary_unavailable' }; if (version.timedOut || version.oversized || version.stderrOverflow || version.code !== 0) return { readiness: 'missing', version: null, semanticFingerprint: null, capabilities: noCapabilities(), reasonCode: 'version_unavailable' }; if (version.stdout.trim() !== `herdr ${HERDR_VERSION}`) return { readiness: 'incompatible', version: null, semanticFingerprint: null, capabilities: noCapabilities(), reasonCode: 'version_unsupported' };
+  const schemaResult = await client.schema(source); if (schemaResult.spawnError || schemaResult.code !== 0 || schemaResult.timedOut || schemaResult.oversized || schemaResult.stderrOverflow || Buffer.byteLength(schemaResult.stderr, 'utf8') > HERDR_LIMITS.schema.stderrBytes) return { readiness: 'incompatible', version: null, semanticFingerprint: null, capabilities: noCapabilities(), reasonCode: 'schema_unavailable' };
+  let schema: unknown; try { schema = JSON.parse(schemaResult.stdout); } catch { return { readiness: 'incompatible', version: null, semanticFingerprint: null, capabilities: noCapabilities(), reasonCode: 'schema_invalid' }; }
+  const fingerprint = semanticFingerprint(schema); if (fingerprint !== HERDR_SEMANTIC_FINGERPRINT) return { readiness: 'incompatible', version: null, semanticFingerprint: null, capabilities: noCapabilities(), reasonCode: 'schema_semantics_unreviewed' };
+  return { readiness: 'ready', version: HERDR_VERSION, semanticFingerprint: fingerprint, capabilities: { ...startupCapabilities, create: false }, reasonCode: null };
+}
+export async function probeHerdrCompatibility(source: HerdrConfiguredSource, startupCapabilities: RuntimeCapabilities, client: HerdrClient, platform = process.platform, arch = process.arch, compatibility?: HerdrCompatibility): Promise<HerdrProbeResult> {
+  const checked = compatibility ?? await probeHerdrStaticCompatibility(source, startupCapabilities, client, platform, arch);
+  if (checked.readiness !== 'ready') return result(source, checked.readiness, checked.reasonCode);
+  const status = await client.status(source); if (status.spawnError || status.timedOut || status.oversized || status.stderrOverflow || status.code !== 0) return result(source, 'offline', 'source_offline', noCapabilities(), checked.version, checked.semanticFingerprint);
+  const snapshot = await client.snapshot(source); if (snapshot.spawnError || snapshot.timedOut || snapshot.oversized || snapshot.stderrOverflow || snapshot.code !== 0) return result(source, 'offline', 'snapshot_unavailable', noCapabilities(), checked.version, checked.semanticFingerprint);
+  return result(source, 'ready', null, checked.capabilities, checked.version, checked.semanticFingerprint);
+}

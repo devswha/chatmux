@@ -1,0 +1,12 @@
+export { HerdrRuntimeAdapter } from './herdr-runtime-adapter.service.js';
+export { HerdrTargetRegistry, HERDR_TARGET_REGISTRY_LIMIT, isSupportedAgent } from './herdr-target-registry.service.js';
+export { RuntimeOperationPolicyService } from './runtime-operation-policy.service.js';
+export { RuntimeRegistryService } from './runtime-registry.service.js';
+export { HerdrClient, HERDR_LIMITS } from './herdr-client.service.js';
+export { readHerdrRuntimeConfig, herdrSourceId, HERDR_MAX_SOURCES, HERDR_POLICY_FILE_ENV } from './herdr-config.service.js';
+export { probeHerdrCompatibility, HERDR_PROTOCOL, HERDR_SEMANTIC_FINGERPRINT, HERDR_VERSION } from './herdr-probe.service.js';
+export type { RuntimeAdapter, RuntimeOperation, RuntimeOperationContext } from './runtime-registry.service.js';
+export type { HerdrConfiguredSource, HerdrRuntimeConfig } from './herdr-config.service.js';
+export type { HerdrSourceId, HerdrTargetId, HerdrResolvedTerminal, VerifiedHerdrTarget } from './herdr-internal.types.js';
+export { HerdrAdmissionService, HerdrControlBridgeService, spawnHerdrController } from './herdr-control-bridge.service.js';
+export type { HerdrControlBridge } from './herdr-control-bridge.service.js';

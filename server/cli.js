@@ -91,6 +91,67 @@ function getDatabasePath() {
 function getInstallDir() {
     return APP_ROOT;
 }
+const HERDR_CAPABILITIES = ['discovery', 'output', 'actions', 'attach'];
+const HERDR_ALIAS_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
+const HERDR_SELECTOR_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
+
+function herdrConfiguredSourceCount(raw) {
+    if (!raw || raw.length > 16 * 1024) return null;
+    let sources;
+    try {
+        sources = JSON.parse(raw);
+    } catch {
+        return null;
+    }
+    if (!Array.isArray(sources) || sources.length === 0 || sources.length > 8) return null;
+
+    const aliases = new Set();
+    for (const source of sources) {
+        if (!source || typeof source !== 'object' || Array.isArray(source)
+            || Object.keys(source).length !== 3
+            || !['alias', 'selector', 'binary'].every(key => Object.prototype.hasOwnProperty.call(source, key))
+            || typeof source.alias !== 'string' || !HERDR_ALIAS_RE.test(source.alias) || aliases.has(source.alias)
+            || typeof source.selector !== 'string' || !HERDR_SELECTOR_RE.test(source.selector) || source.selector === 'default'
+            || typeof source.binary !== 'string' || !path.isAbsolute(source.binary)
+            || source.binary.includes('\0') || source.binary.length > 4096) {
+            return null;
+        }
+        aliases.add(source.alias);
+    }
+    return sources.length;
+}
+
+function herdrConfiguredCapabilities(raw) {
+    if (!raw) return [];
+    const capabilities = raw.split(',');
+    if (capabilities.some(capability => !HERDR_CAPABILITIES.includes(capability))
+        || new Set(capabilities).size !== capabilities.length) {
+        return null;
+    }
+    return capabilities;
+}
+
+function describeHerdrStatus() {
+    const sourceCount = herdrConfiguredSourceCount(process.env.CHATMUX_HERDR_SOURCES);
+    const capabilities = herdrConfiguredCapabilities(process.env.CHATMUX_HERDR_CAPABILITIES);
+    const policyPath = process.env.CHATMUX_HERDR_POLICY_FILE;
+    const policyConfigured = policyPath === undefined
+        ? false
+        : path.isAbsolute(policyPath) && !policyPath.includes('\0') && policyPath.length <= 4096;
+    const enabled = process.env.CHATMUX_HERDR_RUNTIME === '1'
+        && process.platform === 'linux'
+        && process.arch === 'x64'
+        && sourceCount !== null
+        && capabilities !== null
+        && (policyPath === undefined || policyConfigured);
+
+    return {
+        enabled,
+        sourceCount: sourceCount ?? 0,
+        capabilities: capabilities ?? [],
+        policyConfigured,
+    };
+}
 
 // Show status command
 // Resolves the address a browser should actually open, which depends on the
@@ -179,6 +240,13 @@ async function showStatus() {
     console.log(`       CLAUDE_CLI_PATH: ${c.dim(process.env.CLAUDE_CLI_PATH || 'claude (default)')}`);
     console.log(`       CONTEXT_WINDOW: ${c.dim(process.env.CONTEXT_WINDOW || '160000 (default)')}`);
 
+    const herdr = describeHerdrStatus();
+    console.log(`\n${c.info('[INFO]')} Herdr Runtime:`);
+    console.log(`       Configuration: ${herdr.enabled ? c.ok('enabled') : c.dim('disabled')}`);
+    console.log(`       Configured Sources: ${herdr.sourceCount}`);
+    console.log(`       Capabilities: ${herdr.capabilities.length ? herdr.capabilities.join(', ') : 'none'}`);
+    console.log(`       Policy: ${herdr.policyConfigured ? 'configured' : 'not configured'}`);
+    console.log('       Runtime Readiness: not probed by this command');
     // Claude projects folder
     const claudeProjectsPath = path.join(os.homedir(), '.claude', 'projects');
     const projectsExists = fs.existsSync(claudeProjectsPath);

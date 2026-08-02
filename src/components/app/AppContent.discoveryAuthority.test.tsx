@@ -152,7 +152,7 @@ test('mounted production authority clears external target on newest failed disco
     assert.equal(queue.requests.length, 1);
 
     await act(async () => {
-      for (const listener of listeners) listener({ kind: 'discovery.delta' });
+      for (const listener of listeners) listener({ kind: 'discovery.v2.snapshot' });
       await tick();
     });
     assert.equal(queue.requests.length, 2);
@@ -239,7 +239,7 @@ test('mounted production authority clears GJC target on newest failed discovery 
     assert.equal(queue.requests.length, 1);
 
     await act(async () => {
-      for (const listener of listeners) listener({ kind: 'discovery.snapshot' });
+      for (const listener of listeners) listener({ kind: 'discovery.v2.snapshot' });
       await tick();
     });
     assert.equal(queue.requests.length, 2);
@@ -329,7 +329,7 @@ test('mounted production authority promotes only the newest exact external trans
     assert.equal(queue.requests.length, 1);
 
     await act(async () => {
-      for (const listener of listeners) listener({ kind: 'discovery.delta' });
+      for (const listener of listeners) listener({ kind: 'discovery.v2.snapshot' });
       await tick();
     });
     assert.equal(queue.requests.length, 2);
@@ -341,7 +341,7 @@ test('mounted production authority promotes only the newest exact external trans
     });
     assert.equal(opens.length, 1, 'newest exact authority opens one transcript');
     const opened = opens[0];
-    assert.ok(opened && opened.cliKind !== 'gjc');
+    assert.ok(opened && 'tmux' in opened && opened.cliKind !== 'gjc');
     assert.deepEqual(opened.tmux, tmux);
     assert.deepEqual(opened.process, externalTarget.process);
     assert.equal(opened.transcriptSessionId, 'current-transcript');
@@ -463,7 +463,7 @@ test('mounted production authority promotes only the newest exact GJC session', 
     assert.equal(sessionDetailRequests, 1);
 
     await act(async () => {
-      for (const listener of listeners) listener({ kind: 'discovery.snapshot' });
+      for (const listener of listeners) listener({ kind: 'discovery.v2.snapshot' });
       await tick();
     });
     assert.equal(queue.requests.length, 2);

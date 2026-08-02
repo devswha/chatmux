@@ -41,6 +41,7 @@ type TerminalShortcutsPanelProps = {
   wsRef: MutableRefObject<WebSocket | null>;
   terminalRef: MutableRefObject<Terminal | null>;
   isConnected: boolean;
+  herdrProtocol?: boolean;
 };
 
 const preventFocusSteal = (e: React.PointerEvent) => e.preventDefault();
@@ -56,6 +57,7 @@ export default function TerminalShortcutsPanel({
   wsRef,
   terminalRef,
   isConnected,
+  herdrProtocol = false,
 }: TerminalShortcutsPanelProps) {
   const { t } = useTranslation('settings');
   const [ctrlActive, setCtrlActive] = useState(false);
@@ -63,9 +65,11 @@ export default function TerminalShortcutsPanel({
 
   const sendInput = useCallback(
     (data: string) => {
-      sendSocketMessage(wsRef.current, { type: 'input', data });
+      sendSocketMessage(wsRef.current, herdrProtocol
+        ? { type: 'terminal.input', text: data }
+        : { type: 'input', data });
     },
-    [wsRef],
+    [herdrProtocol, wsRef],
   );
 
   const scrollToBottom = useCallback(() => {

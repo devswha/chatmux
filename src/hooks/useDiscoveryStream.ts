@@ -1,22 +1,23 @@
 import { useEffect, useRef, useState } from 'react';
 
 import type { ServerEvent } from '../contexts/WebSocketContext';
-import type { TmuxPaneIdentity, TmuxProcessGeneration } from '../../shared/tmux';
+import type { DiscoveryLane, DiscoveryV2, PublicTerminalTarget, RuntimeCapabilities, SourceLaneState, TmuxDiscoveryProjection } from '../../shared/terminal-runtime';
+import { publicTerminalKey, sourceLaneKey } from '../../shared/terminal-runtime';
 
-export type DiscoveryLane = 'external' | 'live';
-export type DiscoveryRow = {
+export type { DiscoveryLane } from '../../shared/terminal-runtime';
+
+export type DiscoveryRow = TmuxDiscoveryProjection & { [key: string]: unknown };
+
+/** A runtime-neutral operation row used by Herdr-aware surfaces. */
+export type RuntimeDiscoveryRow = {
   key: string;
   lane: DiscoveryLane;
-  tmuxName: string;
-  tmux: TmuxPaneIdentity;
-  process: TmuxProcessGeneration | null;
-  kind: string;
-  providerSessionId: string | null;
-  activity: 'running' | 'waiting_user' | 'asking_user' | 'error' | 'unknown';
-  tmuxActionable?: boolean;
-  cwd: string | null;
+  runtime: PublicTerminalTarget['runtime'];
+  sourceId: string;
+  terminal: PublicTerminalTarget;
+  capabilities: RuntimeCapabilities;
   presence: 'present' | 'stale';
-  [key: string]: unknown;
+  targetId?: string;
 };
 
 type StreamArgs = {
@@ -25,256 +26,158 @@ type StreamArgs = {
   sendMessage: (message: unknown) => void;
   subscribe: (listener: (event: ServerEvent) => void) => () => void;
   onRows: (rows: DiscoveryRow[]) => void;
+  onRuntimeRows?: (rows: RuntimeDiscoveryRow[]) => void;
   onHealthChange?: (healthy: boolean) => void;
   onAuthorityChange?: (lane: DiscoveryLane, disposition: DiscoveryAuthorityDisposition) => void;
 };
 
 export type DiscoveryAuthorityDisposition = 'stream' | 'rest' | 'none';
-
-type DiscoveryFrameState = Pick<{ epoch: string | null; revision: number }, 'epoch' | 'revision'>;
+type DiscoveryFrameState = { epoch: string | null; revision: number };
+type DiscoveryV2Event = { kind: 'discovery.v2.snapshot'; version: 2; discovery: DiscoveryV2 };
 
 const HEARTBEAT_STALE_MS = 15_000;
-// The shared WebSocket has one server-side discovery subscription. Each hook
-// filters this union locally so a later lane consumer cannot replace another.
 export const DISCOVERY_TRANSPORT_LANES: readonly DiscoveryLane[] = ['external', 'live'];
 
-export function discoveryAuthorityDisposition(
-  streamAuthoritative: boolean,
-  restAvailable: boolean,
-): DiscoveryAuthorityDisposition {
-  if (streamAuthoritative) return 'stream';
-  return restAvailable ? 'rest' : 'none';
+export function discoveryAuthorityDisposition(streamAuthoritative: boolean, restAvailable: boolean): DiscoveryAuthorityDisposition {
+  return streamAuthoritative ? 'stream' : restAvailable ? 'rest' : 'none';
 }
 
-export function discoveryFrameAuthorityDisposition(
-  event: ServerEvent,
+function isV2Snapshot(event: ServerEvent): event is ServerEvent & DiscoveryV2Event {
+  const value = event as unknown as Partial<DiscoveryV2Event>;
+  return value.kind === 'discovery.v2.snapshot' && value.version === 2 && Boolean(value.discovery)
+    && value.discovery!.version === 2;
+}
+
+function sourceStates(discovery: DiscoveryV2, lane: DiscoveryLane): SourceLaneState[] {
+  return discovery.sourceLanes.filter((source) => source.lane === lane);
+}
+
+/** Discovery is authoritative only when its expected pairs are exactly authoritative and monotonic. */
+export function discoveryV2LaneAuthority(discovery: DiscoveryV2, lane: DiscoveryLane): DiscoveryAuthorityDisposition {
+  const coverage = discovery.coverageByLane?.[lane];
+  const states = sourceStates(discovery, lane);
+  if (!coverage || coverage.state !== 'complete' || !Number.isSafeInteger(discovery.globalRevision) || discovery.globalRevision < 0) return 'rest';
+  const expected = new Set(coverage.expectedSourceLaneKeys);
+  const authoritative = new Set(coverage.authoritativeSourceLaneKeys);
+  if (expected.size !== states.length || expected.size !== authoritative.size) return 'rest';
+  for (const state of states) {
+    const key = sourceLaneKey(lane, state.sourceId);
+    if (!expected.has(key) || !authoritative.has(key) || state.coverage !== 'authoritative'
+      || !Number.isSafeInteger(state.sourceLaneRevision) || state.sourceLaneRevision < 0) return 'rest';
+  }
+  return 'stream';
+}
+
+/** Projects exact DiscoveryV2 lane/terminal entries without inferring a tmux lane. */
+export function projectDiscoveryV2Rows(discovery: DiscoveryV2, lane: DiscoveryLane): RuntimeDiscoveryRow[] {
+  const authoritative = new Set(discovery.coverageByLane?.[lane]?.authoritativeSourceLaneKeys ?? []);
+  const sources = discovery.sourceLanes.filter((state) => (
+    state.lane === lane
+    && state.coverage === 'authoritative'
+    && authoritative.has(sourceLaneKey(lane, state.sourceId))
+  ));
+  const capabilities = new Map(sources.map((state) => [state.sourceId, state.capabilities]));
+  return discovery.terminals
+    .filter((entry) => entry.lane === lane)
+    .filter(({ terminal }) => sources.some((source) => source.sourceId === (
+      terminal.runtime === 'herdr' ? terminal.sourceId : 'tmux.local'
+    )))
+    .map(({ terminal }) => {
+      const sourceId = terminal.runtime === 'herdr' ? terminal.sourceId : 'tmux.local';
+      return {
+        key: publicTerminalKey(lane, terminal), lane, runtime: terminal.runtime, sourceId,
+        terminal, capabilities: capabilities.get(sourceId) ?? { discovery: false, output: false, actions: false, attach: false, create: false },
+        presence: 'present' as const,
+        ...(terminal.runtime === 'herdr' ? { targetId: terminal.targetId } : {}),
+      };
+    });
+}
+
+/** Reject epoch changes, gaps, duplicate/regressed global revisions, and pair regressions. */
+export function discoveryV2ResyncReason(
+  discovery: DiscoveryV2,
   state: DiscoveryFrameState,
-  lane: DiscoveryLane,
-  isConnected: boolean,
-  isFresh: boolean,
-): DiscoveryAuthorityDisposition {
-  if (
-    !isConnected
-    || !isFresh
-    || !Number.isInteger(state.revision)
-    || (event.kind !== 'discovery.snapshot' && event.kind !== 'discovery.delta')
-    || event.epoch !== state.epoch
-    || event.revision !== state.revision
-  ) {
-    return discoveryAuthorityDisposition(false, true);
+  pairRevisions: ReadonlyMap<string, number>,
+  previousPayload: string | null,
+): 'epoch_mismatch' | 'gap' | 'pair_regression' | 'same_revision_disagreement' | null {
+  if (!discovery.epoch || !Number.isSafeInteger(discovery.globalRevision) || discovery.globalRevision < 0) return 'gap';
+  if (state.epoch !== null && discovery.epoch !== state.epoch) return 'epoch_mismatch';
+  if (state.epoch !== null && (discovery.globalRevision < state.revision || discovery.globalRevision > state.revision + 1)) return 'gap';
+  const payload = JSON.stringify(discovery);
+  if (state.epoch !== null && discovery.globalRevision === state.revision && previousPayload !== payload) return 'same_revision_disagreement';
+  for (const source of discovery.sourceLanes) {
+    const previous = pairRevisions.get(sourceLaneKey(source.lane, source.sourceId));
+    if (previous !== undefined && source.sourceLaneRevision < previous) return 'pair_regression';
   }
-  const health = event.health;
-  if (
-    !health
-    || typeof health !== 'object'
-    || Array.isArray(health)
-    || !Object.prototype.hasOwnProperty.call(health, lane)
-  ) {
-    return discoveryAuthorityDisposition(false, true);
-  }
-  const laneHealth = (health as Record<string, unknown>)[lane];
-  if (!laneHealth || typeof laneHealth !== 'object' || Array.isArray(laneHealth)) {
-    return discoveryAuthorityDisposition(false, true);
-  }
-  const ok = Object.prototype.hasOwnProperty.call(laneHealth, 'ok')
-    && (laneHealth as { ok?: unknown }).ok === true;
-  const lastOkRevision = Object.prototype.hasOwnProperty.call(laneHealth, 'lastOkRevision')
-    ? (laneHealth as { lastOkRevision?: unknown }).lastOkRevision
-    : null;
-  return discoveryAuthorityDisposition(
-    ok
-    && typeof lastOkRevision === 'number'
-    && Number.isInteger(lastOkRevision)
-    && lastOkRevision > 0
-    && lastOkRevision <= state.revision,
-    true,
-  );
+  return null;
 }
 
-export function discoveryDeltaResyncReason(
-  event: ServerEvent,
-  state: DiscoveryFrameState,
-): 'epoch_mismatch' | 'gap' | null {
-  if (event.kind !== 'discovery.delta' || !Array.isArray(event.changes)) return null;
-  if (event.epoch !== state.epoch) return 'epoch_mismatch';
-  return event.prevRevision !== state.revision ? 'gap' : null;
-}
-
-export type DiscoveryHeartbeatDisposition = 'ignore' | 'keepalive';
-
-export function discoveryHeartbeatDisposition(
-  event: ServerEvent,
-  state: DiscoveryFrameState,
-  streamAuthoritative: boolean,
-): DiscoveryHeartbeatDisposition {
-  if (
-    event.kind !== 'discovery.heartbeat'
-    || event.epoch !== state.epoch
-    || event.revision !== state.revision
-    || !streamAuthoritative
-  ) {
-    return 'ignore';
-  }
-  return 'keepalive';
-}
-
-/** Applies the ordered display-only discovery stream. REST callers remain the fallback. */
-export function useDiscoveryStream({
-  lanes,
-  isConnected,
-  sendMessage,
-  subscribe,
-  onRows,
-  onHealthChange,
-  onAuthorityChange,
-}: StreamArgs): boolean {
-  const stateRef = useRef<{ epoch: string | null; revision: number; rows: Map<string, DiscoveryRow> }>({ epoch: null, revision: 0, rows: new Map() });
+export function useDiscoveryStream({ lanes, isConnected, sendMessage, subscribe, onRows, onRuntimeRows, onHealthChange, onAuthorityChange }: StreamArgs): boolean {
+  const stateRef = useRef<DiscoveryFrameState>({ epoch: null, revision: 0 });
+  const pairsRef = useRef(new Map<string, number>());
+  const payloadRef = useRef<string | null>(null);
   const onRowsRef = useRef(onRows);
+  const onRuntimeRowsRef = useRef(onRuntimeRows);
   const onHealthChangeRef = useRef(onHealthChange);
   const onAuthorityChangeRef = useRef(onAuthorityChange);
-  const authorityRef = useRef<Record<DiscoveryLane, DiscoveryAuthorityDisposition>>({
-    external: 'none',
-    live: 'none',
-  });
   const [streamHealthy, setStreamHealthy] = useState(false);
   onRowsRef.current = onRows;
+  onRuntimeRowsRef.current = onRuntimeRows;
   onHealthChangeRef.current = onHealthChange;
   onAuthorityChangeRef.current = onAuthorityChange;
   const lanesKey = lanes.join(',');
 
   useEffect(() => {
-    const subscribedLanes = lanesKey.split(',') as DiscoveryLane[];
+    const subscribedLanes = lanesKey ? lanesKey.split(',') as DiscoveryLane[] : [];
     let lastFrameAt = 0;
-    const emit = () => onRowsRef.current([...stateRef.current.rows.values()].filter((row) => subscribedLanes.includes(row.lane)));
-    const hasStreamAuthority = () => subscribedLanes.some((lane) => authorityRef.current[lane] === 'stream');
-    const setAuthority = (lane: DiscoveryLane, disposition: DiscoveryAuthorityDisposition) => {
-      if (authorityRef.current[lane] === disposition) return;
-      const wasHealthy = hasStreamAuthority();
-      authorityRef.current[lane] = disposition;
-      onAuthorityChangeRef.current?.(lane, disposition);
-      const healthy = hasStreamAuthority();
-      if (wasHealthy !== healthy) {
-        setStreamHealthy(healthy);
-        onHealthChangeRef.current?.(healthy);
-      }
+    const authority: Record<DiscoveryLane, DiscoveryAuthorityDisposition> = { external: 'none', live: 'none' };
+    const setAuthority = (lane: DiscoveryLane, next: DiscoveryAuthorityDisposition) => {
+      if (authority[lane] === next) return;
+      authority[lane] = next;
+      onAuthorityChangeRef.current?.(lane, next);
+      const healthy = subscribedLanes.some((candidate) => authority[candidate] === 'stream');
+      setStreamHealthy(healthy);
+      onHealthChangeRef.current?.(healthy);
     };
-    const clearAuthority = (disposition: DiscoveryAuthorityDisposition) => {
-      for (const lane of subscribedLanes) setAuthority(lane, disposition);
-    };
-    const markFrameAlive = () => {
-      lastFrameAt = Date.now();
-    };
-    const resetAndResync = (reason: 'epoch_mismatch' | 'gap') => {
-      stateRef.current = { epoch: null, revision: 0, rows: new Map() };
-      clearAuthority('rest');
+    const reset = (reason: string) => {
+      stateRef.current = { epoch: null, revision: 0 };
+      pairsRef.current = new Map();
+      payloadRef.current = null;
+      for (const lane of subscribedLanes) setAuthority(lane, 'rest');
       sendMessage({ type: 'discovery.resync', reason });
     };
-    const applyFrameAuthority = (event: ServerEvent) => {
-      for (const lane of subscribedLanes) {
-        setAuthority(
-          lane,
-          discoveryFrameAuthorityDisposition(event, stateRef.current, lane, isConnected, true),
-        );
-      }
-    };
+    const subscribeV2 = () => sendMessage({ type: 'discovery.subscribe', protocolVersion: 2, lanes: subscribedLanes,
+      known: stateRef.current.epoch === null ? null : { epoch: stateRef.current.epoch, globalRevision: stateRef.current.revision } });
     const apply = (event: ServerEvent) => {
-      if (event.kind === 'websocket_reconnected') {
-        const { epoch, revision } = stateRef.current;
-        sendMessage({
-          type: 'discovery.subscribe',
-          protocolVersion: 1,
-          lanes: DISCOVERY_TRANSPORT_LANES,
-          known: epoch === null ? null : { epoch, revision },
-        });
+      if (event.kind === 'websocket_reconnected') { subscribeV2(); return; }
+      if (event.kind === 'discovery.resync_required') { reset('gap'); return; }
+      const heartbeat = event as unknown as { kind?: string; version?: number; epoch?: string; globalRevision?: number };
+      if (heartbeat.kind === 'discovery.v2.heartbeat') {
+        if (heartbeat.version === 2 && heartbeat.epoch === stateRef.current.epoch && heartbeat.globalRevision === stateRef.current.revision
+          && subscribedLanes.some((lane) => authority[lane] === 'stream')) lastFrameAt = Date.now();
         return;
       }
-      if (event.kind === 'discovery.resync_required') {
-        resetAndResync('gap');
-        return;
+      if (!isV2Snapshot(event)) return;
+      const discovery = event.discovery;
+      const reason = discoveryV2ResyncReason(discovery, stateRef.current, pairsRef.current, payloadRef.current);
+      if (reason) { reset(reason); return; }
+      stateRef.current = { epoch: discovery.epoch, revision: discovery.globalRevision };
+      payloadRef.current = JSON.stringify(discovery);
+      pairsRef.current = new Map(discovery.sourceLanes.map((source) => [sourceLaneKey(source.lane, source.sourceId), source.sourceLaneRevision]));
+      lastFrameAt = Date.now();
+      const runtimeRows = subscribedLanes.flatMap((lane) => projectDiscoveryV2Rows(discovery, lane));
+      for (const lane of subscribedLanes) setAuthority(lane, isConnected ? discoveryV2LaneAuthority(discovery, lane) : 'rest');
+      if (subscribedLanes.some((lane) => authority[lane] === 'stream')) {
+        onRowsRef.current((discovery.tmuxRows ?? []).filter((row) => subscribedLanes.includes(row.lane)));
       }
-      if (event.kind === 'discovery.snapshot') {
-        const epoch = typeof event.epoch === 'string' ? event.epoch : null;
-        const revision = typeof event.revision === 'number' && Number.isInteger(event.revision)
-          ? event.revision
-          : null;
-        if (epoch === null || revision === null || !Array.isArray(event.rows)) return;
-        const rows = event.rows.filter((row): row is DiscoveryRow => Boolean(row && typeof row === 'object' && typeof (row as DiscoveryRow).key === 'string'));
-        const retainedRows = stateRef.current.epoch === epoch
-          ? new Map(stateRef.current.rows)
-          : new Map<string, DiscoveryRow>();
-        stateRef.current = { epoch, revision, rows: retainedRows };
-        markFrameAlive();
-        applyFrameAuthority(event);
-        for (const lane of subscribedLanes) {
-          for (const [key, row] of retainedRows) {
-            if (row.lane === lane) retainedRows.delete(key);
-          }
-        }
-        for (const row of rows) {
-          if (subscribedLanes.includes(row.lane)) retainedRows.set(row.key, row);
-        }
-        if (hasStreamAuthority()) emit();
-        return;
-      }
-      if (event.kind === 'discovery.heartbeat') {
-        if (discoveryHeartbeatDisposition(event, stateRef.current, hasStreamAuthority()) === 'keepalive') {
-          markFrameAlive();
-        }
-        return;
-      }
-      const resyncReason = discoveryDeltaResyncReason(event, stateRef.current);
-      if (resyncReason) {
-        resetAndResync(resyncReason);
-        return;
-      }
-      if (
-        event.kind !== 'discovery.delta'
-        || !Array.isArray(event.changes)
-        || typeof event.revision !== 'number'
-        || !Number.isInteger(event.revision)
-      ) return;
-      stateRef.current.revision = event.revision;
-      markFrameAlive();
-      applyFrameAuthority(event);
-      for (const change of event.changes as Array<Record<string, unknown>>) {
-        if (change.op === 'added' && change.row && typeof change.row === 'object') {
-          const row = change.row as DiscoveryRow;
-          if (subscribedLanes.includes(row.lane)) stateRef.current.rows.set(row.key, row);
-        } else if (change.op === 'updated' && typeof change.key === 'string' && change.patch && typeof change.patch === 'object') {
-          const row = stateRef.current.rows.get(change.key);
-          if (row) {
-            stateRef.current.rows.set(change.key, { ...row, ...(change.patch as Partial<DiscoveryRow>) });
-          }
-        } else if (change.op === 'stale' && typeof change.key === 'string') {
-          const row = stateRef.current.rows.get(change.key);
-          if (row) stateRef.current.rows.set(change.key, { ...row, presence: 'stale' });
-        } else if (change.op === 'removed' && typeof change.key === 'string') {
-          stateRef.current.rows.delete(change.key);
-        }
-      }
-      if (hasStreamAuthority()) emit();
+      onRuntimeRowsRef.current?.(runtimeRows);
     };
     const unsubscribe = subscribe(apply);
-    if (isConnected) {
-      const { epoch, revision } = stateRef.current;
-      sendMessage({
-        type: 'discovery.subscribe',
-        protocolVersion: 1,
-        lanes: DISCOVERY_TRANSPORT_LANES,
-        known: epoch === null ? null : { epoch, revision },
-      });
-    } else {
-      clearAuthority('rest');
-    }
-    const heartbeatTimer = window.setInterval(() => {
-      if (lastFrameAt === 0 || Date.now() - lastFrameAt > HEARTBEAT_STALE_MS) clearAuthority('rest');
+    if (isConnected) subscribeV2(); else for (const lane of subscribedLanes) setAuthority(lane, 'rest');
+    const timer = window.setInterval(() => {
+      if (!lastFrameAt || Date.now() - lastFrameAt > HEARTBEAT_STALE_MS) for (const lane of subscribedLanes) setAuthority(lane, 'rest');
     }, HEARTBEAT_STALE_MS);
-    return () => {
-      window.clearInterval(heartbeatTimer);
-      unsubscribe();
-      clearAuthority('none');
-    };
+    return () => { window.clearInterval(timer); unsubscribe(); for (const lane of subscribedLanes) setAuthority(lane, 'none'); };
   }, [isConnected, lanesKey, sendMessage, subscribe]);
-
   return streamHealthy;
 }

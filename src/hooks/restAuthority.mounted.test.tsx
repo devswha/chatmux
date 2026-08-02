@@ -5,8 +5,9 @@ import { createElement, useEffect } from 'react';
 import TestRenderer, { act, type ReactTestRenderer } from 'react-test-renderer';
 
 import type { TmuxPaneIdentity } from '../../shared/tmux';
-import { useExternalCliSessions } from '../components/sidebar/hooks/useExternalCliSessions';
+import { useExternalCliSessions, type ExternalCliSession } from '../components/sidebar/hooks/useExternalCliSessions';
 import WebSocketContext from '../contexts/WebSocketContext';
+import type { ServerEvent } from '../contexts/WebSocketContext';
 import { api } from '../utils/api';
 
 import { useProjectsState } from './useProjectsState';
@@ -100,6 +101,59 @@ const externalPayload = (pid: number) => ({
   },
 });
 
+const externalSnapshotEvent = {
+  kind: 'discovery.v2.snapshot',
+  version: 2,
+  discovery: {
+    version: 2,
+    epoch: 'epoch-external',
+    globalRevision: 1,
+    terminals: [],
+    tmuxRows: [{
+      key: 'external-tmux',
+      lane: 'external',
+      tmuxName: 'qa-external',
+      tmux,
+      process: null,
+      kind: 'shell',
+      providerSessionId: null,
+      activity: 'unknown',
+      cwd: '/workspace/project',
+      presence: 'present',
+    }],
+    sourceDescriptors: [{ runtime: 'tmux', sourceId: 'tmux.local', readiness: 'ready' }],
+    sourceLanes: [{
+      lane: 'external',
+      sourceId: 'tmux.local',
+      runtime: 'tmux',
+      readiness: 'ready',
+      capabilities: { discovery: true, output: true, actions: true, attach: true, create: false },
+      sourceLaneRevision: 1,
+      lastOkGlobalRevision: 1,
+      coverage: 'authoritative',
+      consecutiveFailures: 0,
+    }],
+    coverageByLane: {
+      external: {
+        lane: 'external',
+        state: 'complete',
+        expectedSourceLaneKeys: ['external\u0000tmux.local'],
+        authoritativeSourceLaneKeys: ['external\u0000tmux.local'],
+        retainedSourceLaneKeys: [],
+        unavailableSourceLaneKeys: [],
+      },
+      live: {
+        lane: 'live',
+        state: 'complete',
+        expectedSourceLaneKeys: [],
+        authoritativeSourceLaneKeys: [],
+        retainedSourceLaneKeys: [],
+        unavailableSourceLaneKeys: [],
+      },
+    },
+  },
+} as ServerEvent;
+
 const livePayload = (pid: number) => ({
   success: true,
   data: {
@@ -128,6 +182,65 @@ const malformedLivePayload = {
   success: true,
   data: { discovery: { ok: true }, liveSessions: { stale: true } },
 };
+
+test('healthy discovery retains the exact REST attach capability for shell panes', async () => {
+  const timers = installBrowserGlobals();
+  const queue = requestQueue();
+  const originalExternalSessions = api.externalSessions;
+  (api as typeof api & { externalSessions: (signal?: AbortSignal) => Promise<Response> }).externalSessions =
+    (signal?: AbortSignal) => queue.request(signal);
+  const listeners = new Set<(event: ServerEvent) => void>();
+  let latest: { sessions: ExternalCliSession[] } | null = null;
+  let renderer: ReactTestRenderer | null = null;
+
+  function Probe() {
+    const value = useExternalCliSessions();
+    useEffect(() => { latest = value; }, [value]);
+    return null;
+  }
+
+  try {
+    await act(async () => {
+      renderer = TestRenderer.create(createElement(
+        WebSocketContext.Provider,
+        {
+          value: {
+            ws: null,
+            sendMessage: () => undefined,
+            subscribe: (listener: (event: ServerEvent) => void) => {
+              listeners.add(listener);
+              return () => listeners.delete(listener);
+            },
+            latestMessage: null,
+            isConnected: true,
+          } as never,
+        },
+        createElement(Probe),
+      ));
+      await tick();
+    });
+    assert.equal(queue.requests.length, 1);
+
+    await act(async () => {
+      for (const listener of listeners) listener(externalSnapshotEvent);
+      await tick();
+    });
+    assert.equal(queue.requests.length, 2);
+    assert.equal(queue.requests[1]!.signal?.aborted, false);
+
+    await act(async () => {
+      queue.requests[1]!.resolve(jsonResponse(externalPayload(42)));
+      await tick();
+    });
+    assert.equal(latest!.sessions[0]?.authority, 'stream');
+    assert.equal(latest!.sessions[0]?.process, null);
+    assert.equal(latest!.sessions[0]?.attachCapability, 'capability-42');
+  } finally {
+    if (renderer) await act(async () => { renderer!.unmount(); });
+    (api as typeof api & { externalSessions: typeof originalExternalSessions }).externalSessions = originalExternalSessions;
+    timers.restore();
+  }
+});
 
 test('mounted external hook fences malformed, deferred, recovered, and unmounted REST responses', async () => {
   const timers = installBrowserGlobals();
@@ -206,8 +319,8 @@ test('mounted external hook fences malformed, deferred, recovered, and unmounted
     });
 
     await act(async () => { latest!.refresh(); await tick(); });
-    const publishCount = published.length;
     await act(async () => { renderer!.unmount(); await tick(); });
+    const publishCount = published.length;
     queue.requests[4]!.resolve(jsonResponse(externalPayload(44)));
     await tick();
     assert.equal(published.length, publishCount, 'unmounted response cannot publish');
@@ -231,14 +344,19 @@ test('mounted live hook atomically clears malformed authority and ignores late o
   let renderCount = 0;
   let renderer: ReactTestRenderer | null = null;
 
+  const navigate = (() => undefined) as never;
+  const subscribe = () => () => undefined;
+  const sendMessage = () => undefined;
+  const activeSessions = new Map();
+
   function Probe() {
     const value = useProjectsState({
-      navigate: (() => undefined) as never,
-      subscribe: () => () => undefined,
-      sendMessage: () => undefined,
+      navigate,
+      subscribe,
+      sendMessage,
       isConnected: false,
       isMobile: false,
-      activeSessions: new Map(),
+      activeSessions,
     });
     useEffect(() => {
       latest = value;

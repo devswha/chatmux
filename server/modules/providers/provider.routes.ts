@@ -16,7 +16,6 @@ import {
 import {
   getCurrentTmuxPaneIdentityState,
   getExternalCliSessionsDetailed,
-  normalizeExternalPaneOutput,
   resolveExternalCliCwd,
   spawnExternalCliSession,
   type ExternalCliSession,
@@ -37,13 +36,10 @@ import { listLiveGjcCommands } from '@/modules/providers/services/live-commands.
 import { assertLineageTmuxTarget } from '@/modules/providers/services/tmux-target-guard.service.js';
 import { assertFreshExternalTmuxTarget, type VerifiedTmuxActionTarget } from '@/modules/providers/services/tmux-fresh-verifier.service.js';
 import {
-  captureTmuxPane,
   killTmuxPane,
   killTmuxSession,
   readTmuxPaneIdentity,
   readTmuxProcessGeneration,
-  sendTmuxProcessAction,
-  sendToTmuxPane,
   stopAgentProcessInPane,
   type TmuxProcessAction,
 } from '@/modules/providers/services/tmux-pane-actions.service.js';
@@ -57,8 +53,21 @@ import type {
   UpsertProviderMcpServerInput,
 } from '@/shared/types.js';
 import { AppError, asyncHandler, createApiSuccessResponse } from '@/shared/utils.js';
+import type {
+  HerdrAdmissionService,
+  RuntimeOperationPolicyService,
+  RuntimeRegistryService,
+} from '@/modules/terminal-runtimes/index.js';
+
+import {
+  readPublicTerminalTarget,
+  type PublicTerminalRef,
+  type PublicTerminalTarget,
+  type RuntimeCapabilities,
+} from '../../../shared/terminal-runtime.js';
 
 import { attachCapabilityService } from './services/attach-capability.service.js';
+import type { TmuxRuntimeOperationContext } from './services/tmux-runtime-adapter.service.js';
 
 
 const router = express.Router();
@@ -88,6 +97,136 @@ function externalProcessGeneration(session: {
   return session.agentPid !== undefined && session.startedAtMs !== undefined
     ? { pid: session.agentPid, startedAtMs: session.startedAtMs }
     : null;
+}
+
+function clientReloadRequired(): never {
+  throw new AppError('This terminal operation requires the v2 terminal contract.', {
+    code: 'CLIENT_RELOAD_REQUIRED',
+    statusCode: 409,
+  });
+}
+
+function readTerminalV2(body: Record<string, unknown>): PublicTerminalTarget {
+  if (body.apiVersion !== 2 || !Object.hasOwn(body, 'target')) clientReloadRequired();
+  const target = readPublicTerminalTarget(body.target);
+  if (!target) {
+    const candidate = body.target;
+    if (candidate && typeof candidate === 'object' && !Array.isArray(candidate) && (candidate as { runtime?: unknown }).runtime === 'tmux') {
+      readTmuxPaneIdentity((candidate as { tmux?: unknown }).tmux);
+      readTmuxProcessGeneration((candidate as { process?: unknown }).process);
+    }
+    throw new AppError('target must be a valid v2 public terminal target.', {
+      code: 'INVALID_TERMINAL_TARGET_V2',
+      statusCode: 400,
+    });
+  }
+  return target;
+}
+
+function terminalRef(target: PublicTerminalTarget): PublicTerminalRef {
+  return target.runtime === 'herdr'
+    ? { runtime: 'herdr', sourceId: target.sourceId, targetId: target.targetId }
+    : { runtime: 'tmux', tmux: target.tmux };
+}
+
+function terminalRegistry(req: Request): RuntimeRegistryService | undefined {
+  return req.app.locals.terminalRuntimeRegistry as RuntimeRegistryService | undefined;
+}
+
+function assertRuntimePolicy(req: Request, target: PublicTerminalTarget, operation: 'output' | 'actions'): void {
+  if (target.runtime !== 'herdr') return;
+  const policy = req.app.locals.runtimeOperationPolicy as RuntimeOperationPolicyService | undefined;
+  if (policy && !policy.allows(target.sourceId as never, operation)) {
+    throw new AppError('The terminal runtime operation is unavailable.', {
+      code: 'TERMINAL_RUNTIME_UNAVAILABLE',
+      statusCode: 409,
+    });
+  }
+}
+
+function terminalCapabilities(req: Request, target: PublicTerminalTarget): RuntimeCapabilities {
+  const sourceId = target.runtime === 'tmux' ? 'tmux.local' : target.sourceId;
+  return terminalRegistry(req)?.capabilities(target.runtime, sourceId) ?? {
+    discovery: false, output: false, actions: false, attach: false, create: false,
+  };
+}
+function requireLocalAgent(target: PublicTerminalTarget): Extract<PublicTerminalTarget, { targetClass: 'local-agent' }> {
+  if (target.targetClass !== 'local-agent') {
+    throw new AppError('This terminal target cannot perform the requested operation.', {
+      code: 'TERMINAL_OPERATION_UNSUPPORTED',
+      statusCode: 409,
+    });
+  }
+  return target;
+}
+
+function tmuxRuntimeContext(
+  target: PublicTerminalTarget,
+  verify: (tmux: unknown, process: unknown) => Promise<VerifiedTmuxActionTarget>,
+  options: Omit<TmuxRuntimeOperationContext, 'process' | 'verify'> = {},
+): TmuxRuntimeOperationContext | undefined {
+  return target.runtime === 'tmux'
+    ? { process: 'process' in target ? target.process : undefined, verify, ...options }
+    : undefined;
+}
+
+async function readRuntimePane(
+  req: Request,
+  target: PublicTerminalTarget,
+  verifyTmux: (tmux: unknown, process: unknown) => Promise<VerifiedTmuxActionTarget>,
+): Promise<{ ansi: string; truncated: boolean }> {
+  assertRuntimePolicy(req, target, 'output');
+  if (target.runtime === 'tmux' && target.targetClass !== 'local-agent') {
+    throw new AppError('This terminal target requires local-agent authority.', {
+      code: 'TERMINAL_OPERATION_UNSUPPORTED',
+      statusCode: 409,
+    });
+  }
+  const output = await terminalRegistry(req)?.read(terminalRef(target), tmuxRuntimeContext(target, verifyTmux));
+  if (!output) throw new AppError('The terminal target is unavailable.', { code: 'TERMINAL_RUNTIME_UNAVAILABLE', statusCode: 409 });
+  return output;
+}
+
+async function sendRuntimeText(
+  req: Request,
+  target: PublicTerminalTarget,
+  message: string,
+  verifyTmux: (tmux: unknown, process: unknown) => Promise<VerifiedTmuxActionTarget>,
+): Promise<VerifiedTmuxActionTarget | null> {
+  const local = requireLocalAgent(target);
+  assertRuntimePolicy(req, local, 'actions');
+  let verified: VerifiedTmuxActionTarget | null = null;
+  if (!await terminalRegistry(req)?.send(terminalRef(local), message, tmuxRuntimeContext(local, verifyTmux, {
+    onVerified: (value) => { verified = value; },
+  }))) {
+    throw new AppError('The terminal target is unavailable.', { code: 'TERMINAL_RUNTIME_UNAVAILABLE', statusCode: 409 });
+  }
+  return verified;
+}
+
+async function sendRuntimeAction(
+  req: Request,
+  target: PublicTerminalTarget,
+  action: TmuxProcessAction,
+  verifyTmux: (tmux: unknown, process: unknown) => Promise<VerifiedTmuxActionTarget>,
+): Promise<VerifiedTmuxActionTarget | null> {
+  const local = requireLocalAgent(target);
+  assertRuntimePolicy(req, local, 'actions');
+  let verified: VerifiedTmuxActionTarget | null = null;
+  const context = tmuxRuntimeContext(local, verifyTmux, {
+    beforeAction: (value) => assertTerminationAllowed(value, 'pane'),
+    onVerified: (value) => { verified = value; },
+  });
+  const registry = terminalRegistry(req);
+  const performed = action === 'interrupt'
+    ? await registry?.interrupt(terminalRef(local), context)
+    : await registry?.escape(terminalRef(local), context);
+  if (!performed) throw new AppError('The terminal target is unavailable.', { code: 'TERMINAL_RUNTIME_UNAVAILABLE', statusCode: 409 });
+  return verified;
+}
+
+function terminalResponse(req: Request, target: PublicTerminalTarget) {
+  return { version: 2, terminal: target, capabilities: terminalCapabilities(req, target) };
 }
 
 function discoveryRows(req: Request, lane: DiscoveryLane): readonly DiscoveryRow[] {
@@ -775,12 +914,34 @@ router.get(
 );
 
 router.post(
+  '/sessions/external/admission',
+  asyncHandler(async (req: Request, res: Response) => {
+    const target = readTerminalV2((req.body ?? {}) as Record<string, unknown>);
+    if (target.runtime !== 'herdr' || target.targetClass !== 'attach-only') {
+      throw new AppError('This terminal target does not require Herdr admission.', { code: 'TERMINAL_OPERATION_UNSUPPORTED', statusCode: 409 });
+    }
+    const principal = String((req as typeof req & { user?: { id?: string | number; userId?: string | number } }).user?.id
+      ?? (req as typeof req & { user?: { userId?: string | number } }).user?.userId
+      ?? '');
+    const registry = terminalRegistry(req);
+    const admissions = req.app.locals.herdrAdmissions as HerdrAdmissionService | undefined;
+    if (!principal || !registry || !admissions || !await registry.verify(terminalRef(target), 'attach')) {
+      throw new AppError('The terminal target is unavailable.', { code: 'TERMINAL_RUNTIME_UNAVAILABLE', statusCode: 409 });
+    }
+    const admissionCapability = admissions.issue(principal, target);
+    if (!admissionCapability) {
+      throw new AppError('The terminal admission could not be issued.', { code: 'TERMINAL_RUNTIME_UNAVAILABLE', statusCode: 409 });
+    }
+    const controlTarget: PublicTerminalTarget = { ...target, admissionCapability };
+    res.json(createApiSuccessResponse({ ...terminalResponse(req, controlTarget), lane: 'external' }));
+  }),
+);
+router.post(
   '/sessions/external/output',
   asyncHandler(async (req: Request, res: Response) => {
-    const body = (req.body ?? {}) as { tmux?: unknown; process?: unknown };
-    const target = await assertFreshExternalTmuxTarget(body.tmux, body.process);
-    const output = normalizeExternalPaneOutput(await captureTmuxPane(target));
-    res.json(createApiSuccessResponse({ output }));
+    const target = readTerminalV2((req.body ?? {}) as Record<string, unknown>);
+    const output = await readRuntimePane(req, target, assertFreshExternalTmuxTarget);
+    res.json(createApiSuccessResponse({ ...terminalResponse(req, target), lane: 'external', pane: { version: 2, lane: 'external', terminal: target, ansi: output.ansi, truncated: output.truncated } }));
   }),
 );
 
@@ -831,64 +992,46 @@ router.post(
 router.post(
   '/sessions/external/kill',
   asyncHandler(async (req: Request, res: Response) => {
-    const body = (req.body ?? {}) as {
-      tmux?: unknown;
-      process?: unknown;
-      mode?: unknown;
-    };
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const publicTarget = readTerminalV2(body);
+    if (publicTarget.runtime !== 'tmux') throw new AppError('This terminal runtime does not support termination.', { code: 'TERMINAL_OPERATION_UNSUPPORTED', statusCode: 409 });
+    const target = requireLocalAgent(publicTarget);
+    if (target.runtime !== 'tmux') throw new AppError('This terminal runtime does not support termination.', { code: 'TERMINAL_OPERATION_UNSUPPORTED', statusCode: 409 });
     const mode = readTerminationMode(body.mode);
-    const target = await assertFreshExternalTmuxTarget(body.tmux, body.process);
-    await assertTerminationAllowed(target, mode);
-    if (mode === 'process') {
-      await stopAgentProcessInPane(target);
-    } else if (mode === 'pane') {
-      await killTmuxPane(target);
-    } else {
-      await killTmuxSession(target);
-    }
-    res.json(createApiSuccessResponse({ ok: true, mode }));
+    const verified = await assertFreshExternalTmuxTarget(target.tmux, target.process);
+    await assertTerminationAllowed(verified, mode);
+    if (mode === 'process') await stopAgentProcessInPane(verified);
+    else if (mode === 'pane') await killTmuxPane(verified);
+    else await killTmuxSession(verified);
+    res.json(createApiSuccessResponse({ ...terminalResponse(req, target), ok: true, mode }));
   }),
 );
 
 router.post(
   '/sessions/external/send',
   asyncHandler(async (req: Request, res: Response) => {
-    const body = (req.body ?? {}) as {
-      tmux?: unknown;
-      process?: unknown;
-      message?: unknown;
-    };
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const target = readTerminalV2(body);
     const message = typeof body.message === 'string' ? body.message : '';
-    if (!message.trim()) {
-      throw new AppError('message is required.', { code: 'EMPTY_MESSAGE', statusCode: 400 });
-    }
-    const target = await assertFreshExternalTmuxTarget(body.tmux, body.process);
-    await sendToTmuxPane(target, message);
-    res.json(createApiSuccessResponse({ ok: true }));
+    if (!message.trim()) throw new AppError('message is required.', { code: 'EMPTY_MESSAGE', statusCode: 400 });
+    await sendRuntimeText(req, target, message, assertFreshExternalTmuxTarget);
+    res.json(createApiSuccessResponse({ ...terminalResponse(req, target), ok: true }));
   }),
 );
 router.post(
   '/sessions/external/actions',
   asyncHandler(async (req: Request, res: Response) => {
-    const body = (req.body ?? {}) as { tmux?: unknown; process?: unknown; action?: unknown };
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const target = readTerminalV2(body);
     const action = readTmuxProcessAction(body.action);
     try {
-      const target = await assertFreshExternalTmuxTarget(body.tmux, body.process);
-      // Process actions share the pane-level self/company protection boundary:
-      // an interrupt is non-destructive, but must not be misdirected to those targets.
-      await assertTerminationAllowed(target, 'pane');
-      await sendTmuxProcessAction(target, action);
-      emitRelayKeyDiagnostic('relay_key_sent', target.kind);
+      const verified = await sendRuntimeAction(req, target, action, assertFreshExternalTmuxTarget);
+      if (verified) emitRelayKeyDiagnostic('relay_key_sent', verified.kind);
     } catch (error) {
-      if (
-        error instanceof AppError
-        && (error.code === 'TMUX_PROCESS_GENERATION_MISMATCH' || error.code === 'TMUX_PANE_GENERATION_MISMATCH')
-      ) {
-        emitRelayKeyDiagnostic('relay_key_refused_generation', 'external');
-      }
+      if (error instanceof AppError && (error.code === 'TMUX_PROCESS_GENERATION_MISMATCH' || error.code === 'TMUX_PANE_GENERATION_MISMATCH')) emitRelayKeyDiagnostic('relay_key_refused_generation', 'external');
       throw error;
     }
-    res.json(createApiSuccessResponse({ ok: true }));
+    res.json(createApiSuccessResponse({ ...terminalResponse(req, target), ok: true }));
   }),
 );
 
@@ -907,67 +1050,43 @@ router.get(
 router.post(
   '/sessions/live/output',
   asyncHandler(async (req: Request, res: Response) => {
-    const body = (req.body ?? {}) as { tmux?: unknown; process?: unknown };
-    const tmux = readTmuxPaneIdentity(body.tmux);
-    const processGeneration = readTmuxProcessGeneration(body.process);
-    const target = await assertLineageTmuxTarget(tmux, processGeneration);
-    const output = normalizeExternalPaneOutput(await captureTmuxPane(target));
-    res.json(createApiSuccessResponse({ output }));
+    const target = readTerminalV2((req.body ?? {}) as Record<string, unknown>);
+    if (target.runtime === 'herdr') throw new AppError('Herdr terminals are external-only.', { code: 'TERMINAL_OPERATION_UNSUPPORTED', statusCode: 409 });
+    const output = await readRuntimePane(req, target, async (tmux, process) => assertLineageTmuxTarget(readTmuxPaneIdentity(tmux), readTmuxProcessGeneration(process)));
+    res.json(createApiSuccessResponse({ ...terminalResponse(req, target), lane: 'live', pane: { version: 2, lane: 'live', terminal: target, ansi: output.ansi, truncated: output.truncated } }));
   }),
 );
 
 router.post(
   '/sessions/live/send',
   asyncHandler(async (req: Request, res: Response) => {
-    const body = (req.body ?? {}) as { tmux?: unknown; process?: unknown; message?: unknown };
-    const tmux = readTmuxPaneIdentity(body.tmux);
-    const processGeneration = readTmuxProcessGeneration(body.process);
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const target = readTerminalV2(body);
+    if (target.runtime === 'herdr') throw new AppError('Herdr terminals are external-only.', { code: 'TERMINAL_OPERATION_UNSUPPORTED', statusCode: 409 });
     const message = typeof body.message === 'string' ? body.message : '';
-    if (!message.trim()) {
-      throw new AppError('message is required.', { code: 'EMPTY_MESSAGE', statusCode: 400 });
-    }
-    const target = await assertLineageTmuxTarget(tmux, processGeneration);
-    await sendToTmuxPane(target, message);
-    res.json(createApiSuccessResponse({
-      ok: true,
-      reachable: true,
-      queued: false,
-      detail: `Delivered to ${tmux.paneId}`,
-    }));
+    if (!message.trim()) throw new AppError('message is required.', { code: 'EMPTY_MESSAGE', statusCode: 400 });
+    await sendRuntimeText(req, target, message, async (tmux, process) => assertLineageTmuxTarget(readTmuxPaneIdentity(tmux), readTmuxProcessGeneration(process)));
+    res.json(createApiSuccessResponse({ ...terminalResponse(req, target), ok: true, reachable: true, queued: false, detail: target.runtime === 'tmux' ? `Delivered to ${target.tmux.paneId}` : 'Delivered' }));
   }),
 );
 router.post(
   '/sessions/live/actions',
   asyncHandler(async (req: Request, res: Response) => {
-    const body = (req.body ?? {}) as { tmux?: unknown; process?: unknown; action?: unknown };
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const target = readTerminalV2(body);
+    if (target.runtime === 'herdr') throw new AppError('Herdr terminals are external-only.', { code: 'TERMINAL_OPERATION_UNSUPPORTED', statusCode: 409 });
     const action = readTmuxProcessAction(body.action);
-    const tmux = readTmuxPaneIdentity(body.tmux);
-    const processGeneration = readTmuxProcessGeneration(body.process);
     try {
-      const target = await assertLineageTmuxTarget(tmux, processGeneration);
-      // Keep the same pane-level protection as termination for all control keys.
-      await assertTerminationAllowed(target, 'pane');
-      await sendTmuxProcessAction(target, action);
-      emitRelayKeyDiagnostic('relay_key_sent', target.kind);
+      const verified = await sendRuntimeAction(req, target, action, async (tmux, process) => assertLineageTmuxTarget(readTmuxPaneIdentity(tmux), readTmuxProcessGeneration(process)));
+      if (verified) emitRelayKeyDiagnostic('relay_key_sent', verified.kind);
     } catch (error) {
       if (error instanceof AppError) {
-        if (error.code === 'TMUX_ACTION_NOT_LINEAGE') {
-          emitRelayKeyDiagnostic('relay_key_refused_lineage', 'gjc');
-        } else if (
-          error.code === 'TMUX_PROCESS_GENERATION_MISMATCH'
-          || error.code === 'TMUX_PANE_GENERATION_MISMATCH'
-        ) {
-          emitRelayKeyDiagnostic('relay_key_refused_generation', 'gjc');
-        }
+        if (error.code === 'TMUX_ACTION_NOT_LINEAGE') emitRelayKeyDiagnostic('relay_key_refused_lineage', 'gjc');
+        else if (error.code === 'TMUX_PROCESS_GENERATION_MISMATCH' || error.code === 'TMUX_PANE_GENERATION_MISMATCH') emitRelayKeyDiagnostic('relay_key_refused_generation', 'gjc');
       }
       throw error;
     }
-    res.json(createApiSuccessResponse({
-      ok: true,
-      reachable: true,
-      queued: false,
-      detail: `Delivered to ${tmux.paneId}`,
-    }));
+    res.json(createApiSuccessResponse({ ...terminalResponse(req, target), ok: true, reachable: true, queued: false, detail: target.runtime === 'tmux' ? `Delivered to ${target.tmux.paneId}` : 'Delivered' }));
   }),
 );
 
@@ -1001,24 +1120,18 @@ router.post(
 router.post(
   '/sessions/live/kill',
   asyncHandler(async (req: Request, res: Response) => {
-    const body = (req.body ?? {}) as {
-      tmux?: unknown;
-      process?: unknown;
-      mode?: unknown;
-    };
-    const tmux = readTmuxPaneIdentity(body.tmux);
-    const processGeneration = readTmuxProcessGeneration(body.process);
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const publicTarget = readTerminalV2(body);
+    if (publicTarget.runtime !== 'tmux') throw new AppError('This terminal runtime does not support termination.', { code: 'TERMINAL_OPERATION_UNSUPPORTED', statusCode: 409 });
+    const target = requireLocalAgent(publicTarget);
+    if (target.runtime !== 'tmux') throw new AppError('This terminal runtime does not support termination.', { code: 'TERMINAL_OPERATION_UNSUPPORTED', statusCode: 409 });
     const mode = readTerminationMode(body.mode);
-    const target = await assertLineageTmuxTarget(tmux, processGeneration);
-    await assertTerminationAllowed(target, mode);
-    if (mode === 'process') {
-      await stopAgentProcessInPane(target);
-    } else if (mode === 'pane') {
-      await killTmuxPane(target);
-    } else {
-      await killTmuxSession(target);
-    }
-    res.json(createApiSuccessResponse({ ok: true, mode }));
+    const verified = await assertLineageTmuxTarget(target.tmux, target.process);
+    await assertTerminationAllowed(verified, mode);
+    if (mode === 'process') await stopAgentProcessInPane(verified);
+    else if (mode === 'pane') await killTmuxPane(verified);
+    else await killTmuxSession(verified);
+    res.json(createApiSuccessResponse({ ...terminalResponse(req, target), ok: true, mode }));
   }),
 );
 

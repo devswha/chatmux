@@ -202,6 +202,8 @@ export type GatewayEventKind =
   | 'discovery.delta'
   | 'discovery.resync_required'
   | 'discovery.heartbeat'
+  | 'discovery.v2.snapshot'
+  | 'discovery.v2.heartbeat'
   | 'pane.attached'
   | 'pane.output'
   | 'pane.invalidated';

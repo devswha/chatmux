@@ -9,6 +9,8 @@ import { createDiscoveryStream } from '@/modules/websocket/services/discovery-st
 import type { DiscoveryCollector } from '@/modules/providers/index.js';
 import { createPaneOutputStream } from '@/modules/providers/index.js';
 import type { AuthenticatedWebSocketRequest } from '@/shared/types.js';
+import { spawnHerdrController, type HerdrControlBridge } from '@/modules/terminal-runtimes/index.js';
+import type { HerdrControllerProcess } from '@/modules/websocket/services/shell-websocket.service.js';
 
 type WebSocketServerDependencies = {
   verifyClient: Parameters<typeof verifyWebSocketClient>[1];
@@ -16,13 +18,17 @@ type WebSocketServerDependencies = {
   shell: Parameters<typeof handleShellConnection>[1];
   discovery?: DiscoveryCollector;
   panes?: ReturnType<typeof createPaneOutputStream>;
+  herdrControl?: HerdrControlBridge;
+  spawnHerdrController?: (command: string, args: string[]) => HerdrControllerProcess;
 };
 function sendPaneProtocolError(ws: WebSocket, error: unknown): void {
   if (ws.readyState !== ws.OPEN) return;
+  const reloadRequired = error instanceof Error && error.message === 'CLIENT_RELOAD_REQUIRED';
   ws.send(JSON.stringify({
     kind: 'protocol_error',
-    code: 'INVALID_PANE_SUBSCRIPTION',
-    error: error instanceof Error ? error.message : 'Invalid pane subscription.',
+    code: reloadRequired ? 'CLIENT_RELOAD_REQUIRED' : 'INVALID_PANE_SUBSCRIPTION',
+    error: reloadRequired ? 'CLIENT_RELOAD_REQUIRED' : error instanceof Error ? error.message : 'Invalid pane subscription.',
+    ...(reloadRequired ? { reloadRequired: true } : {}),
     sessionId: null,
     timestamp: new Date().toISOString(),
   }));
@@ -81,7 +87,11 @@ export function createWebSocketServer(
 
     if (pathname === '/shell') {
       const principal = incomingRequest.user?.id ?? incomingRequest.user?.userId ?? incomingRequest.user?.username;
-      handleShellConnection(ws, dependencies.shell, principal === undefined ? undefined : String(principal));
+      handleShellConnection(ws, {
+        ...dependencies.shell,
+        herdrControl: dependencies.herdrControl ?? dependencies.shell.herdrControl,
+        spawnHerdrController: dependencies.spawnHerdrController ?? dependencies.shell.spawnHerdrController ?? spawnHerdrController,
+      }, principal === undefined ? undefined : String(principal));
       return;
     }
 

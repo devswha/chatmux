@@ -103,6 +103,16 @@ async function releaseTree(directory: string, version: string, compatibility = [
   }));
   await fs.writeFile(path.join(directory, 'scripts', 'chatmux-runtime.mjs'), '');
   await fs.writeFile(path.join(directory, 'dist-server', 'server', 'release-update-worker.js'), '');
+  await Promise.all([
+    fs.chmod(directory, 0o755),
+    fs.chmod(path.join(directory, 'scripts'), 0o755),
+    fs.chmod(path.join(directory, 'dist-server'), 0o755),
+    fs.chmod(path.join(directory, 'dist-server', 'server'), 0o755),
+    fs.chmod(path.join(directory, 'package.json'), 0o644),
+    fs.chmod(path.join(directory, 'release-update-metadata.json'), 0o644),
+    fs.chmod(path.join(directory, 'scripts', 'chatmux-runtime.mjs'), 0o644),
+    fs.chmod(path.join(directory, 'dist-server', 'server', 'release-update-worker.js'), 0o644),
+  ]);
 }
 
 async function workerFixture(options: {

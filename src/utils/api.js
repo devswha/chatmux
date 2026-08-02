@@ -116,40 +116,55 @@ export const api = {
       body: formData,
     });
   },
+  // Runtime-neutral terminal operations always carry a versioned public target.
+  // The tuple form remains a tmux UI projection only; it is converted before
+  // crossing the wire and never used for Herdr identity derivation.
+  terminalTarget: (target, process) => (
+    target?.runtime
+      ? target
+      : { runtime: 'tmux', tmux: target, process, targetClass: 'local-agent' }
+  ),
+
   // Session ids currently live in a tmux gjc pane (tmux+lsof; [] when no tmux).
   liveSessions: (signal) => authenticatedFetch('/api/providers/sessions/live', signal === undefined ? undefined : { signal }),
-  // Exact-pane actions carry both tmux identity and agent-process generation.
-  liveSessionSend: (tmux, process, message) =>
+  // Runtime-neutral v2 terminal operations. `target` is authoritative server-
+  // verified identity; callers must never derive one from cached discovery.
+  liveSessionSend: (target, process, message) =>
     authenticatedFetch('/api/providers/sessions/live/send', {
       method: 'POST',
-      body: JSON.stringify({ tmux, process, message }),
+      body: JSON.stringify({ apiVersion: 2, target: api.terminalTarget(target, process), message }),
     }),
-  liveSessionAction: (tmux, process, action) =>
+  liveSessionAction: (target, process, action) =>
     authenticatedFetch('/api/providers/sessions/live/actions', {
       method: 'POST',
-      body: JSON.stringify({ tmux, process, action }),
+      body: JSON.stringify({ apiVersion: 2, target: api.terminalTarget(target, process), action }),
     }),
-  liveSessionOutput: (tmux, process, options = {}) =>
+  liveSessionOutput: (target, process, options = {}) =>
     authenticatedFetch('/api/providers/sessions/live/output', {
       ...options,
       method: 'POST',
-      body: JSON.stringify({ tmux, process }),
+      body: JSON.stringify({ apiVersion: 2, target: api.terminalTarget(target, process) }),
     }),
-  externalCliSessionSend: (tmux, process, message) =>
+  externalCliSessionSend: (target, process, message) =>
     authenticatedFetch('/api/providers/sessions/external/send', {
       method: 'POST',
-      body: JSON.stringify({ tmux, process, message }),
+      body: JSON.stringify({ apiVersion: 2, target: api.terminalTarget(target, process), message }),
     }),
-  externalCliSessionAction: (tmux, process, action) =>
+  externalCliSessionAction: (target, process, action) =>
     authenticatedFetch('/api/providers/sessions/external/actions', {
       method: 'POST',
-      body: JSON.stringify({ tmux, process, action }),
+      body: JSON.stringify({ apiVersion: 2, target: api.terminalTarget(target, process), action }),
     }),
-  externalCliSessionOutput: (tmux, process, options = {}) =>
+  externalCliSessionOutput: (target, process, options = {}) =>
     authenticatedFetch('/api/providers/sessions/external/output', {
       ...options,
       method: 'POST',
-      body: JSON.stringify({ tmux, process }),
+      body: JSON.stringify({ apiVersion: 2, target: api.terminalTarget(target, process) }),
+    }),
+  externalCliSessionAdmission: (target) =>
+    authenticatedFetch('/api/providers/sessions/external/admission', {
+      method: 'POST',
+      body: JSON.stringify({ apiVersion: 2, target: api.terminalTarget(target) }),
     }),
   // Create a supported local coding-agent tmux session from the unified sessions tab.
   externalCliSessionSpawn: (cli, name, cwd) =>
@@ -160,7 +175,7 @@ export const api = {
   externalCliSessionKill: (tmux, process, mode = 'process') =>
     authenticatedFetch('/api/providers/sessions/external/kill', {
       method: 'POST',
-      body: JSON.stringify({ tmux, process, mode }),
+      body: JSON.stringify({ apiVersion: 2, target: api.terminalTarget(tmux, process), mode }),
     }),
   // Spawn a new tmux gjc session via the control tower (POST /spawn).
   liveSessionSpawn: (name, cwd) =>
@@ -172,7 +187,7 @@ export const api = {
   liveSessionKill: (tmux, process, mode = 'process') =>
     authenticatedFetch('/api/providers/sessions/live/kill', {
       method: 'POST',
-      body: JSON.stringify({ tmux, process, mode }),
+      body: JSON.stringify({ apiVersion: 2, target: api.terminalTarget(tmux, process), mode }),
     }),
   // Slash commands a live tmux gjc session can execute (native + project +
   // skills) — powers the live relay composer's command palette.

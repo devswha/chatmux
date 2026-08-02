@@ -1,4 +1,5 @@
 import type { TmuxPaneIdentity, TmuxProcessGeneration } from '../../shared/tmux';
+import type { PublicTerminalTarget } from '../../shared/terminal-runtime';
 
 export type LLMProvider = 'claude' | 'cursor' | 'codex' | 'opencode' | 'gjc' | 'omp';
 
@@ -37,6 +38,14 @@ export type AppTab = 'chat';
  * attach-only.
  */
 export type ExternalTerminalTarget = {
+  runtime: 'herdr';
+  terminal: Extract<PublicTerminalTarget, { runtime: 'herdr' }>;
+  kind: 'Herdr';
+  cliKind: 'herdr';
+  project: null;
+  mode: 'observe' | 'control';
+  forceAttach?: boolean;
+} | {
   tmuxName: string;
   tmux: TmuxPaneIdentity;
   process: TmuxProcessGeneration | null;
@@ -67,6 +76,15 @@ export type ExternalTerminalTarget = {
   /** M5b B8: forces terminal attach for this exact pane, bypassing structured transcript routing. */
   forceAttach?: boolean;
 };
+
+export type HerdrExternalTerminalTarget = Extract<ExternalTerminalTarget, { runtime: 'herdr' }>;
+export type TmuxExternalTerminalTarget = Exclude<ExternalTerminalTarget, HerdrExternalTerminalTarget>;
+
+export function isHerdrExternalTerminal(
+  target: ExternalTerminalTarget | null | undefined,
+): target is HerdrExternalTerminalTarget {
+  return Boolean(target && 'runtime' in target && target.runtime === 'herdr');
+}
 
 export interface ProjectSession {
   id: string;

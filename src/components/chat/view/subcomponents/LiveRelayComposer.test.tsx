@@ -131,7 +131,7 @@ test('relay action API posts the exact interrupt body once without retrying', as
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tmux: target.tmux, process: target.process, action: 'interrupt' }),
+        body: JSON.stringify({ apiVersion: 2, target: { runtime: 'tmux', tmux: target.tmux, process: target.process, targetClass: 'local-agent' }, action: 'interrupt' }),
       },
     }]);
   } finally {

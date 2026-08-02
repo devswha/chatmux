@@ -8,7 +8,9 @@ import { WebSocket, type RawData } from 'ws';
 
 import { cursorCliCommandOrDefault } from '@/modules/providers/index.js';
 import { parseIncomingJsonObject } from '@/shared/utils.js';
-export const SHELL_PROTOCOL_VERSION = 2;
+
+import { readPublicTerminalTarget, readShellV3InitRequest, readTerminalFrame, type PublicTerminalTarget, type ShellV3ServerMessage } from '../../../../shared/terminal-runtime.js';
+export const SHELL_PROTOCOL_VERSION = 3;
 
 type ShellInitMode = 'plain-shell' | 'typed-attach';
 type TmuxAttachTargetClass = 'local-agent' | 'attach-only';
@@ -24,10 +26,10 @@ type ShellIncomingMessage = {
   cols?: number;
   rows?: number;
   projectPath?: string;
-  sessionId?: string;
+  sessionId?: string | null;
   hasSession?: boolean;
   provider?: string;
-  initialCommand?: string;
+  initialCommand?: string | null;
   isPlainShell?: boolean;
   forceRestart?: boolean;
   lastSeq?: unknown;
@@ -37,6 +39,22 @@ type ShellIncomingMessage = {
   tmux?: unknown;
   process?: unknown;
   capability?: unknown;
+};
+type TmuxV3InitRequest = {
+  type: 'terminal.init';
+  protocolVersion: 3;
+  mode: ShellInitMode;
+  projectPath?: unknown;
+  sessionId?: unknown;
+  hasSession?: unknown;
+  provider?: unknown;
+  cols?: unknown;
+  rows?: unknown;
+  initialCommand?: unknown;
+  isPlainShell?: unknown;
+  forceRestart?: unknown;
+  lastSeq?: unknown;
+  target?: unknown;
 };
 
 type PtySessionEntry = {
@@ -60,6 +78,41 @@ export type ShellAttachDiagnostic = Readonly<{
   provider: string;
   count: number;
 }>;
+
+export type HerdrControllerProcess = {
+  stdin: { write: (chunk: string) => boolean; end: () => void; once?: (event: 'drain', listener: () => void) => void };
+  stdout: { on: (event: 'data', listener: (chunk: Buffer | string) => void) => void };
+  stderr: { on: (event: 'data', listener: (chunk: Buffer | string) => void) => void };
+  on: (event: 'error' | 'exit', listener: (...args: unknown[]) => void) => void;
+  kill: () => void;
+};
+
+export type HerdrTerminalControl = {
+  acquireController: (request: {
+    target: Extract<PublicTerminalTarget, { runtime: 'herdr' }>;
+    principal: string;
+    admissionCapability?: string;
+    cols: number;
+    rows: number;
+  }) => Promise<{
+    command: string;
+    args: string[];
+    release: () => void | Promise<void>;
+    onRevoke?: (callback: () => void | Promise<void>) => () => void;
+    assertWriteAllowed?: () => boolean;
+    assertFreshIdentity: () => Promise<boolean>;
+  } | null>;
+  observe: (request: {
+    target: Extract<PublicTerminalTarget, { runtime: 'herdr' }>;
+    principal: string;
+    emitFrame: (frame: ShellV3ServerMessage) => void;
+  }) => Promise<{
+    release: () => void | Promise<void>;
+    onRevoke?: (callback: () => void | Promise<void>) => () => void;
+    assertWriteAllowed?: () => boolean;
+    assertFreshIdentity: () => Promise<boolean>;
+  } | null>;
+};
 
 export type ShellWebSocketDependencies = {
   resolveProviderSessionId: (
@@ -85,6 +138,8 @@ export type ShellWebSocketDependencies = {
   diagnostic?: (event: ShellAttachDiagnostic) => void;
   now?: () => number;
   readTmuxSessionName?: (tmux: { socketPath: string; paneId: string }) => Promise<string | null>;
+  herdrControl?: HerdrTerminalControl;
+  spawnHerdrController?: (command: string, args: string[]) => HerdrControllerProcess;
 };
 
 /**
@@ -213,11 +268,71 @@ async function assertNotProtectedAttachTarget(
 function protocolError(ws: WebSocket, message: string): void {
   ws.send(JSON.stringify({
     type: 'error',
-    code: 'SHELL_PROTOCOL_OUTDATED',
+    code: 'CLIENT_RELOAD_REQUIRED',
     message,
     reloadRequired: true,
   }));
   ws.close();
+}
+function readTmuxV3InitRequest(value: unknown): ShellIncomingMessage | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const init = value as TmuxV3InitRequest;
+  if (
+    init.type !== 'terminal.init'
+    || init.protocolVersion !== SHELL_PROTOCOL_VERSION
+    || (init.mode !== 'plain-shell' && init.mode !== 'typed-attach')
+  ) return null;
+  if (
+    typeof init.projectPath !== 'string'
+    || (init.sessionId !== null && typeof init.sessionId !== 'string')
+    || typeof init.hasSession !== 'boolean'
+    || typeof init.provider !== 'string'
+    || typeof init.cols !== 'number'
+    || !Number.isSafeInteger(init.cols)
+    || init.cols < 1
+    || init.cols > 1000
+    || typeof init.rows !== 'number'
+    || !Number.isSafeInteger(init.rows)
+    || init.rows < 1
+    || init.rows > 1000
+    || (init.forceRestart !== undefined && typeof init.forceRestart !== 'boolean')
+    || (init.lastSeq !== undefined && (typeof init.lastSeq !== 'number' || !Number.isSafeInteger(init.lastSeq) || init.lastSeq < 0))
+  ) return null;
+
+  const common = {
+    type: 'init',
+    shellProtocolVersion: SHELL_PROTOCOL_VERSION,
+    projectPath: init.projectPath,
+    sessionId: init.sessionId,
+    hasSession: init.hasSession,
+    provider: init.provider,
+    cols: init.cols,
+    rows: init.rows,
+    forceRestart: init.forceRestart,
+    lastSeq: init.lastSeq,
+    mode: init.mode,
+  } satisfies ShellIncomingMessage;
+
+  if (init.mode === 'plain-shell') {
+    if (
+      'target' in init
+      || hasOwn(init, 'targetClass')
+      || hasOwn(init, 'tmux')
+      || hasOwn(init, 'process')
+      || hasOwn(init, 'capability')
+      || (init.initialCommand !== undefined && init.initialCommand !== null && typeof init.initialCommand !== 'string')
+      || typeof init.isPlainShell !== 'boolean'
+    ) return null;
+    return { ...common, initialCommand: init.initialCommand, isPlainShell: init.isPlainShell };
+  }
+  if (hasOwn(init, 'initialCommand')) return null;
+
+  const target = readPublicTerminalTarget(init.target);
+  if (!target || target.runtime !== 'tmux') return null;
+  if (target.targetClass === 'local-agent') {
+    return { ...common, targetClass: 'local-agent', tmux: target.tmux, process: target.process };
+  }
+  return { ...common, targetClass: 'attach-only', tmux: target.tmux, capability: target.admissionCapability };
 }
 
 async function assertAttachTarget(
@@ -258,18 +373,6 @@ async function assertAttachTarget(
   }
 }
 
-/**
- * Parses incoming websocket shell messages and keeps processing safe when
- * malformed payloads are received.
- */
-function parseShellMessage(rawMessage: RawData): ShellIncomingMessage | null {
-  const payload = parseIncomingJsonObject(rawMessage);
-  if (!payload) {
-    return null;
-  }
-
-  return payload as ShellIncomingMessage;
-}
 
 // Sequence-acknowledged resume (EternalTerminal-style backed writer): the
 // client reports the last output seq it rendered, and reconnects replay only
@@ -434,6 +537,272 @@ function prioritizeUserNpmGlobalBin(env: NodeJS.ProcessEnv): { key: string; valu
 /**
  * Handles websocket connections used by the standalone shell terminal UI.
  */
+const HERDR_INPUT_MAX_BYTES = 64 * 1024;
+const HERDR_INPUT_QUEUE_MAX_MESSAGES = 256;
+const HERDR_INPUT_QUEUE_MAX_BYTES = 4 * 1024 * 1024;
+const HERDR_NDJSON_MAX_BYTES = 2 * 1024 * 1024;
+const HERDR_MAX_LIFETIME_MS = 4 * 60 * 60 * 1000;
+const HERDR_IDENTITY_INTERVAL_MS = 2_000;
+const HERDR_WS_QUEUE_MAX_FRAMES = 256;
+const HERDR_WS_QUEUE_MAX_BYTES = 4 * 1024 * 1024;
+const HERDR_RELEASE_DEADLINE_MS = 1_000;
+
+function isHerdrAuthority(value: unknown): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const record = value as { provider?: unknown; runtime?: unknown; target?: { runtime?: unknown } };
+  return record.provider === 'herdr' || record.runtime === 'herdr' || record.target?.runtime === 'herdr';
+}
+
+function sendShellV3(ws: WebSocket, message: ShellV3ServerMessage): void {
+  if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(message));
+}
+
+function startHerdrShellConnection(ws: WebSocket, dependencies: ShellWebSocketDependencies, principal: string, init: ReturnType<typeof readShellV3InitRequest>): (raw: RawData) => Promise<void> {
+  let closed = false;
+  let released = false;
+  let releaseStarted = false;
+  let ready = false;
+  let resource: { release: () => void | Promise<void>; onRevoke?: (callback: () => void | Promise<void>) => () => void; assertWriteAllowed?: () => boolean; assertFreshIdentity: () => Promise<boolean> } | null = null;
+  let unregisterRevocation: (() => void) | null = null;
+  let controller: HerdrControllerProcess | null = null;
+  let controllerExited = false;
+  let resolveControllerExit: (() => void) | null = null;
+  let releasePromise: Promise<void> | null = null;
+  let previousSeq: number | null = null;
+  let ndjson = '';
+  let identityCheckRunning = false;
+  let queuedInputBytes = 0;
+  let processingInput = false;
+  let queuedFrames = 0;
+  let queuedFrameBytes = 0;
+  const inputQueue: Array<{ message: { type: 'terminal.input'; text: string } | { type: 'terminal.resize'; cols: number; rows: number }; bytes: number }> = [];
+  const decoder = new TextDecoder();
+  const controllerExit = new Promise<void>((resolve) => { resolveControllerExit = resolve; });
+
+  const release = (reason: string, bridgeOwnsResourceRelease = false): Promise<void> => {
+    if (releaseStarted) return releasePromise ?? Promise.resolve();
+    releaseStarted = true;
+    released = true;
+    ready = false;
+    unregisterRevocation?.();
+    unregisterRevocation = null;
+    const current = resource;
+    resource = null;
+    const currentController = controller;
+    releasePromise = (async () => {
+      try {
+        if (currentController) currentController.stdin.write(`${JSON.stringify({ type: 'terminal.release' })}\n`);
+      } catch {
+        // A controller stdin failure is terminal; the lease release below remains mandatory.
+      }
+      const releasedResource = bridgeOwnsResourceRelease ? Promise.resolve() : Promise.resolve(current?.release()).catch(() => {});
+      if (currentController) {
+        let deadline: ReturnType<typeof setTimeout> | null = null;
+        try {
+          await Promise.race([
+            Promise.all([controllerExit, releasedResource]).then(() => undefined),
+            new Promise<void>((resolve) => { deadline = setTimeout(resolve, HERDR_RELEASE_DEADLINE_MS); }),
+          ]);
+        } finally {
+          if (deadline) clearTimeout(deadline);
+        }
+      } else {
+        await releasedResource;
+      }
+      if (currentController && !controllerExited) currentController.kill();
+      controller = null;
+      decoder.decode();
+      sendShellV3(ws, { type: 'terminal.lifecycle', state: 'closed', reason });
+      sendShellV3(ws, { type: 'terminal.closed', reason });
+    })();
+    return releasePromise;
+  };
+  const fail = (reason: string, state: Extract<ShellV3ServerMessage, { type: 'terminal.lifecycle' }>['state'] = 'closed') => {
+    if (closed) return;
+    closed = true;
+    ready = false;
+    clearInterval(identityTimer);
+    clearTimeout(lifetimeTimer);
+    sendShellV3(ws, { type: 'terminal.lifecycle', state, reason });
+    void release(reason);
+    if (ws.readyState === WebSocket.OPEN) ws.close();
+  };
+  const confirmReady = () => {
+    if (ready || closed || !resource) return;
+    void resource.assertFreshIdentity().then((valid) => {
+      if (!valid) return fail('Target identity or policy is no longer valid.', 'identity_invalidated');
+      if (closed || released) return;
+      ready = true;
+      sendShellV3(ws, { type: 'terminal.lifecycle', state: 'ready' });
+    }).catch(() => fail('Target identity or policy is no longer valid.', 'identity_invalidated'));
+  };
+  const emitFrame = (message: ShellV3ServerMessage) => {
+    if (closed || message.type !== 'terminal.frame') return;
+    const frame = readTerminalFrame(message, previousSeq);
+    if (!frame || (previousSeq === null && frame.seq !== 1)) return fail('Invalid controller frame.');
+    const bytes = Buffer.from(frame.bytes, 'base64').length;
+    if (queuedFrames + 1 > HERDR_WS_QUEUE_MAX_FRAMES || queuedFrameBytes + bytes > HERDR_WS_QUEUE_MAX_BYTES) return fail('Terminal output queue exceeded limit.');
+    previousSeq = frame.seq;
+    queuedFrames += 1;
+    queuedFrameBytes += bytes;
+    try {
+      ws.send(JSON.stringify(frame), () => {
+        queuedFrames -= 1;
+        queuedFrameBytes -= bytes;
+      });
+    } catch {
+      queuedFrames -= 1;
+      queuedFrameBytes -= bytes;
+      return fail('Terminal output write failed.');
+    }
+    confirmReady();
+  };
+  const waitForDrain = (stdin: HerdrControllerProcess['stdin']): Promise<void> => new Promise((resolve, reject) => {
+    if (!stdin.once) {
+      resolve();
+      return;
+    }
+    const timeout = setTimeout(() => reject(new Error('controller_input_backpressure_timeout')), HERDR_RELEASE_DEADLINE_MS);
+    stdin.once('drain', () => {
+      clearTimeout(timeout);
+      resolve();
+    });
+  });
+  const processInput = () => {
+    if (processingInput) return;
+    processingInput = true;
+    void (async () => {
+      while (!closed && !released && inputQueue.length) {
+        const item = inputQueue.shift()!;
+        queuedInputBytes -= item.bytes;
+        const current = resource;
+        const currentController = controller;
+        if (!ready || !current || !currentController) continue;
+        const writeAllowed = current.assertWriteAllowed?.();
+        if (writeAllowed === false || (writeAllowed === undefined && !await current.assertFreshIdentity())) {
+          fail('Target identity or policy is no longer valid.', 'identity_invalidated');
+          return;
+        }
+        if (!ready || closed || released || controller !== currentController) continue;
+        try {
+          if (!currentController.stdin.write(`${JSON.stringify(item.message)}\n`)) await waitForDrain(currentController.stdin);
+        } catch {
+          fail('Controller input write failed.');
+          return;
+        }
+      }
+    })().catch(() => fail('Controller input write failed.')).finally(() => {
+      processingInput = false;
+      if (!closed && !released && inputQueue.length) processInput();
+    });
+  };
+  const enqueueInput = (message: { type: 'terminal.input'; text: string } | { type: 'terminal.resize'; cols: number; rows: number }) => {
+    const bytes = Buffer.byteLength(JSON.stringify(message), 'utf8');
+    if (inputQueue.length + 1 > HERDR_INPUT_QUEUE_MAX_MESSAGES || queuedInputBytes + bytes > HERDR_INPUT_QUEUE_MAX_BYTES) return fail('Terminal input queue exceeded limit.');
+    inputQueue.push({ message, bytes });
+    queuedInputBytes += bytes;
+    processInput();
+  };
+  const identityTimer = setInterval(() => {
+    if (closed || identityCheckRunning || !resource) return;
+    identityCheckRunning = true;
+    void resource.assertFreshIdentity().then((valid) => {
+      if (!valid) fail('Target identity or policy is no longer valid.', 'identity_invalidated');
+    }).catch(() => fail('Target identity or policy is no longer valid.', 'identity_invalidated')).finally(() => { identityCheckRunning = false; });
+  }, HERDR_IDENTITY_INTERVAL_MS);
+  identityTimer.unref();
+  const lifetimeTimer = setTimeout(() => fail('Controller lease expired.', 'ownership_lost'), HERDR_MAX_LIFETIME_MS);
+  lifetimeTimer.unref();
+  const cleanup = (
+    reason: string,
+    bridgeOwnsResourceRelease = false,
+    state: Extract<ShellV3ServerMessage, { type: 'terminal.lifecycle' }>['state'] = 'closed',
+  ): Promise<void> => {
+    if (closed) return releasePromise ?? Promise.resolve();
+    closed = true;
+    ready = false;
+    clearInterval(identityTimer);
+    clearTimeout(lifetimeTimer);
+    sendShellV3(ws, { type: 'terminal.lifecycle', state, reason });
+    const completion = release(reason, bridgeOwnsResourceRelease);
+    if (ws.readyState === WebSocket.OPEN) ws.close();
+    return completion;
+  };
+  ws.once('close', () => cleanup('Socket disconnected.'));
+  ws.once('error', () => cleanup('Socket error.'));
+
+  void (async () => {
+    if (!init || init.target.runtime !== 'herdr' || !dependencies.herdrControl) return fail('Herdr control is unavailable.', 'source_disabled');
+    sendShellV3(ws, { type: 'terminal.lifecycle', state: 'acquiring' });
+    if (init.mode === 'observe') {
+      resource = await dependencies.herdrControl.observe({ target: init.target, principal, emitFrame });
+      if (!resource) return fail('Herdr observation is unavailable.', 'source_disabled');
+      unregisterRevocation = resource.onRevoke?.(() => cleanup('Controller revoked.', true, 'ownership_lost')) ?? null;
+      if (released) void Promise.resolve(resource.release()).catch(() => {});
+      return;
+    }
+    const acquired = await dependencies.herdrControl.acquireController({
+      target: init.target,
+      principal,
+      admissionCapability: 'admissionCapability' in init.target ? init.target.admissionCapability : undefined,
+      cols: init.cols,
+      rows: init.rows,
+    });
+    if (!acquired) return fail('Herdr terminal is busy or unavailable.', 'busy');
+    resource = acquired;
+    unregisterRevocation = acquired.onRevoke?.(() => cleanup('Controller revoked.', true, 'ownership_lost')) ?? null;
+    if (released) {
+      void Promise.resolve(acquired.release()).catch(() => {});
+      return;
+    }
+    if (!dependencies.spawnHerdrController) return fail('Herdr controller launcher is unavailable.', 'source_disabled');
+    controller = dependencies.spawnHerdrController(acquired.command, acquired.args);
+    controller.stdout.on('data', (chunk) => {
+      ndjson += typeof chunk === 'string' ? chunk : decoder.decode(chunk, { stream: true });
+      if (Buffer.byteLength(ndjson, 'utf8') > HERDR_NDJSON_MAX_BYTES) return fail('Controller output exceeded limit.');
+      let newline: number;
+      while ((newline = ndjson.indexOf('\n')) >= 0) {
+        const line = ndjson.slice(0, newline);
+        ndjson = ndjson.slice(newline + 1);
+        if (!line) continue;
+        try {
+          const parsed: unknown = JSON.parse(line);
+          if (!readTerminalFrame(parsed, previousSeq)) return fail('Invalid controller frame.');
+          emitFrame(parsed as ShellV3ServerMessage);
+        } catch {
+          return fail('Invalid controller frame.');
+        }
+      }
+    });
+    controller.stderr.on('data', (chunk) => {
+      if (Buffer.byteLength(chunk) > 0) fail('Controller wrote to stderr.');
+    });
+    controller.on('error', () => fail('Controller error.'));
+    controller.on('exit', () => {
+      controllerExited = true;
+      resolveControllerExit?.();
+      if (!released) fail('Controller exited.');
+    });
+  })().catch(() => fail('Herdr control is unavailable.', 'source_disabled'));
+
+  return async (raw: RawData) => {
+    if (closed) return;
+    const message = parseIncomingJsonObject(raw);
+    if (!message || typeof message.type !== 'string') return fail('Invalid shell v3 message.');
+    if (message.type === 'terminal.release') return cleanup('Released by client.');
+    if (message.type === 'terminal.input') {
+      if (!ready || !controller || !resource || typeof message.text !== 'string' || Buffer.byteLength(message.text, 'utf8') > HERDR_INPUT_MAX_BYTES) return;
+      enqueueInput({ type: 'terminal.input', text: message.text });
+      return;
+    }
+    if (message.type === 'terminal.resize') {
+      if (!ready || !controller || !resource || !Number.isSafeInteger(message.cols) || !Number.isSafeInteger(message.rows) || message.cols < 1 || message.cols > 1000 || message.rows < 1 || message.rows > 1000) return;
+      enqueueInput({ type: 'terminal.resize', cols: message.cols, rows: message.rows });
+      return;
+    }
+    fail('Invalid shell v3 message.');
+  };
+}
 export function handleShellConnection(
   ws: WebSocket,
   dependencies: ShellWebSocketDependencies,
@@ -447,10 +816,38 @@ export function handleShellConnection(
   let urlDetectionBuffer = '';
   const announcedAuthUrls = new Set<string>();
   const emitAttachDiagnostic = createAttachDiagnosticEmitter(connectionDependencies.diagnostic, connectionDependencies.now ?? Date.now);
+  let herdrMessageHandler: ((raw: RawData) => Promise<void>) | null = null;
 
   ws.on('message', async (rawMessage) => {
     try {
-      const data = parseShellMessage(rawMessage);
+      const rawData = parseIncomingJsonObject(rawMessage);
+      if (herdrMessageHandler) {
+        await herdrMessageHandler(rawMessage);
+        return;
+      }
+      const v3Init = readShellV3InitRequest(rawData);
+      if (v3Init?.target.runtime === 'herdr') {
+        herdrMessageHandler = startHerdrShellConnection(
+          ws,
+          connectionDependencies,
+          connectionDependencies.principal ?? '',
+          v3Init,
+        );
+        return;
+      }
+      const tmuxV3Init = readTmuxV3InitRequest(rawData);
+      if (
+        !tmuxV3Init
+        && (
+          isHerdrAuthority(rawData)
+          || (rawData && typeof rawData === 'object' && !Array.isArray(rawData)
+            && ((rawData as { type?: unknown }).type === 'init' || (rawData as { type?: unknown }).type === 'terminal.init'))
+        )
+      ) {
+        protocolError(ws, 'CLIENT_RELOAD_REQUIRED');
+        return;
+      }
+      const data = tmuxV3Init ?? rawData as ShellIncomingMessage | null;
       if (!data?.type) {
         throw new Error('Invalid websocket payload');
       }

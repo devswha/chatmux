@@ -4,9 +4,10 @@ import type { FitAddon } from '@xterm/addon-fit';
 import type { Terminal } from '@xterm/xterm';
 
 import type { Project, ProjectSession } from '../../../types/app';
-import type { ShellAttachTarget, ShellInitMessage } from '../types/types';
+import { CLIENT_RELOAD_REQUIRED, type ShellAttachTarget, type ShellInitMessage } from '../types/types';
 import { TERMINAL_INIT_DELAY_MS } from '../constants/constants';
 import { getShellWebSocketUrl, parseShellMessage, sendSocketMessage } from '../utils/socket';
+import { decodeFramedBase64, readTerminalFrame } from '../../../../shared/terminal-runtime';
 
 const ANSI_ESCAPE_REGEX =
   /(?:\u001B\[[0-?]*[ -/]*[@-~]|\u009B[0-?]*[ -/]*[@-~]|\u001B\][^\u0007\u001B]*(?:\u0007|\u001B\\)|\u009D[^\u0007\u009C]*(?:\u0007|\u009C)|\u001B[PX^_][^\u001B]*\u001B\\|[\u0090\u0098\u009E\u009F][^\u009C]*\u009C|\u001B[@-Z\\-_])/g;
@@ -58,10 +59,21 @@ export function buildShellInitMessage({
   attachTarget,
   lastSeq,
 }: ShellInitMessageParams): ShellInitMessage {
+  if (attachTarget?.runtime === 'herdr') {
+    return {
+      type: 'terminal.init',
+      protocolVersion: 3,
+      mode: attachTarget.mode,
+      target: attachTarget.target,
+      cols,
+      rows,
+    };
+  }
+
   const base = {
     ...(typeof lastSeq === 'number' ? { lastSeq } : {}),
-    type: 'init' as const,
-    shellProtocolVersion: 2 as const,
+    type: 'terminal.init' as const,
+    protocolVersion: 3 as const,
     projectPath,
     sessionId,
     hasSession,
@@ -75,20 +87,26 @@ export function buildShellInitMessage({
     return {
       ...base,
       mode: 'typed-attach',
-      targetClass: 'local-agent',
-      tmux: attachTarget.tmux,
-      process: attachTarget.process,
-    };
+      target: {
+        runtime: 'tmux',
+        tmux: attachTarget.tmux,
+        targetClass: 'local-agent',
+        process: attachTarget.process,
+      },
+    } as ShellInitMessage;
   }
 
   if (attachTarget) {
     return {
       ...base,
       mode: 'typed-attach',
-      targetClass: 'attach-only',
-      tmux: attachTarget.tmux,
-      capability: attachTarget.capability,
-    };
+      target: {
+        runtime: 'tmux',
+        tmux: attachTarget.tmux,
+        targetClass: 'attach-only',
+        admissionCapability: attachTarget.capability,
+      },
+    } as ShellInitMessage;
   }
 
   return {
@@ -96,13 +114,14 @@ export function buildShellInitMessage({
     mode: 'plain-shell',
     initialCommand,
     isPlainShell,
-  };
+  } as ShellInitMessage;
 }
 
 type UseShellConnectionResult = {
   isConnected: boolean;
   isConnecting: boolean;
   isProtocolOutdated: boolean;
+  isAttachCapabilityUnavailable: boolean;
   closeSocket: () => void;
   connectToShell: (options?: { forceRestart?: boolean }) => void;
   disconnectFromShell: (options?: { suppressAutoConnect?: boolean }) => void;
@@ -128,15 +147,29 @@ export function useShellConnection({
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [isProtocolOutdated, setIsProtocolOutdated] = useState(false);
+  const [isAttachCapabilityUnavailable, setIsAttachCapabilityUnavailable] = useState(false);
   const connectingRef = useRef(false);
   const forceRestartOnInitRef = useRef(false);
   const suppressAutoConnectRef = useRef(false);
   const protocolOutdatedRef = useRef(false);
+  const reloadRequiredRef = useRef(false);
   // Sequence-acknowledged resume: track the newest output seq we rendered so
   // a reconnect can ask the server to replay only what we missed, and reset it
   // whenever the connection targets a different shell identity.
   const lastSeqRef = useRef<number | null>(null);
   const replayIdentityRef = useRef<string | null>(null);
+  const herdrDecoderRef = useRef<TextDecoder | null>(null);
+  const consumedHerdrAdmissionRef = useRef<string | null>(null);
+
+  const getHerdrAdmissionIdentity = useCallback(() => {
+    const attachTarget = attachTargetRef.current;
+    return attachTarget?.runtime === 'herdr' ? JSON.stringify(attachTarget.target) : null;
+  }, [attachTargetRef]);
+
+  const requireFreshHerdrAdmission = useCallback(() => {
+    suppressAutoConnectRef.current = true;
+    setIsAttachCapabilityUnavailable(true);
+  }, []);
 
   const handleProcessCompletion = useCallback(
     (output: string) => {
@@ -183,6 +216,45 @@ export function useShellConnection({
         return;
       }
 
+      if (message.type === 'terminal.frame') {
+        const frame = readTerminalFrame(message, lastSeqRef.current);
+        const decoded = frame ? decodeFramedBase64(frame.bytes) : null;
+        if (!frame || !decoded) {
+          wsRef.current?.close();
+          return;
+        }
+        if (frame.full) {
+          clearTerminalScreen();
+        }
+        lastSeqRef.current = frame.seq;
+        const decoder = herdrDecoderRef.current ??= new TextDecoder();
+        terminalRef.current?.write(decoder.decode(decoded, { stream: true }));
+        onOutputRef?.current?.();
+        return;
+      }
+
+      if (message.type === 'terminal.lifecycle') {
+        if (message.state === 'gap' || message.state === 'redraw_required') {
+          lastSeqRef.current = null;
+          clearTerminalScreen();
+          return;
+        }
+        if (
+          message.state === 'identity_invalidated'
+          || message.state === 'ownership_lost'
+          || message.state === 'source_disabled'
+          || message.state === 'closed'
+        ) {
+          wsRef.current?.close();
+        }
+        return;
+      }
+
+      if (message.type === 'terminal.closed') {
+        wsRef.current?.close();
+        return;
+      }
+
       if (message.type === 'replay_start') {
         // 'resume' continues the existing screen; 'redraw' means the server is
         // about to repaint from scratch (fresh PTY, legacy path, or a replay
@@ -193,17 +265,13 @@ export function useShellConnection({
         return;
       }
 
-      if (
-        message.type === 'error' &&
-        message.code === 'SHELL_PROTOCOL_OUTDATED' &&
-        message.reloadRequired === true
-      ) {
+      if (message.type === 'error' && message.code === CLIENT_RELOAD_REQUIRED) {
+        reloadRequiredRef.current = true;
         protocolOutdatedRef.current = true;
-        suppressAutoConnectRef.current = true;
         setIsProtocolOutdated(true);
       }
     },
-    [clearTerminalScreen, handleProcessCompletion, onOutputRef, terminalRef],
+    [clearTerminalScreen, handleProcessCompletion, onOutputRef, terminalRef, wsRef],
   );
 
   const connectWebSocket = useCallback(
@@ -216,15 +284,17 @@ export function useShellConnection({
         const wsUrl = getShellWebSocketUrl();
 
         connectingRef.current = true;
+        let herdrAdmissionIdentity: string | null = null;
 
         const socket = new WebSocket(wsUrl);
         wsRef.current = socket;
 
         socket.onopen = () => {
+          herdrDecoderRef.current?.decode();
+          herdrDecoderRef.current = null;
           setIsConnected(true);
           setIsConnecting(false);
           connectingRef.current = false;
-
           window.setTimeout(() => {
             const currentTerminal = terminalRef.current;
             const currentFitAddon = fitAddonRef.current;
@@ -255,6 +325,10 @@ export function useShellConnection({
               lastSeqRef.current = null;
             }
 
+            herdrAdmissionIdentity = getHerdrAdmissionIdentity();
+            if (herdrAdmissionIdentity) {
+              consumedHerdrAdmissionRef.current = herdrAdmissionIdentity;
+            }
             sendSocketMessage(socket, buildShellInitMessage({
               projectPath,
               sessionId: typedAttach || isPlainShellRef.current
@@ -285,11 +359,17 @@ export function useShellConnection({
         };
 
         socket.onclose = () => {
+          const trailingOutput = herdrDecoderRef.current?.decode();
+          herdrDecoderRef.current = null;
+          if (trailingOutput) terminalRef.current?.write(trailingOutput);
           setIsConnected(false);
           setIsConnecting(false);
           connectingRef.current = false;
+          if (herdrAdmissionIdentity && consumedHerdrAdmissionRef.current === herdrAdmissionIdentity) {
+            requireFreshHerdrAdmission();
+          }
           // Keep the rendered screen: on reconnect the server either resumes
-          // seamlessly (replays only missed output) or sends replay_start
+          // seamlessly (replays only what was missed) or sends replay_start
           // 'redraw', which clears before repainting.
         };
 
@@ -297,6 +377,9 @@ export function useShellConnection({
           setIsConnected(false);
           setIsConnecting(false);
           connectingRef.current = false;
+          if (herdrAdmissionIdentity && consumedHerdrAdmissionRef.current === herdrAdmissionIdentity) {
+            requireFreshHerdrAdmission();
+          }
         };
       } catch {
         setIsConnected(false);
@@ -307,6 +390,7 @@ export function useShellConnection({
     },
     [
       fitAddonRef,
+      getHerdrAdmissionIdentity,
       handleSocketMessage,
       initialCommandRef,
       isConnected,
@@ -315,6 +399,7 @@ export function useShellConnection({
       attachTargetRef,
       selectedProjectRef,
       projectPathRef,
+      requireFreshHerdrAdmission,
       selectedSessionRef,
       terminalRef,
       wsRef,
@@ -322,24 +407,31 @@ export function useShellConnection({
   );
 
   const connectToShell = useCallback((options?: { forceRestart?: boolean; automatic?: boolean }) => {
+    const herdrAdmissionIdentity = getHerdrAdmissionIdentity();
     if (
       !isInitialized ||
       isConnected ||
       isConnecting ||
       connectingRef.current ||
-      (options?.automatic && protocolOutdatedRef.current)
+      (options?.automatic && protocolOutdatedRef.current) ||
+      reloadRequiredRef.current ||
+      (herdrAdmissionIdentity !== null && consumedHerdrAdmissionRef.current === herdrAdmissionIdentity)
     ) {
+      if (herdrAdmissionIdentity !== null && consumedHerdrAdmissionRef.current === herdrAdmissionIdentity) {
+        requireFreshHerdrAdmission();
+      }
       return;
     }
 
     protocolOutdatedRef.current = false;
     setIsProtocolOutdated(false);
+    setIsAttachCapabilityUnavailable(false);
     forceRestartOnInitRef.current = Boolean(options?.forceRestart);
     suppressAutoConnectRef.current = false;
     connectingRef.current = true;
     setIsConnecting(true);
     connectWebSocket(true);
-  }, [connectWebSocket, isConnected, isConnecting, isInitialized]);
+  }, [connectWebSocket, getHerdrAdmissionIdentity, isConnected, isConnecting, isInitialized, requireFreshHerdrAdmission]);
 
   const disconnectFromShell = useCallback((options?: { suppressAutoConnect?: boolean }) => {
     if (options?.suppressAutoConnect) {
@@ -373,6 +465,7 @@ export function useShellConnection({
     isConnected,
     isConnecting,
     isProtocolOutdated,
+    isAttachCapabilityUnavailable,
     closeSocket,
     connectToShell,
     disconnectFromShell,

@@ -66,6 +66,7 @@ type UseShellTerminalOptions = {
   minimal: boolean;
   isRestarting: boolean;
   closeSocket: () => void;
+  herdrProtocol: boolean;
 };
 
 type UseShellTerminalResult = {
@@ -83,11 +84,22 @@ export function useShellTerminal({
   minimal,
   isRestarting,
   closeSocket,
+  herdrProtocol,
 }: UseShellTerminalOptions): UseShellTerminalResult {
   const [isInitialized, setIsInitialized] = useState(false);
   const resizeTimeoutRef = useRef<number | null>(null);
   const mobileSelectionRef = useRef<MobileTerminalSelectionManager | null>(null);
   const hasTerminalIdentity = terminalIdentityKey.length > 0;
+  const sendResize = useCallback((cols: number, rows: number) => {
+    sendSocketMessage(wsRef.current, herdrProtocol
+      ? { type: 'terminal.resize', cols, rows }
+      : { type: 'resize', cols, rows });
+  }, [herdrProtocol, wsRef]);
+  const sendInput = useCallback((text: string) => {
+    sendSocketMessage(wsRef.current, herdrProtocol
+      ? { type: 'terminal.input', text }
+      : { type: 'input', data: text });
+  }, [herdrProtocol, wsRef]);
 
   useEffect(() => {
     ensureXtermFocusStyles();
@@ -139,10 +151,14 @@ export function useShellTerminal({
       nextTerminal.loadAddon(new WebLinksAddon());
     }
 
-    try {
-      nextTerminal.loadAddon(new WebglAddon());
-    } catch {
-      console.warn('[Shell] WebGL renderer unavailable, using Canvas fallback');
+    // Herdr sends full-screen cursor-addressed frames that the WebGL renderer
+    // can leave visually blank; Canvas renders the same xterm buffer reliably.
+    if (!herdrProtocol) {
+      try {
+        nextTerminal.loadAddon(new WebglAddon());
+      } catch {
+        console.warn('[Shell] WebGL renderer unavailable, using Canvas fallback');
+      }
     }
 
     nextTerminal.open(terminalContainer);
@@ -157,11 +173,7 @@ export function useShellTerminal({
           const currentFitAddon = fitAddonRef.current;
           if (currentFitAddon) {
             currentFitAddon.fit();
-            sendSocketMessage(wsRef.current, {
-              type: 'resize',
-              cols: nextTerminal.cols,
-              rows: nextTerminal.rows,
-            });
+            sendResize(nextTerminal.cols, nextTerminal.rows);
           } else {
             nextTerminal.refresh(0, nextTerminal.rows - 1);
           }
@@ -226,10 +238,7 @@ export function useShellTerminal({
           navigator.clipboard
             .readText()
             .then((text) => {
-              sendSocketMessage(wsRef.current, {
-                type: 'input',
-                data: text,
-              });
+              sendInput(text);
             })
             .catch(() => {});
         }
@@ -248,20 +257,13 @@ export function useShellTerminal({
       }
 
       currentFitAddon.fit();
-      sendSocketMessage(wsRef.current, {
-        type: 'resize',
-        cols: currentTerminal.cols,
-        rows: currentTerminal.rows,
-      });
+      sendResize(currentTerminal.cols, currentTerminal.rows);
     }, TERMINAL_INIT_DELAY_MS);
 
     setIsInitialized(true);
 
     const dataSubscription = nextTerminal.onData((data) => {
-      sendSocketMessage(wsRef.current, {
-        type: 'input',
-        data,
-      });
+      sendInput(data);
     });
 
     const resizeObserver = new ResizeObserver(() => {
@@ -277,11 +279,7 @@ export function useShellTerminal({
         }
 
         currentFitAddon.fit();
-        sendSocketMessage(wsRef.current, {
-          type: 'resize',
-          cols: currentTerminal.cols,
-          rows: currentTerminal.rows,
-        });
+        sendResize(currentTerminal.cols, currentTerminal.rows);
       }, TERMINAL_RESIZE_DELAY_MS);
     });
 
@@ -304,9 +302,12 @@ export function useShellTerminal({
     closeSocket,
     disposeTerminal,
     fitAddonRef,
+    herdrProtocol,
     isRestarting,
     hasTerminalIdentity,
     minimal,
+    sendInput,
+    sendResize,
     terminalIdentityKey,
     terminalContainerRef,
     terminalRef,

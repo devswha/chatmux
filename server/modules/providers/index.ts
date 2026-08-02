@@ -17,6 +17,10 @@ export {
 } from './services/external-session-activity.service.js';
 export { runTmux } from './services/builtin-relay.service.js';
 export {
+  createTmuxRuntimeAdapter,
+  type TmuxRuntimeOperationContext,
+} from './services/tmux-runtime-adapter.service.js';
+export {
   attachCapabilityService,
   createAttachCapabilityService,
   type AttachCapabilityService,
@@ -57,3 +61,4 @@ export {
   createPaneOutputStream,
   type PaneSubscriptionKey,
 } from './services/pane-output-stream.service.js';
+export type { PaneOutputStreamOptions } from './services/pane-output-stream.service.js';
