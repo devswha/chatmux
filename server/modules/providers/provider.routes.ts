@@ -133,7 +133,7 @@ async function loadPendingTmuxAsk(
   sessionIdValue: unknown,
   toolIdValue: unknown,
 ): Promise<PendingTmuxAsk> {
-  if (target.kind !== 'gjc' && target.kind !== 'codex' && target.kind !== 'omp') {
+  if (target.kind !== 'gjc' && target.kind !== 'codex' && target.kind !== 'omp' && target.kind !== 'claude') {
     throw new AppError('This CLI does not support transcript selections.', {
       code: 'TMUX_ASK_UNSUPPORTED',
       statusCode: 400,

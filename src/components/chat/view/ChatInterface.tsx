@@ -352,7 +352,7 @@ function ChatInterface({
   const hasActivityIndicator = Boolean(sessionActivity && pendingPermissionRequests.length === 0);
   const pendingRelayAsk = useMemo(() => (
     isSessionReadOnly
-    && (liveSessionKind === 'gjc' || liveSessionKind === 'codex' || liveSessionKind === 'omp')
+    && (liveSessionKind === 'gjc' || liveSessionKind === 'codex' || liveSessionKind === 'omp' || liveSessionKind === 'claude')
       ? findPendingRelayAsk(chatMessages)
       : null
   ), [chatMessages, isSessionReadOnly, liveSessionKind]);

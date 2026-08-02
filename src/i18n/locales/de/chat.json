@@ -236,6 +236,7 @@
     "sendFailed": "Senden fehlgeschlagen",
     "selectionNumberRequired": "Geben Sie eine angezeigte Nummer ein (0-{{max}}).",
     "multiSelectionNumberRequired": "Geben Sie eine oder mehrere angezeigte Nummern durch Kommas getrennt ein.",
+    "claudeMultiSelectUnsupported": "Claude-Mehrfachauswahlen müssen im Terminal beantwortet werden. Geben Sie 0 ein, um die Eingabeaufforderung abzubrechen.",
     "customInputReady": "Geben Sie die eigene Antwort ein.",
     "selectionDelivered": "Auswahl übermittelt.",
     "selectionPlaceholder": "Auswahlnummer eingeben (0-{{max}})…",

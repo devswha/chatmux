@@ -571,6 +571,23 @@ export default function LiveRelayComposer({
           });
           return;
         }
+        // The server intentionally rejects Claude multi-select toggling until
+        // the real key sequence is verified (TMUX_INTERACTIVE_CHOICE_UNSUPPORTED);
+        // only cancel (0) is deliverable. Surface that up front instead of
+        // letting every submission round-trip into a 400.
+        if (
+          relayKind === 'claude'
+          && interactivePrompt?.multiSelect
+          && !(interactiveNumbers.length === 1 && interactiveNumbers[0] === 0)
+        ) {
+          setStatus({
+            kind: 'error',
+            text: t('relay.claudeMultiSelectUnsupported', {
+              defaultValue: 'Claude multi-select answers must be made in the terminal. Enter 0 to cancel the prompt.',
+            }),
+          });
+          return;
+        }
       }
       if (interactivePrompt && isAwaitingInteractiveCustom) {
         response = relayKind === 'gjc'
