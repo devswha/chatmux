@@ -288,6 +288,56 @@ up/down navigate  enter select  esc cancel
   assert.equal(first.id, second?.id);
 });
 
+const codexApprovalScreen = (command: string) => `
+Would you like to run the following command?
+
+Environment: local
+$ ${command}
+
+› 1. Yes, proceed (y)
+  2. No, and tell Codex what to do differently (esc)
+
+Press enter to confirm or esc to cancel
+`;
+
+test('prompt id changes when the approval body changes', () => {
+  const first = parseTmuxInteractivePrompt('codex', codexApprovalScreen('curl -I https://example.com'));
+  const second = parseTmuxInteractivePrompt('codex', codexApprovalScreen('git push --force origin main'));
+  assert.ok(first);
+  assert.ok(second);
+  assert.notEqual(first.id, second.id);
+});
+
+test('answers are rejected as stale when a same-shaped prompt with a different body replaces the original', async () => {
+  const original = parseTmuxInteractivePrompt('codex', codexApprovalScreen('curl -I https://example.com'));
+  assert.ok(original);
+  const replacement = codexApprovalScreen('git push --force origin main');
+  const calls: string[][] = [];
+  const run: TmuxRunner = async (args) => {
+    calls.push(args);
+    if (args.includes('capture-pane')) return { code: 0, output: replacement };
+    if (args.includes('display-message')) return { code: 0, output: '$7\t@8\t%9\n' };
+    return { code: 0, output: '' };
+  };
+  const target = createVerifiedTmuxActionTarget(
+    {
+      socketPath: '/tmp/chatmux-interactive-test.sock',
+      sessionId: '$7',
+      windowId: '@8',
+      paneId: '%9',
+    },
+    { pid: 42, startedAtMs: 1234 },
+    'codex',
+    null,
+  );
+
+  await assert.rejects(
+    answerTmuxInteractivePrompt(target, original.id, [1], run),
+    (error: { code?: string }) => error.code === 'TMUX_INTERACTIVE_PROMPT_STALE',
+  );
+  assert.equal(calls.some((args) => args.includes('send-keys')), false);
+});
+
 test('Claude multi-select answers are rejected without injecting keys until the toggle sequence is verified', async () => {
   const screen = `
 ☐ Checks
