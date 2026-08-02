@@ -19,6 +19,7 @@ All notable changes to ChatMux will be documented in this file.
 * **native-core:** recover stale leases and watcher failures ([a8509fd](https://github.com/devswha/chatmux/commit/a8509fd18de91c64f6c79b843469bb8f8a6f54c3))
 * **notifications:** preserve completion delivery correctness ([5af5a2c](https://github.com/devswha/chatmux/commit/5af5a2cffc99ae0cd59f796c9a5a084d333483e4))
 * **providers:** harden watcher and transcript lifecycle ([f8b22f8](https://github.com/devswha/chatmux/commit/f8b22f8d6f47c49cdaaff362b67cda2cd9759011))
+* **release:** invoke the CLI from the packaged runtime wrapper ([c928875](https://github.com/devswha/chatmux/commit/c928875f815146000e35b0acac98b06f659420af))
 * **relay:** enable verified Claude multi-select answers ([e807f93](https://github.com/devswha/chatmux/commit/e807f93c32c57bcd86e5810d3c0bf2ab8c7449cc))
 * **relay:** include the approval body in interactive prompt identity ([ad882df](https://github.com/devswha/chatmux/commit/ad882dfae996095e6198c8f41b242c9ab2639e42))
 * **relay:** make Claude transcript asks reachable and honest ([bd40740](https://github.com/devswha/chatmux/commit/bd40740deb9d38c908b5190217ef70f9e6d4a52d))
