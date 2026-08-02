@@ -136,7 +136,22 @@ feat!: redesign settings page layout
 - Make sure the build passes (`npm run build`)
 - Keep PRs focused — avoid unrelated changes
 
+## Branching & Release Policy (Maintainers)
+
+ChatMux uses trunk-based development: `main` plus short-lived branches. There is no long-lived `dev` branch — `main` must stay releasable at all times, and releases are cut from it by explicit workflow dispatch.
+
+1. **Every feature and bug fix goes through a PR**, even from maintainers. Create a short-lived branch (`fix/...`, `feat/...`), open a PR, let CI pass, then squash-merge and delete the branch. PR titles follow the commit convention above — release notes are generated from merged PR titles.
+2. **Group related small fixes into one PR**; keep unrelated changes out.
+3. **Only release bookkeeping commits go directly to `main`**: the `chore(release): declare X database rollback compatibility` and `chore(release): vX` commits, plus trivial typo/doc-only fixes.
+4. **Never batch-merge a long-lived integration branch into `main`.** If a change is too big for one PR, land it as a series of PRs that each keep `main` green.
+
 ## Releases
+
+Cutting a release (maintainers):
+
+1. On up-to-date `main`, add the compatibility declaration for the new version to `packaging/release/update-compatibility.json` and commit it as `chore(release): declare X.Y.Z database rollback compatibility`.
+2. Bump the version (`npm version X.Y.Z --no-git-tag-version`), prepend the `CHANGELOG.md` section, and commit as `chore(release): vX.Y.Z`.
+3. Push `main` and dispatch the **Release ChatMux Server** workflow (`gh workflow run "Release ChatMux Server" --ref main`). The workflow verifies, builds, proves rollback compatibility, and publishes the GitHub Release with the tag.
 
 Maintainers publish approved repository revisions through the repository-owned self-hosting lifecycle. Use an immutable commit SHA for installations and updates; do not rely on a global package or a moving branch.
 
