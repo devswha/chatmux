@@ -181,7 +181,7 @@ test('refresh preserves the message window expanded by pagination', async () => 
   }
 });
 
-test('background refresh cannot invalidate an explicit pagination request', async () => {
+test('refresh queues a reconcile after an explicit pagination request settles', async () => {
   const originalFetch = globalThis.fetch;
   const pending: PendingRequest[] = [];
   globalThis.fetch = ((url: string) => new Promise<Response>((resolve) => {
@@ -203,6 +203,7 @@ test('background refresh cannot invalidate an explicit pagination request', asyn
 
     const page = store.fetchMore('session', { limit: 2 });
     const refresh = store.refreshFromServer('session');
+    const duplicateRefresh = store.refreshFromServer('session');
     assert.equal(pending.length, 1, 'refresh reuses the pending slot instead of issuing a competing request');
 
     pending.shift()!.resolve(response({
@@ -213,21 +214,38 @@ test('background refresh cannot invalidate an explicit pagination request', asyn
       total: 4,
       hasMore: false,
     }));
-    const [pagedSlot, refreshedSlot] = await Promise.all([page, refresh]);
-
-    assert.equal(refreshedSlot, pagedSlot);
+    const pagedSlot = await page;
     assert.deepEqual(
       pagedSlot.serverMessages.map(message => message.id),
       ['old-1', 'old-2', 'new-1', 'new-2'],
     );
-    assert.equal(pagedSlot.hasMore, false);
-    assert.equal(pagedSlot.offset, 4);
+    assert.equal(pending.length, 1, 'multiple refreshes coalesce into one deferred reconcile');
+    pending.shift()!.resolve(response({
+      messages: [
+        { id: 'old-1', sessionId: 'session', timestamp: '2026-01-01T00:00:00Z', kind: 'text', provider: 'claude' },
+        { id: 'old-2', sessionId: 'session', timestamp: '2026-01-01T00:01:00Z', kind: 'text', provider: 'claude' },
+        { id: 'new-1', sessionId: 'session', timestamp: '2026-01-01T00:02:00Z', kind: 'text', provider: 'claude' },
+        { id: 'new-2', sessionId: 'session', timestamp: '2026-01-01T00:03:00Z', kind: 'text', provider: 'claude' },
+        { id: 'latest', sessionId: 'session', timestamp: '2026-01-01T00:04:00Z', kind: 'text', provider: 'claude' },
+      ],
+      total: 5,
+      hasMore: false,
+    }));
+    const [refreshedSlot, duplicateRefreshedSlot] = await Promise.all([refresh, duplicateRefresh]);
+    assert.equal(duplicateRefreshedSlot, pagedSlot);
+    assert.deepEqual(
+      refreshedSlot.serverMessages.map(message => message.id),
+      ['old-1', 'old-2', 'new-1', 'new-2', 'latest'],
+    );
+    assert.equal(refreshedSlot.total, 5);
+    assert.equal(refreshedSlot.hasMore, false);
+    assert.equal(refreshedSlot.offset, 5);
   } finally {
     globalThis.fetch = originalFetch;
   }
 });
 
-test('background refresh cannot invalidate a load-all request', async () => {
+test('refresh queues a reconcile after a load-all request settles', async () => {
   const originalFetch = globalThis.fetch;
   const pending: PendingRequest[] = [];
   globalThis.fetch = ((url: string) => new Promise<Response>((resolve) => {
@@ -258,11 +276,21 @@ test('background refresh cannot invalidate a load-all request', async () => {
       total: 2,
       hasMore: false,
     }));
-    const [fullSlot, refreshedSlot] = await Promise.all([loadAll, refresh]);
+    const fullSlot = await loadAll;
+    assert.equal(pending.length, 1, 'the deferred reconcile starts after the full-history request');
+    pending.shift()!.resolve(response({
+      messages: [
+        { id: 'old', sessionId: 'session', timestamp: '2026-01-01T00:00:00Z', kind: 'text', provider: 'claude' },
+        { id: 'new', sessionId: 'session', timestamp: '2026-01-01T00:01:00Z', kind: 'text', provider: 'claude' },
+      ],
+      total: 2,
+      hasMore: false,
+    }));
+    const refreshedSlot = await refresh;
 
     assert.equal(refreshedSlot, fullSlot);
-    assert.deepEqual(fullSlot.serverMessages.map(message => message.id), ['old', 'new']);
-    assert.equal(fullSlot.hasMore, false);
+    assert.deepEqual(refreshedSlot.serverMessages.map(message => message.id), ['old', 'new']);
+    assert.equal(refreshedSlot.hasMore, false);
   } finally {
     globalThis.fetch = originalFetch;
   }

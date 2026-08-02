@@ -160,6 +160,22 @@ test('protocol outdated errors remain terminal after socket close and suppress a
   assert.match(connection, /protocolOutdatedRef\.current \|\|/);
   assert.match(connection, /connectToShell\(\{ automatic: true \}\)/);
 });
+
+test('auth_url messages surface the provider login URL in the terminal', () => {
+  const connection = readFileSync(new URL('./hooks/useShellConnection.ts', import.meta.url), 'utf8');
+  const types = readFileSync(new URL('./types/types.ts', import.meta.url), 'utf8');
+  const authUrlHandler = connection.slice(
+    connection.indexOf("message.type === 'auth_url'"),
+    connection.indexOf("message.type === 'replay_start'"),
+  );
+
+  assert.match(types, /\{ type: 'auth_url'; url\?: string; autoOpen\?: boolean \}/);
+  assert.match(authUrlHandler, /terminalRef\.current\?\.write/);
+  assert.match(authUrlHandler, /Authentication required/);
+  assert.match(authUrlHandler, /message\.url/);
+  assert.match(authUrlHandler, /onOutputRef\?\.current\?\.\(\)/);
+  assert.equal(authUrlHandler.includes('window.open'), false);
+});
 test('init carries the acknowledged output seq only when one exists', () => {
   const withSeq = buildShellInitMessage({ ...baseInit, attachTarget: null, lastSeq: 42 });
   assert.equal((withSeq as { lastSeq?: number }).lastSeq, 42);

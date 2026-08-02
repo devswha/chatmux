@@ -33,6 +33,7 @@ type Subscriber = {
   queuedBytes: number;
   slowSince: number | null;
   resyncs: number[];
+  awaitingResync: boolean;
 };
 
 function selected(snapshot: DiscoverySnapshot, lanes: readonly DiscoveryLane[]): DiscoverySnapshot {
@@ -78,7 +79,7 @@ export function createDiscoveryStream(collector: DiscoveryCollector, now = Date.
       unchangedTicks += 1;
       if (unchangedTicks % HEARTBEAT_CADENCE === 0) {
         for (const subscriber of subscribers.values()) {
-          if (subscriber.queue.length === 0) {
+          if (!subscriber.awaitingResync && subscriber.queue.length === 0) {
             enqueue(subscriber, { kind: 'discovery.heartbeat', epoch: snapshot.epoch, revision: snapshot.revision, takenAtMs: snapshot.takenAtMs });
           }
         }
@@ -109,6 +110,7 @@ export function createDiscoveryStream(collector: DiscoveryCollector, now = Date.
   function enqueue(subscriber: Subscriber, payload: unknown): void {
     const frame = JSON.stringify(payload);
     if (subscriber.queue.length >= MAX_QUEUED_MESSAGES || subscriber.queuedBytes + Buffer.byteLength(frame) > MAX_QUEUED_BYTES) {
+      subscriber.awaitingResync = true;
       subscriber.queue = [JSON.stringify({ kind: 'discovery.resync_required', epoch: collector.currentSnapshot().epoch, reason: 'queue_overflow' })];
       subscriber.queuedBytes = Buffer.byteLength(subscriber.queue[0]!);
     } else {
@@ -118,6 +120,10 @@ export function createDiscoveryStream(collector: DiscoveryCollector, now = Date.
     flush(subscriber);
   }
   function enqueueDelta(subscriber: Subscriber, delta: Delta): void {
+    if (subscriber.awaitingResync) {
+      flush(subscriber);
+      return;
+    }
     if (delta.revision <= subscriber.baselineRevision) return;
     const changes = delta.changes.filter((change) => {
       const lane = change.op === 'added' ? change.row.lane : change.op === 'updated' ? change.patch.lane : undefined;
@@ -128,6 +134,7 @@ export function createDiscoveryStream(collector: DiscoveryCollector, now = Date.
   function snapshot(subscriber: Subscriber): void {
     const current = collector.currentSnapshot();
     subscriber.baselineRevision = current.revision;
+    subscriber.awaitingResync = false;
     enqueue(subscriber, { kind: 'discovery.snapshot', ...selected(current, subscriber.lanes) });
   }
   function subscribe(ws: WebSocket, data: AnyRecord): void {
@@ -143,6 +150,7 @@ export function createDiscoveryStream(collector: DiscoveryCollector, now = Date.
       queuedBytes: 0,
       slowSince: null,
       resyncs: [],
+      awaitingResync: false,
     };
     subscribers.set(ws, subscriber);
     const known = data.known as AnyRecord | null | undefined;

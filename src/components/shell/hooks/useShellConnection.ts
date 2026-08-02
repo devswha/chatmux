@@ -183,6 +183,14 @@ export function useShellConnection({
         return;
       }
 
+      // Socket events cannot satisfy browser user-activation requirements, so
+      // render auth URLs in the terminal instead of attempting a popup.
+      if (message.type === 'auth_url' && typeof message.url === 'string' && message.url) {
+        terminalRef.current?.write(`\r\n[Authentication required] Open this URL in your browser:\r\n${message.url}\r\n`);
+        onOutputRef?.current?.();
+        return;
+      }
+
       if (message.type === 'replay_start') {
         // 'resume' continues the existing screen; 'redraw' means the server is
         // about to repaint from scratch (fresh PTY, legacy path, or a replay
