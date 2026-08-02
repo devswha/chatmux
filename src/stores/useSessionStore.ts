@@ -110,6 +110,8 @@ export interface SessionSlot {
   _fetchMoreTicket: number | null;
   /** @internal Number of server requests still using this slot. */
   _pendingRequests: number;
+  /** @internal Reconcile requested while another server request was active. */
+  _reconcilePending: boolean;
   /** @internal Request currently allowed to settle `loading`. */
   _loadingTicket: number | null;
   status: SessionStatus;
@@ -138,6 +140,7 @@ function createEmptySlot(): SessionSlot {
     _fetchSeq: 0,
     _fetchMoreTicket: null,
     _pendingRequests: 0,
+    _reconcilePending: false,
     _loadingTicket: null,
   };
 }
@@ -520,6 +523,11 @@ function dedupeMessagesById(messages: NormalizedMessage[]): NormalizedMessage[] 
 export function useSessionStore() {
   const storeRef = useRef(new Map<string, SessionSlot>());
   const activeSessionIdRef = useRef<string | null>(null);
+  const refreshFromServerRef = useRef<((sessionId: string) => Promise<SessionSlot>) | null>(null);
+  const queuedRefreshesRef = useRef(new Map<string, {
+    promise: Promise<SessionSlot>;
+    resolve: (slot: SessionSlot) => void;
+  }>());
   // Bump to force re-render — only when the active session's data changes.
   // Session ids are stable for the whole conversation lifetime (the backend
   // allocates them before the first send), so slots are keyed directly with
@@ -578,6 +586,21 @@ export function useSessionStore() {
     touchSlot(sessionId, slot);
     return slot;
   }, [touchSlot]);
+
+  const runQueuedRefresh = useCallback((sessionId: string, slot: SessionSlot) => {
+    if (!slot._reconcilePending || slot._pendingRequests !== 0) {
+      return;
+    }
+    const queued = queuedRefreshesRef.current.get(sessionId);
+    if (!queued || !refreshFromServerRef.current) {
+      return;
+    }
+    slot._reconcilePending = false;
+    void refreshFromServerRef.current(sessionId).then((refreshedSlot) => {
+      queued.resolve(refreshedSlot);
+      queuedRefreshesRef.current.delete(sessionId);
+    });
+  }, []);
 
   const has = useCallback((sessionId: string) => {
     return storeRef.current.has(sessionId);
@@ -660,9 +683,10 @@ export function useSessionStore() {
       if (slot._loadingTicket === fetchTicket) {
         slot._loadingTicket = null;
       }
+      runQueuedRefresh(sessionId, slot);
       trimInactiveSlots();
     }
-  }, [beginRequest, notify, trimInactiveSlots]);
+  }, [beginRequest, notify, runQueuedRefresh, trimInactiveSlots]);
 
   /**
    * Load older (paginated) messages and prepend to serverMessages.
@@ -744,9 +768,10 @@ export function useSessionStore() {
       if (slot._loadingTicket === fetchTicket) {
         slot._loadingTicket = null;
       }
+      runQueuedRefresh(sessionId, slot);
       trimInactiveSlots();
     }
-  }, [notify, touchSlot, trimInactiveSlots]);
+  }, [notify, runQueuedRefresh, touchSlot, trimInactiveSlots]);
 
   /**
    * Append a realtime (WebSocket) message to the correct session slot.
@@ -810,8 +835,18 @@ export function useSessionStore() {
     // slot was successfully expanded.
     const pendingSlot = storeRef.current.get(sessionId);
     if (pendingSlot && pendingSlot._pendingRequests > 0) {
+      pendingSlot._reconcilePending = true;
       touchSlot(sessionId, pendingSlot);
-      return pendingSlot;
+      const queued = queuedRefreshesRef.current.get(sessionId);
+      if (queued) {
+        return queued.promise;
+      }
+      let resolve!: (slot: SessionSlot) => void;
+      const promise = new Promise<SessionSlot>((nextResolve) => {
+        resolve = nextResolve;
+      });
+      queuedRefreshesRef.current.set(sessionId, { promise, resolve });
+      return promise;
     }
 
     const slot = beginRequest(sessionId);
@@ -871,9 +906,12 @@ export function useSessionStore() {
       if (slot._loadingTicket === fetchTicket) {
         slot._loadingTicket = null;
       }
+      runQueuedRefresh(sessionId, slot);
       trimInactiveSlots();
     }
-  }, [beginRequest, notify, touchSlot, trimInactiveSlots]);
+  }, [beginRequest, notify, runQueuedRefresh, touchSlot, trimInactiveSlots]);
+
+  refreshFromServerRef.current = refreshFromServer;
 
   /**
    * Update session status.
