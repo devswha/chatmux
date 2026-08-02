@@ -18,6 +18,7 @@ import {
   setObservedTmuxInteractiveActivity,
   tmuxScreenHasInteractivePrompt,
 } from './tmux-interactive-prompt.service.js';
+import { observeTmuxInputActivity } from './tmux-input-occurrence.service.js';
 import {
   onTranscriptChanged,
   type TranscriptChange,
@@ -62,6 +63,7 @@ export type TmuxOutputActivityMonitorOptions = {
   observerFactory?: TmuxControlObserverFactory;
   canObserveSession?: (session: SessionIdentity) => Promise<boolean>;
   subscribeTranscript?: (listener: (change: TranscriptChange) => void) => () => void;
+  onInputRequired?: (target: TmuxOutputActivityTarget, occurrenceKey: string) => unknown;
   warn?: (message: string) => void;
 };
 
@@ -71,6 +73,7 @@ type PaneState = {
   target: TmuxOutputActivityTarget;
   screenHash: string | null;
   observedPrompt: boolean;
+  hasObservedRun: boolean;
   clearMisses: number;
   quietTimer: Timer | null;
   maxTimer: Timer | null;
@@ -267,9 +270,37 @@ export function createTmuxOutputActivityMonitor(
     pane.maxTimer = null;
   };
 
-  const publishPrompt = (pane: PaneState, active: boolean, syncObservers = true): void => {
+  const publishPrompt = (
+    pane: PaneState,
+    active: boolean,
+    syncObservers = true,
+    observedScreen = false,
+  ): void => {
     const activityChanged = pane.observedPrompt !== active;
     pane.observedPrompt = active;
+    let occurrenceKey: string | null = null;
+    if (observedScreen) {
+      occurrenceKey = observeTmuxInputActivity({
+        provider: pane.target.kind,
+        providerSessionId: pane.target.providerSessionId,
+        tmux: pane.target.tmux,
+        process: pane.target.process,
+      }, 'screen', active);
+      if (!active && pane.row.activity === 'running') pane.hasObservedRun = true;
+    }
+    if (
+      activityChanged
+      && active
+      && pane.hasObservedRun
+      && pane.row.activity === 'running'
+      && occurrenceKey
+    ) {
+      try {
+        void Promise.resolve(options.onInputRequired?.(pane.target, occurrenceKey)).catch(() => undefined);
+      } catch {
+        // Notification delivery must never interrupt INPUT state publication.
+      }
+    }
     if (setObservedTmuxInteractiveActivity(pane.target, active)) {
       collector.forceRefresh();
     }
@@ -294,7 +325,7 @@ export function createTmuxOutputActivityMonitor(
       const promptActive = tmuxScreenHasInteractivePrompt(pane.target, screen);
       if (promptActive) {
         pane.clearMisses = 0;
-        publishPrompt(pane, true);
+        publishPrompt(pane, true, true, true);
       } else if (pane.observedPrompt && pane.clearMisses === 0) {
         pane.clearMisses = 1;
         pane.forceParse = true;
@@ -305,7 +336,7 @@ export function createTmuxOutputActivityMonitor(
         pane.quietTimer.unref?.();
       } else {
         pane.clearMisses = 0;
-        publishPrompt(pane, false);
+        publishPrompt(pane, false, true, true);
       }
     } catch {
       // Discovery and the fallback loop will retry. Never clear a known INPUT
@@ -478,6 +509,7 @@ export function createTmuxOutputActivityMonitor(
         existing.row = row;
         existing.target = targetFor(row);
         if (kindChanged || bindingChanged) {
+          existing.hasObservedRun = false;
           existing.screenHash = null;
           existing.clearMisses = 0;
           publishPrompt(existing, false, false);
@@ -492,6 +524,7 @@ export function createTmuxOutputActivityMonitor(
         screenHash: null,
         observedPrompt: false,
         clearMisses: 0,
+        hasObservedRun: false,
         quietTimer: null,
         maxTimer: null,
         inFlight: false,

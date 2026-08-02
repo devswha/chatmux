@@ -39,10 +39,11 @@ type StoredRecord = {
   target: CompletionNotificationTarget | null;
   pending: boolean;
   error: CompletionNotificationReason | null;
+  deviceRepairRequired: boolean;
 };
 type State = { records: ReadonlyMap<string, StoredRecord>; globalPaused: boolean; device: CompletionNotificationDevice | null };
 type Action =
-  | { type: 'status'; records: ReadonlyMap<string, Pick<StoredRecord, 'item' | 'target'>>; globalPaused: boolean; device: CompletionNotificationDevice; reason: CompletionNotificationReason | null; clearPending?: boolean }
+  | { type: 'status'; records: ReadonlyMap<string, Pick<StoredRecord, 'item' | 'target'>>; globalPaused: boolean; device: CompletionNotificationDevice; reason: CompletionNotificationReason | null; clearPending?: boolean; deviceRepairRequired?: boolean }
   | { type: 'pending'; key: string; pending: boolean }
   | { type: 'error'; key: string; error: CompletionNotificationReason | null }
   | { type: 'remove'; key: string };
@@ -60,7 +61,14 @@ export function completionNotificationReducer(state: State, action: Action): Sta
       const error = action.reason === 'permission_denied' && record.target?.watched !== true
         ? null
         : action.reason;
-      records.set(key, { ...record, pending: action.clearPending ? false : (current?.pending ?? false), error });
+      records.set(key, {
+        ...record,
+        pending: action.clearPending ? false : (current?.pending ?? false),
+        error,
+        deviceRepairRequired: action.deviceRepairRequired === undefined
+          ? (current?.deviceRepairRequired ?? false)
+          : action.deviceRepairRequired && record.target?.watched === true,
+      });
     }
     return { records, globalPaused: action.globalPaused, device: action.device };
   }
@@ -68,7 +76,9 @@ export function completionNotificationReducer(state: State, action: Action): Sta
     records.delete(action.key);
     return { ...state, records };
   }
-  const current = records.get(action.key) ?? { item: null, target: null, pending: false, error: null };
+  const current = records.get(action.key) ?? {
+    item: null, target: null, pending: false, error: null, deviceRepairRequired: false,
+  };
   records.set(action.key, action.type === 'pending'
     ? { ...current, pending: action.pending }
     : { ...current, error: action.error, pending: false });
@@ -185,6 +195,18 @@ function vapidKey(value: string) {
   const binary = atob(value.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(value.length / 4) * 4, '='));
   return Uint8Array.from(binary, (character) => character.charCodeAt(0));
 }
+export function applicationServerKeysEqual(
+  actual: BufferSource | null | undefined,
+  expected: Uint8Array,
+) {
+  if (!actual) return false;
+  const bytes = ArrayBuffer.isView(actual)
+    ? new Uint8Array(actual.buffer, actual.byteOffset, actual.byteLength)
+    : new Uint8Array(actual);
+  return bytes.byteLength === expected.byteLength
+    && bytes.every((value, index) => value === expected[index]);
+}
+
 function mutationId() {
   return typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `${Date.now()}-${crypto.getRandomValues(new Uint32Array(2)).join('-')}`;
 }
@@ -256,13 +278,16 @@ export function CompletionNotificationsProvider({ children }: { children: ReactN
   }, []);
 
 
-  const passiveEndpoint = useCallback(async (isLive: () => boolean) => {
+  const passiveSubscription = useCallback(async (isLive: () => boolean) => {
     if (!isLive() || !('serviceWorker' in navigator)) return undefined;
     const registration = await navigator.serviceWorker.getRegistration();
     if (!isLive() || !registration) return undefined;
     const subscription = await registration.pushManager.getSubscription();
-    if (!isLive()) return undefined;
-    return subscription?.endpoint;
+    if (!isLive() || !subscription) return undefined;
+    return {
+      endpoint: subscription.endpoint,
+      applicationServerKey: subscription.options.applicationServerKey,
+    };
   }, []);
 
   const requestStatus = useCallback(async (
@@ -311,7 +336,10 @@ export function CompletionNotificationsProvider({ children }: { children: ReactN
       }
     }
     try {
-      const resolvedEndpoint = endpoint ?? await bounded(passiveEndpoint(hasLiveEntry), requestSignal, 'Push subscription lookup timed out.');
+      const localSubscription = endpoint === undefined
+        ? await bounded(passiveSubscription(hasLiveEntry), requestSignal, 'Push subscription lookup timed out.')
+        : undefined;
+      const resolvedEndpoint = endpoint ?? localSubscription?.endpoint;
       if (!entries.some(([key]) => isCurrent(key))) return undefined;
       const result = await deadline((networkSignal) => json<CompletionNotificationStatus>(
         api.completionNotifications.status(entries.map(([, descriptor]) => descriptor), resolvedEndpoint, { signal: networkSignal }),
@@ -323,11 +351,47 @@ export function CompletionNotificationsProvider({ children }: { children: ReactN
         const item = result.targets[index] ?? null;
         records.set(key, { item, target: item?.target ?? null });
       });
+      let hasWatchedTarget = false;
+      for (const record of records.values()) {
+        if (record.target?.watched === true) {
+          hasWatchedTarget = true;
+          break;
+        }
+      }
+      const deviceRequiresRegistration = result.device.setupRequired || !result.device.registered;
+      let deviceRepairRequired: boolean | undefined = hasWatchedTarget && deviceRequiresRegistration
+        ? true
+        : passive && localSubscription && hasWatchedTarget
+          ? undefined
+          : false;
+      if (passive && localSubscription && hasWatchedTarget) {
+        try {
+          const vapid = await deadline((networkSignal) => json<{ publicKey: string }>(
+            api.completionNotifications.vapidPublicKey({ signal: networkSignal }),
+          ), requestSignal);
+          if (!entries.some(([key]) => isCurrent(key))) return undefined;
+          deviceRepairRequired = deviceRepairRequired === true || !applicationServerKeysEqual(
+            localSubscription.applicationServerKey,
+            vapidKey(vapid.publicKey),
+          );
+        } catch {
+          // Status remains useful when a passive VAPID comparison cannot complete.
+          if (!entries.some(([key]) => isCurrent(key))) return undefined;
+        }
+      }
       if (records.size && entries.some(([key]) => isCurrent(key))) {
         const statusReason = reason ?? (typeof Notification !== 'undefined' && Notification.permission === 'denied'
           ? 'permission_denied' as const
           : null);
-        dispatch({ type: 'status', records, globalPaused: result.globalPaused, device: result.device, reason: statusReason, clearPending });
+        dispatch({
+          type: 'status',
+          records,
+          globalPaused: result.globalPaused,
+          device: result.device,
+          reason: statusReason,
+          clearPending,
+          deviceRepairRequired,
+        });
       }
       return { result, records, endpoint: resolvedEndpoint };
     } catch (error) {
@@ -339,7 +403,7 @@ export function CompletionNotificationsProvider({ children }: { children: ReactN
       }
       return undefined;
     }
-  }, [abortPassiveRead, passiveEndpoint]);
+  }, [abortPassiveRead, passiveSubscription]);
   const refresh = useCallback(async () => {
     const entries = uniqueDescriptors(descriptorsRef.current.values());
     for (let index = 0; index < entries.length; index += STATUS_BATCH_LIMIT) {
@@ -384,12 +448,21 @@ export function CompletionNotificationsProvider({ children }: { children: ReactN
     if (permission !== 'granted') throw new CompletionNotificationError(permission === 'denied' ? 'permission_denied' : 'permission_not_granted');
     const registration = await bounded(navigator.serviceWorker.ready, signal, 'Service worker readiness timed out.', SERVICE_WORKER_READY_TIMEOUT_MS);
     if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+    const vapid = await deadline((requestSignal) => json<{ publicKey: string }>(api.completionNotifications.vapidPublicKey({ signal: requestSignal })), signal);
+    const expectedApplicationServerKey = vapidKey(vapid.publicKey);
+    if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
     let subscription = await bounded(registration.pushManager.getSubscription(), signal, 'Push subscription lookup timed out.');
     if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+    if (subscription && !applicationServerKeysEqual(
+      subscription.options.applicationServerKey,
+      expectedApplicationServerKey,
+    )) {
+      const removed = await bounded(subscription.unsubscribe(), signal, 'Stale push subscription removal timed out.');
+      if (!removed) throw new CompletionNotificationError('invalid_subscription');
+      subscription = null;
+    }
     if (!subscription) {
-      const vapid = await deadline((requestSignal) => json<{ publicKey: string }>(api.completionNotifications.vapidPublicKey({ signal: requestSignal })), signal);
-      if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
-      subscription = await bounded(registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: vapidKey(vapid.publicKey) }), signal, 'Push subscription setup timed out.');
+      subscription = await bounded(registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: expectedApplicationServerKey }), signal, 'Push subscription setup timed out.');
       if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
     }
     return payload(subscription);

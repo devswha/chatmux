@@ -80,7 +80,12 @@ import providerRoutes from './modules/providers/provider.routes.js';
 import { sessionsService } from './modules/providers/services/sessions.service.js';
 import { assetsRoutes } from './modules/assets/index.js';
 import { initializeDatabase, projectsDb, sessionsDb, userDb } from './modules/database/index.js';
-import { startCompletionOutboxDispatcher, startExternalTurnMonitor, startLiveTurnMonitor } from './modules/notifications/index.js';
+import {
+    notifyTmuxInputRequiredIfWatched,
+    startCompletionOutboxDispatcher,
+    startExternalTurnMonitor,
+    startLiveTurnMonitor,
+} from './modules/notifications/index.js';
 import { filesRoutes } from './modules/files/index.js';
 import { configureWebPush } from './services/vapid-keys.js';
 import { authenticateToken, authenticateWebSocket, AUTH_MODE } from './middleware/auth.js';
@@ -130,7 +135,11 @@ const server = http.createServer(app);
 // The collector is inert until the first authenticated discovery subscription.
 const discoveryCollector = createDiscoveryCollector();
 app.locals.discoveryCollector = discoveryCollector;
-const tmuxOutputActivityMonitor = createTmuxOutputActivityMonitor(discoveryCollector);
+const tmuxOutputActivityMonitor = createTmuxOutputActivityMonitor(discoveryCollector, {
+    onInputRequired: process.env.CHATMUX_LIVE_NOTIFY === '0'
+        ? undefined
+        : notifyTmuxInputRequiredIfWatched,
+});
 tmuxOutputActivityMonitor.start();
 const stopTranscriptDiscoveryRefresh = onTranscriptChanged(() => {
     discoveryCollector.forceRefresh();

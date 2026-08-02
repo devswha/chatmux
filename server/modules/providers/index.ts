@@ -79,3 +79,4 @@ export {
   type TmuxOutputActivityTarget,
   type TmuxOutputActivityMonitorOptions,
 } from './services/tmux-output-activity-monitor.service.js';
+export { observeTmuxInputActivity } from './services/tmux-input-occurrence.service.js';

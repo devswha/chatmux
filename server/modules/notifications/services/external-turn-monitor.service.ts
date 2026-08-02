@@ -14,9 +14,11 @@ import {
   type ExternalCliSession,
   type ExternalCliSessionsDetailedResult,
   type ExternalSessionActivityResolutionResult,
+  observeTmuxInputActivity,
 } from '@/modules/providers/index.js';
 
 import { wakeCompletionOutboxDispatcher } from './completion-outbox-dispatcher.service.js';
+import { notifyInputRequired } from './notification-orchestrator.service.js';
 import {
   startEventDrivenMonitorLoop,
   TURN_MONITOR_FALLBACK_MS,
@@ -102,16 +104,23 @@ type MonitorDeps = {
   getDetailed: () => Promise<ExternalCliSessionsDetailedResult>;
   resolve: (session: ExternalCliSession) => Promise<ExternalSessionActivityResolutionResult>;
   getUserId: () => number | null;
-    resolveTargets?: ResolveTargets;
-    observeGeneration?: ObserveGeneration;
-    createTerminalDecision?: CreateTerminalDecision;
-    listGenerationTargets?: ListGenerationTargets;
-    touchObservedGenerations?: TouchObservedGenerations;
-    listStaleGenerationCandidates?: ListStaleGenerationCandidates;
-    pruneStaleGenerationCandidates?: PruneStaleGenerationCandidates;
-    generationCount?: GenerationCount;
+  resolveTargets?: ResolveTargets;
+  observeGeneration?: ObserveGeneration;
+  createTerminalDecision?: CreateTerminalDecision;
+  listGenerationTargets?: ListGenerationTargets;
+  touchObservedGenerations?: TouchObservedGenerations;
+  listStaleGenerationCandidates?: ListStaleGenerationCandidates;
+  pruneStaleGenerationCandidates?: PruneStaleGenerationCandidates;
+  generationCount?: GenerationCount;
   wake?: () => void;
   diagnostic?: (event: ExternalTurnMonitorDiagnostic) => void;
+  notifyActionRequired?: (args: {
+    userId: number;
+    provider: string;
+    sessionId: string;
+    tmuxName: string;
+    occurrenceKey: string;
+  }) => void;
   now?: () => number;
   /** @deprecated Durable outbox decisions replace callback notifications. */
   notify?: (args: {
@@ -205,6 +214,7 @@ export function createExternalTurnMonitor(deps: MonitorDeps) {
     nextReadAt: number;
     providerBinding: string | null;
   }>();
+  const lastActivities = new Map<string, MonitorResolvedActivity['activity']>();
   const now = deps.now ?? Date.now;
 
   const emitDiagnostic = (detail: Omit<ExternalTurnMonitorDiagnostic, 'count'>): void => {
@@ -352,7 +362,9 @@ export function createExternalTurnMonitor(deps: MonitorDeps) {
         const outcome = result.terminalOutcome;
         const cursor = result.evidenceCursor;
         const activity = result.activity;
+        const previousActivity = lastActivities.get(identityKey);
         if (result.transcriptEnded) {
+          lastActivities.set(identityKey, 'unknown');
           try {
             observeGeneration(resolution.generationTargetId, cursor, 'unknown');
           } catch {
@@ -361,6 +373,15 @@ export function createExternalTurnMonitor(deps: MonitorDeps) {
           continue;
         }
         if (activity === 'running') {
+          lastActivities.set(identityKey, 'running');
+          if (session.agentPid !== undefined && session.startedAtMs !== undefined) {
+            observeTmuxInputActivity({
+              provider: session.kind,
+              tmux: session.tmux,
+              process: { pid: session.agentPid, startedAtMs: session.startedAtMs },
+              providerSessionId: session.providerSessionId ?? null,
+            }, 'transcript', false);
+          }
           try {
             const transition = observeGeneration(resolution.generationTargetId, cursor, 'running');
             if (!transition.replay && transition.sequence !== null) {
@@ -372,6 +393,7 @@ export function createExternalTurnMonitor(deps: MonitorDeps) {
           continue;
         }
         if (outcome === 'reply_ready') {
+          lastActivities.set(identityKey, activity);
           try {
             const decision = createTerminalDecision({
               generationTargetId: resolution.generationTargetId,
@@ -391,6 +413,35 @@ export function createExternalTurnMonitor(deps: MonitorDeps) {
           }
           continue;
         }
+        if (
+          activity === 'asking_user'
+          && previousActivity === 'running'
+          && resolution.target.watched
+        ) {
+          const occurrenceKey = session.agentPid === undefined || session.startedAtMs === undefined
+            ? null
+            : observeTmuxInputActivity({
+              provider: session.kind,
+              tmux: session.tmux,
+              process: { pid: session.agentPid, startedAtMs: session.startedAtMs },
+              providerSessionId: session.providerSessionId ?? null,
+            }, 'transcript', true);
+          if (occurrenceKey) {
+            try {
+              await deps.notifyActionRequired?.({
+                userId,
+                provider: session.kind,
+                sessionId: resolution.appSessionId ?? resolution.target.alias,
+                tmuxName: session.tmuxName,
+                occurrenceKey,
+              });
+            } catch {
+              // Action notifications are best-effort and must never interrupt
+              // durable completion state transitions.
+            }
+          }
+        }
+        lastActivities.set(identityKey, activity);
         try {
           observeGeneration(
             resolution.generationTargetId,
@@ -402,6 +453,9 @@ export function createExternalTurnMonitor(deps: MonitorDeps) {
         }
       }
       if (completeScan && duplicateSessionIdentities.size === 0 && duplicateResolutionIdentities.size === 0) {
+        for (const identityKey of lastActivities.keys()) {
+          if (!sessionsByIdentity.has(identityKey)) lastActivities.delete(identityKey);
+        }
         try {
           const cutoff = now() - (30 * 24 * 60 * 60 * 1_000);
           const completeGenerationIds = new Set(completeObservations.map(({ generationTargetId }) => generationTargetId));
@@ -445,7 +499,15 @@ export function startExternalTurnMonitor(
         return null;
       }
     },
-    diagnostic: createRateLimitedProductionDiagnosticSink(),
+    notifyActionRequired: ({ userId, provider, sessionId, tmuxName, occurrenceKey }) => {
+      notifyInputRequired({
+        userId,
+        provider,
+        sessionId,
+        sessionName: tmuxName,
+        occurrenceKey,
+      });
+    },
   });
   return startEventDrivenMonitorLoop({
     tick: monitor.tick,

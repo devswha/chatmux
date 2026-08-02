@@ -4,6 +4,7 @@ export {
   createNotificationEvent,
   notifyUserIfEnabled,
   notifyRunFailed,
+  notifyInputRequired,
   notifyRunStopped,
   notifyLiveTurnEnded,
   createCompletionDecision,
@@ -13,6 +14,7 @@ export {
   createExternalTurnMonitor,
   startExternalTurnMonitor,
 } from '@/modules/notifications/services/external-turn-monitor.service.js';
+export { notifyTmuxInputRequiredIfWatched } from '@/modules/notifications/services/tmux-input-notification.service.js';
 export {
   createRelayKeyDiagnosticEmitter,
   emitRelayKeyDiagnostic,

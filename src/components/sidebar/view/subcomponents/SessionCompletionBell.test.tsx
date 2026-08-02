@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import i18next from 'i18next';
 import { createElement } from 'react';
+import TestRenderer, { act, type ReactTestRenderer } from 'react-test-renderer';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { I18nextProvider } from 'react-i18next';
 
@@ -33,7 +34,7 @@ async function renderBell(overrides: Partial<CompletionNotificationDescriptorSta
   const eligibleItem = item();
   const status: CompletionNotificationDescriptorStatus = {
     item: eligibleItem,
-    target: eligibleItem.mappingState === 'one_active' ? eligibleItem.target : null,
+    target: eligibleItem.mappingState === 'one_active' ? (eligibleItem.target ?? null) : null,
     pending: false,
     error: null,
     globalPaused: false,
@@ -74,7 +75,7 @@ test('SessionCompletionBell uses only slashed-off and plain-on bell states', asy
   const watchedItem = item(true);
   const on = await renderBell({
     item: watchedItem,
-    target: watchedItem.target,
+    target: watchedItem.target ?? null,
     device: { ...device, registered: false, reason: 'endpoint_not_registered' },
     error: 'invalid_subscription',
   });
@@ -82,6 +83,55 @@ test('SessionCompletionBell uses only slashed-off and plain-on bell states', asy
   assert.doesNotMatch(on, /lucide-bell-off|lucide-wrench|animate-spin/);
   assert.equal((on.match(/<button/g) ?? []).length, 1);
   assert.match(on, new RegExp(enSidebar.completionNotifications.disable));
+});
+
+test('SessionCompletionBell exposes and invokes the VAPID repair action without toggling an existing watch', async () => {
+  const watchedItem = item(true);
+  const status: CompletionNotificationDescriptorStatus = {
+    item: watchedItem,
+    target: watchedItem.target ?? null,
+    pending: false,
+    error: null,
+    globalPaused: false,
+    device,
+    deviceRepairRequired: true,
+  };
+  const i18n = i18next.createInstance();
+  await i18n.init({ lng: 'en', resources: { en: { sidebar: enSidebar } }, ns: ['sidebar'], defaultNS: 'sidebar' });
+  const repaired: CompletionNotificationDescriptor[] = [];
+  let renderer: ReactTestRenderer | null = null;
+
+  try {
+    await act(async () => {
+      renderer = TestRenderer.create(createElement(I18nextProvider, { i18n }, createElement(
+        CompletionNotificationsContext.Provider,
+        {
+          value: {
+            status: null,
+            statuses: new Map([[completionNotificationDescriptorKey(descriptor), status]]),
+            registerDescriptors: () => () => {},
+            setWatch: noop,
+            repairDevice: async (selected: CompletionNotificationDescriptor) => { repaired.push(selected); },
+            refresh: noop,
+          } as never,
+        },
+        createElement(SessionCompletionBell, { descriptor }),
+      )));
+    });
+    const repairButton = renderer!.root.findAllByType('button').find(
+      (button) => button.props['aria-label'] === enSidebar.completionNotifications.repair,
+    );
+    assert.ok(repairButton, 'a watched device with a stale key has a dedicated repair action');
+    assert.equal(renderer!.root.findAllByType('button').length, 2, 'repair does not replace the watched-state bell');
+
+    await act(async () => {
+      repairButton!.props.onClick({ preventDefault: () => {}, stopPropagation: () => {} });
+    });
+
+    assert.deepEqual(repaired, [descriptor], 'the explicit action invokes device re-registration for the watched descriptor');
+  } finally {
+    if (renderer) await act(async () => { renderer!.unmount(); });
+  }
 });
 test('SessionCompletionBell shows localized environmental guidance without a repair action', async () => {
   for (const [error, message] of [
@@ -104,7 +154,7 @@ test('SessionCompletionBell announces errors without changing pressed owner inte
     ['settings_changed', enSidebar.completionNotifications.conflict],
   ] as const satisfies readonly (readonly [CompletionNotificationReason, string])[]) {
     const watchedItem = item(true);
-    const html = await renderBell({ error, item: watchedItem, target: watchedItem.target });
+    const html = await renderBell({ error, item: watchedItem, target: watchedItem.target ?? null });
     assert.match(html, new RegExp(message.replace(/[.?]/g, '\\$&')));
     assert.match(html, /role="status" aria-live="polite"/);
     assert.match(html, /aria-pressed="true"/);
@@ -115,7 +165,7 @@ test('SessionCompletionBell composes paused status with concurrent error and pen
   const watchedItem = item(true);
   const pausedWithError = await renderBell({
     item: watchedItem,
-    target: watchedItem.target,
+    target: watchedItem.target ?? null,
     globalPaused: true,
     error: 'settings_changed',
   });
@@ -136,7 +186,7 @@ test('SessionCompletionBell keeps its two-state icon while a mutation is pending
   const watchedItem = item(true);
   const on = await renderBell({
     item: watchedItem,
-    target: watchedItem.target,
+    target: watchedItem.target ?? null,
     pending: true,
   });
   assert.match(on, /lucide-bell h-3\.5 w-3\.5/);
@@ -147,7 +197,7 @@ test('SessionCompletionBell retains keyboard semantics and 44px touch targets', 
   const watchedItem = item(true);
   const html = await renderBell({
     item: watchedItem,
-    target: watchedItem.target,
+    target: watchedItem.target ?? null,
     device: { ...device, registered: false, reason: 'endpoint_not_registered' },
   });
   assert.match(html, /type="button"/);

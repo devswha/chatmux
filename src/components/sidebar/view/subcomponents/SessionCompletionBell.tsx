@@ -1,4 +1,4 @@
-import { Bell, BellOff } from 'lucide-react';
+import { Bell, BellOff, Wrench } from 'lucide-react';
 import { type MouseEvent, useId } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -71,7 +71,7 @@ const ENVIRONMENTAL_REASONS: readonly CompletionNotificationReason[] = [
 export default function SessionCompletionBell({ descriptor, className }: SessionCompletionBellProps) {
   const { t } = useTranslation('sidebar');
   const statusId = useId();
-  const { status, setWatch } = useCompletionNotifications(descriptor);
+  const { status, setWatch, repairDevice } = useCompletionNotifications(descriptor);
 
   // Do not flash a speculative control: only an authoritative, eligible target
   // can be watched. This also keeps stale/ambiguous external generations inert.
@@ -81,16 +81,21 @@ export default function SessionCompletionBell({ descriptor, className }: Session
   const pending = status.pending;
   const paused = status.globalPaused;
   const reason = status.error as CompletionNotificationReason | null;
+  const repairRequired = status.deviceRepairRequired === true;
   const reasonLabel = reason
     ? t(REASON_LABELS[reason].key, REASON_LABELS[reason].defaultValue)
     : null;
+  const repairLabel = t(
+    'completionNotifications.repair',
+    'Repair notifications when the assistant has a reply ready on this device',
+  );
   const watchLabel = watched
     ? t('completionNotifications.disable', 'Disable completion notifications for this session')
     : t('completionNotifications.enable', 'Enable completion notifications for this session');
   const statusText = [
     pending ? t('completionNotifications.pending', 'Updating completion notifications') : null,
     paused ? t('completionNotifications.paused', 'Completion notifications are paused globally') : null,
-    reasonLabel,
+    repairRequired ? repairLabel : reasonLabel,
   ].filter((text): text is string => text !== null).join(' ') || null;
   const Icon = watched ? Bell : BellOff;
 
@@ -98,15 +103,16 @@ export default function SessionCompletionBell({ descriptor, className }: Session
     event.preventDefault();
     event.stopPropagation();
   };
-
   const environmentalReason = reason !== null && ENVIRONMENTAL_REASONS.includes(reason);
+
+  const statusRequiresAction = environmentalReason || repairRequired;
 
   return (
     <span className={cn('flex shrink-0 items-center gap-1', className)}>
       {statusText && (
         <span
           id={statusId}
-          className={environmentalReason ? 'max-w-48 text-xs text-destructive' : 'sr-only'}
+          className={statusRequiresAction ? 'max-w-48 text-xs text-destructive' : 'sr-only'}
           role="status"
           aria-live="polite"
         >
@@ -132,6 +138,22 @@ export default function SessionCompletionBell({ descriptor, className }: Session
       >
         <Icon className="h-3.5 w-3.5" aria-hidden />
       </button>
+      {repairRequired && (
+        <button
+          type="button"
+          title={repairLabel}
+          aria-label={repairLabel}
+          aria-describedby={statusText ? statusId : undefined}
+          disabled={pending}
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded text-destructive transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-50 md:h-6 md:w-6"
+          onClick={(event) => {
+            stopRowNavigation(event);
+            if (!pending) void repairDevice(descriptor);
+          }}
+        >
+          <Wrench className="h-3.5 w-3.5" aria-hidden />
+        </button>
+      )}
     </span>
   );
 }
