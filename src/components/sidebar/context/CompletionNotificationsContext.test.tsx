@@ -4,11 +4,22 @@ import test from 'node:test';
 import type { CompletionNotificationDescriptor, CompletionNotificationDevice, CompletionNotificationTarget } from '../../../../shared/completion-notifications';
 
 import {
+  applicationServerKeysEqual,
   canCommitPassiveCompletionNotificationStatus,
   completionNotificationDescriptorKey,
   completionNotificationReducer,
   startClickGatedPreparation,
 } from './CompletionNotificationsContext';
+
+test('application server key comparison accepts matching buffers and rejects stale subscriptions', () => {
+  const expected = Uint8Array.from([4, 12, 28, 44]);
+  assert.equal(applicationServerKeysEqual(expected.buffer, expected), true);
+
+  const padded = Uint8Array.from([99, ...expected, 100]);
+  assert.equal(applicationServerKeysEqual(padded.subarray(1, 5), expected), true);
+  assert.equal(applicationServerKeysEqual(Uint8Array.from([4, 12, 28, 45]), expected), false);
+  assert.equal(applicationServerKeysEqual(null, expected), false);
+});
 
 const device: CompletionNotificationDevice = {
   supported: true,

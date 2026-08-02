@@ -185,6 +185,17 @@ function vapidKey(value: string) {
   const binary = atob(value.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(value.length / 4) * 4, '='));
   return Uint8Array.from(binary, (character) => character.charCodeAt(0));
 }
+export function applicationServerKeysEqual(
+  actual: BufferSource | null | undefined,
+  expected: Uint8Array,
+) {
+  if (!actual) return false;
+  const bytes = ArrayBuffer.isView(actual)
+    ? new Uint8Array(actual.buffer, actual.byteOffset, actual.byteLength)
+    : new Uint8Array(actual);
+  return bytes.byteLength === expected.byteLength
+    && bytes.every((value, index) => value === expected[index]);
+}
 function mutationId() {
   return typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `${Date.now()}-${crypto.getRandomValues(new Uint32Array(2)).join('-')}`;
 }
@@ -384,12 +395,21 @@ export function CompletionNotificationsProvider({ children }: { children: ReactN
     if (permission !== 'granted') throw new CompletionNotificationError(permission === 'denied' ? 'permission_denied' : 'permission_not_granted');
     const registration = await bounded(navigator.serviceWorker.ready, signal, 'Service worker readiness timed out.', SERVICE_WORKER_READY_TIMEOUT_MS);
     if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+    const vapid = await deadline((requestSignal) => json<{ publicKey: string }>(api.completionNotifications.vapidPublicKey({ signal: requestSignal })), signal);
+    const expectedApplicationServerKey = vapidKey(vapid.publicKey);
+    if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
     let subscription = await bounded(registration.pushManager.getSubscription(), signal, 'Push subscription lookup timed out.');
     if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+    if (subscription && !applicationServerKeysEqual(
+      subscription.options.applicationServerKey,
+      expectedApplicationServerKey,
+    )) {
+      const removed = await bounded(subscription.unsubscribe(), signal, 'Stale push subscription removal timed out.');
+      if (!removed) throw new CompletionNotificationError('invalid_subscription');
+      subscription = null;
+    }
     if (!subscription) {
-      const vapid = await deadline((requestSignal) => json<{ publicKey: string }>(api.completionNotifications.vapidPublicKey({ signal: requestSignal })), signal);
-      if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
-      subscription = await bounded(registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: vapidKey(vapid.publicKey) }), signal, 'Push subscription setup timed out.');
+      subscription = await bounded(registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: expectedApplicationServerKey }), signal, 'Push subscription setup timed out.');
       if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
     }
     return payload(subscription);
