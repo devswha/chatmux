@@ -1,29 +1,29 @@
 import { readdir } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const TEST_FILE_PATTERN = /\.(?:test|spec)\.(?:js|ts|tsx)$/;
-const SKIPPED_DIRECTORIES = new Set(['dist', 'dist-server', 'node_modules', 'release']);
+const SKIPPED_DIRECTORIES = new Set(['dist', 'dist-server', 'node_modules']);
 
-const [nodeMajor, nodeMinor, nodePatch] = process.versions.node.split('.').map(Number);
-const meetsMinimumNodeVersion =
-  (nodeMajor === 22 && (nodeMinor > 22 || (nodeMinor === 22 && nodePatch >= 2))) ||
-  (nodeMajor === 24 && (nodeMinor > 15 || (nodeMinor === 15 && nodePatch >= 0)));
-
-if (!meetsMinimumNodeVersion) {
-  console.error(
-    `[test] Node 22.22.2+ (22.x) or 24.15.0+ (24.x) is required; current runtime is Node ${process.versions.node}.`,
-  );
-  process.exit(1);
+function meetsMinimumNodeVersion() {
+  const [nodeMajor, nodeMinor, nodePatch] = process.versions.node.split('.').map(Number);
+  return (nodeMajor === 22 && (nodeMinor > 22 || (nodeMinor === 22 && nodePatch >= 2))) ||
+    (nodeMajor === 24 && (nodeMinor > 15 || (nodeMinor === 15 && nodePatch >= 0)));
 }
 
-async function collectTests(root) {
+function shouldSkipDirectory(root, entryName) {
+  return SKIPPED_DIRECTORIES.has(entryName) || (entryName === 'release' && root !== 'scripts');
+}
+
+export async function collectTests(root) {
   const files = [];
 
   async function visit(directory) {
     const entries = await readdir(directory, { withFileTypes: true });
     for (const entry of entries) {
-      if (entry.isDirectory() && SKIPPED_DIRECTORIES.has(entry.name)) continue;
+      if (entry.isDirectory() && shouldSkipDirectory(root, entry.name)) continue;
       const entryPath = path.join(directory, entry.name);
       if (entry.isDirectory()) {
         await visit(entryPath);
@@ -37,7 +37,7 @@ async function collectTests(root) {
   return files.sort();
 }
 
-function runTests(label, files, { tsconfig } = {}) {
+export function runTests(label, files, { tsconfig } = {}) {
   if (files.length === 0) {
     throw new Error(`[test] ${label}: no test files were discovered.`);
   }
@@ -56,10 +56,32 @@ function runTests(label, files, { tsconfig } = {}) {
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
 
-const [serverTests, clientTests] = await Promise.all([
-  collectTests('server'),
-  collectTests('src'),
-]);
+export async function discoverTests() {
+  const [serverTests, scriptTests, clientTests] = await Promise.all([
+    collectTests('server'),
+    collectTests('scripts'),
+    collectTests('src'),
+  ]);
 
-runTests('server', serverTests, { tsconfig: 'server/tsconfig.json' });
-runTests('client', clientTests, { tsconfig: 'tsconfig.json' });
+  return {
+    serverTests: [...serverTests, ...scriptTests].sort(),
+    clientTests,
+  };
+}
+
+async function main() {
+  if (!meetsMinimumNodeVersion()) {
+    console.error(
+      `[test] Node 22.22.2+ (22.x) or 24.15.0+ (24.x) is required; current runtime is Node ${process.versions.node}.`,
+    );
+    process.exit(1);
+  }
+
+  const { serverTests, clientTests } = await discoverTests();
+  runTests('server', serverTests, { tsconfig: 'server/tsconfig.json' });
+  runTests('client', clientTests, { tsconfig: 'tsconfig.json' });
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  await main();
+}

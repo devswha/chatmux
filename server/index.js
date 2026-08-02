@@ -214,6 +214,13 @@ app.use(compression({
         return compression.filter(req, res);
     },
 }));
+// Credential endpoints are public and never need the large upload payload budget.
+app.use('/api/auth', express.json({
+    limit: '64kb',
+    type: (req) => (req.headers['content-type'] || '').includes('json')
+}));
+app.use('/api/auth', express.urlencoded({ limit: '64kb', extended: true }));
+
 app.use(express.json({
     limit: '50mb',
     type: (req) => {

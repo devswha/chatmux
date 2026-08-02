@@ -22,6 +22,42 @@ import {
 const router = express.Router();
 const db = getConnection();
 
+const LOGIN_FAILURE_LIMIT = 10;
+const LOGIN_FAILURE_WINDOW_MS = 15 * 60 * 1000;
+const loginFailures = new Map();
+
+function loginFailureKey(req, username) {
+  return `${req.ip}\u0000${username}`;
+}
+
+function getLoginRetryAfterSeconds(key) {
+  const attempt = loginFailures.get(key);
+  if (!attempt) return 0;
+
+  const remainingMs = attempt.resetAt - Date.now();
+  if (remainingMs <= 0) {
+    loginFailures.delete(key);
+    return 0;
+  }
+
+  return attempt.count >= LOGIN_FAILURE_LIMIT ? Math.ceil(remainingMs / 1000) : 0;
+}
+
+function recordLoginFailure(key) {
+  const now = Date.now();
+  const attempt = loginFailures.get(key);
+  if (!attempt || attempt.resetAt <= now) {
+    loginFailures.set(key, { count: 1, resetAt: now + LOGIN_FAILURE_WINDOW_MS });
+    return;
+  }
+
+  attempt.count += 1;
+}
+
+function clearLoginFailures(key) {
+  loginFailures.delete(key);
+}
+
 const clearAuthCookie = (req, res) => {
   const { maxAge, ...options } = getAuthCookieOptions(req);
   res.clearCookie(AUTH_COOKIE_NAME, options);
@@ -133,19 +169,30 @@ router.post('/login', rejectWhenPasswordless, async (req, res) => {
     if (!username || !password) {
       return res.status(400).json({ error: 'Username and password are required' });
     }
+
+    const failureKey = loginFailureKey(req, username);
+    const retryAfterSeconds = getLoginRetryAfterSeconds(failureKey);
+    if (retryAfterSeconds > 0) {
+      res.set('Retry-After', String(retryAfterSeconds));
+      return res.status(429).json({ error: 'Too many failed login attempts. Try again later.' });
+    }
     
     // Get user from database
     const user = userDb.getUserByUsername(username);
     if (!user) {
+      recordLoginFailure(failureKey);
       return res.status(401).json({ error: 'Invalid username or password' });
     }
     
     // Verify password
     const isValidPassword = await bcrypt.compare(password, user.password_hash);
     if (!isValidPassword) {
+      recordLoginFailure(failureKey);
       return res.status(401).json({ error: 'Invalid username or password' });
     }
     
+    clearLoginFailures(failureKey);
+
     // Generate token
     const token = generateToken(user);
     

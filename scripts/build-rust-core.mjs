@@ -29,7 +29,7 @@ function runCargo(commandArgs) {
       output += chunk;
     });
     child.once('error', reject);
-    child.once('exit', (code) => {
+    child.once('close', (code) => {
       if (code !== 0) {
         reject(new Error(`cargo exited with code ${code}`));
         return;
