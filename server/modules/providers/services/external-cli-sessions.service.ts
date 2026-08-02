@@ -515,6 +515,12 @@ export function isCodexRuntimeProcess(
     && !proc.args?.includes(' app-server')
     && !proc.args?.includes('code-mode');
 }
+
+export function isClaudeRuntimeProcess(
+  proc: Pick<ProcessTreeEntry, 'comm' | 'args'>,
+): boolean {
+  return processCliKind(proc) === 'claude';
+}
 /**
  * Foreground-aware process classification. A GJC descendant excludes the tmux
  * session from this lane. Other agents must own the pane foreground (or carry
@@ -934,7 +940,8 @@ async function inferClaudeSessionIds(args: {
     const targetKey = tmuxPaneIdentityKey(pane.tmux);
     if (!claudeTargets.has(targetKey) || !pane.cwd) continue;
     for (const pid of descendants(pane.pid, children)) {
-      if (procByPid.get(pid)?.comm !== 'claude') continue;
+      const proc = procByPid.get(pid);
+      if (!proc || !isClaudeRuntimeProcess(proc)) continue;
       const byPid = candidates.get(targetKey) ?? new Map<number, string>();
       byPid.set(pid, pane.cwd);
       candidates.set(targetKey, byPid);

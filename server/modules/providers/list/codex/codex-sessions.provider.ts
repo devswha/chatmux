@@ -21,6 +21,7 @@ type CodexHistoryResult =
       messages?: NormalizedMessage[];
       total?: number;
       hasMore?: boolean;
+      sourceStatus?: 'available' | 'missing' | 'unreadable';
       offset?: number;
       limit?: number | null;
       tokenUsage?: unknown;
@@ -102,6 +103,8 @@ function extractCodexTextContent(content: unknown): string {
 type CodexHistoryAccumulator = {
   messages: AnyRecord[];
   tokenUsage: AnyRecord | null;
+  retainedBytes: number;
+  malformed: boolean;
 };
 
 type CodexHistoryCacheEntry = {
@@ -113,6 +116,8 @@ type CodexHistoryCacheEntry = {
   modifiedAtMs: number;
   messages: NormalizedMessage[];
   tokenUsage: AnyRecord | null;
+  malformed: boolean;
+  retainedBytes: number;
   toolResults: Map<string, NormalizedMessage>;
   toolUses: Map<string, NormalizedMessage[]>;
   sortTimestamps: WeakMap<NormalizedMessage, number>;
@@ -124,6 +129,7 @@ type CodexHistoryNormalizer = (
 ) => NormalizedMessage[];
 
 const CODEX_HISTORY_CACHE_MAX_ENTRIES = 4;
+const CODEX_HISTORY_CACHE_MAX_RETAINED_BYTES = 8 * 1024 * 1024;
 const codexHistoryCache = new Map<string, CodexHistoryCacheEntry>();
 const codexHistoryRefreshes = new Map<string, Promise<CodexHistoryCacheEntry>>();
 
@@ -283,7 +289,8 @@ function parseCodexHistoryLine(line: string, accumulator: CodexHistoryAccumulato
       });
     }
   } catch {
-    // Skip malformed lines.
+    accumulator.malformed = true;
+    // Skip malformed lines so history can still render valid records.
   }
 }
 
@@ -377,6 +384,8 @@ async function refreshCodexHistoryCache(
       modifiedAtMs: metadata.mtimeMs,
       messages: [],
       tokenUsage: null,
+      retainedBytes: 0,
+      malformed: false,
       toolResults: new Map(),
       toolUses: new Map(),
       sortTimestamps: new WeakMap(),
@@ -387,6 +396,8 @@ async function refreshCodexHistoryCache(
     const appended: CodexHistoryAccumulator = {
       messages: [],
       tokenUsage: entry.tokenUsage,
+      retainedBytes: 0,
+      malformed: entry.malformed,
     };
     let tail = entry.tail;
     const fileStream = fsSync.createReadStream(sessionFilePath, {
@@ -398,6 +409,7 @@ async function refreshCodexHistoryCache(
       const lines = `${tail}${chunk}`.split(/\r?\n/);
       tail = lines.pop() ?? '';
       for (const line of lines) {
+        appended.retainedBytes += Buffer.byteLength(line);
         parseCodexHistoryLine(line, appended);
         if (appended.messages.length > 0) {
           appendNormalizedCodexHistory(entry, appended.messages, sessionId, normalize);
@@ -409,10 +421,16 @@ async function refreshCodexHistoryCache(
     entry.tokenUsage = appended.tokenUsage;
     entry.tail = tail;
     entry.offset = metadata.size;
+    entry.retainedBytes += appended.retainedBytes;
+    entry.malformed = appended.malformed;
     entry.modifiedAtMs = metadata.mtimeMs;
   }
 
-  touchCodexHistoryCache(sessionId, entry);
+  if (entry.retainedBytes + Buffer.byteLength(entry.tail) <= CODEX_HISTORY_CACHE_MAX_RETAINED_BYTES) {
+    touchCodexHistoryCache(sessionId, entry);
+  } else {
+    codexHistoryCache.delete(sessionId);
+  }
   return entry;
 }
 
@@ -444,11 +462,12 @@ async function getCodexSessionMessages(
 
     if (!sessionFilePath) {
       console.warn(`Codex session file not found for session ${sessionId}`);
-      return { messages: [], total: 0, hasMore: false };
+      return { messages: [], total: 0, hasMore: false, sourceStatus: 'missing' };
     }
 
-    const { messages, tokenUsage } = await loadCodexHistory(sessionId, sessionFilePath, normalize);
+    const { messages, tokenUsage, malformed } = await loadCodexHistory(sessionId, sessionFilePath, normalize);
     const total = messages.length;
+    const sourceStatus = malformed ? 'unreadable' : 'available';
 
     if (limit !== null) {
       const startIndex = Math.max(0, total - offset - limit);
@@ -463,13 +482,22 @@ async function getCodexSessionMessages(
         offset,
         limit,
         tokenUsage,
+        sourceStatus,
       };
     }
 
-    return { messages, tokenUsage };
+    return { messages, tokenUsage, sourceStatus };
   } catch (error) {
     console.error(`Error reading Codex session messages for ${sessionId}:`, error);
-    return { messages: [], total: 0, hasMore: false };
+    const code = error && typeof error === 'object' && 'code' in error
+      ? error.code
+      : undefined;
+    return {
+      messages: [],
+      total: 0,
+      hasMore: false,
+      sourceStatus: code === 'ENOENT' ? 'missing' : 'unreadable',
+    };
   }
 }
 
@@ -759,11 +787,19 @@ export class CodexSessionsProvider implements IProviderSessions {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.warn(`[CodexProvider] Failed to load session ${sessionId}:`, message);
-      return { messages: [], total: 0, hasMore: false, offset: 0, limit: null };
+      return {
+        messages: [],
+        total: 0,
+        hasMore: false,
+        offset: 0,
+        limit: null,
+        sourceStatus: 'unreadable',
+      };
     }
 
     const normalized = Array.isArray(result) ? result : (result.messages || []);
     const tokenUsage = Array.isArray(result) ? undefined : result.tokenUsage;
+    const sourceStatus = Array.isArray(result) ? 'available' : result.sourceStatus;
 
     let total = 0;
     for (const msg of normalized) {
@@ -782,6 +818,7 @@ export class CodexSessionsProvider implements IProviderSessions {
       offset: normalizedOffset,
       limit: normalizedLimit,
       tokenUsage,
+      sourceStatus,
     };
   }
 }

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { appendFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, mkdtemp, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -315,6 +315,105 @@ test('Codex history incrementally appends complete JSONL records', { concurrency
         content: '/workspace',
         isError: false,
       });
+    });
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('Codex history drops rollouts that exceed the retained cache bound', { concurrency: false }, async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-history-cache-bound-'));
+  const workspacePath = path.join(tempRoot, 'workspace');
+  await mkdir(workspacePath, { recursive: true });
+
+  try {
+    const sessionId = 'codex-cache-bound-history';
+    const transcriptPath = await writeCodexTranscript(tempRoot, sessionId, workspacePath);
+    const firstContent = `first-${'x'.repeat(8 * 1024 * 1024)}`;
+    const replacementContent = `next-${'x'.repeat(8 * 1024 * 1024)}`;
+    await appendFile(transcriptPath, `${JSON.stringify({
+      type: 'event_msg',
+      payload: { type: 'user_message', message: firstContent },
+    })}\n`, 'utf8');
+
+    await withIsolatedDatabase(async () => {
+      sessionsDb.createSession(
+        sessionId,
+        'codex',
+        workspacePath,
+        undefined,
+        undefined,
+        undefined,
+        transcriptPath,
+      );
+      const provider = new CodexSessionsProvider();
+      assert.equal((await provider.fetchHistory(sessionId)).messages[0]?.content, firstContent);
+
+      const beforeReplacement = await stat(transcriptPath);
+      const replacement = [
+        JSON.stringify({ type: 'session_meta', payload: { id: sessionId, cwd: workspacePath } }),
+        JSON.stringify({
+          type: 'event_msg',
+          payload: { type: 'user_message', message: replacementContent },
+        }),
+        '',
+      ].join('\n');
+      await writeFile(transcriptPath, replacement, 'utf8');
+      await utimes(transcriptPath, beforeReplacement.atime, beforeReplacement.mtime);
+
+      assert.equal((await provider.fetchHistory(sessionId)).messages[0]?.content, replacementContent);
+    });
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('Codex history reports a missing transcript source', { concurrency: false }, async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-history-missing-'));
+  const workspacePath = path.join(tempRoot, 'workspace');
+  await mkdir(workspacePath, { recursive: true });
+
+  try {
+    await withIsolatedDatabase(async () => {
+      sessionsDb.createSession(
+        'codex-missing-history',
+        'codex',
+        workspacePath,
+        undefined,
+        undefined,
+        undefined,
+        path.join(tempRoot, 'missing.jsonl'),
+      );
+
+      const history = await new CodexSessionsProvider().fetchHistory('codex-missing-history');
+      assert.equal(history.sourceStatus, 'missing');
+    });
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('Codex history reports malformed transcript sources as unreadable', { concurrency: false }, async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-history-malformed-'));
+  const workspacePath = path.join(tempRoot, 'workspace');
+  const transcriptPath = path.join(tempRoot, 'malformed.jsonl');
+  await mkdir(workspacePath, { recursive: true });
+  await writeFile(transcriptPath, '{not-json}\n', 'utf8');
+
+  try {
+    await withIsolatedDatabase(async () => {
+      sessionsDb.createSession(
+        'codex-malformed-history',
+        'codex',
+        workspacePath,
+        undefined,
+        undefined,
+        undefined,
+        transcriptPath,
+      );
+
+      const history = await new CodexSessionsProvider().fetchHistory('codex-malformed-history');
+      assert.equal(history.sourceStatus, 'unreadable');
     });
   } finally {
     await rm(tempRoot, { recursive: true, force: true });

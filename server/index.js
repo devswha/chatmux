@@ -415,10 +415,20 @@ app.get('/api/projects/:projectId/sessions/:sessionId/token-usage', authenticate
 
         // Handle Codex sessions
         if (provider === 'codex') {
+            if (!sessionRow.provider_session_id || !sessionRow.jsonl_path) {
+                return res.status(404).json({ error: 'Codex transcript not found', sessionId: safeSessionId });
+            }
+
             const history = await sessionsService.fetchHistory(safeSessionId, {
                 limit: 0,
                 offset: 0,
             });
+            if (history.sourceStatus === 'missing') {
+                return res.status(404).json({ error: 'Codex transcript not found', sessionId: safeSessionId });
+            }
+            if (history.sourceStatus === 'unreadable') {
+                return res.status(500).json({ error: 'Failed to read Codex transcript', sessionId: safeSessionId });
+            }
             const tokenUsage = history.tokenUsage && typeof history.tokenUsage === 'object'
                 ? history.tokenUsage
                 : {};
