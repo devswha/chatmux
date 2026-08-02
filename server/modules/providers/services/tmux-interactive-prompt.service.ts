@@ -112,12 +112,14 @@ function normalizeText(value: string): string {
 
 function promptId(input: Omit<TmuxInteractivePrompt, 'id' | 'cancelNumber'>, provider: PromptProvider): string {
   return createHash('sha256')
-    .update('chatmux:tmux-interactive-prompt:v1\0')
+    .update('chatmux:tmux-interactive-prompt:v2\0')
     .update(provider)
     .update('\0')
     .update(input.kind)
     .update('\0')
     .update(normalizeText(input.question))
+    .update('\0')
+    .update(normalizeText(input.body ?? ''))
     .update('\0')
     .update(input.options.map((option) => normalizeText(option.label)).join('\0'))
     .update(input.multiSelect ? '\0multi' : '\0single')
