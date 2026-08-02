@@ -144,6 +144,10 @@
       "sourceAvailable": "目標：{{version}}（main 分支的最新提交）。原始碼更新沒有固定的發行版本。",
       "releaseAvailable": "可使用精確的發行目標{{version}}。"
     },
+    "releaseNotes": {
+      "title": "v{{version}} 新功能",
+      "viewFull": "檢視完整發行說明"
+    },
     "confirm": {
       "message": "伺服器將更新並重新啟動。進行中的網頁工作可能會中斷。"
     },

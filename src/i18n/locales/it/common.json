@@ -144,6 +144,10 @@
       "sourceAvailable": "Destinazione: {{version}} (ultimo commit su main). Gli aggiornamenti del codice sorgente non hanno una versione di rilascio fissa.",
       "releaseAvailable": "È disponibile una destinazione di release esatta{{version}}."
     },
+    "releaseNotes": {
+      "title": "Novità della v{{version}}",
+      "viewFull": "Vedi le note di rilascio complete"
+    },
     "confirm": {
       "message": "Il server verrà aggiornato e riavviato. Il lavoro web attivo potrebbe essere disconnesso."
     },

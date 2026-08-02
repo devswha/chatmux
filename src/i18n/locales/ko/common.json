@@ -149,6 +149,10 @@
       "sourceAvailable": "대상: {{version}} (main 최신 커밋). 소스 업데이트에는 고정된 릴리스 버전이 없습니다.",
       "releaseAvailable": "정확한 릴리스 대상 업데이트를 사용할 수 있습니다{{version}}."
     },
+    "releaseNotes": {
+      "title": "v{{version}}의 새로운 기능",
+      "viewFull": "전체 릴리즈 노트 보기"
+    },
     "confirm": {
       "message": "서버를 업데이트하고 다시 시작합니다. 진행 중인 웹 작업의 연결이 끊길 수 있습니다."
     },

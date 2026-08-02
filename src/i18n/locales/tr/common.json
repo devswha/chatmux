@@ -144,6 +144,10 @@
       "sourceAvailable": "Hedef: {{version}} (main dalındaki en son işleme). Kaynak güncellemelerinin sabit bir sürüm numarası yoktur.",
       "releaseAvailable": "Tam sürüm hedefi{{version}} kullanılabilir."
     },
+    "releaseNotes": {
+      "title": "v{{version}} sürümündeki yenilikler",
+      "viewFull": "Tüm sürüm notlarını görüntüle"
+    },
     "confirm": {
       "message": "Sunucu güncellenecek ve yeniden başlatılacak. Devam eden web çalışmaları kesintiye uğrayabilir."
     },
