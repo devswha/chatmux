@@ -538,7 +538,8 @@ function startWatcherFallbackPass(): void {
   const controller = new AbortController();
   watcherFallbackAbortController = controller;
   const { signal } = controller;
-  const task = (async () => {
+  let task: Promise<void> | null = null;
+  task = (async () => {
     try {
       for (const { provider } of PROVIDER_WATCH_PATHS) {
         if (!fallbackPassIsActive(generation, signal)) return;

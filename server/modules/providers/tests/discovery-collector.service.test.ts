@@ -266,7 +266,7 @@ test('a forced freshness check performs full discovery despite an unchanged host
   let holdProbe = false;
   let releaseProbe = () => {};
   let probeStarted = () => {};
-  let waitForProbe = new Promise<void>((resolve) => { probeStarted = resolve; });
+  const waitForProbe = new Promise<void>((resolve) => { probeStarted = resolve; });
   const collector = createDiscoveryCollector({
     now: () => now,
     scanExternal: async () => {
