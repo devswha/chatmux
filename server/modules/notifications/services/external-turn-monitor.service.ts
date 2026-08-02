@@ -288,6 +288,9 @@ export function createExternalTurnMonitor(deps: MonitorDeps) {
           ...(session ? diagnosticContext(session) : {}),
         });
       }
+      for (const identityKey of readBackoff.keys()) {
+        if (!sessionsByIdentity.has(identityKey)) readBackoff.delete(identityKey);
+      }
       const completeObservations: Array<{ generationTargetId: number; paneEvidenceKey: string }> = [];
       const currentPaneRoster = new Set<string>();
       const replacementGenerationIdsByPane = new Map<string, Set<number>>();

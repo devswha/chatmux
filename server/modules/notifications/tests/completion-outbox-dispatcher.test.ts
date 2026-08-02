@@ -31,6 +31,7 @@ function store(batches: ReturnType<typeof delivery>[][]) {
     claimDue: () => batches.shift() ?? [],
     prepareSend: (id: number, token: string) => { calls.push(['prepare', id, token]); return true; },
     acknowledge: (id: number, token: string, now: number) => { calls.push(['ack', id, token, now]); return true; },
+    sentUnacknowledged: (id: number, token: string) => { calls.push(['sent-unacknowledged', id, token]); return true; },
     endpointGone: (id: number, token: string, now: number) => { calls.push(['gone', id, token, now]); return true; },
     permanentFailure: (id: number, token: string, errorClass: string) => { calls.push(['permanent', id, token, errorClass]); return true; },
     retry: (id: number, token: string, due: number, errorClass: string) => { calls.push(['retry', id, token, due, errorClass]); return true; },
@@ -161,6 +162,7 @@ test('dispatcher preserves a terminal acknowledgement conflict without resending
   assert.equal(outbox.calls.filter(([name]) => name === 'ack').length, 3);
   assert.equal(outbox.calls.filter(([name]) => name === 'retry').length, 0);
   assert.equal(errors.length, 1);
+  assert.equal(outbox.calls.filter(([name]) => name === 'sent-unacknowledged').length, 1);
 });
 
 test('dispatcher acknowledges a send that resolves while stop is waiting', async () => {

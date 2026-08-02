@@ -6,7 +6,7 @@ import {
 
 type ClaimedCompletionDelivery = ReturnType<typeof completionNotificationOutboxDb.claimDue>[number];
 type CompletionOutboxStore = Pick<typeof completionNotificationOutboxDb,
-  'claimDue' | 'prepareSend' | 'acknowledge' | 'endpointGone' | 'permanentFailure' | 'retry'>;
+  'claimDue' | 'prepareSend' | 'acknowledge' | 'sentUnacknowledged' | 'endpointGone' | 'permanentFailure' | 'retry'>;
 type PushSender = (subscription: { endpoint: string; keys: { p256dh: string; auth: string } }, payload: string) => Promise<void>;
 const require = createRequire(import.meta.url);
 const webPush = require('web-push') as { sendNotification: PushSender };
@@ -99,8 +99,9 @@ export function createCompletionOutboxDispatcher({
         acknowledgementError = error;
       }
     }
-    // Transport already succeeded. Retry acknowledgement only within this
-    // bounded drain; never re-send this delivery after an acknowledgement fault.
+    // The push has reached its provider. Persist a terminal outcome rather
+    // than leaving an expired claim eligible for a second send.
+    outbox.sentUnacknowledged(delivery.id, delivery.claimToken);
     if (acknowledgementError !== undefined) {
       logError('[Completion Outbox] Acknowledgement error:', acknowledgementError);
     }

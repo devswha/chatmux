@@ -66,6 +66,32 @@ test('disappearance and manual interruption silently retire cursors without a fi
   assert.equal(h.notices.length, 0); assert.equal(h.monitor.cursorCount(), 0);
 });
 
+test('retiring a session clears its per-session diagnostic throttle', async () => {
+  let present = true;
+  const diagnostics: Array<{ code: string; count: number }> = [];
+  const monitor = createLiveTurnMonitor({
+    getUserId: () => 1,
+    getDetailed: async () => ({
+      ok: true,
+      sessions: present ? [{ id: 's1', tmuxName: 'pane', claim: 'lineage' as const }] : [],
+      transcriptPaths: present ? new Map([['s1', '/tmp/s1']]) : new Map<string, string>(),
+    }),
+    statSize: async () => { throw new Error('unavailable'); },
+    notify: async () => {},
+    diagnostic: (event) => { diagnostics.push(event); },
+  });
+
+  await monitor.tick();
+  present = false;
+  await monitor.tick();
+  present = true;
+  await monitor.tick();
+  assert.deepEqual(diagnostics.map(({ code, count }) => ({ code, count })), [
+    { code: 'transcript_unavailable', count: 1 },
+    { code: 'transcript_unavailable', count: 2 },
+  ]);
+});
+
 test('omits cwd, idle, and transcript-pathless rows', async () => {
   const h = harness();
   h.rows([{ id: 'cwd', tmuxName: 'pane', claim: 'cwd' }, { id: 'idle-gjc:1', tmuxName: 'pane', claim: 'lineage' }, { id: 'no-path', tmuxName: 'pane', claim: 'lineage' }]);

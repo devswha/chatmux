@@ -51,6 +51,11 @@ export function startEventDrivenMonitorLoop<Event>({
     void drain();
   };
 
+  const requestFallbackTick = (): void => {
+    if (running) return;
+    requestTick();
+  };
+
   const unsubscribe = subscribe((event) => {
     if (stopped || !accepts(event)) return;
     if (!eventBurstActive) {
@@ -66,7 +71,7 @@ export function startEventDrivenMonitorLoop<Event>({
     quietTimer.unref?.();
   });
 
-  const fallbackTimer = setInterval(requestTick, fallbackMs);
+  const fallbackTimer = setInterval(requestFallbackTick, fallbackMs);
   fallbackTimer.unref?.();
   requestTick();
 

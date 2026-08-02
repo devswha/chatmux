@@ -260,6 +260,52 @@ test('collector shares one fresh detailed scan with UI and notification consumer
   assert.equal(externalScans, 2);
 });
 
+test('a forced freshness check performs full discovery despite an unchanged host fingerprint', async () => {
+  let now = 1_000;
+  let externalScans = 0;
+  let holdProbe = false;
+  let releaseProbe = () => {};
+  let probeStarted = () => {};
+  let waitForProbe = new Promise<void>((resolve) => { probeStarted = resolve; });
+  const collector = createDiscoveryCollector({
+    now: () => now,
+    scanExternal: async () => {
+      externalScans += 1;
+      return { ok: true, sessions: [external] };
+    },
+    scanLive: async () => ({ ok: true, sessions: [] }),
+    scanHost: async () => {
+      if (holdProbe) {
+        probeStarted();
+        await new Promise<void>((resolve) => { releaseProbe = resolve; });
+      }
+      return {
+        ok: true,
+        capturedAtMs: now,
+        panes: [{ name: external.tmuxName, tmux, pid: external.agentPid, command: 'ssh' }],
+      };
+    },
+    isProcessAlive: async () => true,
+  });
+
+  await collector.tick();
+  now += 1;
+  await collector.ensureFresh(0);
+  assert.equal(externalScans, 2);
+  now += 1;
+  await collector.ensureFresh(2_000, true);
+  assert.equal(externalScans, 3);
+
+  holdProbe = true;
+  now += 1;
+  const nonForcedTick = collector.ensureFresh(0);
+  await waitForProbe;
+  const forcedTick = collector.ensureFresh(2_000, true);
+  releaseProbe();
+  await Promise.all([nonForcedTick, forcedTick]);
+  assert.equal(externalScans, 4, 'a forced caller waits for a full tick after an in-flight probe');
+});
+
 test('stable one-second host probes skip full discovery until panes change or stale rows need confirmation', async () => {
   let now = 1_000;
   let externalScans = 0;

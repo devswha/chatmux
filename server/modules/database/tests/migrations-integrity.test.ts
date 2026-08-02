@@ -242,7 +242,7 @@ const fxFixtures: Array<{ id: string; seed: (db: Database.Database) => void; ver
       runMigrations(db);
     },
     verify: (db) => {
-      assert.deepEqual(migrationVersions(db), Array.from({ length: 15 }, (_, index) => index + 1));
+      assert.deepEqual(migrationVersions(db), Array.from({ length: 16 }, (_, index) => index + 1));
       assert.equal(
         get<Row>(db, "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'api_keys'"),
         undefined,
@@ -252,6 +252,10 @@ const fxFixtures: Array<{ id: string; seed: (db: Database.Database) => void; ver
         undefined,
       );
       assert.ok(get<Row>(db, "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_sessions_provider_session_id'"));
+      assert.match(
+        get<{ sql: string }>(db, "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'idx_completion_notification_outbox_decision_key'")!.sql,
+        /ON completion_notification_outbox\s*\(decision_key, user_id, id\)/,
+      );
       assert.deepEqual(
         all<TableInfoRow>(
           db,
@@ -465,13 +469,31 @@ test('replays a complete pre-journal database without changing data, schema, or 
 
     runMigrations(db);
     assert.deepEqual(snapshot(), beforeReplay);
-    assert.deepEqual(migrationVersions(db), Array.from({ length: 15 }, (_, index) => index + 1));
+    assert.deepEqual(migrationVersions(db), Array.from({ length: 16 }, (_, index) => index + 1));
 
     const afterReplay = snapshot();
     runMigrations(db);
     assert.deepEqual(snapshot(), afterReplay);
-    assert.deepEqual(migrationVersions(db), Array.from({ length: 15 }, (_, index) => index + 1));
+    assert.deepEqual(migrationVersions(db), Array.from({ length: 16 }, (_, index) => index + 1));
     assertForeignKeysValid(db);
+
+  } finally {
+    db.close();
+  }
+});
+test('migration 16 adds the decision-key-leading outbox index to existing databases', () => {
+  const db = createLegacyDatabase();
+  try {
+    runMigrations(db);
+    db.exec(`DROP INDEX idx_completion_notification_outbox_decision_key;
+      DELETE FROM schema_migrations WHERE version = 16`);
+
+    runMigrations(db);
+    assert.match(
+      get<{ sql: string }>(db,
+        "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'idx_completion_notification_outbox_decision_key'")!.sql,
+      /ON completion_notification_outbox\s*\(decision_key, user_id, id\)/,
+    );
   } finally {
     db.close();
   }
