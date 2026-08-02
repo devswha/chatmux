@@ -11,12 +11,20 @@ import type {
 import { completionTargetResolver } from './completion-target-resolver.service.js';
 import { notifyInputRequired } from './notification-orchestrator.service.js';
 
+/** Screen-derived INPUT notifications follow the live monitor kill switch. */
+export function tmuxInputNotificationsEnabled(): boolean {
+  return process.env.CHATMUX_LIVE_NOTIFY !== '0';
+}
+
 /**
  * Routes a tmux screen RUN -> INPUT edge through the same durable target used
- * by the session bell. Transcript monitors may report the same edge; the
- * notification orchestrator's short dedupe window collapses both producers.
+ * by the session bell.
  */
-export function notifyTmuxInputRequiredIfWatched(target: TmuxOutputActivityTarget): void {
+export function notifyTmuxInputRequiredIfWatched(
+  target: TmuxOutputActivityTarget,
+  occurrenceKey: string,
+): void {
+  if (!tmuxInputNotificationsEnabled()) return;
   let userId: number | null;
   try {
     userId = userDb.getFirstUser()?.id ?? null;
@@ -38,6 +46,7 @@ export function notifyTmuxInputRequiredIfWatched(target: TmuxOutputActivityTarge
       provider: 'gjc',
       sessionId: target.providerSessionId,
       sessionName: target.tmuxName,
+      occurrenceKey,
     });
     return;
   }
@@ -62,5 +71,6 @@ export function notifyTmuxInputRequiredIfWatched(target: TmuxOutputActivityTarge
     provider: target.kind,
     sessionId: resolution.appSessionId ?? resolution.target.alias,
     sessionName: target.tmuxName,
+    occurrenceKey,
   });
 }

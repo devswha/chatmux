@@ -32,6 +32,7 @@ const PROVIDER_LABELS = {
 
 const recentEventKeys = new Map();
 const DEDUPE_WINDOW_MS = 20000;
+const seenInputOccurrences = new Set();
 
 const cleanupOldEventKeys = () => {
   const now = Date.now();
@@ -50,12 +51,19 @@ function isNotificationEventEnabled(preferences, event) {
 }
 
 function hasDuplicate(event) {
+  if (event.code === 'input.required') {
+    return Boolean(event.inputOccurrenceKey) && seenInputOccurrences.has(event.inputOccurrenceKey);
+  }
   cleanupOldEventKeys();
   const key = event.dedupeKey || `${event.provider}:${event.kind || 'info'}:${event.code || 'generic'}:${event.sessionId || 'none'}`;
   return recentEventKeys.has(key);
 }
 
 function rememberDuplicate(event) {
+  if (event.code === 'input.required') {
+    if (event.inputOccurrenceKey) seenInputOccurrences.add(event.inputOccurrenceKey);
+    return;
+  }
   const key = event.dedupeKey || `${event.provider}:${event.kind || 'info'}:${event.code || 'generic'}:${event.sessionId || 'none'}`;
   recentEventKeys.set(key, Date.now());
 }
@@ -74,7 +82,8 @@ function createNotificationEvent({
   meta = {},
   severity = 'info',
   dedupeKey = null,
-  requiresUserAction = false
+  requiresUserAction = false,
+  inputOccurrenceKey = null,
 }) {
   return {
     provider,
@@ -85,6 +94,7 @@ function createNotificationEvent({
     severity,
     requiresUserAction,
     dedupeKey,
+    inputOccurrenceKey,
     createdAt: new Date().toISOString()
   };
 }
@@ -372,9 +382,15 @@ function notifyRunFailed({ userId, provider, sessionId = null, error, sessionNam
  * producer because external generations and app sessions use different
  * durable target identities.
  *
- * @param {{ userId: number, provider: string, sessionId?: string | null, sessionName?: string | null }} args
+ * @param {{ userId: number, provider: string, sessionId?: string | null, sessionName?: string | null, occurrenceKey?: string | null }} args
  */
-function notifyInputRequired({ userId, provider, sessionId = null, sessionName = null }) {
+function notifyInputRequired({
+  userId,
+  provider,
+  sessionId = null,
+  sessionName = null,
+  occurrenceKey = null,
+}) {
   notifyUserIfEnabled({
     userId,
     event: createNotificationEvent({
@@ -385,6 +401,7 @@ function notifyInputRequired({ userId, provider, sessionId = null, sessionName =
       meta: { sessionName },
       severity: 'warning',
       requiresUserAction: true,
+      inputOccurrenceKey: occurrenceKey,
     }),
   });
 }

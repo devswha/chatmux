@@ -136,7 +136,9 @@ const server = http.createServer(app);
 const discoveryCollector = createDiscoveryCollector();
 app.locals.discoveryCollector = discoveryCollector;
 const tmuxOutputActivityMonitor = createTmuxOutputActivityMonitor(discoveryCollector, {
-    onInputRequired: notifyTmuxInputRequiredIfWatched,
+    onInputRequired: process.env.CHATMUX_LIVE_NOTIFY === '0'
+        ? undefined
+        : notifyTmuxInputRequiredIfWatched,
 });
 tmuxOutputActivityMonitor.start();
 const stopTranscriptDiscoveryRefresh = onTranscriptChanged(() => {

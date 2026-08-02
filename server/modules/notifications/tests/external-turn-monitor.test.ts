@@ -116,16 +116,21 @@ test('notifies once for each watched RUN to INPUT transition', async () => {
   h.setAnswer(resolved('asking_user', 'none', 'input-1')); await h.monitor.tick();
   await h.monitor.tick();
   assert.equal(h.actions.length, 1, 'the same prompt is not repeated');
-  assert.deepEqual(h.actions[0], {
-    userId: 1,
-    provider: 'claude',
-    sessionId: 'target',
-    tmuxName: 'pane',
-  });
+  assert.deepEqual(
+    { ...h.actions[0], occurrenceKey: typeof h.actions[0]?.occurrenceKey },
+    {
+      userId: 1,
+      provider: 'claude',
+      sessionId: 'target',
+      tmuxName: 'pane',
+      occurrenceKey: 'string',
+    },
+  );
 
   h.setAnswer(resolved('running', 'none', 'run-2')); await h.monitor.tick();
   h.setAnswer(resolved('asking_user', 'none', 'input-2')); await h.monitor.tick();
   assert.equal(h.actions.length, 2, 'a later RUN to INPUT transition notifies again');
+  assert.notEqual(h.actions[0]?.occurrenceKey, h.actions[1]?.occurrenceKey);
 });
 
 test('does not notify for an unwatched RUN to INPUT transition', async () => {

@@ -16,6 +16,7 @@ import {
   IDLE_GJC_ID_PREFIX,
   onTranscriptChanged,
   type LiveGjcSessionsDetailedResult,
+  observeTmuxInputActivity,
 } from '@/modules/providers/index.js';
 
 import {
@@ -102,6 +103,7 @@ type MonitorDeps = {
     userId: number;
     sessionId: string;
     tmuxName: string | null;
+    occurrenceKey: string;
   }) => unknown;
   getUserId: () => number | null;
   readDelta?: (path: string, start: number, end: number) => Promise<string | Buffer>;
@@ -193,10 +195,15 @@ export function createLiveTurnMonitor(deps: MonitorDeps) {
               ));
             if (asksForInput) {
               try {
+                const fallbackOccurrenceKey = `gjc:${sessionId}:${byteEnd}:${createHash('sha256').update(line).digest('hex')}`;
                 await deps.notifyActionRequired?.({
                   userId,
                   sessionId,
                   tmuxName: cursor.tmuxName,
+                  occurrenceKey: observeTmuxInputActivity({
+                    provider: 'gjc',
+                    providerSessionId: sessionId,
+                  }, 'transcript', true) ?? fallbackOccurrenceKey,
                 });
               } catch {
                 cursor.offset = lineStart;
@@ -335,7 +342,7 @@ export function startLiveTurnMonitor(
         error: 'GJC turn ended with an error',
       });
     },
-    notifyActionRequired: ({ userId, sessionId, tmuxName }) => {
+    notifyActionRequired: ({ userId, sessionId, tmuxName, occurrenceKey }) => {
       const alias = completionAppAlias({ provider: 'gjc', sessionId });
       const target = completionNotificationTargetsDb.resolveAlias(alias);
       if (!target || !completionNotificationTargetsDb.getWatch(userId, target.id)) return;
@@ -344,6 +351,7 @@ export function startLiveTurnMonitor(
         provider: 'gjc',
         sessionId,
         sessionName: tmuxName,
+        occurrenceKey,
       });
     },
     getUserId: () => {

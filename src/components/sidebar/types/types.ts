@@ -65,6 +65,8 @@ export type CompletionNotificationDescriptorStatus = {
   globalPaused: boolean;
   pending: boolean;
   error: CompletionNotificationReason | null;
+  /** A passive check found a subscription registered with an obsolete VAPID key. */
+  deviceRepairRequired?: boolean;
 };
 
 export type CompletionNotificationsHookApi = {

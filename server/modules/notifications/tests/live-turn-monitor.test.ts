@@ -51,10 +51,15 @@ test('monitor baselines old prompts and emits one action event for each appended
   h.append(`${askLine()}\n`);
   await h.monitor.tick();
   await h.monitor.tick();
-  assert.deepEqual(h.actionNotices, [{ userId: 1, sessionId: 's1', tmuxName: 'pane' }]);
+  assert.deepEqual(
+    { ...h.actionNotices[0], occurrenceKey: typeof h.actionNotices[0]?.occurrenceKey },
+    { userId: 1, sessionId: 's1', tmuxName: 'pane', occurrenceKey: 'string' },
+  );
+  assert.match(h.actionNotices[0]?.occurrenceKey ?? '', /^gjc:s1:\d+:[a-f0-9]{64}$/);
 
   h.append(`${line()}\n${askLine()}\n`);
   await h.monitor.tick();
+  assert.notEqual(h.actionNotices[0]?.occurrenceKey, h.actionNotices[1]?.occurrenceKey);
   assert.equal(h.actionNotices.length, 2);
 });
 
