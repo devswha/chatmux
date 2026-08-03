@@ -128,6 +128,48 @@ test('pending single-select choices become buttons only when a choice handler is
   assert.ok(!multiSelect.includes('Cancel (0)'));
 });
 
+test('pending multi-select choices become toggle buttons with submit and cancel when a submit handler is provided', () => {
+  const withSubmit = renderToStaticMarkup(
+    React.createElement(QuestionAnswerContent, {
+      questions: [{ question: 'Pick many?', options: [{ label: 'A' }, { label: 'B' }], multiSelect: true }],
+      answers: {},
+      pending: true,
+      onSubmitChoices: () => {},
+    }),
+  );
+  // Option rows are tappable toggles; the footer offers submit (disabled at 0 picks) and cancel.
+  assert.ok((withSubmit.match(/<button type="button"/g) ?? []).length >= 2);
+  assert.ok(withSubmit.includes('Cancel (0)'));
+  assert.ok(withSubmit.includes('Submit ('));
+  assert.ok(withSubmit.includes('disabled=""'));
+
+  const withCheckedChoice = renderToStaticMarkup(
+    React.createElement(QuestionAnswerContent, {
+      questions: [{ question: 'Pick many?', options: [{ label: 'A' }, { label: 'B' }], multiSelect: true }],
+      answers: {},
+      pending: true,
+      initialChoiceNumbers: [2],
+      onSubmitChoices: () => {},
+    }),
+  );
+  assert.ok(withCheckedChoice.includes('aria-pressed="true"'));
+  assert.ok(!withCheckedChoice.includes('disabled=""'));
+
+  // Two questions cannot share one choice-number submission: tap mode stays off.
+  const twoQuestions = renderToStaticMarkup(
+    React.createElement(QuestionAnswerContent, {
+      questions: [
+        { question: 'Pick many?', options: [{ label: 'A' }], multiSelect: true },
+        { question: 'And more?', options: [{ label: 'B' }], multiSelect: true },
+      ],
+      answers: {},
+      pending: true,
+      onSubmitChoices: () => {},
+    }),
+  );
+  assert.ok(!twoQuestions.includes('Submit ('));
+});
+
 test('a provider-native custom option does not add a second direct-input row', () => {
   const html = renderToStaticMarkup(
     React.createElement(QuestionAnswerContent, {

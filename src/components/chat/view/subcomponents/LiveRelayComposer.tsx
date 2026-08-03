@@ -50,6 +50,7 @@ type InteractivePrompt = {
   body: string | null;
   options: Array<{ label: string; description?: string }>;
   multiSelect: boolean;
+  checkedChoiceNumbers?: number[];
   customOptionNumber: number | null;
   cancelNumber: 0;
 };
@@ -578,23 +579,6 @@ export default function LiveRelayComposer({
           });
           return;
         }
-        // The server intentionally rejects Claude multi-select toggling until
-        // the real key sequence is verified (TMUX_INTERACTIVE_CHOICE_UNSUPPORTED);
-        // only cancel (0) is deliverable. Surface that up front instead of
-        // letting every submission round-trip into a 400.
-        if (
-          relayKind === 'claude'
-          && interactivePrompt?.multiSelect
-          && !(interactiveNumbers.length === 1 && interactiveNumbers[0] === 0)
-        ) {
-          setStatus({
-            kind: 'error',
-            text: t('relay.claudeMultiSelectUnsupported', {
-              defaultValue: 'Claude multi-select answers must be made in the terminal. Enter 0 to cancel the prompt.',
-            }),
-          });
-          return;
-        }
       }
       if (interactivePrompt && isAwaitingInteractiveCustom) {
         response = relayKind === 'gjc'
@@ -882,6 +866,7 @@ export default function LiveRelayComposer({
               </pre>
             )}
             <QuestionAnswerContent
+              key={`${interactivePrompt.id}:${(interactivePrompt.checkedChoiceNumbers ?? []).join(',')}`}
               questions={[{
                 header: interactivePrompt.title,
                 question: interactivePrompt.question,
@@ -892,9 +877,13 @@ export default function LiveRelayComposer({
               pending
               allowDirectInput={interactivePrompt.customOptionNumber !== null}
               directInputNumber={interactivePrompt.customOptionNumber ?? undefined}
+              initialChoiceNumbers={interactivePrompt.checkedChoiceNumbers}
               onSelectChoice={interactivePrompt.multiSelect
                 ? undefined
                 : (choiceNumber) => { void send(String(choiceNumber)); }}
+              onSubmitChoices={interactivePrompt.multiSelect
+                ? (choiceNumbers) => { void send(choiceNumbers.join(',')); }
+                : undefined}
             />
           </div>
         )}

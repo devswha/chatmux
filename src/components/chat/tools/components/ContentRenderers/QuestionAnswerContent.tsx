@@ -10,11 +10,18 @@ interface QuestionAnswerContentProps {
   pending?: boolean;
   allowDirectInput?: boolean;
   directInputNumber?: number;
+  initialChoiceNumbers?: readonly number[];
   /**
    * When set (pending, single-select only), option and direct-input rows
    * become tap targets that submit the displayed choice number directly.
    */
   onSelectChoice?: (choiceNumber: number) => void;
+  /**
+   * When set (pending, multi-select only), option rows become tap targets
+   * that toggle a local selection, submitted via the Submit button.
+   * Cancel submits [0].
+   */
+  onSubmitChoices?: (choiceNumbers: number[]) => void;
 }
 
 // Exception to the stateless ContentRenderer pattern: multi-question navigation requires local state.
@@ -25,10 +32,27 @@ export const QuestionAnswerContent: React.FC<QuestionAnswerContentProps> = ({
   pending = false,
   allowDirectInput = true,
   directInputNumber,
+  initialChoiceNumbers = [],
   onSelectChoice,
+  onSubmitChoices,
 }) => {
   const { t } = useTranslation('chat');
   const [expandedIdx, setExpandedIdx] = useState<number | null>(pending ? 0 : null);
+  // Relay prompts report currently checked terminal options as one-based choices.
+  const [picked, setPicked] = useState<ReadonlyMap<number, ReadonlySet<number>>>(() =>
+    new Map([[0, new Set(initialChoiceNumbers)]])
+  );
+
+  const togglePicked = (questionIdx: number, choiceNumber: number) => {
+    setPicked((current) => {
+      const next = new Map(current);
+      const choices = new Set(next.get(questionIdx) ?? []);
+      if (choices.has(choiceNumber)) choices.delete(choiceNumber);
+      else choices.add(choiceNumber);
+      next.set(questionIdx, choices);
+      return next;
+    });
+  };
 
   useEffect(() => {
     if (pending) setExpandedIdx((current) => current ?? 0);
@@ -146,23 +170,27 @@ export const QuestionAnswerContent: React.FC<QuestionAnswerContentProps> = ({
               <div className="border-t border-gray-100 px-3 pb-2.5 pt-0.5 dark:border-gray-700/40">
                 <div className="ml-6.5 space-y-1">
                   {options.map((opt, optionIndex) => {
-                    const wasSelected = answerLabels.includes(opt.label);
+                    const multiTap = pending && q.multiSelect === true && total === 1 && Boolean(onSubmitChoices);
+                    const isPicked = multiTap && (picked.get(idx)?.has(optionIndex + 1) ?? false);
+                    const wasSelected = answerLabels.includes(opt.label) || isPicked;
                     const clickable = pending && !q.multiSelect && Boolean(onSelectChoice);
-                    const RowTag = clickable ? 'button' : 'div';
+                    const RowTag = clickable || multiTap ? 'button' : 'div';
                     return (
                       <RowTag
                         key={opt.label}
                         {...(clickable
                           ? { type: 'button' as const, onClick: () => onSelectChoice?.(optionIndex + 1) }
-                          : {})}
+                          : multiTap
+                            ? { type: 'button' as const, 'aria-pressed': isPicked, onClick: () => togglePicked(idx, optionIndex + 1) }
+                            : {})}
                         className={`flex items-start gap-2 rounded-lg px-2.5 py-1.5 text-[12px] ${
-                          clickable
+                          clickable || multiTap
                             ? 'w-full cursor-pointer text-left text-gray-600 transition-colors hover:bg-blue-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-blue-900/20 dark:hover:text-gray-100'
                             : ''
                         } ${
                           wasSelected
                             ? 'border border-blue-200/60 bg-blue-50/80 dark:border-blue-800/40 dark:bg-blue-900/20'
-                            : clickable ? '' : 'text-gray-400 dark:text-gray-500'
+                            : clickable || multiTap ? '' : 'text-gray-400 dark:text-gray-500'
                         }`}
                       >
                         {pending && (
@@ -254,9 +282,13 @@ export const QuestionAnswerContent: React.FC<QuestionAnswerContentProps> = ({
         <div className="flex items-center justify-between gap-2 rounded-md bg-blue-50 px-2.5 py-1.5 text-[11px] text-blue-700 dark:bg-blue-950/30 dark:text-blue-300">
           <span>
           {questions.some((question) => question?.multiSelect)
-            ? t('interactive.multiNumberInstruction', {
-                defaultValue: 'Send one or more numbers separated by commas · 0: cancel',
-              })
+            ? onSubmitChoices && total === 1
+              ? t('interactive.multiTapInstruction', {
+                  defaultValue: 'Tap options to toggle, then submit · 0: cancel',
+                })
+              : t('interactive.multiNumberInstruction', {
+                  defaultValue: 'Send one or more numbers separated by commas · 0: cancel',
+                })
             : allowDirectInput
               ? directInputNumber !== undefined
                 ? t('interactive.numberInstructionWithCustomNumber', {
@@ -278,6 +310,31 @@ export const QuestionAnswerContent: React.FC<QuestionAnswerContentProps> = ({
             >
               {t('interactive.cancelChoice', { defaultValue: 'Cancel (0)' })}
             </button>
+          )}
+          {onSubmitChoices && total === 1 && questions[0]?.multiSelect && (
+            <span className="flex flex-shrink-0 items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => onSubmitChoices([0])}
+                className="cursor-pointer rounded border border-blue-200/80 px-1.5 py-0.5 font-medium transition-colors hover:bg-blue-100 dark:border-blue-800/60 dark:hover:bg-blue-900/40"
+              >
+                {t('interactive.cancelChoice', { defaultValue: 'Cancel (0)' })}
+              </button>
+              <button
+                type="button"
+                disabled={(picked.get(0)?.size ?? 0) === 0}
+                onClick={() => {
+                  const choices = [...(picked.get(0) ?? [])].sort((a, b) => a - b);
+                  if (choices.length > 0) onSubmitChoices(choices);
+                }}
+                className="cursor-pointer rounded border border-blue-500 bg-blue-600 px-2 py-0.5 font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-default disabled:border-blue-200/80 disabled:bg-transparent disabled:text-blue-300 dark:disabled:border-blue-800/60 dark:disabled:text-blue-800"
+              >
+                {t('interactive.submitChoices', {
+                  count: picked.get(0)?.size ?? 0,
+                  defaultValue: 'Submit ({{count}})',
+                })}
+              </button>
+            </span>
           )}
         </div>
       )}

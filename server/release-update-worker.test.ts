@@ -95,14 +95,14 @@ const tarListing = [
 ].join('\n');
 
 async function releaseTree(directory: string, version: string, compatibility = ['1.0.0']): Promise<void> {
-  await fs.mkdir(path.join(directory, 'scripts'), { recursive: true });
-  await fs.mkdir(path.join(directory, 'dist-server', 'server'), { recursive: true });
-  await fs.writeFile(path.join(directory, 'package.json'), JSON.stringify({ version }));
+  await fs.mkdir(path.join(directory, 'scripts'), { recursive: true, mode: 0o755 });
+  await fs.mkdir(path.join(directory, 'dist-server', 'server'), { recursive: true, mode: 0o755 });
+  await fs.writeFile(path.join(directory, 'package.json'), JSON.stringify({ version }), { mode: 0o644 });
   await fs.writeFile(path.join(directory, 'release-update-metadata.json'), JSON.stringify({
     schema: 1, updaterProtocol: 1, version, compatibility: { database: { rollbackCompatibleFrom: compatibility } },
-  }));
-  await fs.writeFile(path.join(directory, 'scripts', 'chatmux-runtime.mjs'), '');
-  await fs.writeFile(path.join(directory, 'dist-server', 'server', 'release-update-worker.js'), '');
+  }), { mode: 0o644 });
+  await fs.writeFile(path.join(directory, 'scripts', 'chatmux-runtime.mjs'), '', { mode: 0o644 });
+  await fs.writeFile(path.join(directory, 'dist-server', 'server', 'release-update-worker.js'), '', { mode: 0o644 });
 }
 
 async function workerFixture(options: {

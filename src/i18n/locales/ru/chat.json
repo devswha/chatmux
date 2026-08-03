@@ -61,7 +61,10 @@
     "numberInstruction": "Отправьте отображаемый номер в чат. Последний номер: свой вариант · 0: отмена",
     "numberInstructionWithCustomNumber": "Отправьте отображаемый номер в чат · {{number}}: свой вариант · 0: отмена",
     "numberInstructionNoCustom": "Отправьте отображаемый номер в чат · 0: отмена",
-    "multiNumberInstruction": "Отправьте один или несколько номеров через запятую · 0: отмена"
+    "multiNumberInstruction": "Отправьте один или несколько номеров через запятую · 0: отмена",
+    "cancelChoice": "Отмена (0)",
+    "multiTapInstruction": "Нажимайте на варианты для переключения, затем отправьте · 0: отмена",
+    "submitChoices": "Отправить ({{count}})"
   },
   "thinking": {
     "title": "Думаю...",
@@ -236,12 +239,11 @@
     "sendFailed": "Не удалось отправить",
     "selectionNumberRequired": "Введите отображаемый номер (0-{{max}}).",
     "multiSelectionNumberRequired": "Введите один или несколько отображаемых номеров через запятую.",
-    "claudeMultiSelectUnsupported": "Множественный выбор Claude нужно выполнять в терминале. Введите 0, чтобы отменить запрос.",
+    "customInputPlaceholder": "Введите свой ответ…",
     "customInputReady": "Введите свой ответ.",
     "selectionDelivered": "Выбор отправлен.",
     "selectionPlaceholder": "Введите номер варианта (0-{{max}})…",
-    "multiSelectionPlaceholder": "Введите номера вариантов через запятую…",
-    "customInputPlaceholder": "Введите свой ответ…"
+    "multiSelectionPlaceholder": "Введите номера вариантов через запятую…"
   },
   "transcript": {
     "conversationTab": "Чат",

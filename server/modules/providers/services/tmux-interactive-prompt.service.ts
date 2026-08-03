@@ -48,6 +48,7 @@ export type TmuxInteractivePrompt = {
   body: string | null;
   options: TmuxInteractivePromptOption[];
   multiSelect: boolean;
+  checkedChoiceNumbers?: number[];
   customOptionNumber: number | null;
   cancelNumber: 0;
 };
@@ -150,6 +151,7 @@ function publicPrompt(prompt: ParsedPrompt): TmuxInteractivePrompt {
     body: prompt.body,
     options: prompt.options,
     multiSelect: prompt.multiSelect,
+    checkedChoiceNumbers: prompt.checkedOptionIndices.map((index) => index + 1),
     customOptionNumber: prompt.customOptionNumber,
     cancelNumber: 0,
   };

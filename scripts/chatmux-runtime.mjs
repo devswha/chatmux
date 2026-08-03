@@ -51,7 +51,19 @@ export async function runChatmuxRuntime({
   await cli.runChatmuxCli(cliArgs);
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+function isMainEntry(argvPath) {
+  if (!argvPath) return false;
+  const resolvedArgv = path.resolve(argvPath);
+  const modulePath = fileURLToPath(import.meta.url);
+  if (resolvedArgv === modulePath) return true;
+  try {
+    return fs.realpathSync(resolvedArgv) === fs.realpathSync(modulePath);
+  } catch {
+    return false;
+  }
+}
+
+if (isMainEntry(process.argv[1])) {
   runChatmuxRuntime().catch((error) => {
     console.error(error.message);
     process.exit(1);

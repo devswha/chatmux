@@ -61,7 +61,10 @@
     "numberInstruction": "채팅으로 표시된 번호를 보내세요. 마지막 번호: 직접 입력 · 0: 취소",
     "numberInstructionWithCustomNumber": "채팅으로 표시된 번호를 보내세요 · {{number}}: 직접 입력 · 0: 취소",
     "numberInstructionNoCustom": "채팅으로 표시된 번호를 보내세요 · 0: 취소",
-    "multiNumberInstruction": "쉼표로 구분한 번호를 하나 이상 보내세요 · 0: 취소"
+    "multiNumberInstruction": "쉼표로 구분한 번호를 하나 이상 보내세요 · 0: 취소",
+    "cancelChoice": "취소 (0)",
+    "multiTapInstruction": "옵션을 탭해 선택한 뒤 제출하세요 · 0: 취소",
+    "submitChoices": "제출 ({{count}})"
   },
   "thinking": {
     "title": "생각 중...",
@@ -237,12 +240,11 @@
     "sendFailed": "전송 실패",
     "selectionNumberRequired": "표시된 번호를 입력하세요 (0-{{max}}).",
     "multiSelectionNumberRequired": "쉼표로 구분한 표시 번호를 하나 이상 입력하세요.",
-    "claudeMultiSelectUnsupported": "Claude 다중 선택은 터미널에서 직접 답해야 합니다. 0을 입력하면 프롬프트를 취소합니다.",
+    "customInputPlaceholder": "직접 입력할 답변 작성…",
     "customInputReady": "직접 입력할 답변을 작성하세요.",
     "selectionDelivered": "선택을 전달했습니다.",
     "selectionPlaceholder": "선택 번호 입력 (0-{{max}})…",
-    "multiSelectionPlaceholder": "쉼표로 구분한 선택 번호 입력…",
-    "customInputPlaceholder": "직접 입력할 답변 작성…"
+    "multiSelectionPlaceholder": "쉼표로 구분한 선택 번호 입력…"
   },
   "readOnly": {
     "banner": "tmux의 gjc에서 작동 중 — 열람 전용입니다. 실시간으로 갱신되며, 조작은 tmux 쪽에서 하세요."

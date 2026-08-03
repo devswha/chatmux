@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   answerTmuxInteractivePrompt,
+  getTmuxInteractivePrompt,
   parseTmuxInteractivePrompt,
 } from '@/modules/providers/services/tmux-interactive-prompt.service.js';
 import type { TmuxRunner } from '@/modules/providers/services/builtin-relay.service.js';
@@ -200,6 +201,37 @@ Enter to select · ↑/↓ to navigate · Esc to cancel
   assert.equal(prompt?.kind, 'question');
   assert.equal(prompt?.multiSelect, true);
   assert.deepEqual(prompt?.options.map((option) => option.label), ['Lint', 'Tests', 'Build']);
+});
+
+test('public multi-select prompts expose currently checked choices as one-based numbers', async () => {
+  const screen = `
+☐ Checks
+
+Which checks should run?
+
+❯ 1. [ ] Lint
+  2. [x] Tests
+  3. [ ] Build
+  4. Type something.
+────────────────────────────
+  5. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel
+`;
+  const target = createVerifiedTmuxActionTarget(
+    { socketPath: '/tmp/chatmux-interactive-test.sock', sessionId: '$7', windowId: '@8', paneId: '%9' },
+    { pid: 42, startedAtMs: 1234 },
+    'claude',
+    null,
+  );
+  const run: TmuxRunner = async (args) => {
+    if (args.includes('capture-pane')) return { code: 0, output: screen };
+    if (args.includes('display-message')) return { code: 0, output: '$7\t@8\t%9\n' };
+    return { code: 0, output: '' };
+  };
+
+  const prompt = await getTmuxInteractivePrompt(target, run);
+  assert.deepEqual(prompt?.checkedChoiceNumbers, [2]);
 });
 
 test('does not mistake ordinary transcript text for an active prompt', () => {

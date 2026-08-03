@@ -61,7 +61,10 @@
     "numberInstruction": "在聊天中傳送顯示的編號。最後編號：直接輸入 · 0：取消",
     "numberInstructionWithCustomNumber": "在聊天中傳送顯示的編號 · {{number}}：直接輸入 · 0：取消",
     "numberInstructionNoCustom": "在聊天中傳送顯示的編號 · 0：取消",
-    "multiNumberInstruction": "傳送一個或多個以逗號分隔的編號 · 0：取消"
+    "multiNumberInstruction": "傳送一個或多個以逗號分隔的編號 · 0：取消",
+    "cancelChoice": "取消 (0)",
+    "multiTapInstruction": "點按選項切換後提交 · 0: 取消",
+    "submitChoices": "提交 ({{count}})"
   },
   "thinking": {
     "title": "思考中...",
@@ -272,12 +275,11 @@
     "sendFailed": "傳送失敗",
     "selectionNumberRequired": "請輸入顯示的編號 (0-{{max}})。",
     "multiSelectionNumberRequired": "請輸入一個或多個顯示的編號，以逗號分隔。",
-    "claudeMultiSelectUnsupported": "Claude 多選需要在終端機中直接回答。輸入 0 可取消該提示。",
+    "customInputPlaceholder": "請輸入自訂回答…",
     "customInputReady": "請輸入自訂回答。",
     "selectionDelivered": "已送出選擇。",
     "selectionPlaceholder": "輸入選項編號 (0-{{max}})…",
-    "multiSelectionPlaceholder": "輸入以逗號分隔的選項編號…",
-    "customInputPlaceholder": "請輸入自訂回答…"
+    "multiSelectionPlaceholder": "輸入以逗號分隔的選項編號…"
   },
   "transcript": {
     "conversationTab": "對話",

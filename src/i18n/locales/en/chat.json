@@ -62,7 +62,10 @@
     "numberInstruction": "Send the displayed number in chat. Last number: direct input · 0: cancel",
     "numberInstructionWithCustomNumber": "Send the displayed number in chat · {{number}}: direct input · 0: cancel",
     "numberInstructionNoCustom": "Send the displayed number in chat · 0: cancel",
-    "multiNumberInstruction": "Send one or more numbers separated by commas · 0: cancel"
+    "multiNumberInstruction": "Send one or more numbers separated by commas · 0: cancel",
+    "cancelChoice": "Cancel (0)",
+    "multiTapInstruction": "Tap options to toggle, then submit · 0: cancel",
+    "submitChoices": "Submit ({{count}})"
   },
   "thinking": {
     "title": "Thinking...",
@@ -250,12 +253,11 @@
     "sendFailed": "Failed to send",
     "selectionNumberRequired": "Enter a displayed number (0-{{max}}).",
     "multiSelectionNumberRequired": "Enter one or more displayed numbers separated by commas.",
-    "claudeMultiSelectUnsupported": "Claude multi-select answers must be made in the terminal. Enter 0 to cancel the prompt.",
+    "customInputPlaceholder": "Type the custom answer…",
     "customInputReady": "Type the custom answer.",
     "selectionDelivered": "Selection delivered.",
     "selectionPlaceholder": "Enter a choice number (0-{{max}})…",
-    "multiSelectionPlaceholder": "Enter choice numbers separated by commas…",
-    "customInputPlaceholder": "Type the custom answer…"
+    "multiSelectionPlaceholder": "Enter choice numbers separated by commas…"
   },
   "readOnly": {
     "banner": "Driven by gjc in tmux — read-only. It updates live; interact from the tmux side."

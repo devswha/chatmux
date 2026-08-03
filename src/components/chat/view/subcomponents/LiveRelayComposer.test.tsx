@@ -157,7 +157,6 @@ test('relay translations exist in every supported locale', () => {
       'utf8',
     )) as { relay?: Record<string, string> };
     assert.deepEqual(Object.keys(translation.relay ?? {}).sort(), [
-      'claudeMultiSelectUnsupported',
       'currentSession',
       'customInputPlaceholder',
       'customInputReady',

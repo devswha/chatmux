@@ -61,7 +61,10 @@
     "numberInstruction": "Invia il numero visualizzato in chat. Ultimo numero: inserimento libero · 0: annulla",
     "numberInstructionWithCustomNumber": "Invia il numero visualizzato in chat · {{number}}: inserimento libero · 0: annulla",
     "numberInstructionNoCustom": "Invia il numero visualizzato in chat · 0: annulla",
-    "multiNumberInstruction": "Invia uno o più numeri separati da virgole · 0: annulla"
+    "multiNumberInstruction": "Invia uno o più numeri separati da virgole · 0: annulla",
+    "cancelChoice": "Annulla (0)",
+    "multiTapInstruction": "Tocca le opzioni per selezionarle, poi invia · 0: annulla",
+    "submitChoices": "Invia ({{count}})"
   },
   "thinking": {
     "title": "Sto pensando...",
@@ -236,12 +239,11 @@
     "sendFailed": "Invio non riuscito",
     "selectionNumberRequired": "Inserisci un numero visualizzato (0-{{max}}).",
     "multiSelectionNumberRequired": "Inserisci uno o più numeri visualizzati separati da virgole.",
-    "claudeMultiSelectUnsupported": "Le selezioni multiple di Claude devono essere effettuate nel terminale. Inserisci 0 per annullare il prompt.",
+    "customInputPlaceholder": "Digita la risposta personalizzata…",
     "customInputReady": "Digita la risposta personalizzata.",
     "selectionDelivered": "Selezione inviata.",
     "selectionPlaceholder": "Inserisci il numero della scelta (0-{{max}})…",
-    "multiSelectionPlaceholder": "Inserisci i numeri delle scelte separati da virgole…",
-    "customInputPlaceholder": "Digita la risposta personalizzata…"
+    "multiSelectionPlaceholder": "Inserisci i numeri delle scelte separati da virgole…"
   },
   "transcript": {
     "conversationTab": "Chat",

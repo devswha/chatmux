@@ -61,7 +61,10 @@
     "numberInstruction": "Senden Sie die angezeigte Nummer im Chat. Letzte Nummer: Direkteingabe · 0: Abbrechen",
     "numberInstructionWithCustomNumber": "Senden Sie die angezeigte Nummer im Chat · {{number}}: Direkteingabe · 0: Abbrechen",
     "numberInstructionNoCustom": "Senden Sie die angezeigte Nummer im Chat · 0: Abbrechen",
-    "multiNumberInstruction": "Senden Sie eine oder mehrere Nummern durch Kommas getrennt · 0: Abbrechen"
+    "multiNumberInstruction": "Senden Sie eine oder mehrere Nummern durch Kommas getrennt · 0: Abbrechen",
+    "cancelChoice": "Abbrechen (0)",
+    "multiTapInstruction": "Optionen antippen zum Umschalten, dann absenden · 0: abbrechen",
+    "submitChoices": "Absenden ({{count}})"
   },
   "thinking": {
     "title": "Denkt nach...",
@@ -236,12 +239,11 @@
     "sendFailed": "Senden fehlgeschlagen",
     "selectionNumberRequired": "Geben Sie eine angezeigte Nummer ein (0-{{max}}).",
     "multiSelectionNumberRequired": "Geben Sie eine oder mehrere angezeigte Nummern durch Kommas getrennt ein.",
-    "claudeMultiSelectUnsupported": "Claude-Mehrfachauswahlen müssen im Terminal beantwortet werden. Geben Sie 0 ein, um die Eingabeaufforderung abzubrechen.",
+    "customInputPlaceholder": "Eigene Antwort eingeben…",
     "customInputReady": "Geben Sie die eigene Antwort ein.",
     "selectionDelivered": "Auswahl übermittelt.",
     "selectionPlaceholder": "Auswahlnummer eingeben (0-{{max}})…",
-    "multiSelectionPlaceholder": "Auswahlnummern durch Kommas getrennt eingeben…",
-    "customInputPlaceholder": "Eigene Antwort eingeben…"
+    "multiSelectionPlaceholder": "Auswahlnummern durch Kommas getrennt eingeben…"
   },
   "transcript": {
     "conversationTab": "Chat",

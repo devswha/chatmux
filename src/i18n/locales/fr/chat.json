@@ -62,7 +62,10 @@
     "numberInstruction": "Envoyez le numéro affiché dans le chat. Dernier numéro : saisie libre · 0 : annuler",
     "numberInstructionWithCustomNumber": "Envoyez le numéro affiché dans le chat · {{number}} : saisie libre · 0 : annuler",
     "numberInstructionNoCustom": "Envoyez le numéro affiché dans le chat · 0 : annuler",
-    "multiNumberInstruction": "Envoyez un ou plusieurs numéros séparés par des virgules · 0 : annuler"
+    "multiNumberInstruction": "Envoyez un ou plusieurs numéros séparés par des virgules · 0 : annuler",
+    "cancelChoice": "Annuler (0)",
+    "multiTapInstruction": "Touchez les options pour les basculer, puis validez · 0 : annuler",
+    "submitChoices": "Valider ({{count}})"
   },
   "thinking": {
     "title": "Réflexion...",
@@ -238,12 +241,11 @@
     "sendFailed": "Échec de l'envoi",
     "selectionNumberRequired": "Saisissez un numéro affiché (0-{{max}}).",
     "multiSelectionNumberRequired": "Saisissez un ou plusieurs numéros affichés, séparés par des virgules.",
-    "claudeMultiSelectUnsupported": "Les sélections multiples de Claude doivent être effectuées dans le terminal. Saisissez 0 pour annuler l'invite.",
+    "customInputPlaceholder": "Saisissez la réponse personnalisée…",
     "customInputReady": "Saisissez la réponse personnalisée.",
     "selectionDelivered": "Sélection transmise.",
     "selectionPlaceholder": "Numéro du choix (0-{{max}})…",
-    "multiSelectionPlaceholder": "Numéros des choix séparés par des virgules…",
-    "customInputPlaceholder": "Saisissez la réponse personnalisée…"
+    "multiSelectionPlaceholder": "Numéros des choix séparés par des virgules…"
   },
   "transcript": {
     "conversationTab": "Chat",
