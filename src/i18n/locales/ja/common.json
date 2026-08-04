@@ -152,7 +152,20 @@
       "message": "サーバーが更新・再起動されます。進行中の Web 作業が切断される場合があります。"
     },
     "progress": {
-      "message": "サーバーを更新中です。ダウンロード、検証、ステージング、再起動、ヘルスチェックの進捗は、画面を閉じてもサーバーを再起動しても保持されます。"
+      "message": "サーバーを更新中です。ダウンロード、検証、ステージング、再起動、ヘルスチェックの進捗は、画面を閉じてもサーバーを再起動しても保持されます。",
+      "download": "{{downloaded}} MB / {{total}} MB ダウンロード済み",
+      "downloadUnsized": "{{downloaded}} MB ダウンロード済み",
+      "phases": {
+        "queued": "開始待機中…",
+        "downloading": "リリースをダウンロード中…",
+        "verifying": "ダウンロードを検証中…",
+        "staging": "新しいリリースを準備中…",
+        "cutting_over": "新しいリリースへ切り替え中…",
+        "restarting": "サーバーを再起動中…",
+        "verifying_health": "サーバーの状態を確認中…",
+        "rolling_back": "ロールバック中…",
+        "succeeded": "最終処理中…"
+      }
     },
     "success": {
       "message": "更新が検証されました。画面を再読み込みしています。"
@@ -186,7 +199,8 @@
       "showSidebar": "サイドバーを表示",
       "settings": "設定",
       "updateAvailable": "アップデートあり",
-      "closeSidebar": "サイドバーを閉じる"
+      "closeSidebar": "サイドバーを閉じる",
+      "progress": "更新の進行状況"
     }
   }
 }

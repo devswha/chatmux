@@ -152,7 +152,20 @@
       "message": "Le serveur sera mis à jour et redémarré. Le travail web en cours peut être interrompu."
     },
     "progress": {
-      "message": "Mise à jour du serveur. La progression est conservée si cet écran se ferme ou si le serveur redémarre."
+      "message": "Mise à jour du serveur. La progression est conservée si cet écran se ferme ou si le serveur redémarre.",
+      "download": "{{downloaded}} Mo / {{total}} Mo téléchargés",
+      "downloadUnsized": "{{downloaded}} Mo téléchargés",
+      "phases": {
+        "queued": "En attente de démarrage…",
+        "downloading": "Téléchargement de la version…",
+        "verifying": "Vérification du téléchargement…",
+        "staging": "Préparation de la nouvelle version…",
+        "cutting_over": "Bascule vers la nouvelle version…",
+        "restarting": "Redémarrage du serveur…",
+        "verifying_health": "Vérification de l'état du serveur…",
+        "rolling_back": "Restauration en cours…",
+        "succeeded": "Finalisation…"
+      }
     },
     "success": {
       "message": "Mise à jour vérifiée. Application du nouvel écran."

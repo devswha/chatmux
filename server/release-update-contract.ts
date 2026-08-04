@@ -96,6 +96,7 @@ export interface SanitizedUpdateJobStatus {
   completedAt?: number;
   targetVersion: string;
   error?: string;
+  progress?: { downloadedBytes: number; totalBytes?: number };
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

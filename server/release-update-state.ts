@@ -26,6 +26,11 @@ export interface PersistedUpdateRecoveryDescriptor {
   rollbackState: ReleaseRollbackState;
 }
 
+export interface PersistedUpdateProgress {
+  downloadedBytes: number;
+  totalBytes?: number;
+}
+
 export interface PersistedUpdateJob {
   descriptor: ImmutableUpdateJobDescriptor;
   phase: ReleaseUpdatePhase;
@@ -34,6 +39,7 @@ export interface PersistedUpdateJob {
   completionOrdinal?: number;
   locked: boolean;
   error?: string;
+  progress?: PersistedUpdateProgress;
   recovery?: PersistedUpdateRecoveryDescriptor;
 }
 
@@ -82,8 +88,14 @@ function validateRecoveryDescriptor(value: unknown): value is PersistedUpdateRec
   return validReleasePath(value.priorRelease.path) && !!parseStrictSemVer(value.priorRelease.version) && validReleasePath(value.targetRelease.path) && !!parseStrictSemVer(value.targetRelease.version) && value.priorRelease.path !== value.targetRelease.path && value.priorRelease.version !== value.targetRelease.version && (value.cutoverState === 'prepared' || value.cutoverState === 'live_link_swapped') && (value.rollbackState === 'not_started' || value.rollbackState === 'in_progress' || value.rollbackState === 'completed' || value.rollbackState === 'failed');
 }
 
+function validateProgress(value: unknown): value is PersistedUpdateProgress {
+  if (!isPlainObject(value) || Object.keys(value).some((key) => !['downloadedBytes', 'totalBytes'].includes(key)) || !validInteger(value.downloadedBytes)) return false;
+  return value.totalBytes === undefined || (validInteger(value.totalBytes) && value.totalBytes > 0);
+}
+
 function validateJob(value: unknown): value is PersistedUpdateJob {
-  if (!isPlainObject(value) || Object.keys(value).some((key) => !['descriptor', 'phase', 'updatedAt', 'completedAt', 'completionOrdinal', 'locked', 'error', 'recovery'].includes(key)) || !validateImmutableUpdateJobDescriptor(value.descriptor) || !isUpdatePhase(value.phase) || !validInteger(value.updatedAt) || typeof value.locked !== 'boolean') return false;
+  if (!isPlainObject(value) || Object.keys(value).some((key) => !['descriptor', 'phase', 'updatedAt', 'completedAt', 'completionOrdinal', 'locked', 'error', 'progress', 'recovery'].includes(key)) || !validateImmutableUpdateJobDescriptor(value.descriptor) || !isUpdatePhase(value.phase) || !validInteger(value.updatedAt) || typeof value.locked !== 'boolean') return false;
+  if (value.progress !== undefined && !validateProgress(value.progress)) return false;
   const descriptor = value.descriptor as ImmutableUpdateJobDescriptor;
   if (value.completedAt !== undefined && !validInteger(value.completedAt)) return false;
   if (value.completionOrdinal !== undefined && (!validInteger(value.completionOrdinal) || value.completionOrdinal === 0)) return false;
@@ -202,6 +214,22 @@ export class ReleaseUpdateStateStore {
       return job;
     });
   }
+  /** Durable download progress for the nonterminal job; display-only, never authority. */
+  recordDownloadProgress(id: string, progress: PersistedUpdateProgress): PersistedUpdateJob {
+    if (!isOpaqueUpdateJobId(id) || !validateProgress(progress) || (progress.totalBytes !== undefined && progress.downloadedBytes > progress.totalBytes)) throw new ReleaseUpdateStateError('Invalid update download progress.');
+    return this.withExclusiveLock(() => {
+      const state = this.readState();
+      const ordinal = this.repairAllocator(state);
+      this.prune(state, ordinal);
+      const job = state.jobs[id];
+      if (!job) throw new ReleaseUpdateStateError('Update job not found.');
+      if (isTerminalUpdatePhase(job.phase)) throw new ReleaseUpdateStateError('Terminal update job cannot record progress.');
+      job.progress = { downloadedBytes: progress.downloadedBytes, ...(progress.totalBytes === undefined ? {} : { totalBytes: progress.totalBytes }) };
+      job.updatedAt = this.now();
+      this.writeState(state);
+      return job;
+    });
+  }
   /** Persists the release-link recovery authority before any live-link mutation. */
   persistRecoveryCheckpoint(id: string, recovery: PersistedUpdateRecoveryDescriptor): PersistedUpdateJob {
     if (!isOpaqueUpdateJobId(id) || !validateRecoveryDescriptor(recovery)) throw new ReleaseUpdateStateError('Invalid update recovery checkpoint.');
@@ -285,6 +313,7 @@ export class ReleaseUpdateStateStore {
       updatedAt: job.updatedAt,
       ...(job.completedAt === undefined ? {} : { completedAt: job.completedAt }),
       targetVersion: job.descriptor.release.version,
+      ...(job.progress === undefined ? {} : { progress: { ...job.progress } }),
       ...(job.error ? { error: job.error } : {}),
     };
   }
@@ -302,6 +331,7 @@ export class ReleaseUpdateStateStore {
         createdAt: active.descriptor.createdAt,
         updatedAt: active.updatedAt,
         targetVersion: active.descriptor.release.version,
+        ...(active.progress === undefined ? {} : { progress: { ...active.progress } }),
         ...(active.error ? { error: active.error } : {}),
       };
     });

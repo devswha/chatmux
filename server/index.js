@@ -78,6 +78,7 @@ import projectModuleRoutes from './modules/projects/projects.routes.js';
 import userRoutes from './routes/user.js';
 import providerRoutes from './modules/providers/provider.routes.js';
 import { sessionsService } from './modules/providers/services/sessions.service.js';
+import { buildExternalCliRuntimePath } from './modules/providers/services/external-cli-sessions.service.js';
 import { assetsRoutes } from './modules/assets/index.js';
 import { initializeDatabase, projectsDb, sessionsDb, userDb } from './modules/database/index.js';
 import {
@@ -110,6 +111,13 @@ const RUNNING_VERSION = (() => {
 const SERVER_BOOT_ID = randomUUID();
 // How this install was deployed — decides whether one-click self-update is offered.
 const INSTALL_MODE = detectInstallMode(APP_ROOT);
+// Under systemd the user service inherits a minimal PATH that misses
+// user-installed agent CLIs (~/.local/bin, ~/.bun/bin, ~/.cargo/bin). The
+// release updater restarts the server via `systemctl --user restart`, so a
+// server that worked from an interactive shell would suddenly fail every
+// provider spawn with `spawn gjc ENOENT`. Normalize the process PATH once so
+// spawns resolve the same binaries regardless of how the server was launched.
+process.env.PATH = buildExternalCliRuntimePath();
 
 console.log('SERVER_PORT from env:', process.env.SERVER_PORT);
 

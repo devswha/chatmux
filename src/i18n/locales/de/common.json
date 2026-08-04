@@ -122,7 +122,20 @@
       "message": "Der Server wird aktualisiert und neu gestartet. Aktive Web-Arbeit kann unterbrochen werden."
     },
     "progress": {
-      "message": "Server wird aktualisiert. Der Fortschritt bleibt erhalten, wenn dieser Bildschirm geschlossen wird oder der Server neu startet."
+      "message": "Server wird aktualisiert. Der Fortschritt bleibt erhalten, wenn dieser Bildschirm geschlossen wird oder der Server neu startet.",
+      "download": "{{downloaded}} MB / {{total}} MB heruntergeladen",
+      "downloadUnsized": "{{downloaded}} MB heruntergeladen",
+      "phases": {
+        "queued": "Warten auf Start…",
+        "downloading": "Release wird heruntergeladen…",
+        "verifying": "Download wird überprüft…",
+        "staging": "Neues Release wird vorbereitet…",
+        "cutting_over": "Wechsel zum neuen Release…",
+        "restarting": "Server wird neu gestartet…",
+        "verifying_health": "Serverzustand wird geprüft…",
+        "rolling_back": "Rollback läuft…",
+        "succeeded": "Abschluss…"
+      }
     },
     "success": {
       "message": "Update überprüft. Der neue Bildschirm wird angewendet."

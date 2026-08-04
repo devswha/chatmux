@@ -36,7 +36,7 @@ test('worker fails closed before any filesystem or process effect for invalid CL
   const effects: string[] = [];
   const worker = new ReleaseUpdateWorker({
     home: '/home/owner',
-    store: { get: () => { effects.push('get'); return null; }, transition: () => { effects.push('transition'); throw new Error('unexpected'); }, persistRecoveryCheckpoint: () => { effects.push('checkpoint'); throw new Error('unexpected'); } },
+    store: { get: () => { effects.push('get'); return null; }, transition: () => { effects.push('transition'); throw new Error('unexpected'); }, persistRecoveryCheckpoint: () => { effects.push('checkpoint'); throw new Error('unexpected'); }, recordDownloadProgress: () => { effects.push('progress'); throw new Error('unexpected'); } },
     fs: new Proxy({}, { get: () => () => { effects.push('filesystem'); throw new Error('unexpected'); } }) as never,
     run: async () => { effects.push('process'); return { code: 0, stdout: '', stderr: '' }; },
     health: async () => { effects.push('health'); return true; },
@@ -49,7 +49,7 @@ test('worker records a durable failed outcome when the immutable job is unavaila
   const transitions: string[] = [];
   const worker = new ReleaseUpdateWorker({
     home: '/home/owner',
-    store: { get: () => null, transition: (_id, phase) => { transitions.push(phase); return undefined as never; }, persistRecoveryCheckpoint: () => undefined as never },
+    store: { get: () => null, transition: (_id, phase) => { transitions.push(phase); return undefined as never; }, persistRecoveryCheckpoint: () => undefined as never, recordDownloadProgress: () => undefined as never },
   });
   await assert.rejects(worker.run('AbCdEfGhIjKlMnOpQrStUv'), ReleaseUpdateWorkerError);
   assert.deepEqual(transitions, []);
@@ -77,6 +77,7 @@ test('pre-cutover staging faults become a durable failed outcome without invokin
       }) as never,
       transition: (_id, phase) => { phases.push(phase); return undefined as never; },
       persistRecoveryCheckpoint: () => undefined as never,
+      recordDownloadProgress: () => undefined as never,
     },
     fs: { mkdir: async () => { throw new Error('disk fault'); }, rm: async () => undefined } as never,
     run: async () => { throw new Error('process must not run'); },
@@ -113,6 +114,7 @@ async function workerFixture(options: {
   fetch?: (url: string, signal: AbortSignal) => AsyncIterable<Uint8Array>;
   requestTimeoutMs?: number;
   nativeResponse?: boolean;
+  contentLength?: boolean;
   crashAt?: 'prepared' | 'live_link_swapped' | 'rollback_in_progress' | 'rollback_link_restored' | 'rollback_completed' | 'terminalized';
 } = {}) {
   const home = await fs.mkdtemp(path.join(tmpdir(), 'chatmux-release-worker-'));
@@ -155,6 +157,7 @@ async function workerFixture(options: {
         return state.transition(id, phase, error);
       },
       persistRecoveryCheckpoint: state.persistRecoveryCheckpoint.bind(state),
+      recordDownloadProgress: state.recordDownloadProgress.bind(state),
     },
     fetch: async (url, fetchOptions) => {
       const body = options.fetch?.(url, fetchOptions.signal) ?? (async function* () {
@@ -167,7 +170,11 @@ async function workerFixture(options: {
         for await (const chunk of body) chunks.push(chunk);
         return new Response(Buffer.concat(chunks), { status: 200 }) as never;
       }
-      return { status: 200, headers: { get: () => null }, body };
+      return {
+        status: 200,
+        headers: { get: (name: string) => (options.contentLength && name.toLowerCase() === 'content-length' && !url.endsWith('.sha256') ? String(archive.byteLength) : null) },
+        body,
+      };
     },
     run: async (command, args, processOptions) => {
       commandEnvironments.push(processOptions?.env ?? {});
@@ -213,6 +220,19 @@ test('worker performs a complete staged cutover with exact health descriptor arg
     }
     assert.equal(fixture.state.get(jobId)?.phase, 'succeeded');
   } finally { await fixture.cleanup(); }
+});
+
+test('worker persists durable archive download progress with and without a declared total', async () => {
+  const sized = await workerFixture({ contentLength: true });
+  try {
+    await sized.worker.run(jobId);
+    assert.deepEqual(sized.state.get(jobId)?.progress, { downloadedBytes: archive.byteLength, totalBytes: archive.byteLength });
+  } finally { await sized.cleanup(); }
+  const unsized = await workerFixture();
+  try {
+    await unsized.worker.run(jobId);
+    assert.deepEqual(unsized.state.get(jobId)?.progress, { downloadedBytes: archive.byteLength });
+  } finally { await unsized.cleanup(); }
 });
 
 test('worker preserves native Response status, headers, and body across its bounded timer wrapper', async () => {

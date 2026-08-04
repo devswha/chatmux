@@ -25,6 +25,7 @@ export type UpdateJob = {
   phase: UpdateJobPhase;
   targetVersion: string;
   error?: string;
+  progress?: { downloadedBytes: number; totalBytes?: number };
 };
 
 export type SystemUpdateStatus = {

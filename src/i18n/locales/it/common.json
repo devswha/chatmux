@@ -152,7 +152,20 @@
       "message": "Il server verrà aggiornato e riavviato. Il lavoro web attivo potrebbe essere disconnesso."
     },
     "progress": {
-      "message": "Aggiornamento del server. L'avanzamento viene conservato se questa schermata si chiude o il server si riavvia."
+      "message": "Aggiornamento del server. L'avanzamento viene conservato se questa schermata si chiude o il server si riavvia.",
+      "download": "{{downloaded}} MB / {{total}} MB scaricati",
+      "downloadUnsized": "{{downloaded}} MB scaricati",
+      "phases": {
+        "queued": "In attesa di avvio…",
+        "downloading": "Download della release…",
+        "verifying": "Verifica del download…",
+        "staging": "Preparazione della nuova release…",
+        "cutting_over": "Passaggio alla nuova release…",
+        "restarting": "Riavvio del server…",
+        "verifying_health": "Controllo dello stato del server…",
+        "rolling_back": "Rollback in corso…",
+        "succeeded": "Finalizzazione…"
+      }
     },
     "success": {
       "message": "Aggiornamento verificato. Applicazione della nuova schermata."

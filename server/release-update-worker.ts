@@ -56,7 +56,7 @@ export interface WorkerProcess { (command: string, args: readonly string[], opti
 export interface ReleaseUpdateWorkerOptions {
   home?: string;
   fs?: WorkerFileSystem;
-  store?: Pick<ReleaseUpdateStateStore, 'get' | 'transition' | 'persistRecoveryCheckpoint'>;
+  store?: Pick<ReleaseUpdateStateStore, 'get' | 'transition' | 'persistRecoveryCheckpoint' | 'recordDownloadProgress'>;
   fetch?: (url: string, options: { signal: AbortSignal; redirect: 'manual' }) => Promise<HttpResponse>;
   run?: WorkerProcess;
   health?: (expectedVersion: string, serverPort: number, sourceBootId: string) => Promise<boolean>;
@@ -132,7 +132,7 @@ export class ReleaseUpdateWorker {
   private readonly home: string;
   private readonly root: string;
   private readonly fs: WorkerFileSystem;
-  private readonly store: Pick<ReleaseUpdateStateStore, 'get' | 'transition' | 'persistRecoveryCheckpoint'>;
+  private readonly store: Pick<ReleaseUpdateStateStore, 'get' | 'transition' | 'persistRecoveryCheckpoint' | 'recordDownloadProgress'>;
   private readonly fetcher: NonNullable<ReleaseUpdateWorkerOptions['fetch']>;
   private readonly runProcess: WorkerProcess;
   private readonly health: (expectedVersion: string, serverPort: number, sourceBootId: string) => Promise<boolean>;
@@ -167,7 +167,7 @@ export class ReleaseUpdateWorker {
       await this.safeMkdir(work);
       this.transition(jobId, 'downloading');
       const archive = nodePath.join(work, descriptor.release.archiveName);
-      const archiveHash = await this.download(releaseAssetUrl(descriptor, descriptor.release.archiveName), archive, MAX_ARCHIVE_BYTES);
+      const archiveHash = await this.download(releaseAssetUrl(descriptor, descriptor.release.archiveName), archive, MAX_ARCHIVE_BYTES, this.progressReporter(jobId));
       const checksum = await this.downloadText(releaseAssetUrl(descriptor, descriptor.release.checksumName), nodePath.join(work, descriptor.release.checksumName), MAX_CHECKSUM_BYTES);
       this.transition(jobId, 'verifying');
       const expected = parseChecksum(checksum, descriptor.release.archiveName);
@@ -217,6 +217,19 @@ export class ReleaseUpdateWorker {
   }
 
   private transition(id: string, phase: ReleaseUpdatePhase, error?: string): void { this.store.transition(id, phase, error); }
+  /** Throttled durable progress writes; display-only, so failures never abort the update. */
+  private progressReporter(jobId: string): (downloadedBytes: number, totalBytes?: number) => void {
+    let lastWriteMs = 0;
+    return (downloadedBytes, totalBytes) => {
+      const now = Date.now();
+      const finished = totalBytes !== undefined && downloadedBytes >= totalBytes;
+      if (!finished && now - lastWriteMs < 1_000) return;
+      lastWriteMs = now;
+      try {
+        this.store.recordDownloadProgress(jobId, { downloadedBytes, ...(totalBytes === undefined ? {} : { totalBytes }) });
+      } catch { /* Progress is cosmetic; the phase machine stays authoritative. */ }
+    };
+  }
   private fail(id: string, phase: 'failed' | 'failed_rolled_back' | 'failed_rollback' | 'manual_required', message: string): void { this.transition(id, phase, message); }
   private async rollback(id: string, prior: { path: string; version: string }, descriptor: ImmutableUpdateJobDescriptor, failure: string): Promise<void> {
     this.transition(id, 'rolling_back', failure);
@@ -252,9 +265,11 @@ export class ReleaseUpdateWorker {
     this.fail(id, 'failed_rolled_back', failure);
     this.boundary('terminalized');
   }
-  private async download(url: string, destination: string, limit: number): Promise<string> {
+  private async download(url: string, destination: string, limit: number, onProgress?: (downloadedBytes: number, totalBytes?: number) => void): Promise<string> {
     const response = await this.request(url);
     if (response.status !== 200) throw new ReleaseUpdateWorkerError('Release download failed.');
+    const declaredLength = Number.parseInt(response.headers.get('content-length') ?? '', 10);
+    const totalBytes = Number.isSafeInteger(declaredLength) && declaredLength > 0 && declaredLength <= limit ? declaredLength : undefined;
     const hash = createHash('sha256'); let total = 0; let created = false;
     try {
       for await (const chunk of response.body) {
@@ -263,6 +278,7 @@ export class ReleaseUpdateWorker {
         hash.update(chunk);
         await this.fs.writeFile(destination, chunk, { mode: 0o600, flag: created ? 'a' : 'wx' });
         created = true;
+        onProgress?.(total, totalBytes);
       }
       if (!created) await this.fs.writeFile(destination, '', { mode: 0o600, flag: 'wx' });
       return hash.digest('hex');
