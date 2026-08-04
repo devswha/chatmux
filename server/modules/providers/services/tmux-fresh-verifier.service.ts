@@ -69,6 +69,9 @@ export async function assertFreshExternalTmuxTarget(
     && sameTmuxPaneIdentity(session.tmux, tmux)
     && session.agentPid === process.pid
     && session.startedAtMs === process.startedAtMs
+    // Discovery excluded this pane (cross-user / cross-HOME / socket owner
+    // mismatch); control paths must honor the exclusion, not just the UI.
+    && !session.connectionIssue
   ));
   if (!target) {
     throw new AppError('The selected tmux pane now belongs to a different agent process.', {
