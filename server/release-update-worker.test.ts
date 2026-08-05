@@ -148,6 +148,7 @@ async function workerFixture(options: {
   const commandEnvironments: NodeJS.ProcessEnv[] = [];
   const healthArgs: Array<[string, number, string]> = [];
   let restartCount = 0;
+  const progressWrites: Array<{ downloadedBytes: number; totalBytes?: number }> = [];
   const worker = new ReleaseUpdateWorker({
     home,
     store: {
@@ -157,7 +158,10 @@ async function workerFixture(options: {
         return state.transition(id, phase, error);
       },
       persistRecoveryCheckpoint: state.persistRecoveryCheckpoint.bind(state),
-      recordDownloadProgress: state.recordDownloadProgress.bind(state),
+      recordDownloadProgress: (id, progress) => {
+        progressWrites.push(progress);
+        return state.recordDownloadProgress(id, progress);
+      },
     },
     fetch: async (url, fetchOptions) => {
       const body = options.fetch?.(url, fetchOptions.signal) ?? (async function* () {
@@ -198,7 +202,7 @@ async function workerFixture(options: {
     },
   });
   return {
-    root, releases, prior, descriptor, state, phases, commands, commandEnvironments, healthArgs, worker,
+    root, releases, prior, descriptor, state, phases, commands, commandEnvironments, healthArgs, worker, progressWrites,
     cleanup: () => fs.rm(home, { recursive: true, force: true }),
   };
 }
@@ -226,12 +230,23 @@ test('worker persists durable archive download progress with and without a decla
   const sized = await workerFixture({ contentLength: true });
   try {
     await sized.worker.run(jobId);
-    assert.deepEqual(sized.state.get(jobId)?.progress, { downloadedBytes: archive.byteLength, totalBytes: archive.byteLength });
+    assert.deepEqual(sized.progressWrites.at(-1), { downloadedBytes: archive.byteLength, totalBytes: archive.byteLength });
+    assert.ok(sized.progressWrites.every((write) => write.totalBytes === archive.byteLength));
   } finally { await sized.cleanup(); }
-  const unsized = await workerFixture();
+  // Unsized multi-chunk body inside the throttle window: the terminal flush
+  // must still persist the true byte count, not the first chunk's.
+  const half = Math.floor(archive.byteLength / 2);
+  const unsized = await workerFixture({
+    fetch: (url) => (async function* () {
+      if (url.endsWith('.sha256')) { yield Buffer.from(`${archiveHash}  chatmux-server-1.2.3-linux-x64-node22.tar.gz\n`); return; }
+      yield archive.subarray(0, half);
+      yield archive.subarray(half);
+    })(),
+  });
   try {
     await unsized.worker.run(jobId);
-    assert.deepEqual(unsized.state.get(jobId)?.progress, { downloadedBytes: archive.byteLength });
+    assert.deepEqual(unsized.progressWrites.at(-1), { downloadedBytes: archive.byteLength });
+    assert.ok(unsized.progressWrites.some((write) => write.downloadedBytes === half));
   } finally { await unsized.cleanup(); }
 });
 

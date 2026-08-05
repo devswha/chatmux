@@ -218,12 +218,11 @@ export class ReleaseUpdateWorker {
 
   private transition(id: string, phase: ReleaseUpdatePhase, error?: string): void { this.store.transition(id, phase, error); }
   /** Throttled durable progress writes; display-only, so failures never abort the update. */
-  private progressReporter(jobId: string): (downloadedBytes: number, totalBytes?: number) => void {
+  private progressReporter(jobId: string): (downloadedBytes: number, totalBytes: number | undefined, done?: boolean) => void {
     let lastWriteMs = 0;
-    return (downloadedBytes, totalBytes) => {
+    return (downloadedBytes, totalBytes, done = false) => {
       const now = Date.now();
-      const finished = totalBytes !== undefined && downloadedBytes >= totalBytes;
-      if (!finished && now - lastWriteMs < 1_000) return;
+      if (!done && now - lastWriteMs < 1_000) return;
       lastWriteMs = now;
       try {
         this.store.recordDownloadProgress(jobId, { downloadedBytes, ...(totalBytes === undefined ? {} : { totalBytes }) });
@@ -265,7 +264,7 @@ export class ReleaseUpdateWorker {
     this.fail(id, 'failed_rolled_back', failure);
     this.boundary('terminalized');
   }
-  private async download(url: string, destination: string, limit: number, onProgress?: (downloadedBytes: number, totalBytes?: number) => void): Promise<string> {
+  private async download(url: string, destination: string, limit: number, onProgress?: (downloadedBytes: number, totalBytes: number | undefined, done?: boolean) => void): Promise<string> {
     const response = await this.request(url);
     if (response.status !== 200) throw new ReleaseUpdateWorkerError('Release download failed.');
     const declaredLength = Number.parseInt(response.headers.get('content-length') ?? '', 10);
@@ -281,6 +280,8 @@ export class ReleaseUpdateWorker {
         onProgress?.(total, totalBytes);
       }
       if (!created) await this.fs.writeFile(destination, '', { mode: 0o600, flag: 'wx' });
+      // Final flush is unconditional so unsized downloads persist their true size.
+      onProgress?.(total, totalBytes, true);
       return hash.digest('hex');
     } catch (error) {
       await this.fs.rm(destination, { recursive: false, force: true }).catch(() => undefined);

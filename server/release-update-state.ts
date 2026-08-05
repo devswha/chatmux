@@ -39,7 +39,6 @@ export interface PersistedUpdateJob {
   completionOrdinal?: number;
   locked: boolean;
   error?: string;
-  progress?: PersistedUpdateProgress;
   recovery?: PersistedUpdateRecoveryDescriptor;
 }
 
@@ -94,8 +93,7 @@ function validateProgress(value: unknown): value is PersistedUpdateProgress {
 }
 
 function validateJob(value: unknown): value is PersistedUpdateJob {
-  if (!isPlainObject(value) || Object.keys(value).some((key) => !['descriptor', 'phase', 'updatedAt', 'completedAt', 'completionOrdinal', 'locked', 'error', 'progress', 'recovery'].includes(key)) || !validateImmutableUpdateJobDescriptor(value.descriptor) || !isUpdatePhase(value.phase) || !validInteger(value.updatedAt) || typeof value.locked !== 'boolean') return false;
-  if (value.progress !== undefined && !validateProgress(value.progress)) return false;
+  if (!isPlainObject(value) || Object.keys(value).some((key) => !['descriptor', 'phase', 'updatedAt', 'completedAt', 'completionOrdinal', 'locked', 'error', 'recovery'].includes(key)) || !validateImmutableUpdateJobDescriptor(value.descriptor) || !isUpdatePhase(value.phase) || !validInteger(value.updatedAt) || typeof value.locked !== 'boolean') return false;
   const descriptor = value.descriptor as ImmutableUpdateJobDescriptor;
   if (value.completedAt !== undefined && !validInteger(value.completedAt)) return false;
   if (value.completionOrdinal !== undefined && (!validInteger(value.completionOrdinal) || value.completionOrdinal === 0)) return false;
@@ -126,6 +124,7 @@ export class ReleaseUpdateStateStore {
   private readonly allocatorPath: string;
   private readonly lockPath: string;
   private readonly isProcessAlive: (pid: number) => boolean;
+  private readonly progressPath: string;
 
   constructor(private readonly root: string, options: ReleaseUpdateStateStoreOptions = {}) {
     this.fs = options.fs ?? fs;
@@ -136,6 +135,9 @@ export class ReleaseUpdateStateStore {
     this.statePath = path.join(root, 'release-update-state.json');
     this.allocatorPath = path.join(root, 'release-update-completion-ordinal.json');
     this.lockPath = path.join(root, 'release-update-state.lock');
+    // Sidecar keeps cosmetic progress out of the closed schemaVersion-1 job
+    // record so a rolled-back prior release can still parse the state file.
+    this.progressPath = path.join(root, 'release-update-progress.json');
   }
 
   initialize(): void {
@@ -201,6 +203,8 @@ export class ReleaseUpdateStateStore {
         this.writeState(state);
         return job;
       }
+      // Terminal outcome: the sidecar progress no longer describes live work.
+      this.removeProgressSidecar();
       // High-water durability precedes the terminal record, so a crash cannot reuse an ordinal.
       allocator += 1;
       this.writeAllocator(allocator);
@@ -224,11 +228,24 @@ export class ReleaseUpdateStateStore {
       const job = state.jobs[id];
       if (!job) throw new ReleaseUpdateStateError('Update job not found.');
       if (isTerminalUpdatePhase(job.phase)) throw new ReleaseUpdateStateError('Terminal update job cannot record progress.');
-      job.progress = { downloadedBytes: progress.downloadedBytes, ...(progress.totalBytes === undefined ? {} : { totalBytes: progress.totalBytes }) };
-      job.updatedAt = this.now();
-      this.writeState(state);
+      this.atomicWrite(this.progressPath, JSON.stringify({ jobId: id, downloadedBytes: progress.downloadedBytes, ...(progress.totalBytes === undefined ? {} : { totalBytes: progress.totalBytes }) }) + '\n');
       return job;
     });
+  }
+  /** Best-effort sidecar read: corruption or absence only hides the cosmetic bar. */
+  private readProgressSidecar(jobId: string): PersistedUpdateProgress | null {
+    try {
+      if (!this.fs.existsSync(this.progressPath)) return null;
+      const raw: unknown = JSON.parse(this.fs.readFileSync(this.progressPath, 'utf8'));
+      if (!isPlainObject(raw) || raw.jobId !== jobId) return null;
+      const { jobId: _jobId, ...progress } = raw;
+      return validateProgress(progress) ? progress : null;
+    } catch {
+      return null;
+    }
+  }
+  private removeProgressSidecar(): void {
+    try { if (this.fs.existsSync(this.progressPath)) this.fs.unlinkSync(this.progressPath); } catch { /* Cosmetic only. */ }
   }
   /** Persists the release-link recovery authority before any live-link mutation. */
   persistRecoveryCheckpoint(id: string, recovery: PersistedUpdateRecoveryDescriptor): PersistedUpdateJob {
@@ -313,7 +330,7 @@ export class ReleaseUpdateStateStore {
       updatedAt: job.updatedAt,
       ...(job.completedAt === undefined ? {} : { completedAt: job.completedAt }),
       targetVersion: job.descriptor.release.version,
-      ...(job.progress === undefined ? {} : { progress: { ...job.progress } }),
+      ...(isTerminalUpdatePhase(job.phase) ? {} : (() => { const progress = this.readProgressSidecar(job.descriptor.id); return progress ? { progress } : {}; })()),
       ...(job.error ? { error: job.error } : {}),
     };
   }
@@ -331,7 +348,7 @@ export class ReleaseUpdateStateStore {
         createdAt: active.descriptor.createdAt,
         updatedAt: active.updatedAt,
         targetVersion: active.descriptor.release.version,
-        ...(active.progress === undefined ? {} : { progress: { ...active.progress } }),
+        ...((() => { const progress = this.readProgressSidecar(active.descriptor.id); return progress ? { progress } : {}; })()),
         ...(active.error ? { error: active.error } : {}),
       };
     });

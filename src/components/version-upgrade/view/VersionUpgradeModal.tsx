@@ -347,7 +347,8 @@ export function VersionUpgradeModal({
 
     if (!isOpen) return null;
     const busy = phase.kind === 'starting' || phase.kind === 'waiting';
-    const activeReleaseJob = phase.kind === 'waiting' && phase.mode === 'release' ? releaseJob : null;
+    // The cached poll result is only valid for the job this wait is bound to.
+    const activeReleaseJob = phase.kind === 'waiting' && phase.mode === 'release' && releaseJob?.id === phase.jobId ? releaseJob : null;
     const percent = activeReleaseJob ? releaseUpdatePercent(activeReleaseJob) : null;
     const downloadDetail = activeReleaseJob?.phase === 'downloading' && activeReleaseJob.progress
         ? (activeReleaseJob.progress.totalBytes
