@@ -9,6 +9,7 @@ import {
   classifyExternalSessions,
   buildExternalCliTmuxSpawnArgs,
   buildExternalCliRuntimePath,
+  codexStartupNeedsUpdate,
   createExternalCliSessionDiscovery,
   createExternalCliSessionInferenceRetryBackoff,
   extractCodexThreadIdFromRolloutPath,
@@ -231,6 +232,7 @@ test('external CLI runtime PATH restores user Node and Bun launchers under syste
       '/home/test/.local/bin',
       '/home/test/.bun/bin',
       '/home/test/.cargo/bin',
+      '/home/test/.npm-global/bin',
       '/opt/node/bin',
       '/usr/bin',
     ].join(':'),
@@ -254,6 +256,14 @@ test('detached external CLI spawns receive a stable initial terminal grid', () =
       '/usr/bin/env', 'PATH=/runtime/bin:/usr/bin', '/home/user/.local/bin/codex',
     ],
   );
+});
+
+test('Codex startup update prompt is detected without matching normal output', () => {
+  assert.equal(codexStartupNeedsUpdate([
+    '✨ Update available! 0.146.0 -> 0.146.1',
+    'Press enter to continue',
+  ].join('\n')), true);
+  assert.equal(codexStartupNeedsUpdate('OpenAI Codex (v0.146.1)'), false);
 });
 
 test('Cursor external CLI resolution uses the documented agent executable', async () => {

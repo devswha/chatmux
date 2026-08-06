@@ -49,6 +49,7 @@
     "errors": {
       "towerUnavailable": "관제탑 미가동 — 생성 불가",
       "nameConflict": "같은 이름의 세션이 이미 있습니다",
+      "codexUpdateRequired": "Codex 업데이트가 필요합니다. PC에서 `codex update`를 실행한 뒤 다시 시도하세요.",
       "createFailed": "세션 생성 실패"
     }
   },

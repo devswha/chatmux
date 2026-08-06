@@ -643,6 +643,22 @@ test('external spawn maps a failed tmux new-session to its 409 conflict contract
   }
 });
 
+test('external Codex spawn rejects and cleans up an update prompt', async () => {
+  process.env.CHATMUX_CONTRACT_CAPTURE = [
+    'Update available! 0.146.0 -> 0.146.1',
+    'Press enter to continue',
+  ].join('\n');
+  try {
+    assertError(
+      await request('/sessions/external/spawn', { name: 'codex-update', cwd: '~', cli: 'codex' }),
+      409,
+      'CODEX_UPDATE_REQUIRED',
+    );
+  } finally {
+    delete process.env.CHATMUX_CONTRACT_CAPTURE;
+  }
+});
+
 // B2 route contract matrix — every cell is either covered by a test above or
 // carries the source-level reason it cannot exist. Keep this table in sync when
 // a route gains or loses a status branch.

@@ -34,6 +34,7 @@
     "errors": {
       "towerUnavailable": "Control tower is not running — cannot create session",
       "nameConflict": "A session with this name already exists",
+      "codexUpdateRequired": "Codex must be updated. Run `codex update` on the host PC, then try again.",
       "createFailed": "Failed to create session"
     }
   },

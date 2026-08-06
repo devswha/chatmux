@@ -1264,6 +1264,7 @@ export function buildExternalCliRuntimePath(
     join(home, '.local', 'bin'),
     join(home, '.bun', 'bin'),
     join(home, '.cargo', 'bin'),
+    join(home, '.npm-global', 'bin'),
     dirname(nodeExecutable),
   ].filter((entry): entry is string => Boolean(entry));
   const inherited = withoutNodeModulesBins(pathValue).split(delimiter).filter(Boolean);
@@ -1324,12 +1325,52 @@ export function buildExternalCliTmuxSpawnArgs(
   ];
 }
 
+export type ExternalCliSpawnOutcome = 'ready' | 'codex_update_required';
+
+export function codexStartupNeedsUpdate(output: string): boolean {
+  return /update available!/iu.test(output);
+}
+
+async function inspectCodexStartup(tmuxName: string): Promise<ExternalCliSpawnOutcome> {
+  const attempts = 5;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const output = await runCommand('tmux', [
+      'capture-pane', '-p',
+      '-t', `${tmuxName}:0.0`,
+      '-S', '-40',
+    ]);
+    if (codexStartupNeedsUpdate(output)) return 'codex_update_required';
+    // Keep the short observation window open: the normal shell frame can be
+    // rendered before Codex replaces it with the update prompt.
+    if (attempt < attempts - 1) {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+  }
+  return 'ready';
+}
+
 /** Boots and tags a native CLI in a fresh detached tmux session. */
-export async function spawnExternalCliSession(cli: ExternalSpawnCli, tmuxName: string, cwd: string): Promise<void> {
+export async function spawnExternalCliSession(
+  cli: ExternalSpawnCli,
+  tmuxName: string,
+  cwd: string,
+): Promise<ExternalCliSpawnOutcome> {
   const executable = await resolveExternalCliExecutable(cli);
-  await runCommand('tmux', buildExternalCliTmuxSpawnArgs(executable, tmuxName, cwd));
+  const runtimePath = buildExternalCliRuntimePath(
+    process.env.PATH ?? '',
+    homedir(),
+    process.execPath,
+    executable,
+  );
+
+  await runCommand('tmux', buildExternalCliTmuxSpawnArgs(executable, tmuxName, cwd, runtimePath));
   try {
     await runCommand('tmux', ['set-option', '-t', tmuxName, '@chatmux_cli_kind', cli]);
+    if (cli === 'codex' && await inspectCodexStartup(tmuxName) === 'codex_update_required') {
+      await runCommand('tmux', ['kill-session', '-t', `=${tmuxName}`]).catch(() => undefined);
+      return 'codex_update_required';
+    }
+    return 'ready';
   } catch (error) {
     await runCommand('tmux', ['kill-session', '-t', `=${tmuxName}`]).catch(() => undefined);
     throw error;

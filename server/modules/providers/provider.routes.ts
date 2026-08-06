@@ -20,6 +20,7 @@ import {
   resolveExternalCliCwd,
   spawnExternalCliSession,
   type ExternalCliSession,
+  type ExternalCliSpawnOutcome,
   type ExternalSpawnCli,
 } from '@/modules/providers/services/external-cli-sessions.service.js';
 import {
@@ -979,11 +980,18 @@ router.post(
         statusCode: 400,
       });
     }
+    let spawnOutcome: ExternalCliSpawnOutcome;
     try {
-      await spawnExternalCliSession(cli, body.name, cwd);
+      spawnOutcome = await spawnExternalCliSession(cli, body.name, cwd);
     } catch {
       throw new AppError('The external CLI session could not be created; the tmux name may already exist.', {
         code: 'EXTERNAL_CLI_SPAWN_FAILED',
+        statusCode: 409,
+      });
+    }
+    if (spawnOutcome === 'codex_update_required') {
+      throw new AppError('Codex must be updated before a new session can be created.', {
+        code: 'CODEX_UPDATE_REQUIRED',
         statusCode: 409,
       });
     }
