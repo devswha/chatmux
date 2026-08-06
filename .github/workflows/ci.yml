@@ -4,7 +4,15 @@ on:
   push:
     branches:
       - main
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.github/ISSUE_TEMPLATE/**'
   pull_request:
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.github/ISSUE_TEMPLATE/**'
 
 permissions:
   contents: read
@@ -49,6 +57,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Verify dependency signatures
+        run: npm audit signatures
 
       - name: Verify
         run: npm run verify

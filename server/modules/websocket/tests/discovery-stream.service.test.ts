@@ -202,6 +202,26 @@ test('unauthenticated websocket upgrades cannot subscribe to discovery', async (
   await new Promise<void>((resolve, reject) => wss.close((error) => error ? reject(error) : resolve()));
   await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
 });
+test('chat connections receive a server_hello identity frame before any other traffic', async () => {
+  const server = createServer();
+  const wss = createWebSocketServer(server, {
+    verifyClient: { authenticateWebSocket: () => ({ id: 1, username: 'test' }) },
+    serverInfo: { version: '9.9.9', bootId: 'boot-hello' },
+  } as never);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address(); assert.ok(address && typeof address !== 'string');
+  const client = new ClientWebSocket(`ws://127.0.0.1:${address.port}/ws`);
+  const first = await new Promise<Record<string, unknown>>((resolve, reject) => {
+    client.once('message', (frame) => resolve(JSON.parse(String(frame)) as Record<string, unknown>));
+    client.once('error', reject);
+  });
+  assert.equal(first.kind, 'server_hello');
+  assert.equal(first.serverVersion, '9.9.9');
+  assert.equal(first.bootId, 'boot-hello');
+  client.close();
+  await new Promise<void>((resolve, reject) => wss.close((error) => error ? reject(error) : resolve()));
+  await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+});
 test('malformed pane subscriptions emit protocol errors without starting capture timers', async () => {
   let starts = 0;
   const panes = {

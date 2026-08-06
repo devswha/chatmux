@@ -52,6 +52,14 @@ export type TmuxControlObserverFactory = (
   onExit: (reason: string) => void,
 ) => TmuxControlObserver;
 
+export type TmuxOutputActivityState = 'unknown' | 'running' | 'idle' | 'needs_input';
+
+export type TmuxOutputActivityTransition = Readonly<{
+  state: TmuxOutputActivityState;
+  previous: TmuxOutputActivityState;
+  changedAt: number;
+}>;
+
 export type TmuxOutputActivityMonitorOptions = {
   quietMs?: number;
   maxWaitMs?: number;
@@ -63,7 +71,15 @@ export type TmuxOutputActivityMonitorOptions = {
   observerFactory?: TmuxControlObserverFactory;
   canObserveSession?: (session: SessionIdentity) => Promise<boolean>;
   subscribeTranscript?: (listener: (change: TranscriptChange) => void) => () => void;
-  onInputRequired?: (target: TmuxOutputActivityTarget, occurrenceKey: string) => unknown;
+  onActivityChange?: (
+    target: TmuxOutputActivityTarget,
+    transition: TmuxOutputActivityTransition,
+  ) => unknown;
+  onInputRequired?: (
+    target: TmuxOutputActivityTarget,
+    occurrenceKey: string,
+    transition: TmuxOutputActivityTransition,
+  ) => unknown;
   warn?: (message: string) => void;
 };
 
@@ -73,7 +89,7 @@ type PaneState = {
   target: TmuxOutputActivityTarget;
   screenHash: string | null;
   observedPrompt: boolean;
-  hasObservedRun: boolean;
+  activity: TmuxOutputActivityTransition;
   clearMisses: number;
   quietTimer: Timer | null;
   maxTimer: Timer | null;
@@ -130,6 +146,12 @@ function targetFor(
 
 export function tmuxControlOutputPaneId(line: string): string | null {
   return CONTROL_OUTPUT_RE.exec(line)?.[1] ?? null;
+}
+
+export function tmuxOutputActivityFinished(
+  transition: TmuxOutputActivityTransition,
+): boolean {
+  return transition.previous === 'running' && transition.state === 'idle';
 }
 
 export function createTmuxControlObserver(
@@ -270,14 +292,36 @@ export function createTmuxOutputActivityMonitor(
     pane.maxTimer = null;
   };
 
+  const publishActivity = (
+    pane: PaneState,
+    state: TmuxOutputActivityState,
+  ): TmuxOutputActivityTransition | null => {
+    if (pane.activity.state === state) return null;
+    const transition = Object.freeze({
+      state,
+      previous: pane.activity.state,
+      changedAt: Date.now(),
+    });
+    pane.activity = transition;
+    try {
+      void Promise.resolve(options.onActivityChange?.(pane.target, transition)).catch(() => undefined);
+    } catch {
+      // Activity listeners must never interrupt terminal state publication.
+    }
+    return transition;
+  };
+
   const publishPrompt = (
     pane: PaneState,
     active: boolean,
     syncObservers = true,
     observedScreen = false,
   ): void => {
-    const activityChanged = pane.observedPrompt !== active;
     pane.observedPrompt = active;
+    const transition = publishActivity(
+      pane,
+      active ? 'needs_input' : pane.row.activity === 'running' ? 'running' : 'idle',
+    );
     let occurrenceKey: string | null = null;
     if (observedScreen) {
       occurrenceKey = observeTmuxInputActivity({
@@ -286,17 +330,16 @@ export function createTmuxOutputActivityMonitor(
         tmux: pane.target.tmux,
         process: pane.target.process,
       }, 'screen', active);
-      if (!active && pane.row.activity === 'running') pane.hasObservedRun = true;
     }
     if (
-      activityChanged
-      && active
-      && pane.hasObservedRun
-      && pane.row.activity === 'running'
+      transition?.state === 'needs_input'
+      && transition.previous === 'running'
       && occurrenceKey
     ) {
       try {
-        void Promise.resolve(options.onInputRequired?.(pane.target, occurrenceKey)).catch(() => undefined);
+        void Promise.resolve(
+          options.onInputRequired?.(pane.target, occurrenceKey, transition),
+        ).catch(() => undefined);
       } catch {
         // Notification delivery must never interrupt INPUT state publication.
       }
@@ -304,7 +347,11 @@ export function createTmuxOutputActivityMonitor(
     if (setObservedTmuxInteractiveActivity(pane.target, active)) {
       collector.forceRefresh();
     }
-    if (activityChanged && syncObservers) reconcileSessionObservers();
+    if (
+      syncObservers
+      && transition
+      && (transition.state === 'needs_input' || transition.previous === 'needs_input')
+    ) reconcileSessionObservers();
   };
 
   const inspect = async (pane: PaneState): Promise<void> => {
@@ -491,7 +538,10 @@ export function createTmuxOutputActivityMonitor(
   const removePane = (pane: PaneState): void => {
     pane.disposed = true;
     clearPaneTimers(pane);
-    publishPrompt(pane, false, false);
+    pane.observedPrompt = false;
+    if (setObservedTmuxInteractiveActivity(pane.target, false)) {
+      collector.forceRefresh();
+    }
     panes.delete(pane.key);
   };
 
@@ -509,10 +559,17 @@ export function createTmuxOutputActivityMonitor(
         existing.row = row;
         existing.target = targetFor(row);
         if (kindChanged || bindingChanged) {
-          existing.hasObservedRun = false;
           existing.screenHash = null;
           existing.clearMisses = 0;
-          publishPrompt(existing, false, false);
+          existing.observedPrompt = false;
+          existing.activity = Object.freeze({
+            state: 'unknown',
+            previous: 'unknown',
+            changedAt: Date.now(),
+          });
+          if (setObservedTmuxInteractiveActivity(existing.target, false)) {
+            collector.forceRefresh();
+          }
           markPaneDirty(existing, true);
         }
         continue;
@@ -523,8 +580,12 @@ export function createTmuxOutputActivityMonitor(
         target: targetFor(row),
         screenHash: null,
         observedPrompt: false,
+        activity: Object.freeze({
+          state: 'unknown',
+          previous: 'unknown',
+          changedAt: Date.now(),
+        }),
         clearMisses: 0,
-        hasObservedRun: false,
         quietTimer: null,
         maxTimer: null,
         inFlight: false,

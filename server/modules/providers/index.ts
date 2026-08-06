@@ -74,9 +74,12 @@ export {
   createTmuxControlObserver,
   createTmuxOutputActivityMonitor,
   tmuxControlOutputPaneId,
+  tmuxOutputActivityFinished,
   type TmuxControlObserver,
   type TmuxControlObserverFactory,
+  type TmuxOutputActivityState,
   type TmuxOutputActivityTarget,
+  type TmuxOutputActivityTransition,
   type TmuxOutputActivityMonitorOptions,
 } from './services/tmux-output-activity-monitor.service.js';
 export { observeTmuxInputActivity } from './services/tmux-input-occurrence.service.js';

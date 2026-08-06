@@ -6,6 +6,7 @@ import {
 import type {
   ExternalCliSession,
   TmuxOutputActivityTarget,
+  TmuxOutputActivityTransition,
 } from '@/modules/providers/index.js';
 
 import { completionTargetResolver } from './completion-target-resolver.service.js';
@@ -23,7 +24,12 @@ export function tmuxInputNotificationsEnabled(): boolean {
 export function notifyTmuxInputRequiredIfWatched(
   target: TmuxOutputActivityTarget,
   occurrenceKey: string,
+  transition?: TmuxOutputActivityTransition,
 ): void {
+  if (
+    transition
+    && (transition.state !== 'needs_input' || transition.previous !== 'running')
+  ) return;
   if (!tmuxInputNotificationsEnabled()) return;
   let userId: number | null;
   try {

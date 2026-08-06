@@ -1,6 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
+import { version as clientVersion } from '../../package.json';
 import { useAuth } from '../components/auth/context/AuthContext';
+import { refreshAfterServerUpdate } from '../services/serviceWorkerUpdate';
 
 /**
  * One frame received from the chat websocket. The server guarantees every
@@ -93,7 +95,17 @@ const useWebSocketProviderState = (): WebSocketContextType => {
       websocket.onmessage = (event) => {
         if (!isCurrentSocket()) return;
         try {
-          dispatch(JSON.parse(event.data) as ServerEvent);
+          const frame = JSON.parse(event.data) as ServerEvent;
+          // A server that restarted into a different version keeps serving this
+          // stale bundle until something reloads it. The hello frame arrives on
+          // every (re)connect; the refresh coordinator's per-version session
+          // guard makes this loop-safe even when the served bundle lags.
+          if (frame.kind === 'server_hello'
+            && typeof frame.serverVersion === 'string'
+            && frame.serverVersion !== clientVersion) {
+            void refreshAfterServerUpdate({ serverVersion: frame.serverVersion });
+          }
+          dispatch(frame);
         } catch (error) {
           console.error('Error parsing WebSocket message:', error);
         }

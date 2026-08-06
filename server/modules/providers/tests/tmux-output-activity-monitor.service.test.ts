@@ -13,8 +13,10 @@ import {
   createTmuxControlObserver,
   createTmuxOutputActivityMonitor,
   tmuxControlOutputPaneId,
+  tmuxOutputActivityFinished,
   tmuxObserverIsSafe,
   type TmuxControlObserverFactory,
+  type TmuxOutputActivityTransition,
 } from '@/modules/providers/services/tmux-output-activity-monitor.service.js';
 import { createVerifiedTmuxActionTarget } from '@/modules/providers/services/tmux-fresh-verifier.service.js';
 
@@ -636,6 +638,69 @@ test('falls back to screen inspection when control-mode observation is unsafe', 
   ));
   assert.equal(observers, 0);
   assert.ok(captures >= 1);
+  monitor.dispose();
+});
+
+test('publishes only activity state transitions with finished run semantics', async () => {
+  const unobserved = { ...row('codex', 31), activity: 'unknown' as const };
+  const collector = fakeCollector(snapshot([unobserved]));
+  const transitions: TmuxOutputActivityTransition[] = [];
+  const transcriptRef: { current: (() => void) | null } = { current: null };
+  let screen = 'Waiting for a response.';
+  let captures = 0;
+  const monitor = createTmuxOutputActivityMonitor(collector.source, {
+    quietMs: 5,
+    fallbackMs: 60_000,
+    canObserveSession: async () => true,
+    observerFactory: () => ({ close: () => undefined }),
+    capture: async () => {
+      captures += 1;
+      return screen;
+    },
+    subscribeTranscript: (listener) => {
+      transcriptRef.current = () => listener({
+        provider: 'codex',
+        providerSessionId: unobserved.providerSessionId,
+        changedAtMs: Date.now(),
+      });
+      return () => { transcriptRef.current = null; };
+    },
+    onActivityChange: (_target, transition) => { transitions.push(transition); },
+  });
+
+  monitor.start();
+  await waitFor(() => transitions.length === 1);
+  assert.deepEqual(transitions[0].state, 'idle');
+  assert.deepEqual(transitions[0].previous, 'unknown');
+  assert.equal(tmuxOutputActivityFinished(transitions[0]), false);
+  assert.ok(Number.isFinite(transitions[0].changedAt));
+
+  const running = { ...unobserved, activity: 'running' as const };
+  collector.emit(snapshot([running], 2));
+  screen = 'Working on the request.';
+  transcriptRef.current?.();
+  await waitFor(() => transitions.length === 2);
+  assert.deepEqual(
+    { state: transitions[1].state, previous: transitions[1].previous },
+    { state: 'running', previous: 'idle' },
+  );
+
+  const idle = { ...running, activity: 'waiting_user' as const };
+  collector.emit(snapshot([idle], 3));
+  screen = 'Reply ready.';
+  transcriptRef.current?.();
+  await waitFor(() => transitions.length === 3);
+  assert.deepEqual(
+    { state: transitions[2].state, previous: transitions[2].previous },
+    { state: 'idle', previous: 'running' },
+  );
+  assert.equal(tmuxOutputActivityFinished(transitions[2]), true);
+  assert.ok(transitions[2].changedAt >= transitions[1].changedAt);
+
+  screen = 'Reply ready and unchanged.';
+  transcriptRef.current?.();
+  await waitFor(() => captures === 4);
+  assert.equal(transitions.length, 3, 'consecutive idle observations publish once');
   monitor.dispose();
 });
 

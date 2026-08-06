@@ -19,3 +19,21 @@ test('CHATMUX_LIVE_NOTIFY=0 disables the screen INPUT notification producer', ()
     else process.env.CHATMUX_LIVE_NOTIFY = previous;
   }
 });
+
+test('does not consume INPUT transitions that were not preceded by RUN', () => {
+  const previous = process.env.CHATMUX_LIVE_NOTIFY;
+  const target = new Proxy({}, {
+    get: () => { throw new Error('notification target must not be resolved'); },
+  });
+  try {
+    process.env.CHATMUX_LIVE_NOTIFY = '1';
+    assert.doesNotThrow(() => notifyTmuxInputRequiredIfWatched(
+      target as never,
+      'screen-occurrence',
+      { state: 'needs_input', previous: 'unknown', changedAt: Date.now() },
+    ));
+  } finally {
+    if (previous === undefined) delete process.env.CHATMUX_LIVE_NOTIFY;
+    else process.env.CHATMUX_LIVE_NOTIFY = previous;
+  }
+});

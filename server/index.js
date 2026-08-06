@@ -158,6 +158,10 @@ const wss = createWebSocketServer(server, {
     verifyClient: {
         authenticateWebSocket,
     },
+    serverInfo: {
+        version: RUNNING_VERSION,
+        bootId: SERVER_BOOT_ID,
+    },
     chat: {
         spawnFns: {
             claude: queryClaudeSDK,
