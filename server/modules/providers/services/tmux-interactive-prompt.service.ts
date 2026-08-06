@@ -26,6 +26,7 @@ const GJC_HINT_RE = /up\/down navigate\s+enter select\s+esc cancel/i;
 const OMP_SINGLE_HINT_RE = /enter select.*↑\/↓ move.*esc cancel/i;
 const OMP_MULTI_HINT_RE = /space\/enter toggle.*↑\/↓ move.*esc cancel/i;
 const CODEX_ASK_HINT_RE = /tab to add notes.*enter to submit answer.*esc to interrupt/i;
+const CODEX_CONTINUE_HINT_RE = /press\s+enter\s+to\s+continue/i;
 const CLAUDE_ASK_HINT_RE = /enter to select.*↑\/↓ to navigate.*esc to cancel/i;
 const CODEX_APPROVAL_HEADER_RE =
   /(?:Would you like to (?:run|make|apply|continue|grant)|Allow Codex to|Approve (?:this )?(?:app )?tool call|Do you trust the contents|Enable full access)/i;
@@ -59,6 +60,7 @@ type PromptResponder =
   | 'codex-question'
   | 'omp-question'
   | 'claude-question'
+  | 'codex-menu'
   | 'codex-approval'
   | 'omp-approval'
   | 'claude-approval'
@@ -331,6 +333,42 @@ function sequentialRows(rows: NumberedRow[]): boolean {
   return rows.length > 0 && rows.every((row, index) => row.number === index + 1);
 }
 
+/** Parses pre-chat Codex menus such as update, sign-in, and migration prompts. */
+function parseCodexContinueMenu(screen: string): ParsedPrompt | null {
+  const lines = screen.replace(ANSI_RE, '').split(/\r?\n/);
+  const hintIndex = findLastIndex(lines, (line) => CODEX_CONTINUE_HINT_RE.test(cleanLine(line)));
+  if (hintIndex < 0) return null;
+  const rows = parseNumberedRows(lines, Math.max(0, hintIndex - 64), hintIndex);
+  if (!sequentialRows(rows) || rows.length < 2 || rows.filter((row) => row.selected).length !== 1) {
+    return null;
+  }
+  const body = lines
+    .slice(Math.max(0, rows[0].lineIndex - 16), rows[0].lineIndex)
+    .map(cleanLine)
+    .filter((line) => line && !isDivider(line))
+    .join('\n')
+    .slice(0, 12_000);
+  return finishPrompt({
+    kind: 'question',
+    title: 'Codex',
+    question: 'Choose how to continue',
+    body: body || null,
+    options: rows.map((row) => ({
+      label: row.label,
+      ...(row.description ? { description: row.description } : {}),
+    })),
+    multiSelect: false,
+    customOptionNumber: null,
+  }, 'codex', {
+    responder: 'codex-menu',
+    menuLabels: rows.map((row) => row.label),
+    selectedIndex: rows.findIndex((row) => row.selected),
+    checkedOptionIndices: [],
+    customMenuIndex: null,
+    rejectWithEscapeIndex: null,
+  });
+}
+
 function parseCodexQuestion(screen: string): ParsedPrompt | null {
   const lines = screen.replace(ANSI_RE, '').split(/\r?\n/);
   const hintIndex = findLastIndex(lines, (line) => CODEX_ASK_HINT_RE.test(line));
@@ -544,6 +582,7 @@ function promptTailIsActive(prompt: ParsedPrompt, screen: string): boolean {
   if (prompt.responder === 'omp-question') {
     return OMP_SINGLE_HINT_RE.test(last) || OMP_MULTI_HINT_RE.test(last);
   }
+  if (prompt.responder === 'codex-menu') return CODEX_CONTINUE_HINT_RE.test(last);
   if (prompt.responder === 'codex-question') return CODEX_ASK_HINT_RE.test(last);
   if (prompt.responder === 'claude-question') return CLAUDE_ASK_HINT_RE.test(last);
   if (prompt.responder === 'codex-approval') {
@@ -565,7 +604,7 @@ export function parseTmuxInteractivePrompt(
   const candidates = kind === 'gjc'
     ? [parseGjcQuestion(screen)]
     : kind === 'codex'
-      ? [parseCodexQuestion(screen), parseCodexApproval(screen)]
+      ? [parseCodexContinueMenu(screen), parseCodexQuestion(screen), parseCodexApproval(screen)]
       : kind === 'omp'
         ? [parseOmpQuestion(screen), parseOmpApproval(screen)]
         : kind === 'claude'

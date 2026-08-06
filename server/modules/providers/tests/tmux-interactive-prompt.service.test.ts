@@ -10,6 +10,25 @@ import type { TmuxRunner } from '@/modules/providers/services/builtin-relay.serv
 import { createVerifiedTmuxActionTarget } from '@/modules/providers/services/tmux-fresh-verifier.service.js';
 
 test('parses Codex questions and command approvals from the active TUI', () => {
+  const update = parseTmuxInteractivePrompt('codex', `
+  ✨ Update available! 0.146.0 -> 0.146.1
+
+  Release notes: https://github.com/openai/codex/releases/latest
+
+› 1. Update now (runs \`npm install -g @openai/codex\`)
+  2. Skip
+  3. Skip until next version
+
+  Press enter to continue
+`);
+  assert.equal(update?.kind, 'question');
+  assert.equal(update?.question, 'Choose how to continue');
+  assert.deepEqual(update?.options.map((option) => option.label), [
+    'Update now (runs `npm install -g @openai/codex`)',
+    'Skip',
+    'Skip until next version',
+  ]);
+
   const question = parseTmuxInteractivePrompt('codex', `
 Question 1/1 (1 unanswered)
 Which export format should we use?
@@ -46,6 +65,61 @@ Press enter to confirm or esc to cancel
   assert.equal(approval?.kind, 'approval');
   assert.equal(approval?.options.length, 3);
   assert.match(approval?.body ?? '', /curl -I/);
+});
+
+test('answers a Codex pre-chat menu with its native cursor and Enter keys', async () => {
+  const screen = `
+  ✨ Update available! 0.146.0 -> 0.146.1
+
+› 1. Update now
+  2. Skip
+  3. Skip until next version
+
+  Press enter to continue
+`;
+  const prompt = parseTmuxInteractivePrompt('codex', screen);
+  assert.ok(prompt);
+  const calls: string[][] = [];
+  const run: TmuxRunner = async (args) => {
+    calls.push(args);
+    if (args.includes('capture-pane')) return { code: 0, output: screen };
+    if (args.includes('display-message')) return { code: 0, output: '$7\t@8\t%9\n' };
+    return { code: 0, output: '' };
+  };
+  const target = createVerifiedTmuxActionTarget(
+    {
+      socketPath: '/tmp/chatmux-interactive-test.sock',
+      sessionId: '$7',
+      windowId: '@8',
+      paneId: '%9',
+    },
+    { pid: 42, startedAtMs: 1234 },
+    'codex',
+    null,
+  );
+
+  await answerTmuxInteractivePrompt(target, prompt.id, [2], run);
+  assert.deepEqual(
+    calls.filter((args) => args.includes('send-keys')).map((args) => args.at(-1)),
+    ['Down', 'Enter'],
+  );
+});
+
+test('does not treat a passive Codex update banner as an active menu', () => {
+  const prompt = parseTmuxInteractivePrompt('codex', `
+╭─────────────────────────────────────────────────╮
+│ ✨ Update available! 0.146.0 -> 0.146.1          │
+│ Run npm install -g @openai/codex to update.     │
+╰─────────────────────────────────────────────────╯
+
+╭───────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.146.0)                │
+│ model: gpt-5.6-sol                        │
+╰───────────────────────────────────────────╯
+
+› Improve documentation in @filename
+`);
+  assert.equal(prompt, null);
 });
 
 test('parses Claude questions, command approvals, and plan approval without transcript data', () => {

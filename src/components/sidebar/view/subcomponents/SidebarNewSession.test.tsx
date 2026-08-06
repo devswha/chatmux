@@ -151,9 +151,3 @@ test('successful GJC and external spawns both refresh discovery', () => {
   );
   assert.match(externalBranch, /completeSpawn\(trimmedCwd\)/);
 });
-
-test('Codex update-required responses use the localized warning', () => {
-  const source = readFileSync(new URL('./SidebarNewSession.tsx', import.meta.url), 'utf8');
-  assert.match(source, /CODEX_UPDATE_REQUIRED/);
-  assert.match(source, /newSessionForm\.errors\.codexUpdateRequired/);
-});

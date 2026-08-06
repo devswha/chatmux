@@ -126,9 +126,7 @@ export default function SidebarNewSession({
       }
       setStatus({
         kind: 'error',
-        text: body?.error?.code === 'CODEX_UPDATE_REQUIRED'
-          ? t('newSessionForm.errors.codexUpdateRequired')
-          : body?.error?.message ?? body?.message ?? t('newSessionForm.errors.createFailed'),
+        text: body?.error?.message ?? body?.message ?? t('newSessionForm.errors.createFailed'),
       });
     } catch {
       setStatus({ kind: 'error', text: t('newSessionForm.errors.createFailed') });
