@@ -1,7 +1,7 @@
 {
   "name": "chatmux",
   "private": true,
-  "version": "1.8.8",
+  "version": "1.8.9",
   "productName": "ChatMux",
   "description": "A self-hosted web interface for coding-agent sessions running in tmux",
   "type": "module",
