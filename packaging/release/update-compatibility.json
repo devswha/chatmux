@@ -133,6 +133,13 @@
           "1.8.9"
         ]
       }
+    },
+    "1.8.11": {
+      "database": {
+        "rollbackCompatibleFrom": [
+          "1.8.10"
+        ]
+      }
     }
   }
 }
