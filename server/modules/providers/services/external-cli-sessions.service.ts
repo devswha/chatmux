@@ -1264,6 +1264,7 @@ export function buildExternalCliRuntimePath(
     join(home, '.local', 'bin'),
     join(home, '.bun', 'bin'),
     join(home, '.cargo', 'bin'),
+    join(home, '.npm-global', 'bin'),
     dirname(nodeExecutable),
   ].filter((entry): entry is string => Boolean(entry));
   const inherited = withoutNodeModulesBins(pathValue).split(delimiter).filter(Boolean);
@@ -1325,7 +1326,11 @@ export function buildExternalCliTmuxSpawnArgs(
 }
 
 /** Boots and tags a native CLI in a fresh detached tmux session. */
-export async function spawnExternalCliSession(cli: ExternalSpawnCli, tmuxName: string, cwd: string): Promise<void> {
+export async function spawnExternalCliSession(
+  cli: ExternalSpawnCli,
+  tmuxName: string,
+  cwd: string,
+): Promise<void> {
   const executable = await resolveExternalCliExecutable(cli);
   await runCommand('tmux', buildExternalCliTmuxSpawnArgs(executable, tmuxName, cwd));
   try {

@@ -231,6 +231,7 @@ test('external CLI runtime PATH restores user Node and Bun launchers under syste
       '/home/test/.local/bin',
       '/home/test/.bun/bin',
       '/home/test/.cargo/bin',
+      '/home/test/.npm-global/bin',
       '/opt/node/bin',
       '/usr/bin',
     ].join(':'),
