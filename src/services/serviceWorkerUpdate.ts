@@ -2,6 +2,8 @@ export const SERVICE_WORKER_ACTIVATE_MESSAGE = 'chatmux:activate';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const SESSION_GUARD_PREFIX = 'chatmux:service-worker-refresh:';
+/** A reload-born document still mismatching within this window means the origin keeps serving a stale bundle. */
+const RELOAD_LOOP_WINDOW_MS = 30_000;
 
 export type ServiceWorkerRefreshResult = 'reloaded' | 'already-reloaded' | 'failed';
 
@@ -33,6 +35,9 @@ type RefreshDependencies = {
   setTimeout?: (callback: () => void, ms: number) => unknown;
   clearTimeout?: (timer: unknown) => void;
   timeoutMs?: number;
+  /** How this document was created; 'reload' marks a document our own reload produced. */
+  navigationType?: () => string;
+  now?: () => number;
 };
 
 export type ServiceWorkerRefreshOptions = RefreshDependencies & {
@@ -40,7 +45,7 @@ export type ServiceWorkerRefreshOptions = RefreshDependencies & {
   serverVersion?: string;
 };
 
-function browserDependencies(): Required<Pick<RefreshDependencies, 'navigator' | 'location' | 'sessionStorage' | 'setTimeout' | 'clearTimeout'>> {
+function browserDependencies(): Required<Pick<RefreshDependencies, 'navigator' | 'location' | 'sessionStorage' | 'setTimeout' | 'clearTimeout' | 'navigationType' | 'now'>> {
   return {
     navigator: globalThis.navigator,
     location: globalThis.location,
@@ -49,6 +54,15 @@ function browserDependencies(): Required<Pick<RefreshDependencies, 'navigator' |
     clearTimeout: timer => {
       if (typeof timer === 'number') globalThis.clearTimeout(timer);
     },
+    navigationType: () => {
+      try {
+        const [entry] = globalThis.performance.getEntriesByType('navigation');
+        return entry instanceof PerformanceNavigationTiming ? entry.type : '';
+      } catch {
+        return '';
+      }
+    },
+    now: Date.now,
   };
 }
 
@@ -61,14 +75,32 @@ export function createServiceWorkerRefreshCoordinator(defaultDependencies: Refre
     return { ...browserDependencies(), ...defaultDependencies, ...overrides };
   }
 
+  // One reload per document: later callers in the same (about to be replaced)
+  // document short-circuit. Unlike a per-version session guard, this lets EVERY
+  // stale document restored from the back/forward cache heal itself — a
+  // session-lifetime guard stranded all but the first one on the old bundle.
+  let reloadedThisDocument = false;
+
   function reloadOnce(options: RefreshOptions): Extract<ServiceWorkerRefreshResult, 'reloaded' | 'already-reloaded'> {
     const resolved = dependencies(options);
+    if (reloadedThisDocument) return 'already-reloaded';
     const guardKey = `${SESSION_GUARD_PREFIX}${options.serverVersion || 'unknown'}`;
-    if (resolved.sessionStorage.getItem(guardKey) === '1') {
+    // Loop breaker: this document was itself born from an auto-reload for the
+    // same server version moments ago and STILL mismatches — the origin keeps
+    // serving a stale bundle, so another reload would spin forever.
+    let markerAt: number | null = null;
+    try {
+      const marker: unknown = JSON.parse(resolved.sessionStorage.getItem(guardKey) ?? 'null');
+      if (marker && typeof marker === 'object' && 'at' in marker && typeof marker.at === 'number') {
+        markerAt = marker.at;
+      }
+    } catch { /* Legacy or corrupt marker: treat as absent. */ }
+    const now = resolved.now();
+    if (markerAt !== null && now - markerAt < RELOAD_LOOP_WINDOW_MS && resolved.navigationType() === 'reload') {
       return 'already-reloaded';
     }
-
-    resolved.sessionStorage.setItem(guardKey, '1');
+    reloadedThisDocument = true;
+    resolved.sessionStorage.setItem(guardKey, JSON.stringify({ at: now }));
     resolved.location.reload();
     return 'reloaded';
   }
