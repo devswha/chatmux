@@ -27,8 +27,6 @@ import {
   PromptInput,
   PromptInputBody,
   PromptInputTextarea,
-  PromptInputFooter,
-  PromptInputTools,
   PromptInputSubmit,
 } from '../../../../shared/view/ui';
 import { QuestionAnswerContent } from '../../tools/components/ContentRenderers';
@@ -932,6 +930,7 @@ export default function LiveRelayComposer({
                 syncFileMenu(input, caret);
               }}
               rows={1}
+              className="pr-14"
               placeholder={
                 isAwaitingInteractiveCustom || isAwaitingCustomInput
                   ? t('relay.customInputPlaceholder', { defaultValue: 'Type the custom answer…' })
@@ -952,18 +951,15 @@ export default function LiveRelayComposer({
                     : t('relay.placeholder', { name: displayName, trigger: commandTrigger })
               }
             />
-          </PromptInputBody>
-          <PromptInputFooter>
-            <PromptInputTools className="min-w-0" />
             <PromptInputSubmit
               status={showStop ? 'streaming' : 'ready'}
               onClick={showStop ? handleStopClick : undefined}
               disabled={showStop ? isInterrupting : (!hasDraft || status.kind === 'sending')}
               aria-label={submitLabel}
               title={submitLabel}
-              className="h-9 w-9"
+              className="absolute bottom-2 right-2 h-9 w-9"
             />
-          </PromptInputFooter>
+          </PromptInputBody>
         </PromptInput>
       </div>
 
