@@ -3,7 +3,7 @@ import test from 'node:test';
 
 import type { ChatMessage } from '../types/types';
 
-import { findPendingRelayAsk } from './pendingRelayAsk';
+import { findPendingRelayAsk, findUnansweredRelayAskToolId } from './pendingRelayAsk';
 
 const pending: ChatMessage = {
   type: 'tool',
@@ -47,4 +47,23 @@ test('findPendingRelayAsk rejects multi-question asks so the screen-derived prom
       ],
     },
   }]), null);
+});
+
+test('findUnansweredRelayAskToolId tracks multi-question asks without making them transcript-actionable', () => {
+  const multiQuestion = {
+    ...pending,
+    toolId: 'ask-multi',
+    toolInput: {
+      questions: [
+        { question: 'Format?', options: [{ label: 'ONNX' }, { label: 'TensorRT' }] },
+        { question: 'Precision?', options: [{ label: 'FP16' }, { label: 'INT8' }] },
+      ],
+    },
+  };
+  assert.equal(findUnansweredRelayAskToolId([multiQuestion]), 'ask-multi');
+  assert.equal(findPendingRelayAsk([multiQuestion]), null);
+  assert.equal(
+    findUnansweredRelayAskToolId([{ ...multiQuestion, toolResult: { content: 'done' } }]),
+    null,
+  );
 });

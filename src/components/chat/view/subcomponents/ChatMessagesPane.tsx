@@ -65,6 +65,7 @@ interface ChatMessagesPaneProps {
   selectedProject: Project;
   transcriptView?: boolean;
   pendingAskToolId?: string | null;
+  suppressedAskToolId?: string | null;
   onAskChoiceSelect?: (choiceNumber: number) => void;
 }
 
@@ -114,6 +115,7 @@ function ChatMessagesPane({
   selectedProject,
   transcriptView = false,
   pendingAskToolId = null,
+  suppressedAskToolId = null,
   onAskChoiceSelect,
 }: ChatMessagesPaneProps) {
   const { t } = useTranslation('chat');
@@ -267,6 +269,7 @@ function ChatMessagesPane({
                     provider={provider}
                     transcriptView={transcriptView}
                     pendingAskToolId={pendingAskToolId}
+                    suppressedAskToolId={suppressedAskToolId}
                     onAskChoiceSelect={onAskChoiceSelect}
                   />
                 );
@@ -290,6 +293,7 @@ function ChatMessagesPane({
                   provider={provider}
                   transcriptView={transcriptView}
                   pendingAskToolId={pendingAskToolId}
+                  suppressedAskToolId={suppressedAskToolId}
                   onAskChoiceSelect={onAskChoiceSelect}
                 />
               );

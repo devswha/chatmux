@@ -28,6 +28,7 @@ interface ToolGroupContainerProps {
   provider: Provider | string;
   transcriptView?: boolean;
   pendingAskToolId?: string | null;
+  suppressedAskToolId?: string | null;
   onAskChoiceSelect?: (choiceNumber: number) => void;
 }
 
@@ -74,6 +75,7 @@ export default function ToolGroupContainer({
   provider,
   transcriptView = false,
   pendingAskToolId = null,
+  suppressedAskToolId = null,
   onAskChoiceSelect,
 }: ToolGroupContainerProps) {
   const [isExpanded, setIsExpanded] = useState(group.toolName === 'todo');
@@ -143,6 +145,7 @@ export default function ToolGroupContainer({
               provider={provider}
               transcriptView={transcriptView}
               pendingAskToolId={pendingAskToolId}
+              suppressedAskToolId={suppressedAskToolId}
               onAskChoiceSelect={onAskChoiceSelect}
             />
           ))}

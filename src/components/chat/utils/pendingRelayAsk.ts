@@ -14,6 +14,21 @@ function parseInput(value: unknown): unknown {
   }
 }
 
+
+/**
+ * Identifies the newest unanswered AskUserQuestion tool call even when its
+ * multi-question shape cannot be answered from transcript data alone.
+ */
+export function findUnansweredRelayAskToolId(messages: readonly ChatMessage[]): string | null {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (!message.isToolUse || message.toolName !== 'AskUserQuestion') continue;
+    return typeof message.toolId === 'string' && message.toolId && !message.toolResult
+      ? message.toolId
+      : null;
+  }
+  return null;
+}
 /**
  * Returns only the newest unanswered, single-select transcript question, and
  * only when the ask carries exactly one question. Multi-question asks lose

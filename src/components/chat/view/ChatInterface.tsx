@@ -10,7 +10,7 @@ import { useChatSessionState } from '../hooks/useChatSessionState';
 import { useChatRealtimeHandlers } from '../hooks/useChatRealtimeHandlers';
 import { useChatComposerState } from '../hooks/useChatComposerState';
 import { useSessionStore } from '../../../stores/useSessionStore';
-import { findPendingRelayAsk } from '../utils/pendingRelayAsk';
+import { findPendingRelayAsk, findUnansweredRelayAskToolId } from '../utils/pendingRelayAsk';
 
 import ChatMessagesPane from './subcomponents/ChatMessagesPane';
 import ChatComposer from './subcomponents/ChatComposer';
@@ -350,12 +350,22 @@ function ChatInterface({
   // reserve enough bottom space to keep the floating status tab from
   // overlapping the last message.
   const hasActivityIndicator = Boolean(sessionActivity && pendingPermissionRequests.length === 0);
-  const pendingRelayAsk = useMemo(() => (
-    isSessionReadOnly
-    && (liveSessionKind === 'gjc' || liveSessionKind === 'codex' || liveSessionKind === 'omp' || liveSessionKind === 'claude')
-      ? findPendingRelayAsk(chatMessages)
-      : null
-  ), [chatMessages, isSessionReadOnly, liveSessionKind]);
+  const supportsRelayAsk = isSessionReadOnly
+    && (liveSessionKind === 'gjc' || liveSessionKind === 'codex' || liveSessionKind === 'omp' || liveSessionKind === 'claude');
+  const pendingRelayAsk = useMemo(
+    () => supportsRelayAsk ? findPendingRelayAsk(chatMessages) : null,
+    [chatMessages, supportsRelayAsk],
+  );
+  const unansweredRelayAskToolId = useMemo(
+    () => supportsRelayAsk ? findUnansweredRelayAskToolId(chatMessages) : null,
+    [chatMessages, supportsRelayAsk],
+  );
+  // Multi-question asks must use the screen-derived card. Suppress their
+  // transcript duplicate so users cannot mistake inert history rows for the
+  // active choices after the native TUI advances to question two.
+  const suppressedAskToolId = unansweredRelayAskToolId === pendingRelayAsk?.toolId
+    ? null
+    : unansweredRelayAskToolId;
 
   // Bridges transcript-rendered ask cards to the relay composer: the composer
   // registers its choice submitter here, and tapped choices reuse the same
@@ -442,6 +452,7 @@ function ChatInterface({
           selectedProject={selectedProject}
           transcriptView={Boolean(liveSessionKind && liveSessionKind !== 'gjc')}
           pendingAskToolId={pendingRelayAsk?.toolId ?? null}
+          suppressedAskToolId={suppressedAskToolId}
           onAskChoiceSelect={handleAskChoiceSelect}
         />
 

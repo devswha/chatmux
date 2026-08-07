@@ -36,6 +36,7 @@ type MessageComponentProps = {
   provider: Provider | string;
   transcriptView?: boolean;
   pendingAskToolId?: string | null;
+  suppressedAskToolId?: string | null;
   onAskChoiceSelect?: (choiceNumber: number) => void;
 };
 
@@ -51,7 +52,7 @@ const compactErrorSummary = (content: string, fallback: string): string => {
   return firstLine.length > 160 ? `${firstLine.slice(0, 157)}...` : firstLine;
 };
 
-const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, showRawParameters, showThinking, selectedProject, provider, transcriptView = false, pendingAskToolId = null, onAskChoiceSelect }: MessageComponentProps) => {
+const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, showRawParameters, showThinking, selectedProject, provider, transcriptView = false, pendingAskToolId = null, suppressedAskToolId = null, onAskChoiceSelect }: MessageComponentProps) => {
   const { t } = useTranslation('chat');
   const isGrouped = prevMessage && prevMessage.type === message.type &&
     ((prevMessage.type === 'assistant') ||
@@ -181,7 +182,7 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
                   </div>
                 </div>
 
-                {message.toolInput && (
+                {message.toolInput && suppressedAskToolId !== message.toolId && (
                   <ToolRenderer
                     toolName={message.toolName || 'UnknownTool'}
                     toolInput={message.toolInput}
