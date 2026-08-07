@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ClipboardEvent, DragEvent, FormEvent, KeyboardEvent, MouseEvent, MutableRefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -32,6 +32,7 @@ import {
 import { QuestionAnswerContent } from '../../tools/components/ContentRenderers';
 
 import CommandMenu from './CommandMenu';
+import ActivityIndicator from './ActivityIndicator';
 
 type RelayStatus =
   | { kind: 'idle' }
@@ -39,6 +40,18 @@ type RelayStatus =
   | { kind: 'ok'; text: string }
   | { kind: 'queued'; text: string }
   | { kind: 'error'; text: string };
+
+type RelayActivityRow = {
+  tmux?: {
+    socketPath?: string;
+    sessionId?: string;
+    windowId?: string;
+    paneId?: string;
+  } | null;
+  process?: { pid?: number; startedAtMs?: number } | null;
+  activity?: string;
+  running?: boolean;
+};
 
 type InteractivePrompt = {
   id: string;
@@ -121,6 +134,102 @@ export default function LiveRelayComposer({
     || relayKind === 'cursor'
     || relayKind === 'opencode'
     || relayKind === 'omp';
+
+  const [optimisticProcessing, setOptimisticProcessing] = useState(false);
+  const observedAuthoritativeProcessingRef = useRef(false);
+  const optimisticStartedAtRef = useRef(0);
+  const consecutiveIdlePollsRef = useRef(0);
+  const effectiveProcessing = isProcessing || optimisticProcessing;
+  const [processingStartedAt, setProcessingStartedAt] = useState<number | null>(
+    effectiveProcessing ? Date.now() : null
+  );
+  useEffect(() => {
+    if (!optimisticProcessing) {
+      observedAuthoritativeProcessingRef.current = false;
+      return;
+    }
+    if (isProcessing) {
+      observedAuthoritativeProcessingRef.current = true;
+    } else if (observedAuthoritativeProcessingRef.current) {
+      observedAuthoritativeProcessingRef.current = false;
+      setOptimisticProcessing(false);
+    }
+  }, [isProcessing, optimisticProcessing]);
+  useEffect(() => {
+    if (!optimisticProcessing) return undefined;
+    const timer = window.setTimeout(() => setOptimisticProcessing(false), 5 * 60_000);
+    return () => window.clearTimeout(timer);
+  }, [optimisticProcessing]);
+  useEffect(() => {
+    if (!optimisticProcessing) return undefined;
+    let cancelled = false;
+    let inFlight = false;
+    const poll = async () => {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const response = relayKind === 'gjc'
+          ? await api.liveSessions()
+          : await api.externalSessions();
+        const body = await response.json().catch(() => null) as {
+          data?: {
+            liveSessions?: RelayActivityRow[];
+            externalSessions?: RelayActivityRow[];
+          };
+        } | null;
+        if (cancelled || !response.ok) return;
+        const rows = relayKind === 'gjc'
+          ? body?.data?.liveSessions
+          : body?.data?.externalSessions;
+        const row = rows?.find((candidate) => (
+          candidate.tmux?.socketPath === target.tmux.socketPath
+          && candidate.tmux.sessionId === target.tmux.sessionId
+          && candidate.tmux.windowId === target.tmux.windowId
+          && candidate.tmux.paneId === target.tmux.paneId
+          && candidate.process?.pid === target.process.pid
+          && candidate.process.startedAtMs === target.process.startedAtMs
+        ));
+        const running = row?.running === true || row?.activity === 'running';
+        if (running) {
+          observedAuthoritativeProcessingRef.current = true;
+          consecutiveIdlePollsRef.current = 0;
+          return;
+        }
+        consecutiveIdlePollsRef.current += 1;
+        const registrationGraceElapsed = Date.now() - optimisticStartedAtRef.current >= 5_000;
+        if (
+          observedAuthoritativeProcessingRef.current
+          || (registrationGraceElapsed && consecutiveIdlePollsRef.current >= 2)
+        ) {
+          setOptimisticProcessing(false);
+        }
+      } catch {
+        // The five-minute safety timer remains the fail-closed cleanup path.
+      } finally {
+        inFlight = false;
+      }
+    };
+    void poll();
+    const timer = window.setInterval(() => { void poll(); }, 1_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [optimisticProcessing, relayKind, target]);
+  useEffect(() => {
+    setProcessingStartedAt((startedAt) => (
+      effectiveProcessing ? (startedAt ?? Date.now()) : null
+    ));
+  }, [effectiveProcessing]);
+  const relayActivity = useMemo(() => (
+    effectiveProcessing
+      ? {
+          statusText: null,
+          canInterrupt,
+          startedAt: processingStartedAt ?? Date.now(),
+        }
+      : null
+  ), [canInterrupt, effectiveProcessing, processingStartedAt]);
 
   const [commands, setCommands] = useState<LiveGjcCommand[]>([]);
   const [filteredCommands, setFilteredCommands] = useState<LiveGjcCommand[]>([]);
@@ -691,6 +800,14 @@ export default function LiveRelayComposer({
         });
         return;
       }
+      if (data.action !== 'other') {
+        // Discovery is authoritative but asynchronous. Show work immediately,
+        // then reconcile against the exact pane/process roster row.
+        optimisticStartedAtRef.current = Date.now();
+        consecutiveIdlePollsRef.current = 0;
+        observedAuthoritativeProcessingRef.current = false;
+        setOptimisticProcessing(true);
+      }
       // A tapped choice must not discard an unrelated typed draft.
       if (overrideMessage === undefined) setInput('');
       if (interactiveRoute && interactivePrompt && !isAwaitingInteractiveCustom && data.action === 'other') {
@@ -838,7 +955,7 @@ export default function LiveRelayComposer({
   // stop path is the only way to reach interrupt, so an idle CLI can never
   // receive a stray Ctrl+C that would terminate it.
   const hasDraft = input.trim().length > 0;
-  const showStop = isProcessing && canInterrupt && !hasDraft;
+  const showStop = effectiveProcessing && canInterrupt && !hasDraft;
   const submitLabel = showStop
     ? t('input.stop', { defaultValue: 'Stop' })
     : status.kind === 'sending'
@@ -906,8 +1023,12 @@ export default function LiveRelayComposer({
             <span aria-live="polite" className="text-red-500">· {assetStatus.text}</span>
           )}
         </div>
+        <ActivityIndicator
+          activity={relayActivity}
+          onAbort={canInterrupt ? () => { void interrupt(); } : undefined}
+        />
         <PromptInput
-          status={isProcessing ? 'streaming' : 'ready'}
+          status={effectiveProcessing ? 'streaming' : 'ready'}
           onSubmit={handleSubmit}
           onDrop={handleComposerDrop}
           onDragOver={handleComposerDragOver}
