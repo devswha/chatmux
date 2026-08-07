@@ -6,8 +6,6 @@
   "display": "standalone",
   "background_color": "#0c1324",
   "theme_color": "#6366f1",
-  "orientation": "any",
-  "scope": "/",
   "icons": [
     {
       "src": "/icons/icon-72x72.png",
@@ -69,5 +67,6 @@
       "type": "image/png",
       "purpose": "maskable"
     }
-  ]
+  ],
+  "scope": "/"
 }
