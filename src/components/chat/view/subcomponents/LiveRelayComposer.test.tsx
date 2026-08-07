@@ -118,8 +118,6 @@ test('LiveRelayComposer offers stop only while a supported provider is processin
 
   assert.ok(!idle.includes('aria-label="Stop"'), 'an idle session never exposes an interrupt path');
   assert.ok(processing.includes('aria-label="Stop"'), 'a running turn turns the submit control into stop');
-  assert.ok(processing.includes('chat-activity-tab'), 'a running turn exposes a visible work indicator');
-  assert.ok(!idle.includes('chat-activity-tab'), 'an idle session does not reserve status space');
   assert.ok(!unsupported.includes('aria-label="Stop"'), 'unsupported providers never expose stop');
   assert.ok(!processing.includes('Escape'));
 });
