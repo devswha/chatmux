@@ -4,7 +4,7 @@
 
 <p align="center"><sub><a href="../../README.md">English</a> · <a href="README.ko.md">한국어</a> · <a href="README.ja.md">日本語</a> · <b>简体中文</b></sub></p>
 
-<p align="center">在 tmux 中运行的每个编码代理，都有一个界面。</p>
+<p align="center">One interface for Claude Code, Codex, Cursor, OpenCode, Gajae Code, and Oh My Pi —<br>the agents already running in your tmux.</p>
 
 <p align="center">
   <a href="https://github.com/devswha/chatmux/releases"><img src="https://img.shields.io/github/v/release/devswha/chatmux?display_name=tag&label=release&style=flat-square&color=6366f1" alt="GitHub 发布"></a>
@@ -25,11 +25,11 @@ ChatMux 不捆绑任何 AI 订阅。请以运行 ChatMux 的同一 OS 用户安�
 
 ## 开始使用
 
-Linux x86_64（glibc 2.35+），以及 tmux、用户级 systemd 和 `curl`/`tar`/`sha256sum`：
-
 ```bash
 curl -fsSL https://github.com/devswha/chatmux/releases/latest/download/install.sh | bash
 ```
+
+需要 Linux x86_64（glibc 2.35+）、tmux、用户级 systemd 以及 `curl`/`tar`/`sha256sum`。
 
 安装器下载正式发布归档并校验其 SHA-256，启动用户级服务，然后打印访问地址以及手机二维码。`chatmux status` 可随时再次显示这些信息。
 
@@ -101,6 +101,18 @@ chatmux access enable tailscale     # Tailscale 就绪后切换模式
 ```
 
 用户白名单、更长会话、VPN 模式、SSH 隧道与公网 TLS 选项见[远程访问指南](../REMOTE-ACCESS.md)。
+
+## CLI
+
+`chatmux` 命令用于管理已安装的服务：
+
+```bash
+chatmux status                  # 版本、地址、数据位置
+chatmux access users            # 允许的 Tailscale 账户
+chatmux access allow user@example.com
+chatmux sandbox ~/my-project    # 在 Docker 沙箱中运行
+```
+
 
 ## 安全与数据边界
 

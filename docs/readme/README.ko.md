@@ -4,7 +4,7 @@
 
 <p align="center"><sub><a href="../../README.md">English</a> · <b>한국어</b> · <a href="README.ja.md">日本語</a> · <a href="README.zh-CN.md">简体中文</a></sub></p>
 
-<p align="center">tmux에서 실행되는 모든 코딩 에이전트를 위한 하나의 인터페이스.</p>
+<p align="center">Claude Code, Codex, Cursor, OpenCode, Gajae Code, Oh My Pi를 위한 하나의 인터페이스 —<br>tmux에서 이미 실행 중인 에이전트를 한곳에 모읍니다.</p>
 
 <p align="center">
   <a href="https://github.com/devswha/chatmux/releases"><img src="https://img.shields.io/github/v/release/devswha/chatmux?display_name=tag&label=release&style=flat-square&color=6366f1" alt="GitHub 릴리즈"></a>
@@ -25,11 +25,11 @@ ChatMux에는 AI 구독이 포함되지 않습니다. ChatMux를 실행하는 �
 
 ## 시작하기
 
-Linux x86_64(glibc 2.35+)와 tmux, 사용자 레벨 systemd, `curl`/`tar`/`sha256sum`이 필요합니다:
-
 ```bash
 curl -fsSL https://github.com/devswha/chatmux/releases/latest/download/install.sh | bash
 ```
+
+Linux x86_64(glibc 2.35+)와 tmux, 사용자 레벨 systemd, `curl`/`tar`/`sha256sum`이 필요합니다.
 
 인스톨러는 정식 릴리즈 아카이브를 내려받아 SHA-256을 검증하고, 사용자 레벨 서비스를 시작한 뒤 접속 주소와 휴대폰용 QR 코드를 출력합니다. `chatmux status`로 언제든 다시 확인할 수 있습니다.
 
@@ -101,6 +101,17 @@ chatmux access enable tailscale     # Tailscale을 사용할 수 있게 된 후 
 ```
 
 사용자 허용 목록, 더 긴 세션, VPN 모드, SSH 터널, 공개 TLS 옵션은 [원격 접속 가이드](../REMOTE-ACCESS.md)에서 다룹니다.
+
+## CLI
+
+`chatmux` 명령은 설치된 서비스를 관리합니다:
+
+```bash
+chatmux status                  # 버전, 주소, 데이터 위치
+chatmux access users            # 허용된 Tailscale 계정
+chatmux access allow user@example.com
+chatmux sandbox ~/my-project    # Docker 샌드박스 안에서 실행
+```
 
 ## 보안 및 데이터 경계
 

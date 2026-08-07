@@ -4,7 +4,7 @@
 
 <p align="center"><sub><b>English</b> · <a href="docs/readme/README.ko.md">한국어</a> · <a href="docs/readme/README.ja.md">日本語</a> · <a href="docs/readme/README.zh-CN.md">简体中文</a></sub></p>
 
-<p align="center">One interface for every coding agent running in your tmux.</p>
+<p align="center">One interface for Claude Code, Codex, Cursor, OpenCode, Gajae Code, and Oh My Pi —<br>the agents already running in your tmux.</p>
 
 <p align="center">
   <a href="https://github.com/devswha/chatmux/releases"><img src="https://img.shields.io/github/v/release/devswha/chatmux?display_name=tag&label=release&style=flat-square&color=6366f1" alt="GitHub release"></a>
@@ -25,11 +25,11 @@ ChatMux does not bundle any AI subscription. Install and log in to each agent CL
 
 ## Getting started
 
-Linux x86_64 (glibc 2.35+) with tmux, user-level systemd, and `curl`/`tar`/`sha256sum`:
-
 ```bash
 curl -fsSL https://github.com/devswha/chatmux/releases/latest/download/install.sh | bash
 ```
+
+Requires Linux x86_64 (glibc 2.35+) with tmux, user-level systemd, and `curl`/`tar`/`sha256sum`.
 
 The installer downloads the canonical release archive, verifies its SHA-256, starts a user-level service, and prints your addresses — plus a QR code for the phone. `chatmux status` shows them again any time.
 
@@ -101,6 +101,17 @@ chatmux access enable tailscale     # switch modes after Tailscale is available
 ```
 
 User allowlists, longer sessions, VPN mode, SSH tunnels, and public TLS options are covered in the [remote access guide](docs/REMOTE-ACCESS.md).
+
+## CLI
+
+The `chatmux` command manages the installed service:
+
+```bash
+chatmux status                  # version, addresses, data locations
+chatmux access users            # allowed Tailscale accounts
+chatmux access allow user@example.com
+chatmux sandbox ~/my-project    # run inside a Docker sandbox
+```
 
 ## Security and data boundaries
 
