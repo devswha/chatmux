@@ -233,7 +233,8 @@
     "customInputReady": "自由回答を入力してください。",
     "selectionDelivered": "選択を送信しました。",
     "selectionPlaceholder": "選択番号を入力 (0-{{max}})…",
-    "multiSelectionPlaceholder": "カンマ区切りで選択番号を入力…"
+    "multiSelectionPlaceholder": "カンマ区切りで選択番号を入力…",
+    "placeholderShort": "{{name}}にメッセージ…"
   },
   "transcript": {
     "conversationTab": "チャット",

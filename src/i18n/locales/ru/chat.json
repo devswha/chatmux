@@ -243,7 +243,8 @@
     "customInputReady": "Введите свой ответ.",
     "selectionDelivered": "Выбор отправлен.",
     "selectionPlaceholder": "Введите номер варианта (0-{{max}})…",
-    "multiSelectionPlaceholder": "Введите номера вариантов через запятую…"
+    "multiSelectionPlaceholder": "Введите номера вариантов через запятую…",
+    "placeholderShort": "Сообщение для {{name}}…"
   },
   "transcript": {
     "conversationTab": "Чат",

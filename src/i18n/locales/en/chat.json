@@ -257,7 +257,8 @@
     "customInputReady": "Type the custom answer.",
     "selectionDelivered": "Selection delivered.",
     "selectionPlaceholder": "Enter a choice number (0-{{max}})…",
-    "multiSelectionPlaceholder": "Enter choice numbers separated by commas…"
+    "multiSelectionPlaceholder": "Enter choice numbers separated by commas…",
+    "placeholderShort": "Message {{name}}…"
   },
   "readOnly": {
     "banner": "Driven by gjc in tmux — read-only. It updates live; interact from the tmux side."

@@ -562,7 +562,11 @@ function ChatInterface({
           onTextareaInput={handleTextareaInput}
           isInputFocused={isInputFocused}
           onInputFocusChange={handleInputFocusChange}
-          placeholder={t('input.placeholder', {
+          placeholder={typeof window !== 'undefined'
+            && window.matchMedia?.('(max-width: 640px)').matches === true
+            // The command/file hints wrap to a second line on phone widths.
+            ? t('input.placeholderDefault', { defaultValue: 'Type your message...' })
+            : t('input.placeholder', {
             provider:
               provider === 'cursor'
                 ? t('messageTypes.cursor')

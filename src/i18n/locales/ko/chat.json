@@ -244,7 +244,8 @@
     "customInputReady": "직접 입력할 답변을 작성하세요.",
     "selectionDelivered": "선택을 전달했습니다.",
     "selectionPlaceholder": "선택 번호 입력 (0-{{max}})…",
-    "multiSelectionPlaceholder": "쉼표로 구분한 선택 번호 입력…"
+    "multiSelectionPlaceholder": "쉼표로 구분한 선택 번호 입력…",
+    "placeholderShort": "{{name}}에 지시…"
   },
   "readOnly": {
     "banner": "tmux의 gjc에서 작동 중 — 열람 전용입니다. 실시간으로 갱신되며, 조작은 tmux 쪽에서 하세요."

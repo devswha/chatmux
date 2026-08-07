@@ -243,7 +243,8 @@
     "customInputReady": "Özel yanıtı yazın.",
     "selectionDelivered": "Seçim iletildi.",
     "selectionPlaceholder": "Seçim numarası girin (0-{{max}})…",
-    "multiSelectionPlaceholder": "Virgülle ayrılmış seçim numaralarını girin…"
+    "multiSelectionPlaceholder": "Virgülle ayrılmış seçim numaralarını girin…",
+    "placeholderShort": "{{name}} için mesaj…"
   },
   "transcript": {
     "conversationTab": "Sohbet",

@@ -103,6 +103,11 @@ export default function LiveRelayComposer({
    */
   choiceSubmitRef?: MutableRefObject<((choiceNumber: number) => void) | null>;
 }) {
+  // Keyboard hints in the long placeholder wrap to a second line on phone
+  // widths, making an empty composer look two rows tall. Coarse-pointer
+  // devices use software keyboards, so the hints carry no information there.
+  const compactPlaceholders = typeof window !== 'undefined'
+    && window.matchMedia?.('(max-width: 640px)').matches === true;
   const commandTrigger = relayKind === 'codex' ? '$' : '/';
   const { t } = useTranslation('chat');
   const displayName = sessionName?.trim() || t('relay.currentSession');
@@ -948,7 +953,9 @@ export default function LiveRelayComposer({
                         max: pendingAsk.maxChoiceNumber,
                         defaultValue: 'Enter a choice number (0-{{max}})…',
                       })
-                    : t('relay.placeholder', { name: displayName, trigger: commandTrigger })
+                    : compactPlaceholders
+                      ? t('relay.placeholderShort', { name: displayName, defaultValue: 'Message {{name}}…' })
+                      : t('relay.placeholder', { name: displayName, trigger: commandTrigger })
               }
             />
             <PromptInputSubmit

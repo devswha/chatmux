@@ -169,6 +169,7 @@ test('relay translations exist in every supported locale', () => {
       'multiSelectionNumberRequired',
       'multiSelectionPlaceholder',
       'placeholder',
+      'placeholderShort',
       'queued',
       'selectionDelivered',
       'selectionNumberRequired',

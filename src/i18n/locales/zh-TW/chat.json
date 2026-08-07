@@ -279,7 +279,8 @@
     "customInputReady": "請輸入自訂回答。",
     "selectionDelivered": "已送出選擇。",
     "selectionPlaceholder": "輸入選項編號 (0-{{max}})…",
-    "multiSelectionPlaceholder": "輸入以逗號分隔的選項編號…"
+    "multiSelectionPlaceholder": "輸入以逗號分隔的選項編號…",
+    "placeholderShort": "傳訊息給 {{name}}…"
   },
   "transcript": {
     "conversationTab": "對話",

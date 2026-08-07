@@ -243,7 +243,8 @@
     "customInputReady": "Digita la risposta personalizzata.",
     "selectionDelivered": "Selezione inviata.",
     "selectionPlaceholder": "Inserisci il numero della scelta (0-{{max}})…",
-    "multiSelectionPlaceholder": "Inserisci i numeri delle scelte separati da virgole…"
+    "multiSelectionPlaceholder": "Inserisci i numeri delle scelte separati da virgole…",
+    "placeholderShort": "Messaggio a {{name}}…"
   },
   "transcript": {
     "conversationTab": "Chat",

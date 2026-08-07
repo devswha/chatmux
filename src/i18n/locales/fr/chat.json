@@ -245,7 +245,8 @@
     "customInputReady": "Saisissez la réponse personnalisée.",
     "selectionDelivered": "Sélection transmise.",
     "selectionPlaceholder": "Numéro du choix (0-{{max}})…",
-    "multiSelectionPlaceholder": "Numéros des choix séparés par des virgules…"
+    "multiSelectionPlaceholder": "Numéros des choix séparés par des virgules…",
+    "placeholderShort": "Message à {{name}}…"
   },
   "transcript": {
     "conversationTab": "Chat",

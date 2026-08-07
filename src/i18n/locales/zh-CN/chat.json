@@ -243,7 +243,8 @@
     "customInputReady": "请输入自定义回答。",
     "selectionDelivered": "已发送选择。",
     "selectionPlaceholder": "输入选项编号 (0-{{max}})…",
-    "multiSelectionPlaceholder": "输入以逗号分隔的选项编号…"
+    "multiSelectionPlaceholder": "输入以逗号分隔的选项编号…",
+    "placeholderShort": "给 {{name}} 发消息…"
   },
   "transcript": {
     "conversationTab": "对话",

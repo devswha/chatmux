@@ -243,7 +243,8 @@
     "customInputReady": "Geben Sie die eigene Antwort ein.",
     "selectionDelivered": "Auswahl übermittelt.",
     "selectionPlaceholder": "Auswahlnummer eingeben (0-{{max}})…",
-    "multiSelectionPlaceholder": "Auswahlnummern durch Kommas getrennt eingeben…"
+    "multiSelectionPlaceholder": "Auswahlnummern durch Kommas getrennt eingeben…",
+    "placeholderShort": "Nachricht an {{name}}…"
   },
   "transcript": {
     "conversationTab": "Chat",
