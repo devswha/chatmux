@@ -62,7 +62,7 @@ verify_checksum() {
   [ "$actual" = "$expected" ] || fail "checksum verification failed for $(basename "$payload")"
 }
 read_managed_root_metadata() {
-  metadata=$(stat -c '%F|%u|%d|%i|%a' -- "$INSTALL_ROOT") || fail "could not inspect managed root"
+  metadata=$(LC_ALL=C stat -c '%F|%u|%d|%i|%a' -- "$INSTALL_ROOT") || fail "could not inspect managed root"
   old_ifs=$IFS
   IFS='|'
   read root_type root_uid root_device root_inode root_mode <<EOF
