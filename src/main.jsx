@@ -10,6 +10,9 @@ import './index.css'
 import './i18n/config.js'
 import './utils/pwaInstall.ts'
 import { refreshAfterServerUpdate, registerServiceWorker } from './services/serviceWorkerUpdate'
+import { applyInterfaceFontSize, readInterfaceFontSize } from './utils/interfaceFontSize.ts'
+
+applyInterfaceFontSize(readInterfaceFontSize())
 
 // Pretendard is self-hosted with Korean/Latin glyphs so Hangul does not fall
 // back to a serif font. The imports above load it before the application CSS.
