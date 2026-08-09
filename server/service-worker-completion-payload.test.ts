@@ -122,16 +122,40 @@ test('service worker falls back from invalid completion titles and navigation ta
 test('completion notification clicks navigate a focused client or open the target', async () => {
   const focusedRuntime = await serviceWorkerRuntime();
   const calls: string[] = [];
+  const messages: unknown[] = [];
   focusedRuntime.clients.push({
     url: 'https://chatmux.test/',
     focus: async () => { calls.push('focus'); },
     navigate: async (target: string) => { calls.push(`navigate:${target}`); },
+    postMessage: (message: unknown) => { messages.push(message); },
   });
 
-  await focusedRuntime.click({ navigation: { href: '/session/focused' } });
+  await focusedRuntime.push({ navigation: { href: '/session/focused' } });
+  await focusedRuntime.click(focusedRuntime.notifications[0].options.data);
 
   assert.deepEqual(calls, ['focus', 'navigate:/session/focused']);
+  assert.deepEqual(messages.map((message) => JSON.parse(JSON.stringify(message))), [{
+    type: 'notification:navigate',
+    sessionId: 'focused',
+    provider: null,
+    urlPath: '/session/focused',
+  }]);
   assert.deepEqual(focusedRuntime.openWindows, []);
+
+  const rejectedRuntime = await serviceWorkerRuntime();
+  const rejectedMessages: unknown[] = [];
+  rejectedRuntime.clients.push({
+    url: 'https://chatmux.test/',
+    focus: async () => {},
+    navigate: async () => { throw new Error('navigation rejected'); },
+    postMessage: (message: unknown) => { rejectedMessages.push(message); },
+  });
+
+  await rejectedRuntime.push({ navigation: { href: '/session/rejected' } });
+  await rejectedRuntime.click(rejectedRuntime.notifications[0].options.data);
+
+  assert.equal((rejectedMessages[0] as { sessionId?: unknown })?.sessionId, 'rejected');
+  assert.deepEqual(rejectedRuntime.openWindows, []);
 
   const openRuntime = await serviceWorkerRuntime();
   openRuntime.clients.push({ url: 'https://chatmux.test.attacker.test/', focus: async () => {}, navigate: async () => {} });

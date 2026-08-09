@@ -49,7 +49,7 @@ function harness() {
     resolveTargets: ((detailed: any) => detailed.sessions.filter((item: any) => item.kind !== 'cursor').map((item: any) => ({
       generationIdentityKey: completionExternalGenerationIdentityKey(completionExternalGenerationIdentityFromSession(item)!),
       generationTargetId: item.generationTargetId ?? 17,
-      appSessionId: null, target: { alias: 'target', watched: item.watched ?? true }, mappingState: item.mappingState ?? 'inactive_match',
+      appSessionId: item.appSessionId ?? null, target: { alias: 'target', watched: item.watched ?? true }, mappingState: item.mappingState ?? 'inactive_match',
     }))) as any,
     observeGeneration: (_id, cursor, observation) => {
       if (throwObserve) throw new Error('db');
@@ -156,6 +156,22 @@ test('external monitor silently persists a startup reply-ready baseline, then cr
   assert.equal(h.decisions.length, 3);
   assert.deepEqual(h.terminalResults, [[1], [1]]);
   assert.equal(h.wakes.length, 1);
+});
+
+test('external completion deep-links only with the mapped app session id', async () => {
+  const mapped = harness();
+  mapped.setSessions([session({ appSessionId: 'app-session-1' })]);
+  mapped.setAnswer({
+    ...resolved('waiting_user', 'reply_ready'),
+    appSession: { session_id: 'app-session-1' },
+  });
+  await mapped.monitor.tick();
+  assert.equal(mapped.decisions[0]?.payload.navigation.href, '/session/app-session-1');
+
+  const unmapped = harness();
+  await unmapped.monitor.tick();
+  assert.equal(unmapped.decisions[0]?.payload.navigation.href, '/');
+  assert.notEqual(unmapped.decisions[0]?.payload.navigation.href, '/session/target');
 });
 
 test('terminal replay is delegated to the durable decision repository after an armed generation', async () => {

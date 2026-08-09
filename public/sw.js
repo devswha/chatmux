@@ -117,7 +117,16 @@ function navigationHref(navigation) {
 }
 
 function completionNavigation(navigation) {
-  return { href: navigationHref(navigation) || '/' };
+  const href = navigationHref(navigation) || '/';
+  let sessionId = null;
+  try {
+    const url = new URL(href, self.location.origin);
+    const match = url.pathname.match(/^\/session\/([^/]+)$/);
+    sessionId = match ? decodeURIComponent(match[1]) : null;
+  } catch {
+    sessionId = null;
+  }
+  return { href, sessionId };
 }
 function isSameOriginClient(client) {
   try {
@@ -179,8 +188,21 @@ self.addEventListener('notificationclick', event => {
 
   const navigation = navigationHref(event.notification.data?.navigation);
   if (navigation) {
+    const sessionId = event.notification.data?.navigation?.sessionId || null;
     event.waitUntil(
-      focusClientOrOpen(navigation, client => client.navigate(navigation))
+      focusClientOrOpen(navigation, client => {
+        client.postMessage({
+          type: 'notification:navigate',
+          sessionId,
+          provider: null,
+          urlPath: navigation
+        });
+        try {
+          return Promise.resolve(client.navigate(navigation)).catch(() => undefined);
+        } catch {
+          return Promise.resolve();
+        }
+      })
     );
     return;
   }

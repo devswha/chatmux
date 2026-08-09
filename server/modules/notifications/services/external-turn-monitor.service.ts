@@ -167,7 +167,10 @@ function asResolvedActivity(value: unknown): MonitorResolvedActivity | null {
   return result as MonitorResolvedActivity;
 }
 
-function completionPayload(session: ExternalCliSession, target: CompletionTargetResolution['target']): TerminalCompletionDecision['payload'] {
+function completionPayload(
+  session: ExternalCliSession,
+  appSessionId: string | null,
+): TerminalCompletionDecision['payload'] {
   const title = typeof session.tmuxName === 'string' && session.tmuxName.trim()
     ? session.tmuxName.trim()
     : 'ChatMux';
@@ -180,7 +183,7 @@ function completionPayload(session: ExternalCliSession, target: CompletionTarget
     title,
     body: `${label}: Reply ready`,
     navigation: {
-      href: `/session/${encodeURIComponent(target.alias)}`,
+      href: appSessionId ? `/session/${encodeURIComponent(appSessionId)}` : '/',
       title,
     },
   };
@@ -400,7 +403,7 @@ export function createExternalTurnMonitor(deps: MonitorDeps) {
               evidenceCursor: cursor,
               eventCode: 'reply_ready',
               targetAliasSnapshot: resolution.target.alias,
-              payload: completionPayload(session, resolution.target),
+              payload: completionPayload(session, resolution.appSessionId),
               now: now(),
             });
             if (decision.status === 'baselined') emitDiagnostic({ code: 'baselined', ...diagnosticContext(session) });
