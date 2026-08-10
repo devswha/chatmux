@@ -72,3 +72,24 @@ test('screen-driven multi-question asks hide the inert transcript duplicate', ()
   assert.match(renderMessage(message), /Second\?/);
   assert.doesNotMatch(renderMessage(message, 'ask-multi'), /Second\?/);
 });
+
+test('image preview preference omits attachment markup when disabled', () => {
+  const message: ChatMessage = {
+    type: 'user',
+    content: 'inspect this',
+    timestamp: '2026-08-10T00:00:00.000Z',
+    images: [{ data: 'data:image/png;base64,aGVsbG8=', name: 'sample.png' }],
+  };
+  const props = {
+    message,
+    prevMessage: null,
+    createDiff: () => [],
+    provider: 'codex',
+  };
+
+  assert.match(renderToStaticMarkup(createElement(MessageComponent, props)), /sample\.png/);
+  assert.doesNotMatch(
+    renderToStaticMarkup(createElement(MessageComponent, { ...props, showImagePreviews: false })),
+    /sample\.png|data:image\/png/,
+  );
+});

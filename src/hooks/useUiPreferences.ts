@@ -3,6 +3,7 @@ import { useEffect, useReducer, useRef } from 'react';
 type UiPreferences = {
   showRawParameters: boolean;
   showThinking: boolean;
+  showImagePreviews: boolean;
   sendByCtrlEnter: boolean;
   sidebarVisible: boolean;
 };
@@ -33,6 +34,7 @@ type UiPreferencesAction =
 const DEFAULTS: UiPreferences = {
   showRawParameters: false,
   showThinking: true,
+  showImagePreviews: true,
   sendByCtrlEnter: false,
   sidebarVisible: true,
 };

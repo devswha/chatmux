@@ -141,6 +141,7 @@ export interface ChatInterfaceProps {
   onShowSettings?: () => void;
   showRawParameters?: boolean;
   showThinking?: boolean;
+  showImagePreviews?: boolean;
   sendByCtrlEnter?: boolean;
   externalMessageUpdate?: number;
   newSessionTrigger?: number;

@@ -126,7 +126,7 @@ function MainContent({
 }: MainContentProps) {
   const { preferences } = useUiPreferences();
   const { t } = useTranslation('chat');
-  const { showRawParameters, showThinking, sendByCtrlEnter } = preferences;
+  const { showRawParameters, showThinking, showImagePreviews, sendByCtrlEnter } = preferences;
 
   const [externalPaneOutput, setExternalPaneOutput] = useState('');
   const [externalPaneError, setExternalPaneError] = useState('');
@@ -534,6 +534,7 @@ function MainContent({
                     onShowSettings={onShowSettings}
                     showRawParameters={showRawParameters}
                     showThinking={showThinking}
+                    showImagePreviews={showImagePreviews}
                     sendByCtrlEnter={sendByCtrlEnter}
                     externalMessageUpdate={externalMessageUpdate}
                     newSessionTrigger={newSessionTrigger}

@@ -24,6 +24,7 @@ interface ToolGroupContainerProps {
   onGrantToolPermission?: (suggestion: ClaudePermissionSuggestion) => PermissionGrantResult | null | undefined;
   showRawParameters?: boolean;
   showThinking?: boolean;
+  showImagePreviews?: boolean;
   selectedProject?: Project | null;
   provider: Provider | string;
   transcriptView?: boolean;
@@ -71,6 +72,7 @@ export default function ToolGroupContainer({
   onGrantToolPermission,
   showRawParameters,
   showThinking,
+  showImagePreviews = true,
   selectedProject,
   provider,
   transcriptView = false,
@@ -141,6 +143,7 @@ export default function ToolGroupContainer({
               onGrantToolPermission={onGrantToolPermission}
               showRawParameters={showRawParameters}
               showThinking={showThinking}
+              showImagePreviews={showImagePreviews}
               selectedProject={selectedProject}
               provider={provider}
               transcriptView={transcriptView}

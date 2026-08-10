@@ -32,6 +32,7 @@ type MessageComponentProps = {
   onGrantToolPermission?: (suggestion: ClaudePermissionSuggestion) => PermissionGrantResult | null | undefined;
   showRawParameters?: boolean;
   showThinking?: boolean;
+  showImagePreviews?: boolean;
   selectedProject?: Project | null;
   provider: Provider | string;
   transcriptView?: boolean;
@@ -52,7 +53,7 @@ const compactErrorSummary = (content: string, fallback: string): string => {
   return firstLine.length > 160 ? `${firstLine.slice(0, 157)}...` : firstLine;
 };
 
-const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, showRawParameters, showThinking, selectedProject, provider, transcriptView = false, pendingAskToolId = null, suppressedAskToolId = null, onAskChoiceSelect }: MessageComponentProps) => {
+const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, showRawParameters, showThinking, showImagePreviews = true, selectedProject, provider, transcriptView = false, pendingAskToolId = null, suppressedAskToolId = null, onAskChoiceSelect }: MessageComponentProps) => {
   const { t } = useTranslation('chat');
   const isGrouped = prevMessage && prevMessage.type === message.type &&
     ((prevMessage.type === 'assistant') ||
@@ -99,7 +100,7 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
         /* User turn on the right: claude.ai-style attachment cards above the bubble */
         <div className="flex w-full items-end space-x-0 sm:w-auto sm:max-w-[85%] sm:space-x-3 md:max-w-md lg:max-w-lg xl:max-w-xl">
           <div className="flex min-w-0 flex-1 flex-col items-end gap-2 sm:flex-initial">
-            {message.images && message.images.length > 0 && (
+            {showImagePreviews && message.images && message.images.length > 0 && (
               <ChatMessageImages
                 images={message.images}
                 projectId={selectedProject?.projectId}
