@@ -18,6 +18,84 @@ type CreateAppSessionResult = {
   provider: LLMProvider;
   projectPath: string;
 };
+
+const HISTORY_TOOL_OUTPUT_PREVIEW_BYTES = 64 * 1024;
+
+function stringifyToolOutput(content: unknown): string {
+  if (typeof content === 'string') return content;
+  try {
+    return JSON.stringify(content, null, 2) ?? String(content ?? '');
+  } catch {
+    return String(content ?? '');
+  }
+}
+
+function buildToolOutputPreview(content: unknown): {
+  content: unknown;
+  truncated: boolean;
+  bytes: number;
+} {
+  const serialized = stringifyToolOutput(content);
+  const bytes = Buffer.byteLength(serialized);
+  if (bytes <= HISTORY_TOOL_OUTPUT_PREVIEW_BYTES) {
+    return { content, truncated: false, bytes };
+  }
+
+  const source = Buffer.from(serialized);
+  const headBytes = Math.floor(HISTORY_TOOL_OUTPUT_PREVIEW_BYTES * 0.75);
+  const tailBytes = HISTORY_TOOL_OUTPUT_PREVIEW_BYTES - headBytes;
+  const head = source.subarray(0, headBytes).toString('utf8');
+  const tail = source.subarray(source.length - tailBytes).toString('utf8');
+  return {
+    content: `${head}\n\n… [${bytes - HISTORY_TOOL_OUTPUT_PREVIEW_BYTES} bytes omitted] …\n\n${tail}`,
+    truncated: true,
+    bytes,
+  };
+}
+
+/**
+ * Keeps history pages cheap to transfer without discarding persisted data.
+ * The full tool result remains available through fetchToolResult().
+ */
+export function prepareHistoryMessagesForTransport(
+  messages: NormalizedMessage[],
+  includeImages = true,
+): NormalizedMessage[] {
+  return messages.map((message) => {
+    let prepared = includeImages || message.images === undefined
+      ? message
+      : { ...message, images: undefined };
+
+    if (message.kind === 'tool_result') {
+      const preview = buildToolOutputPreview(message.content);
+      if (preview.truncated) {
+        prepared = {
+          ...prepared,
+          content: preview.content as string,
+          toolResultTruncated: true,
+          toolResultBytes: preview.bytes,
+        };
+      }
+    }
+
+    if (message.toolResult && 'content' in message.toolResult) {
+      const preview = buildToolOutputPreview(message.toolResult.content);
+      if (preview.truncated) {
+        prepared = {
+          ...prepared,
+          toolResult: {
+            ...message.toolResult,
+            content: preview.content as string,
+          },
+          toolResultTruncated: true,
+          toolResultBytes: preview.bytes,
+        };
+      }
+    }
+
+    return prepared;
+  });
+}
 function normalizeJsonlPath(filePath: string): string {
   return path.isAbsolute(filePath) ? path.normalize(filePath) : path.resolve(filePath);
 }
@@ -118,7 +196,7 @@ export const sessionsService = {
    */
   async fetchHistory(
     sessionId: string,
-    options: Pick<FetchHistoryOptions, 'limit' | 'offset'> = {},
+    options: Pick<FetchHistoryOptions, 'limit' | 'offset' | 'includeImages'> = {},
   ): Promise<FetchHistoryResult> {
     const session = sessionsDb.getSessionById(sessionId);
     if (!session) {
@@ -150,11 +228,57 @@ export const sessionsService = {
 
     return {
       ...result,
-      messages: result.messages.map((message) => ({
-        ...message,
-        sessionId,
-      })),
+      messages: prepareHistoryMessagesForTransport(
+        result.messages.map((message) => ({
+          ...message,
+          sessionId,
+        })),
+        options.includeImages !== false,
+      ),
     };
+  },
+
+  /** Loads one complete persisted tool result only when the user requests it. */
+  async fetchToolResult(
+    sessionId: string,
+    toolId: string,
+  ): Promise<{ toolId: string; toolResult: NonNullable<NormalizedMessage['toolResult']> }> {
+    const session = sessionsDb.getSessionById(sessionId);
+    if (!session?.provider_session_id) {
+      throw new AppError(`Session "${sessionId}" was not found.`, {
+        code: 'SESSION_NOT_FOUND',
+        statusCode: 404,
+      });
+    }
+
+    const provider = providerRegistry.resolveProvider(session.provider as LLMProvider);
+    const history = await provider.sessions.fetchHistory(sessionId, {
+      limit: null,
+      offset: 0,
+      projectPath: session.project_path ?? '',
+      providerSessionId: session.provider_session_id,
+    });
+    const toolUse = history.messages.find(
+      (message) => message.kind === 'tool_use' && message.toolId === toolId && message.toolResult,
+    );
+    const standaloneResult = history.messages.find(
+      (message) => message.kind === 'tool_result' && message.toolId === toolId,
+    );
+    const toolResult = toolUse?.toolResult ?? (standaloneResult
+      ? {
+          content: standaloneResult.content,
+          isError: standaloneResult.isError,
+          toolUseResult: standaloneResult.toolUseResult,
+        }
+      : null);
+
+    if (!toolResult) {
+      throw new AppError(`Tool result "${toolId}" was not found.`, {
+        code: 'TOOL_RESULT_NOT_FOUND',
+        statusCode: 404,
+      });
+    }
+    return { toolId, toolResult };
   },
 
   /**

@@ -28,3 +28,8 @@ test('buildRefreshMessagesUrl encodes the session id', () => {
   const url = buildRefreshMessagesUrl('a/b c', 0);
   assert.ok(url.includes('a%2Fb%20c'), 'session id must be URL-encoded');
 });
+
+test('buildRefreshMessagesUrl omits image data when previews are disabled', () => {
+  const params = new URL(buildRefreshMessagesUrl('s', 20, false), 'http://x').searchParams;
+  assert.equal(params.get('includeImages'), 'false');
+});

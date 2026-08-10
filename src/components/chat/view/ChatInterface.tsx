@@ -142,6 +142,7 @@ function ChatInterface({
     statusCheckSentAtRef,
     lastSeqRef,
     sessionStore,
+    showImagePreviews,
   });
 
   useEffect(() => {

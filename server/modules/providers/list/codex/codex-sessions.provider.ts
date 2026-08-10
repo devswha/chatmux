@@ -103,7 +103,6 @@ function extractCodexTextContent(content: unknown): string {
 type CodexHistoryAccumulator = {
   messages: AnyRecord[];
   tokenUsage: AnyRecord | null;
-  retainedBytes: number;
   malformed: boolean;
 };
 
@@ -113,11 +112,11 @@ type CodexHistoryCacheEntry = {
   inode: number | bigint;
   offset: number;
   tail: string;
-  modifiedAtMs: number;
+  boundary: Buffer;
   messages: NormalizedMessage[];
   tokenUsage: AnyRecord | null;
   malformed: boolean;
-  retainedBytes: number;
+  normalizedBytes: number;
   toolResults: Map<string, NormalizedMessage>;
   toolUses: Map<string, NormalizedMessage[]>;
   sortTimestamps: WeakMap<NormalizedMessage, number>;
@@ -129,7 +128,12 @@ type CodexHistoryNormalizer = (
 ) => NormalizedMessage[];
 
 const CODEX_HISTORY_CACHE_MAX_ENTRIES = 4;
-const CODEX_HISTORY_CACHE_MAX_RETAINED_BYTES = 8 * 1024 * 1024;
+// Bound cached *normalized* history rather than the raw rollout size. Codex
+// rollouts often contain large context records that never become UI messages;
+// evicting based on raw bytes made those files get reparsed from byte zero on
+// every 20-message page request.
+const CODEX_HISTORY_CACHE_MAX_NORMALIZED_BYTES = 96 * 1024 * 1024;
+const CODEX_HISTORY_BOUNDARY_BYTES = 4 * 1024;
 const codexHistoryCache = new Map<string, CodexHistoryCacheEntry>();
 const codexHistoryRefreshes = new Map<string, Promise<CodexHistoryCacheEntry>>();
 
@@ -297,8 +301,40 @@ function parseCodexHistoryLine(line: string, accumulator: CodexHistoryAccumulato
 function touchCodexHistoryCache(sessionId: string, entry: CodexHistoryCacheEntry): void {
   codexHistoryCache.delete(sessionId);
   codexHistoryCache.set(sessionId, entry);
-  while (codexHistoryCache.size > CODEX_HISTORY_CACHE_MAX_ENTRIES) {
+  const cachedBytes = () => Array.from(codexHistoryCache.values())
+    .reduce((total, candidate) => total + candidate.normalizedBytes, 0);
+  while (
+    codexHistoryCache.size > CODEX_HISTORY_CACHE_MAX_ENTRIES
+    || (codexHistoryCache.size > 1 && cachedBytes() > CODEX_HISTORY_CACHE_MAX_NORMALIZED_BYTES)
+  ) {
     codexHistoryCache.delete(codexHistoryCache.keys().next().value!);
+  }
+}
+
+function estimateCodexMessageBytes(message: NormalizedMessage): number {
+  let value: string;
+  try {
+    value = JSON.stringify({
+      content: message.content,
+      images: message.images,
+      toolInput: message.toolInput,
+    }) || '';
+  } catch {
+    value = String(message.content || '');
+  }
+  return Buffer.byteLength(value) + 256;
+}
+
+async function readCodexHistoryBoundary(filePath: string, offset: number): Promise<Buffer> {
+  if (offset <= 0) return Buffer.alloc(0);
+  const length = Math.min(offset, CODEX_HISTORY_BOUNDARY_BYTES);
+  const buffer = Buffer.allocUnsafe(length);
+  const handle = await fsSync.promises.open(filePath, 'r');
+  try {
+    const { bytesRead } = await handle.read(buffer, 0, length, offset - length);
+    return buffer.subarray(0, bytesRead);
+  } finally {
+    await handle.close();
   }
 }
 
@@ -327,25 +363,38 @@ function appendNormalizedCodexHistory(
     const rawTimestamp = new Date(raw.timestamp || 0).getTime();
     const sortTimestamp = Number.isFinite(rawTimestamp) ? rawTimestamp : 0;
     for (const message of normalize(raw, sessionId)) {
+      entry.normalizedBytes += estimateCodexMessageBytes(message);
       entry.sortTimestamps.set(message, sortTimestamp);
-      if (sortTimestamp < lastTimestamp) needsSort = true;
-      lastTimestamp = Math.max(lastTimestamp, sortTimestamp);
 
       if (message.kind === 'tool_result' && message.toolId) {
         entry.toolResults.set(message.toolId, message);
-        for (const toolUse of entry.toolUses.get(message.toolId) ?? []) {
+        const matchingToolUses = entry.toolUses.get(message.toolId) ?? [];
+        for (const toolUse of matchingToolUses) {
           toolUse.toolResult = { content: message.content, isError: message.isError };
+        }
+        if (matchingToolUses.length > 0) {
+          entry.toolUses.delete(message.toolId);
+          entry.toolResults.delete(message.toolId);
         }
       } else if (message.kind === 'tool_use' && message.toolId) {
         const toolResult = entry.toolResults.get(message.toolId);
         if (toolResult) {
           message.toolResult = { content: toolResult.content, isError: toolResult.isError };
+          entry.toolResults.delete(message.toolId);
+        } else {
+          const toolUses = entry.toolUses.get(message.toolId) ?? [];
+          toolUses.push(message);
+          entry.toolUses.set(message.toolId, toolUses);
         }
-        const toolUses = entry.toolUses.get(message.toolId) ?? [];
-        toolUses.push(message);
-        entry.toolUses.set(message.toolId, toolUses);
       }
 
+      // Tool results are represented inside their tool-use card. Returning the
+      // standalone result as well doubled large outputs and also made limit /
+      // offset count a different list than the frontend received.
+      if (message.kind === 'tool_result') continue;
+
+      if (sortTimestamp < lastTimestamp) needsSort = true;
+      lastTimestamp = Math.max(lastTimestamp, sortTimestamp);
       entry.messages.push(message);
     }
   }
@@ -369,10 +418,12 @@ async function refreshCodexHistoryCache(
     && entry.filePath === sessionFilePath
     && entry.device === metadata.dev
     && entry.inode === metadata.ino;
-  const appendOnly = entry != null
+  const boundaryMatches = entry != null
     && sameFile
     && metadata.size >= entry.offset
-    && !(metadata.size === entry.offset && metadata.mtimeMs !== entry.modifiedAtMs);
+    && (entry.offset === 0
+      || (await readCodexHistoryBoundary(sessionFilePath, entry.offset)).equals(entry.boundary));
+  const appendOnly = entry != null && boundaryMatches;
 
   if (!entry || !appendOnly) {
     entry = {
@@ -381,10 +432,10 @@ async function refreshCodexHistoryCache(
       inode: metadata.ino,
       offset: 0,
       tail: '',
-      modifiedAtMs: metadata.mtimeMs,
+      boundary: Buffer.alloc(0),
       messages: [],
       tokenUsage: null,
-      retainedBytes: 0,
+      normalizedBytes: 0,
       malformed: false,
       toolResults: new Map(),
       toolUses: new Map(),
@@ -396,7 +447,6 @@ async function refreshCodexHistoryCache(
     const appended: CodexHistoryAccumulator = {
       messages: [],
       tokenUsage: entry.tokenUsage,
-      retainedBytes: 0,
       malformed: entry.malformed,
     };
     let tail = entry.tail;
@@ -409,7 +459,6 @@ async function refreshCodexHistoryCache(
       const lines = `${tail}${chunk}`.split(/\r?\n/);
       tail = lines.pop() ?? '';
       for (const line of lines) {
-        appended.retainedBytes += Buffer.byteLength(line);
         parseCodexHistoryLine(line, appended);
         if (appended.messages.length > 0) {
           appendNormalizedCodexHistory(entry, appended.messages, sessionId, normalize);
@@ -421,16 +470,11 @@ async function refreshCodexHistoryCache(
     entry.tokenUsage = appended.tokenUsage;
     entry.tail = tail;
     entry.offset = metadata.size;
-    entry.retainedBytes += appended.retainedBytes;
+    entry.boundary = await readCodexHistoryBoundary(sessionFilePath, entry.offset);
     entry.malformed = appended.malformed;
-    entry.modifiedAtMs = metadata.mtimeMs;
   }
 
-  if (entry.retainedBytes + Buffer.byteLength(entry.tail) <= CODEX_HISTORY_CACHE_MAX_RETAINED_BYTES) {
-    touchCodexHistoryCache(sessionId, entry);
-  } else {
-    codexHistoryCache.delete(sessionId);
-  }
+  touchCodexHistoryCache(sessionId, entry);
   return entry;
 }
 
@@ -801,12 +845,7 @@ export class CodexSessionsProvider implements IProviderSessions {
     const tokenUsage = Array.isArray(result) ? undefined : result.tokenUsage;
     const sourceStatus = Array.isArray(result) ? 'available' : result.sourceStatus;
 
-    let total = 0;
-    for (const msg of normalized) {
-      if (msg.kind !== 'tool_result') {
-        total += 1;
-      }
-    }
+    const total = normalized.length;
     const normalizedOffset = Math.max(0, offset);
     const normalizedLimit = limit === null ? null : Math.max(0, limit);
     const { page, hasMore } = sliceTailPage(normalized, normalizedLimit, normalizedOffset);

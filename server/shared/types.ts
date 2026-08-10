@@ -260,6 +260,10 @@ export type NormalizedMessage = {
     isError?: boolean;
     toolUseResult?: unknown;
   };
+  /** History transport sent only a bounded preview of this tool output. */
+  toolResultTruncated?: boolean;
+  /** UTF-8 byte size of the complete persisted tool output. */
+  toolResultBytes?: number;
   isError?: boolean;
   text?: string;
   tokens?: number;
@@ -296,6 +300,8 @@ export type FetchHistoryOptions = {
   limit?: number | null;
   offset?: number;
   providerSessionId?: string;
+  /** False omits image attachment metadata/data from the transport response. */
+  includeImages?: boolean;
 };
 
 /**

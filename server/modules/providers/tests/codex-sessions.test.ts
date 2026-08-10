@@ -11,6 +11,7 @@ import {
   CodexSessionsProvider,
   normalizeCodexToolName,
 } from '@/modules/providers/list/codex/codex-sessions.provider.js';
+import { sessionsService } from '@/modules/providers/services/sessions.service.js';
 
 test('Codex request_user_input uses the shared question renderer', () => {
   assert.equal(normalizeCodexToolName('request_user_input'), 'AskUserQuestion');
@@ -315,13 +316,19 @@ test('Codex history incrementally appends complete JSONL records', { concurrency
         content: '/workspace',
         isError: false,
       });
+      assert.equal(
+        toolFinished.messages.some((message) => message.kind === 'tool_result'),
+        false,
+        'tool results are carried by their tool-use card, not duplicated as standalone rows',
+      );
+      assert.equal(toolFinished.total, toolFinished.messages.length);
     });
   } finally {
     await rm(tempRoot, { recursive: true, force: true });
   }
 });
 
-test('Codex history drops rollouts that exceed the retained cache bound', { concurrency: false }, async () => {
+test('Codex history detects same-size rewrites beyond the former raw cache bound', { concurrency: false }, async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-history-cache-bound-'));
   const workspacePath = path.join(tempRoot, 'workspace');
   await mkdir(workspacePath, { recursive: true });
@@ -362,6 +369,79 @@ test('Codex history drops rollouts that exceed the retained cache bound', { conc
       await utimes(transcriptPath, beforeReplacement.atime, beforeReplacement.mtime);
 
       assert.equal((await provider.fetchHistory(sessionId)).messages[0]?.content, replacementContent);
+    });
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('Codex history sends bounded tool previews and loads the full result on demand', { concurrency: false }, async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-history-tool-preview-'));
+  const workspacePath = path.join(tempRoot, 'workspace');
+  await mkdir(workspacePath, { recursive: true });
+
+  try {
+    const sessionId = 'codex-tool-preview-history';
+    const transcriptPath = await writeCodexTranscript(tempRoot, sessionId, workspacePath);
+    const output = `start-${'x'.repeat(96 * 1024)}-end`;
+    await appendFile(transcriptPath, [
+      JSON.stringify({
+        type: 'event_msg',
+        timestamp: '2026-08-10T00:00:00.000Z',
+        payload: {
+          type: 'user_message',
+          message: 'Run the diagnostic',
+          images: ['data:image/png;base64,QUJD'],
+        },
+      }),
+      JSON.stringify({
+        type: 'response_item',
+        timestamp: '2026-08-10T00:00:01.000Z',
+        payload: {
+          type: 'function_call',
+          name: 'exec_command',
+          arguments: JSON.stringify({ cmd: 'diagnostic' }),
+          call_id: 'large-result',
+        },
+      }),
+      JSON.stringify({
+        type: 'response_item',
+        timestamp: '2026-08-10T00:00:02.000Z',
+        payload: {
+          type: 'function_call_output',
+          call_id: 'large-result',
+          output,
+        },
+      }),
+      '',
+    ].join('\n'), 'utf8');
+
+    await withIsolatedDatabase(async () => {
+      sessionsDb.createSession(
+        sessionId,
+        'codex',
+        workspacePath,
+        undefined,
+        undefined,
+        undefined,
+        transcriptPath,
+      );
+
+      const history = await sessionsService.fetchHistory(sessionId, {
+        limit: 20,
+        offset: 0,
+        includeImages: false,
+      });
+      const userMessage = history.messages.find((message) => message.role === 'user');
+      const toolUse = history.messages.find((message) => message.kind === 'tool_use');
+      assert.equal(userMessage?.images, undefined);
+      assert.equal(toolUse?.toolResultTruncated, true);
+      assert.equal(toolUse?.toolResultBytes, Buffer.byteLength(output));
+      assert.ok(String(toolUse?.toolResult?.content).length < output.length);
+      assert.equal(history.messages.some((message) => message.kind === 'tool_result'), false);
+
+      const full = await sessionsService.fetchToolResult(sessionId, 'large-result');
+      assert.equal(full.toolResult.content, output);
     });
   } finally {
     await rm(tempRoot, { recursive: true, force: true });

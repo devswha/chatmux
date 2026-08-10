@@ -30,6 +30,7 @@ interface UseChatSessionStateArgs {
   /** Highest live seq observed per session; sent as `lastSeq` on subscribe. */
   lastSeqRef: MutableRefObject<Map<string, number>>;
   sessionStore: SessionStore;
+  showImagePreviews?: boolean;
 }
 
 interface ScrollRestoreState {
@@ -116,6 +117,7 @@ export function useChatSessionState({
   statusCheckSentAtRef,
   lastSeqRef,
   sessionStore,
+  showImagePreviews = true,
 }: UseChatSessionStateArgs) {
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(selectedSession?.id || null);
   const [isLoadingSessionMessages, setIsLoadingSessionMessages] = useState(false);
@@ -386,6 +388,7 @@ export function useChatSessionState({
       try {
         const slot = await sessionStore.fetchMore(selectedSession.id, {
           limit: MESSAGES_PER_PAGE,
+          includeImages: showImagePreviews,
         });
         if (!slot) return false;
         const didLoadOlderMessages = slot.offset > previousOffset;
@@ -436,6 +439,7 @@ export function useChatSessionState({
       selectedProject,
       selectedSession,
       sessionStore,
+      showImagePreviews,
     ],
   );
 
@@ -627,6 +631,7 @@ export function useChatSessionState({
     sessionStore.fetchFromServer(selectedSessionId, {
       limit: MESSAGES_PER_PAGE,
       offset: 0,
+      includeImages: showImagePreviews,
     }).then(slot => {
       if (slot) {
         setHasMoreMessages(slot.hasMore);
@@ -648,6 +653,7 @@ export function useChatSessionState({
     lastSeqRef,
     ws,
     sessionStore,
+    showImagePreviews,
   ]);
 
   // External message update (e.g. WebSocket reconnect, background refresh)
@@ -658,7 +664,9 @@ export function useChatSessionState({
       try {
         // Skip store refresh during active streaming
         if (!isProcessing && !isLoadingMoreRef.current) {
-          await sessionStore.refreshFromServer(selectedSession.id);
+          await sessionStore.refreshFromServer(selectedSession.id, {
+            includeImages: showImagePreviews,
+          });
 
           if (isNearBottom()) {
             setTimeout(() => scrollToBottom(), 200);
@@ -678,6 +686,7 @@ export function useChatSessionState({
     selectedSession,
     sessionStore,
     isProcessing,
+    showImagePreviews,
   ]);
 
   // Search navigation target
@@ -708,6 +717,7 @@ export function useChatSessionState({
             const slot = await sessionStore.fetchFromServer(selectedSession.id, {
               limit: null,
               offset: 0,
+              includeImages: showImagePreviews,
             });
             if (slot) {
               setHasMoreMessages(false);
@@ -891,7 +901,9 @@ export function useChatSessionState({
       // A live external transcript is polled frequently. Reconcile the entire
       // window the user has already opened instead of replacing it with the
       // initial tail page and hiding older messages again.
-      const slot = await sessionStore.refreshFromServer(requestSessionId);
+      const slot = await sessionStore.refreshFromServer(requestSessionId, {
+        includeImages: showImagePreviews,
+      });
       if (!slot || currentSessionId !== requestSessionId) {
         return;
       }
@@ -901,7 +913,7 @@ export function useChatSessionState({
     } finally {
       transcriptRefreshInFlightRef.current = false;
     }
-  }, [selectedSession?.id, currentSessionId, sessionStore]);
+  }, [selectedSession?.id, currentSessionId, sessionStore, showImagePreviews]);
 
   const loadAllMessages = useCallback(async () => {
     if (!selectedSession || !selectedProject) return;
@@ -930,6 +942,7 @@ export function useChatSessionState({
       const slot = await sessionStore.fetchFromServer(requestSessionId, {
         limit: null,
         offset: 0,
+        includeImages: showImagePreviews,
       });
 
       if (currentSessionId !== requestSessionId) return;
@@ -977,6 +990,7 @@ export function useChatSessionState({
     currentSessionId,
     schedulePendingScrollRestore,
     sessionStore,
+    showImagePreviews,
   ]);
 
   const loadEarlierMessages = useCallback(() => {
