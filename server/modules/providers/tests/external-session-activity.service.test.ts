@@ -173,6 +173,28 @@ test('Codex activity uses explicit task lifecycle events and request_user_input'
   })), 'waiting_user');
 });
 
+test('Codex interrupted turns return to READY without a completion or failure outcome', () => {
+  const interrupted = {
+    type: 'event_msg',
+    payload: { type: 'turn_aborted', reason: 'interrupted' },
+  };
+  assert.deepEqual(
+    parseExternalJsonlActivityEvidence('codex', [
+      line({ type: 'event_msg', payload: { type: 'task_started' } }),
+      line({ type: 'response_item', payload: { type: 'message', role: 'assistant' } }),
+      line(interrupted),
+    ].join('\n')),
+    { activity: 'waiting_user', terminalOutcome: 'none' },
+  );
+  assert.deepEqual(
+    parseExternalJsonlActivityEvidence('codex', line({
+      type: 'turn_aborted',
+      reason: 'interrupted',
+    })),
+    { activity: 'waiting_user', terminalOutcome: 'none' },
+  );
+});
+
 test('Cursor activity fails closed and treats unfinished tools as running', () => {
   assert.equal(parseExternalJsonlActivity('cursor', line({
     role: 'assistant',

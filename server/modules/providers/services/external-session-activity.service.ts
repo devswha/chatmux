@@ -302,11 +302,13 @@ const parseCodexEvidence = (records: JsonRecord[]): ExternalSessionParsedActivit
     const payload = asRecord(record.payload);
     const payloadType = readString(payload?.type)?.toLowerCase();
 
+    if (type === 'turn_aborted') return evidence('waiting_user', 'none');
     if (type === 'turn_failed' || type === 'error' || isErrorRecord(record) || isErrorRecord(payload ?? {})) {
       return evidence('waiting_user', 'failed');
     }
     if (type === 'turn_complete') return evidence('waiting_user', 'reply_ready');
     if (type === 'event_msg') {
+      if (payloadType === 'turn_aborted') return evidence('waiting_user', 'none');
       if (payloadType === 'turn_failed' || payloadType === 'error') return evidence('waiting_user', 'failed');
       if (payloadType === 'task_complete' || payloadType === 'turn_complete') return evidence('waiting_user', 'reply_ready');
       if (containsAskingTool(payload)) return evidence('asking_user', 'none');

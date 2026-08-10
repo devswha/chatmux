@@ -23,10 +23,15 @@ export type TmuxSelectionKey =
   | 'BTab'
   | 'Escape';
 
-const TMUX_PROCESS_ACTION_KEYS: Readonly<Record<TmuxProcessAction, 'C-c' | 'Escape'>> = {
-  interrupt: 'C-c',
-  escape: 'Escape',
-};
+function tmuxProcessActionKey(
+  target: VerifiedTmuxActionTarget,
+  action: TmuxProcessAction,
+): 'C-c' | 'Escape' {
+  if (action === 'escape') return 'Escape';
+  // Codex handles Esc as "interrupt the active turn". Ctrl+C is a process
+  // signal and can terminate the CLI when its activity status is briefly stale.
+  return target.kind === 'codex' ? 'Escape' : 'C-c';
+}
 
 export function readTmuxPaneIdentity(value: unknown): TmuxPaneIdentity {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -170,7 +175,7 @@ export async function sendTmuxProcessAction(
   const identity = target.tmux;
   await assertTmuxPaneIdentity(identity, run);
   await requireTmuxSuccess(identity, [
-    'send-keys', '-t', identity.paneId, TMUX_PROCESS_ACTION_KEYS[action],
+    'send-keys', '-t', identity.paneId, tmuxProcessActionKey(target, action),
   ], run);
 }
 
