@@ -164,6 +164,28 @@ test('completion notification clicks navigate a focused client or open the targe
 
   assert.deepEqual(openRuntime.openWindows, ['/session/opened']);
 });
+
+test('legacy completion clicks recover the session id from navigation href', async () => {
+  const runtime = await serviceWorkerRuntime();
+  const messages: unknown[] = [];
+  runtime.clients.push({
+    url: 'https://chatmux.test/',
+    focus: async () => {},
+    navigate: async () => { throw new Error('navigation rejected'); },
+    postMessage: (message: unknown) => { messages.push(message); },
+  });
+
+  // Older service workers persisted completion notifications without the
+  // derived navigation.sessionId field.
+  await runtime.click({ navigation: { href: '/session/legacy%20completion' } });
+
+  assert.deepEqual(messages.map((message) => JSON.parse(JSON.stringify(message))), [{
+    type: 'notification:navigate',
+    sessionId: 'legacy completion',
+    provider: null,
+    urlPath: '/session/legacy%20completion',
+  }]);
+});
 test('legacy notification clicks focus an exact-origin client and post navigation details', async () => {
   const runtime = await serviceWorkerRuntime();
   const messages: unknown[] = [];

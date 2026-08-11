@@ -110,6 +110,7 @@ type CodexHistoryCacheEntry = {
   filePath: string;
   device: number | bigint;
   inode: number | bigint;
+  changedAtMs: number;
   offset: number;
   tail: string;
   boundary: Buffer;
@@ -298,14 +299,36 @@ function parseCodexHistoryLine(line: string, accumulator: CodexHistoryAccumulato
   }
 }
 
+/** Exported for focused cache-budget regression tests. */
+export function isCodexHistoryCacheable(
+  normalizedBytes: number,
+  tailBytes: number,
+  boundaryBytes: number,
+  maxBytes = CODEX_HISTORY_CACHE_MAX_NORMALIZED_BYTES,
+): boolean {
+  return normalizedBytes + tailBytes + boundaryBytes <= maxBytes;
+}
+
+function codexHistoryRetainedBytes(entry: CodexHistoryCacheEntry): number {
+  return entry.normalizedBytes + Buffer.byteLength(entry.tail) + entry.boundary.byteLength;
+}
+
 function touchCodexHistoryCache(sessionId: string, entry: CodexHistoryCacheEntry): void {
   codexHistoryCache.delete(sessionId);
+  if (!isCodexHistoryCacheable(
+    entry.normalizedBytes,
+    Buffer.byteLength(entry.tail),
+    entry.boundary.byteLength,
+  )) {
+    return;
+  }
+
   codexHistoryCache.set(sessionId, entry);
   const cachedBytes = () => Array.from(codexHistoryCache.values())
-    .reduce((total, candidate) => total + candidate.normalizedBytes, 0);
+    .reduce((total, candidate) => total + codexHistoryRetainedBytes(candidate), 0);
   while (
     codexHistoryCache.size > CODEX_HISTORY_CACHE_MAX_ENTRIES
-    || (codexHistoryCache.size > 1 && cachedBytes() > CODEX_HISTORY_CACHE_MAX_NORMALIZED_BYTES)
+    || cachedBytes() > CODEX_HISTORY_CACHE_MAX_NORMALIZED_BYTES
   ) {
     codexHistoryCache.delete(codexHistoryCache.keys().next().value!);
   }
@@ -418,8 +441,15 @@ async function refreshCodexHistoryCache(
     && entry.filePath === sessionFilePath
     && entry.device === metadata.dev
     && entry.inode === metadata.ino;
+  // Appends naturally change ctime, so only use it to reject an otherwise
+  // indistinguishable same-length in-place rewrite. mtime can be restored by
+  // callers and the EOF boundary does not cover edits earlier in the file.
+  const sameLengthUnchanged = entry == null
+    || metadata.size !== entry.offset
+    || metadata.ctimeMs === entry.changedAtMs;
   const boundaryMatches = entry != null
     && sameFile
+    && sameLengthUnchanged
     && metadata.size >= entry.offset
     && (entry.offset === 0
       || (await readCodexHistoryBoundary(sessionFilePath, entry.offset)).equals(entry.boundary));
@@ -430,6 +460,7 @@ async function refreshCodexHistoryCache(
       filePath: sessionFilePath,
       device: metadata.dev,
       inode: metadata.ino,
+      changedAtMs: metadata.ctimeMs,
       offset: 0,
       tail: '',
       boundary: Buffer.alloc(0),
@@ -470,6 +501,7 @@ async function refreshCodexHistoryCache(
     entry.tokenUsage = appended.tokenUsage;
     entry.tail = tail;
     entry.offset = metadata.size;
+    entry.changedAtMs = metadata.ctimeMs;
     entry.boundary = await readCodexHistoryBoundary(sessionFilePath, entry.offset);
     entry.malformed = appended.malformed;
   }

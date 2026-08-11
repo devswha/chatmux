@@ -46,6 +46,19 @@ export function shouldReplaceSessionMessageWindow(
   return lastLoadedSessionKey !== nextSessionKey || !hasCachedSession;
 }
 
+export function shouldRefreshCachedImageWindow(
+  previousSessionKey: string | null,
+  previousEnabled: boolean,
+  nextSessionKey: string,
+  nextEnabled: boolean,
+  hasCachedSession: boolean,
+): boolean {
+  return previousSessionKey === nextSessionKey
+    && !previousEnabled
+    && nextEnabled
+    && hasCachedSession;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Helper: Convert a ChatMessage to a NormalizedMessage for the store */
 /* ------------------------------------------------------------------ */
@@ -148,6 +161,10 @@ export function useChatSessionState({
   const loadAllFinishedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loadAllOverlayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastLoadedSessionKeyRef = useRef<string | null>(null);
+  const lastImagePreviewStateRef = useRef({
+    sessionKey: null as string | null,
+    enabled: showImagePreviews,
+  });
   const transcriptRefreshInFlightRef = useRef(false);
   /**
    * Tracks the last processed value from `useProjectsState.newSessionTrigger`.
@@ -207,6 +224,7 @@ export function useChatSessionState({
     isLoadingMoreRef.current = false;
     pendingInitialScrollRef.current = true;
     lastLoadedSessionKeyRef.current = null;
+    lastImagePreviewStateRef.current = { sessionKey: null, enabled: showImagePreviews };
 
     if (loadAllOverlayTimerRef.current) {
       clearTimeout(loadAllOverlayTimerRef.current);
@@ -216,7 +234,7 @@ export function useChatSessionState({
       clearTimeout(loadAllFinishedTimerRef.current);
       loadAllFinishedTimerRef.current = null;
     }
-  }, [newSessionTrigger, onSessionIdle, resetStreamingState]);
+  }, [newSessionTrigger, onSessionIdle, resetStreamingState, showImagePreviews]);
 
   /* ---------------------------------------------------------------- */
   /*  Derive processing state for the viewed session                  */
@@ -557,11 +575,21 @@ export function useChatSessionState({
       setTotalMessages(0);
       setTokenBudget(null);
       lastLoadedSessionKeyRef.current = null;
+      lastImagePreviewStateRef.current = { sessionKey: null, enabled: showImagePreviews };
       return;
     }
 
     const selectedSessionId = selectedSession.id;
     const sessionKey = `${selectedSessionId}:${selectedProject.projectId}`;
+    const previousImagePreviewState = lastImagePreviewStateRef.current;
+    const shouldRefreshImages = shouldRefreshCachedImageWindow(
+      previousImagePreviewState.sessionKey,
+      previousImagePreviewState.enabled,
+      sessionKey,
+      showImagePreviews,
+      sessionStore.has(selectedSessionId),
+    );
+    lastImagePreviewStateRef.current = { sessionKey, enabled: showImagePreviews };
 
     const subscribeToSelectedSession = () => {
       if (!ws) {
@@ -588,6 +616,18 @@ export function useChatSessionState({
       sessionStore.has(selectedSessionId),
     )) {
       subscribeToSelectedSession();
+      if (shouldRefreshImages) {
+        // The cached window may have been fetched with includeImages=false.
+        // Reconcile only that already-loaded window in the background so
+        // enabling previews takes effect without resetting scroll/pagination.
+        void sessionStore.refreshFromServer(selectedSessionId, {
+          includeImages: true,
+        }).then((slot) => {
+          setHasMoreMessages(slot.hasMore);
+          setTotalMessages(slot.total);
+          if (slot.tokenUsage) setTokenBudget(slot.tokenUsage as Record<string, unknown>);
+        });
+      }
       return;
     }
 

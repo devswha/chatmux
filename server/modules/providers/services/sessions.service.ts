@@ -21,6 +21,26 @@ type CreateAppSessionResult = {
 
 const HISTORY_TOOL_OUTPUT_PREVIEW_BYTES = 64 * 1024;
 
+function isUtf8ContinuationByte(value: number | undefined): boolean {
+  return value !== undefined && (value & 0xc0) === 0x80;
+}
+
+function utf8SafeHeadEnd(source: Buffer, requestedEnd: number): number {
+  let end = Math.min(Math.max(0, requestedEnd), source.length);
+  while (end > 0 && end < source.length && isUtf8ContinuationByte(source[end])) {
+    end -= 1;
+  }
+  return end;
+}
+
+function utf8SafeTailStart(source: Buffer, requestedStart: number): number {
+  let start = Math.min(Math.max(0, requestedStart), source.length);
+  while (start < source.length && isUtf8ContinuationByte(source[start])) {
+    start += 1;
+  }
+  return start;
+}
+
 function stringifyToolOutput(content: unknown): string {
   if (typeof content === 'string') return content;
   try {
@@ -44,10 +64,12 @@ function buildToolOutputPreview(content: unknown): {
   const source = Buffer.from(serialized);
   const headBytes = Math.floor(HISTORY_TOOL_OUTPUT_PREVIEW_BYTES * 0.75);
   const tailBytes = HISTORY_TOOL_OUTPUT_PREVIEW_BYTES - headBytes;
-  const head = source.subarray(0, headBytes).toString('utf8');
-  const tail = source.subarray(source.length - tailBytes).toString('utf8');
+  const headEnd = utf8SafeHeadEnd(source, headBytes);
+  const tailStart = utf8SafeTailStart(source, source.length - tailBytes);
+  const head = source.subarray(0, headEnd).toString('utf8');
+  const tail = source.subarray(tailStart).toString('utf8');
   return {
-    content: `${head}\n\n… [${bytes - HISTORY_TOOL_OUTPUT_PREVIEW_BYTES} bytes omitted] …\n\n${tail}`,
+    content: `${head}\n\n… [${tailStart - headEnd} bytes omitted] …\n\n${tail}`,
     truncated: true,
     bytes,
   };

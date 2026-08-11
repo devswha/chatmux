@@ -9,6 +9,7 @@ import { closeConnection, initializeDatabase, sessionsDb } from '@/modules/datab
 import { CodexSessionSynchronizer } from '@/modules/providers/list/codex/codex-session-synchronizer.provider.js';
 import {
   CodexSessionsProvider,
+  isCodexHistoryCacheable,
   normalizeCodexToolName,
 } from '@/modules/providers/list/codex/codex-sessions.provider.js';
 import { sessionsService } from '@/modules/providers/services/sessions.service.js';
@@ -16,6 +17,13 @@ import { sessionsService } from '@/modules/providers/services/sessions.service.j
 test('Codex request_user_input uses the shared question renderer', () => {
   assert.equal(normalizeCodexToolName('request_user_input'), 'AskUserQuestion');
   assert.equal(normalizeCodexToolName('exec_command'), 'exec_command');
+});
+
+test('Codex history cache budget includes normalized messages, partial tails, and boundaries', () => {
+  assert.equal(isCodexHistoryCacheable(4, 3, 1, 8), true);
+  assert.equal(isCodexHistoryCacheable(9, 0, 0, 8), false);
+  assert.equal(isCodexHistoryCacheable(0, 9, 0, 8), false);
+  assert.equal(isCodexHistoryCacheable(0, 0, 9, 8), false);
 });
 
 test('Codex SDK stays pinned to the CLI version required by synchronized models', () => {
@@ -337,7 +345,7 @@ test('Codex history detects same-size rewrites beyond the former raw cache bound
     const sessionId = 'codex-cache-bound-history';
     const transcriptPath = await writeCodexTranscript(tempRoot, sessionId, workspacePath);
     const firstContent = `first-${'x'.repeat(8 * 1024 * 1024)}`;
-    const replacementContent = `next-${'x'.repeat(8 * 1024 * 1024)}`;
+    const replacementContent = `later-${'x'.repeat(8 * 1024 * 1024)}`;
     await appendFile(transcriptPath, `${JSON.stringify({
       type: 'event_msg',
       payload: { type: 'user_message', message: firstContent },
@@ -365,6 +373,7 @@ test('Codex history detects same-size rewrites beyond the former raw cache bound
         }),
         '',
       ].join('\n');
+      assert.equal(Buffer.byteLength(replacement), beforeReplacement.size);
       await writeFile(transcriptPath, replacement, 'utf8');
       await utimes(transcriptPath, beforeReplacement.atime, beforeReplacement.mtime);
 
@@ -383,7 +392,9 @@ test('Codex history sends bounded tool previews and loads the full result on dem
   try {
     const sessionId = 'codex-tool-preview-history';
     const transcriptPath = await writeCodexTranscript(tempRoot, sessionId, workspacePath);
-    const output = `start-${'x'.repeat(96 * 1024)}-end`;
+    // The 7-byte Korean prefix deliberately makes the fixed 48 KiB head cut
+    // land inside a three-byte UTF-8 character.
+    const output = `시작-${'한'.repeat(40 * 1024)}-끝`;
     await appendFile(transcriptPath, [
       JSON.stringify({
         type: 'event_msg',
@@ -438,6 +449,9 @@ test('Codex history sends bounded tool previews and loads the full result on dem
       assert.equal(toolUse?.toolResultTruncated, true);
       assert.equal(toolUse?.toolResultBytes, Buffer.byteLength(output));
       assert.ok(String(toolUse?.toolResult?.content).length < output.length);
+      assert.equal(String(toolUse?.toolResult?.content).includes('\uFFFD'), false);
+      assert.equal(String(toolUse?.toolResult?.content).startsWith('시작-'), true);
+      assert.equal(String(toolUse?.toolResult?.content).endsWith('-끝'), true);
       assert.equal(history.messages.some((message) => message.kind === 'tool_result'), false);
 
       const full = await sessionsService.fetchToolResult(sessionId, 'large-result');
