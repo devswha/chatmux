@@ -75,6 +75,10 @@ EOF
 }
 
 ensure_managed_root() {
+  while [ "$INSTALL_ROOT" != / ] && [ "${INSTALL_ROOT%/}" != "$INSTALL_ROOT" ]; do
+    INSTALL_ROOT=${INSTALL_ROOT%/}
+  done
+
   if [ -e "$INSTALL_ROOT" ] || [ -L "$INSTALL_ROOT" ]; then
     read_managed_root_metadata
   else

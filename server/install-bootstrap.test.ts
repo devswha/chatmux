@@ -110,13 +110,20 @@ test('one-line bootstrap tightens an existing owner-managed root and rejects uns
 
   for (const [name, setup, expected] of [
     ['symlink', async (target: string) => fs.symlink(path.join(root, 'missing'), target), /ordinary directory/],
+    ['symlink-trailing-slash', async (target: string) => {
+      await fs.mkdir(`${target}-target`);
+      await fs.symlink(`${target}-target`, target);
+    }, /ordinary directory/],
     ['non-directory', async (target: string) => fs.writeFile(target, 'not a directory'), /ordinary directory/],
   ] as const) {
     const unsafeRoot = path.join(root, name);
     await setup(unsafeRoot);
     const result = spawnSync('bash', [installerPath, '--local'], {
       encoding: 'utf8',
-      env: { ...commonEnv, CHATMUX_INSTALL_ROOT: unsafeRoot },
+      env: {
+        ...commonEnv,
+        CHATMUX_INSTALL_ROOT: name === 'symlink-trailing-slash' ? `${unsafeRoot}/` : unsafeRoot,
+      },
     });
     assert.notEqual(result.status, 0, name);
     assert.match(result.stderr, expected);
