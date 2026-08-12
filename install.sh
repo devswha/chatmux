@@ -62,14 +62,15 @@ verify_checksum() {
   [ "$actual" = "$expected" ] || fail "checksum verification failed for $(basename "$payload")"
 }
 read_managed_root_metadata() {
-  metadata=$(LC_ALL=C stat -c '%F|%u|%d|%i|%a' -- "$INSTALL_ROOT") || fail "could not inspect managed root"
+  [ -d "$INSTALL_ROOT" ] && [ ! -L "$INSTALL_ROOT" ] ||
+    fail "managed root must be an ordinary directory"
+  metadata=$(stat -c '%u|%d|%i|%a' -- "$INSTALL_ROOT") || fail "could not inspect managed root"
   old_ifs=$IFS
   IFS='|'
-  read root_type root_uid root_device root_inode root_mode <<EOF
+  read root_uid root_device root_inode root_mode <<EOF
 $metadata
 EOF
   IFS=$old_ifs
-  [ "$root_type" = directory ] || fail "managed root must be an ordinary directory"
   [ "$root_uid" = "$(id -u)" ] || fail "managed root must be owned by the effective user"
 }
 
