@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  shouldApplySessionRefresh,
   shouldRefreshCachedImageWindow,
   shouldReplaceSessionMessageWindow,
 } from './useChatSessionState';
@@ -41,4 +42,10 @@ test('re-enabling previews refreshes only an already-cached current conversation
     shouldRefreshCachedImageWindow('session-1:project-1', false, 'session-1:project-1', true, false),
     false,
   );
+});
+
+test('cached image refresh cannot update a different selected conversation', () => {
+  assert.equal(shouldApplySessionRefresh('session-1', 'session-1'), true);
+  assert.equal(shouldApplySessionRefresh('session-1', 'session-2'), false);
+  assert.equal(shouldApplySessionRefresh('session-1', null), false);
 });

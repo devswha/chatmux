@@ -59,6 +59,13 @@ export function shouldRefreshCachedImageWindow(
     && hasCachedSession;
 }
 
+export function shouldApplySessionRefresh(
+  requestSessionId: string,
+  currentSessionId: string | null,
+): boolean {
+  return currentSessionId === requestSessionId;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Helper: Convert a ChatMessage to a NormalizedMessage for the store */
 /* ------------------------------------------------------------------ */
@@ -241,6 +248,8 @@ export function useChatSessionState({
   /* ---------------------------------------------------------------- */
 
   const activeSessionId = selectedSession?.id || currentSessionId || null;
+  const activeSessionIdRef = useRef(activeSessionId);
+  activeSessionIdRef.current = activeSessionId;
 
   // The activity indicator always reflects the latest status of the session
   // being viewed — never stale local UI state from the last time it was
@@ -623,6 +632,7 @@ export function useChatSessionState({
         void sessionStore.refreshFromServer(selectedSessionId, {
           includeImages: true,
         }).then((slot) => {
+          if (!shouldApplySessionRefresh(selectedSessionId, activeSessionIdRef.current)) return;
           setHasMoreMessages(slot.hasMore);
           setTotalMessages(slot.total);
           if (slot.tokenUsage) setTokenBudget(slot.tokenUsage as Record<string, unknown>);
