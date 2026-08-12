@@ -142,14 +142,20 @@ const startLongRunningTurn = () => {
   }, 1_000);
 };
 emit({ type: 'ready', pid: process.pid });
+process.stdin.setRawMode?.(true);
+process.stdin.resume();
 const input = readline.createInterface({ input: process.stdin, crlfDelay: Infinity, terminal: false });
-process.on('SIGINT', () => {
+const interruptTurn = () => {
   emit({ type: 'interrupt' });
   if (runningTurn !== undefined) {
     clearTimeout(runningTurn);
     runningTurn = undefined;
     emit({ type: 'turn_interrupted' });
   }
+};
+process.on('SIGINT', interruptTurn);
+process.stdin.on('data', (chunk) => {
+  if (chunk.includes(0x1b) || chunk.includes(0x03)) interruptTurn();
 });
 input.on('line', (value) => {
   emit({ type: 'input', value });

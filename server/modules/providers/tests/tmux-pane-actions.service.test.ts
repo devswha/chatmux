@@ -116,18 +116,32 @@ test('send refuses a stale pane before staging bytes in a tmux buffer', async ()
   );
   assert.equal(calls.some(({ args }) => args.includes('load-buffer')), false);
 });
-test('process actions assemble only the typed interrupt and escape argv arrays', async () => {
+test('process actions use Codex Escape interrupts and typed escape argv arrays', async () => {
   const interrupt = recordingRunner(['$7\t@8\t%9\n']);
   await sendTmuxProcessAction(target, 'interrupt', interrupt.run);
   assert.deepEqual(interrupt.calls.map(({ args }) => args), [
     ['-S', identity.socketPath, 'display-message', '-p', '-t', identity.paneId, '#{session_id}\t#{window_id}\t#{pane_id}'],
-    ['-S', identity.socketPath, 'send-keys', '-t', identity.paneId, 'C-c'],
+    ['-S', identity.socketPath, 'send-keys', '-t', identity.paneId, 'Escape'],
   ]);
 
   const escape = recordingRunner(['$7\t@8\t%9\n']);
   await sendTmuxProcessAction(target, 'escape', escape.run);
   assert.deepEqual(escape.calls[1]?.args, [
     '-S', identity.socketPath, 'send-keys', '-t', identity.paneId, 'Escape',
+  ]);
+});
+
+test('non-Codex process interrupts retain Ctrl+C', async () => {
+  const claudeTarget = createVerifiedTmuxActionTarget(
+    identity,
+    { pid: 42, startedAtMs: 1234 },
+    'claude',
+    'test',
+  );
+  const interrupt = recordingRunner(['$7\t@8\t%9\n']);
+  await sendTmuxProcessAction(claudeTarget, 'interrupt', interrupt.run);
+  assert.deepEqual(interrupt.calls[1]?.args, [
+    '-S', identity.socketPath, 'send-keys', '-t', identity.paneId, 'C-c',
   ]);
 });
 

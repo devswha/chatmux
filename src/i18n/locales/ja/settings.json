@@ -76,6 +76,17 @@
       "label": "ダークモード",
       "description": "ライトテーマとダークテーマを切り替えます"
     },
+    "interfaceFontSize": {
+      "label": "インターフェースの文字サイズ",
+      "description": "チャット、セッション、設定など画面全体の文字サイズを変更します",
+      "small": "小",
+      "medium": "中",
+      "large": "大"
+    },
+    "imagePreviews": {
+      "label": "画像プレビュー",
+      "description": "チャット履歴の添付画像を読み込んで表示します"
+    },
     "projectSorting": {
       "label": "プロジェクトの並び順",
       "description": "サイドバーでのプロジェクトの並び順を設定します",

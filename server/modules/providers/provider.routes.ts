@@ -1452,6 +1452,7 @@ router.get(
     const sessionId = parseSessionId(req.params.sessionId);
     const limitRaw = readOptionalQueryString(req.query.limit);
     const offsetRaw = readOptionalQueryString(req.query.offset);
+    const includeImages = parseOptionalBooleanQuery(req.query.includeImages, 'includeImages');
 
     let limit: number | null = null;
     if (limitRaw !== undefined) {
@@ -1480,7 +1481,18 @@ router.get(
     const result = await sessionsService.fetchHistory(sessionId, {
       limit,
       offset,
+      includeImages,
     });
+    res.json(createApiSuccessResponse(result));
+  }),
+);
+
+router.get(
+  '/sessions/:sessionId/tool-result',
+  asyncHandler(async (req: Request, res: Response) => {
+    const sessionId = parseSessionId(req.params.sessionId);
+    const toolId = readAskToolId(req.query.toolId);
+    const result = await sessionsService.fetchToolResult(sessionId, toolId);
     res.json(createApiSuccessResponse(result));
   }),
 );

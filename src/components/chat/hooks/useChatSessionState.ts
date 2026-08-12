@@ -30,6 +30,7 @@ interface UseChatSessionStateArgs {
   /** Highest live seq observed per session; sent as `lastSeq` on subscribe. */
   lastSeqRef: MutableRefObject<Map<string, number>>;
   sessionStore: SessionStore;
+  showImagePreviews?: boolean;
 }
 
 interface ScrollRestoreState {
@@ -43,6 +44,26 @@ export function shouldReplaceSessionMessageWindow(
   hasCachedSession: boolean,
 ): boolean {
   return lastLoadedSessionKey !== nextSessionKey || !hasCachedSession;
+}
+
+export function shouldRefreshCachedImageWindow(
+  previousSessionKey: string | null,
+  previousEnabled: boolean,
+  nextSessionKey: string,
+  nextEnabled: boolean,
+  hasCachedSession: boolean,
+): boolean {
+  return previousSessionKey === nextSessionKey
+    && !previousEnabled
+    && nextEnabled
+    && hasCachedSession;
+}
+
+export function shouldApplySessionRefresh(
+  requestSessionId: string,
+  currentSessionId: string | null,
+): boolean {
+  return currentSessionId === requestSessionId;
 }
 
 /* ------------------------------------------------------------------ */
@@ -116,6 +137,7 @@ export function useChatSessionState({
   statusCheckSentAtRef,
   lastSeqRef,
   sessionStore,
+  showImagePreviews = true,
 }: UseChatSessionStateArgs) {
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(selectedSession?.id || null);
   const [isLoadingSessionMessages, setIsLoadingSessionMessages] = useState(false);
@@ -146,6 +168,10 @@ export function useChatSessionState({
   const loadAllFinishedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loadAllOverlayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastLoadedSessionKeyRef = useRef<string | null>(null);
+  const lastImagePreviewStateRef = useRef({
+    sessionKey: null as string | null,
+    enabled: showImagePreviews,
+  });
   const transcriptRefreshInFlightRef = useRef(false);
   /**
    * Tracks the last processed value from `useProjectsState.newSessionTrigger`.
@@ -205,6 +231,7 @@ export function useChatSessionState({
     isLoadingMoreRef.current = false;
     pendingInitialScrollRef.current = true;
     lastLoadedSessionKeyRef.current = null;
+    lastImagePreviewStateRef.current = { sessionKey: null, enabled: showImagePreviews };
 
     if (loadAllOverlayTimerRef.current) {
       clearTimeout(loadAllOverlayTimerRef.current);
@@ -214,13 +241,15 @@ export function useChatSessionState({
       clearTimeout(loadAllFinishedTimerRef.current);
       loadAllFinishedTimerRef.current = null;
     }
-  }, [newSessionTrigger, onSessionIdle, resetStreamingState]);
+  }, [newSessionTrigger, onSessionIdle, resetStreamingState, showImagePreviews]);
 
   /* ---------------------------------------------------------------- */
   /*  Derive processing state for the viewed session                  */
   /* ---------------------------------------------------------------- */
 
   const activeSessionId = selectedSession?.id || currentSessionId || null;
+  const activeSessionIdRef = useRef(activeSessionId);
+  activeSessionIdRef.current = activeSessionId;
 
   // The activity indicator always reflects the latest status of the session
   // being viewed — never stale local UI state from the last time it was
@@ -386,6 +415,7 @@ export function useChatSessionState({
       try {
         const slot = await sessionStore.fetchMore(selectedSession.id, {
           limit: MESSAGES_PER_PAGE,
+          includeImages: showImagePreviews,
         });
         if (!slot) return false;
         const didLoadOlderMessages = slot.offset > previousOffset;
@@ -436,6 +466,7 @@ export function useChatSessionState({
       selectedProject,
       selectedSession,
       sessionStore,
+      showImagePreviews,
     ],
   );
 
@@ -553,11 +584,21 @@ export function useChatSessionState({
       setTotalMessages(0);
       setTokenBudget(null);
       lastLoadedSessionKeyRef.current = null;
+      lastImagePreviewStateRef.current = { sessionKey: null, enabled: showImagePreviews };
       return;
     }
 
     const selectedSessionId = selectedSession.id;
     const sessionKey = `${selectedSessionId}:${selectedProject.projectId}`;
+    const previousImagePreviewState = lastImagePreviewStateRef.current;
+    const shouldRefreshImages = shouldRefreshCachedImageWindow(
+      previousImagePreviewState.sessionKey,
+      previousImagePreviewState.enabled,
+      sessionKey,
+      showImagePreviews,
+      sessionStore.has(selectedSessionId),
+    );
+    lastImagePreviewStateRef.current = { sessionKey, enabled: showImagePreviews };
 
     const subscribeToSelectedSession = () => {
       if (!ws) {
@@ -584,6 +625,19 @@ export function useChatSessionState({
       sessionStore.has(selectedSessionId),
     )) {
       subscribeToSelectedSession();
+      if (shouldRefreshImages) {
+        // The cached window may have been fetched with includeImages=false.
+        // Reconcile only that already-loaded window in the background so
+        // enabling previews takes effect without resetting scroll/pagination.
+        void sessionStore.refreshFromServer(selectedSessionId, {
+          includeImages: true,
+        }).then((slot) => {
+          if (!shouldApplySessionRefresh(selectedSessionId, activeSessionIdRef.current)) return;
+          setHasMoreMessages(slot.hasMore);
+          setTotalMessages(slot.total);
+          if (slot.tokenUsage) setTokenBudget(slot.tokenUsage as Record<string, unknown>);
+        });
+      }
       return;
     }
 
@@ -627,6 +681,7 @@ export function useChatSessionState({
     sessionStore.fetchFromServer(selectedSessionId, {
       limit: MESSAGES_PER_PAGE,
       offset: 0,
+      includeImages: showImagePreviews,
     }).then(slot => {
       if (slot) {
         setHasMoreMessages(slot.hasMore);
@@ -648,6 +703,7 @@ export function useChatSessionState({
     lastSeqRef,
     ws,
     sessionStore,
+    showImagePreviews,
   ]);
 
   // External message update (e.g. WebSocket reconnect, background refresh)
@@ -658,7 +714,9 @@ export function useChatSessionState({
       try {
         // Skip store refresh during active streaming
         if (!isProcessing && !isLoadingMoreRef.current) {
-          await sessionStore.refreshFromServer(selectedSession.id);
+          await sessionStore.refreshFromServer(selectedSession.id, {
+            includeImages: showImagePreviews,
+          });
 
           if (isNearBottom()) {
             setTimeout(() => scrollToBottom(), 200);
@@ -678,6 +736,7 @@ export function useChatSessionState({
     selectedSession,
     sessionStore,
     isProcessing,
+    showImagePreviews,
   ]);
 
   // Search navigation target
@@ -708,6 +767,7 @@ export function useChatSessionState({
             const slot = await sessionStore.fetchFromServer(selectedSession.id, {
               limit: null,
               offset: 0,
+              includeImages: showImagePreviews,
             });
             if (slot) {
               setHasMoreMessages(false);
@@ -891,7 +951,9 @@ export function useChatSessionState({
       // A live external transcript is polled frequently. Reconcile the entire
       // window the user has already opened instead of replacing it with the
       // initial tail page and hiding older messages again.
-      const slot = await sessionStore.refreshFromServer(requestSessionId);
+      const slot = await sessionStore.refreshFromServer(requestSessionId, {
+        includeImages: showImagePreviews,
+      });
       if (!slot || currentSessionId !== requestSessionId) {
         return;
       }
@@ -901,7 +963,7 @@ export function useChatSessionState({
     } finally {
       transcriptRefreshInFlightRef.current = false;
     }
-  }, [selectedSession?.id, currentSessionId, sessionStore]);
+  }, [selectedSession?.id, currentSessionId, sessionStore, showImagePreviews]);
 
   const loadAllMessages = useCallback(async () => {
     if (!selectedSession || !selectedProject) return;
@@ -930,6 +992,7 @@ export function useChatSessionState({
       const slot = await sessionStore.fetchFromServer(requestSessionId, {
         limit: null,
         offset: 0,
+        includeImages: showImagePreviews,
       });
 
       if (currentSessionId !== requestSessionId) return;
@@ -977,6 +1040,7 @@ export function useChatSessionState({
     currentSessionId,
     schedulePendingScrollRestore,
     sessionStore,
+    showImagePreviews,
   ]);
 
   const loadEarlierMessages = useCallback(() => {

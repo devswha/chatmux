@@ -62,6 +62,7 @@ interface ChatMessagesPaneProps {
   onGrantToolPermission: (suggestion: { entry: string; toolName: string }) => { success: boolean };
   showRawParameters?: boolean;
   showThinking?: boolean;
+  showImagePreviews?: boolean;
   selectedProject: Project;
   transcriptView?: boolean;
   pendingAskToolId?: string | null;
@@ -112,6 +113,7 @@ function ChatMessagesPane({
   onGrantToolPermission,
   showRawParameters,
   showThinking,
+  showImagePreviews = true,
   selectedProject,
   transcriptView = false,
   pendingAskToolId = null,
@@ -265,6 +267,7 @@ function ChatMessagesPane({
                     onGrantToolPermission={onGrantToolPermission}
                     showRawParameters={showRawParameters}
                     showThinking={showThinking}
+                    showImagePreviews={showImagePreviews}
                     selectedProject={selectedProject}
                     provider={provider}
                     transcriptView={transcriptView}
@@ -289,6 +292,7 @@ function ChatMessagesPane({
                   onGrantToolPermission={onGrantToolPermission}
                   showRawParameters={showRawParameters}
                   showThinking={showThinking}
+                  showImagePreviews={showImagePreviews}
                   selectedProject={selectedProject}
                   provider={provider}
                   transcriptView={transcriptView}

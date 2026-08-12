@@ -39,6 +39,7 @@ function ChatInterface({
   onShowSettings,
   showRawParameters,
   showThinking,
+  showImagePreviews,
   sendByCtrlEnter,
   externalMessageUpdate,
   newSessionTrigger,
@@ -141,6 +142,7 @@ function ChatInterface({
     statusCheckSentAtRef,
     lastSeqRef,
     sessionStore,
+    showImagePreviews,
   });
 
   useEffect(() => {
@@ -449,6 +451,7 @@ function ChatInterface({
           onGrantToolPermission={handleGrantToolPermission}
           showRawParameters={showRawParameters}
           showThinking={showThinking}
+          showImagePreviews={showImagePreviews}
           selectedProject={selectedProject}
           transcriptView={Boolean(liveSessionKind && liveSessionKind !== 'gjc')}
           pendingAskToolId={pendingRelayAsk?.toolId ?? null}

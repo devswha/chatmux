@@ -9,12 +9,21 @@ import { closeConnection, initializeDatabase, sessionsDb } from '@/modules/datab
 import { CodexSessionSynchronizer } from '@/modules/providers/list/codex/codex-session-synchronizer.provider.js';
 import {
   CodexSessionsProvider,
+  isCodexHistoryCacheable,
   normalizeCodexToolName,
 } from '@/modules/providers/list/codex/codex-sessions.provider.js';
+import { sessionsService } from '@/modules/providers/services/sessions.service.js';
 
 test('Codex request_user_input uses the shared question renderer', () => {
   assert.equal(normalizeCodexToolName('request_user_input'), 'AskUserQuestion');
   assert.equal(normalizeCodexToolName('exec_command'), 'exec_command');
+});
+
+test('Codex history cache budget includes normalized messages, partial tails, and boundaries', () => {
+  assert.equal(isCodexHistoryCacheable(4, 3, 1, 8), true);
+  assert.equal(isCodexHistoryCacheable(9, 0, 0, 8), false);
+  assert.equal(isCodexHistoryCacheable(0, 9, 0, 8), false);
+  assert.equal(isCodexHistoryCacheable(0, 0, 9, 8), false);
 });
 
 test('Codex SDK stays pinned to the CLI version required by synchronized models', () => {
@@ -315,13 +324,19 @@ test('Codex history incrementally appends complete JSONL records', { concurrency
         content: '/workspace',
         isError: false,
       });
+      assert.equal(
+        toolFinished.messages.some((message) => message.kind === 'tool_result'),
+        false,
+        'tool results are carried by their tool-use card, not duplicated as standalone rows',
+      );
+      assert.equal(toolFinished.total, toolFinished.messages.length);
     });
   } finally {
     await rm(tempRoot, { recursive: true, force: true });
   }
 });
 
-test('Codex history drops rollouts that exceed the retained cache bound', { concurrency: false }, async () => {
+test('Codex history detects same-size rewrites beyond the former raw cache bound', { concurrency: false }, async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-history-cache-bound-'));
   const workspacePath = path.join(tempRoot, 'workspace');
   await mkdir(workspacePath, { recursive: true });
@@ -330,7 +345,7 @@ test('Codex history drops rollouts that exceed the retained cache bound', { conc
     const sessionId = 'codex-cache-bound-history';
     const transcriptPath = await writeCodexTranscript(tempRoot, sessionId, workspacePath);
     const firstContent = `first-${'x'.repeat(8 * 1024 * 1024)}`;
-    const replacementContent = `next-${'x'.repeat(8 * 1024 * 1024)}`;
+    const replacementContent = `later-${'x'.repeat(8 * 1024 * 1024)}`;
     await appendFile(transcriptPath, `${JSON.stringify({
       type: 'event_msg',
       payload: { type: 'user_message', message: firstContent },
@@ -358,10 +373,89 @@ test('Codex history drops rollouts that exceed the retained cache bound', { conc
         }),
         '',
       ].join('\n');
+      assert.equal(Buffer.byteLength(replacement), beforeReplacement.size);
       await writeFile(transcriptPath, replacement, 'utf8');
       await utimes(transcriptPath, beforeReplacement.atime, beforeReplacement.mtime);
 
       assert.equal((await provider.fetchHistory(sessionId)).messages[0]?.content, replacementContent);
+    });
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('Codex history sends bounded tool previews and loads the full result on demand', { concurrency: false }, async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-history-tool-preview-'));
+  const workspacePath = path.join(tempRoot, 'workspace');
+  await mkdir(workspacePath, { recursive: true });
+
+  try {
+    const sessionId = 'codex-tool-preview-history';
+    const transcriptPath = await writeCodexTranscript(tempRoot, sessionId, workspacePath);
+    // The 7-byte Korean prefix deliberately makes the fixed 48 KiB head cut
+    // land inside a three-byte UTF-8 character.
+    const output = `시작-${'한'.repeat(40 * 1024)}-끝`;
+    await appendFile(transcriptPath, [
+      JSON.stringify({
+        type: 'event_msg',
+        timestamp: '2026-08-10T00:00:00.000Z',
+        payload: {
+          type: 'user_message',
+          message: 'Run the diagnostic',
+          images: ['data:image/png;base64,QUJD'],
+        },
+      }),
+      JSON.stringify({
+        type: 'response_item',
+        timestamp: '2026-08-10T00:00:01.000Z',
+        payload: {
+          type: 'function_call',
+          name: 'exec_command',
+          arguments: JSON.stringify({ cmd: 'diagnostic' }),
+          call_id: 'large-result',
+        },
+      }),
+      JSON.stringify({
+        type: 'response_item',
+        timestamp: '2026-08-10T00:00:02.000Z',
+        payload: {
+          type: 'function_call_output',
+          call_id: 'large-result',
+          output,
+        },
+      }),
+      '',
+    ].join('\n'), 'utf8');
+
+    await withIsolatedDatabase(async () => {
+      sessionsDb.createSession(
+        sessionId,
+        'codex',
+        workspacePath,
+        undefined,
+        undefined,
+        undefined,
+        transcriptPath,
+      );
+
+      const history = await sessionsService.fetchHistory(sessionId, {
+        limit: 20,
+        offset: 0,
+        includeImages: false,
+      });
+      const userMessage = history.messages.find((message) => message.role === 'user');
+      const toolUse = history.messages.find((message) => message.kind === 'tool_use');
+      assert.equal(userMessage?.images, undefined);
+      assert.equal(toolUse?.toolResultTruncated, true);
+      assert.equal(toolUse?.toolResultBytes, Buffer.byteLength(output));
+      assert.ok(String(toolUse?.toolResult?.content).length < output.length);
+      assert.equal(String(toolUse?.toolResult?.content).includes('\uFFFD'), false);
+      assert.equal(String(toolUse?.toolResult?.content).startsWith('시작-'), true);
+      assert.equal(String(toolUse?.toolResult?.content).endsWith('-끝'), true);
+      assert.equal(history.messages.some((message) => message.kind === 'tool_result'), false);
+
+      const full = await sessionsService.fetchToolResult(sessionId, 'large-result');
+      assert.equal(full.toolResult.content, output);
     });
   } finally {
     await rm(tempRoot, { recursive: true, force: true });
