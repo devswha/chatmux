@@ -32,7 +32,8 @@ export type FakeTmuxAgent = {
   events: () => Promise<FakeAgentEvent[]>;
   waitUntilReady: () => Promise<void>;
   waitForInput: (value: string) => Promise<void>;
-  waitForInterrupt: () => Promise<void>;
+  /** Resolves once at least `count` interrupts have been recorded. */
+  waitForInterrupt: (count?: number) => Promise<void>;
   waitForTurnStarted: () => Promise<void>;
   waitForTurnInterrupted: () => Promise<void>;
 };
@@ -325,9 +326,9 @@ export async function createTmuxE2EHarness(): Promise<TmuxE2EHarness> {
         async () => (await events()).some((event) => event.type === 'input' && event.value === value),
         `${sessionName} input ${JSON.stringify(value)}`,
       ),
-      waitForInterrupt: () => waitFor(
-        async () => (await events()).some((event) => event.type === 'interrupt'),
-        `${sessionName} SIGINT`,
+      waitForInterrupt: (count = 1) => waitFor(
+        async () => (await events()).filter((event) => event.type === 'interrupt').length >= count,
+        `${sessionName} SIGINT x${count}`,
       ),
       waitForTurnStarted: () => waitFor(
         async () => (await events()).some((event) => event.type === 'turn_started'),
@@ -430,9 +431,9 @@ export async function createTmuxE2EHarness(): Promise<TmuxE2EHarness> {
           async () => (await events()).some((event) => event.type === 'input' && event.value === value),
           `${sessionName} input ${JSON.stringify(value)}`,
         ),
-        waitForInterrupt: () => waitFor(
-          async () => (await events()).some((event) => event.type === 'interrupt'),
-          `${sessionName} SIGINT`,
+        waitForInterrupt: (count = 1) => waitFor(
+          async () => (await events()).filter((event) => event.type === 'interrupt').length >= count,
+          `${sessionName} SIGINT x${count}`,
         ),
         waitForTurnStarted: () => waitFor(
           async () => (await events()).some((event) => event.type === 'turn_started'),
