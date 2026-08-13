@@ -140,6 +140,13 @@
           "1.8.10"
         ]
       }
+    },
+    "1.8.12": {
+      "database": {
+        "rollbackCompatibleFrom": [
+          "1.8.11"
+        ]
+      }
     }
   }
 }
