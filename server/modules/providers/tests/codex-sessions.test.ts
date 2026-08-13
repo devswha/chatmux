@@ -336,6 +336,102 @@ test('Codex history incrementally appends complete JSONL records', { concurrency
   }
 });
 
+test('Codex history reads response-item-only user prompts without exposing injected context', { concurrency: false }, async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-history-response-user-'));
+  const workspacePath = path.join(tempRoot, 'workspace');
+  await mkdir(workspacePath, { recursive: true });
+
+  try {
+    const sessionId = 'codex-response-user-history';
+    const transcriptPath = await writeCodexTranscript(tempRoot, sessionId, workspacePath);
+    const pairedImagePath = path.join(workspacePath, 'paired.png');
+    await appendFile(transcriptPath, [
+      JSON.stringify({
+        type: 'response_item',
+        timestamp: '2026-08-14T00:00:00.000Z',
+        payload: {
+          type: 'message',
+          id: 'synthetic-context',
+          role: 'user',
+          content: [
+            { type: 'input_text', text: '# AGENTS.md instructions for /workspace\n\n<INSTRUCTIONS>\ninternal\n</INSTRUCTIONS>' },
+            { type: 'input_text', text: '<environment_context>\ninternal\n</environment_context>' },
+          ],
+        },
+      }),
+      JSON.stringify({
+        type: 'response_item',
+        timestamp: '2026-08-14T00:00:01.000Z',
+        payload: {
+          type: 'message',
+          id: 'response-user-only',
+          role: 'user',
+          content: [
+            { type: 'input_text', text: 'Visible new-format prompt' },
+            { type: 'input_image', image_url: 'data:image/png;base64,QUJD' },
+          ],
+        },
+      }),
+      JSON.stringify({
+        type: 'response_item',
+        timestamp: '2026-08-14T00:00:02.000Z',
+        payload: {
+          type: 'message',
+          role: 'assistant',
+          content: [{ type: 'output_text', text: 'Visible answer' }],
+        },
+      }),
+      // Older Codex versions persist both forms for one prompt. The later
+      // event record must replace, not duplicate, the response item.
+      JSON.stringify({
+        type: 'response_item',
+        timestamp: '2026-08-14T00:00:03.000Z',
+        payload: {
+          type: 'message',
+          id: 'paired-response-user',
+          role: 'user',
+          content: [
+            { type: 'input_text', text: 'One paired prompt' },
+            { type: 'input_image', image_url: 'data:image/png;base64,REVG' },
+          ],
+        },
+      }),
+      JSON.stringify({
+        type: 'event_msg',
+        timestamp: '2026-08-14T00:00:03.000Z',
+        payload: {
+          type: 'user_message',
+          message: 'One paired prompt',
+          local_images: [pairedImagePath],
+        },
+      }),
+      '',
+    ].join('\n'), 'utf8');
+
+    await withIsolatedDatabase(async () => {
+      sessionsDb.createSession(
+        sessionId,
+        'codex',
+        workspacePath,
+        undefined,
+        undefined,
+        undefined,
+        transcriptPath,
+      );
+
+      const history = await new CodexSessionsProvider().fetchHistory(sessionId);
+      assert.deepEqual(
+        history.messages.map((message) => message.content),
+        ['Visible new-format prompt', 'Visible answer', 'One paired prompt'],
+      );
+      assert.deepEqual(history.messages[0]?.images, [{ data: 'data:image/png;base64,QUJD' }]);
+      assert.deepEqual(history.messages[2]?.images, [{ path: pairedImagePath }]);
+    });
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test('Codex history detects same-size rewrites beyond the former raw cache bound', { concurrency: false }, async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-history-cache-bound-'));
   const workspacePath = path.join(tempRoot, 'workspace');
