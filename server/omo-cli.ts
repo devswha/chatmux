@@ -8,26 +8,26 @@ import {
 } from './pi-cli.js';
 import type { NormalizedMessage } from './shared/types.js';
 
-const OMP: PiCliDescriptor = {
-  provider: 'omp',
-  binary: 'omp',
-  label: 'Oh My Pi',
+const OMO: PiCliDescriptor = {
+  provider: 'omo',
+  binary: 'omo',
+  label: 'omo',
 };
 
-const runtime = createPiCliRuntime(OMP);
+const runtime = createPiCliRuntime(OMO);
 
-export function buildOmpArgs(command: string, options: PiCliRunOptions): string[] {
+export function buildOmoArgs(command: string, options: PiCliRunOptions): string[] {
   return buildPiCliArgs(command, options);
 }
 
-export function normalizeOmpEvent(
+export function normalizeOmoEvent(
   eventValue: unknown,
   sessionId: string | null,
 ): { providerSessionId?: string; messages: NormalizedMessage[] } {
-  return normalizePiCliEvent(eventValue, sessionId, OMP);
+  return normalizePiCliEvent(eventValue, sessionId, OMO);
 }
 
-export function spawnOmp(
+export function spawnOmo(
   command: string,
   options: PiCliRunOptions = {},
   writer: PiCliWriter,
@@ -35,6 +35,6 @@ export function spawnOmp(
   return runtime.spawn(command, options, writer);
 }
 
-export function abortOmpSession(sessionId: string): boolean {
+export function abortOmoSession(sessionId: string): boolean {
   return runtime.abort(sessionId);
 }
