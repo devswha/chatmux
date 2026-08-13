@@ -150,7 +150,7 @@ ChatMux uses trunk-based development: `main` plus short-lived branches. There is
 
 Cutting a release (maintainers):
 
-1. On up-to-date `main`, add the compatibility declaration for the new version to `packaging/release/update-compatibility.json` and commit it as `chore(release): declare X.Y.Z database rollback compatibility`.
+1. On up-to-date `main`, add the compatibility declaration for the new version to `packaging/release/update-compatibility.json` and commit it as `chore(release): declare X.Y.Z database rollback compatibility`. When the database schema is unchanged, carry forward **every** prior version sharing that schema in `rollbackCompatibleFrom` (the release workflow proves each declared entry); reset the list to only the immediately preceding version when a release actually migrates the schema. A single-entry declaration on an unchanged schema strands any install more than one release behind in `manual_required` (#49).
 2. Bump the version (`npm version X.Y.Z --no-git-tag-version`), prepend the `CHANGELOG.md` section, and commit as `chore(release): vX.Y.Z`.
 3. Push `main` and dispatch the **Release ChatMux Server** workflow (`gh workflow run "Release ChatMux Server" --ref main`). The workflow verifies, builds, proves rollback compatibility, and publishes the GitHub Release with the tag.
 
