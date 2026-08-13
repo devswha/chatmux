@@ -2,10 +2,19 @@ type OmoLogoProps = {
   className?: string;
 };
 
-/** Official omo mark from oh-my-openagent `.github/assets/omo-icon-light.svg`. */
+/**
+ * Official omo mark from oh-my-openagent `.github/assets/omo-icon-light.svg`.
+ *
+ * Cropped to the cat itself rather than to the source canvas. Measured from a
+ * 512px render, the mark occupies x 190..832, y 220..794 of the 1024 canvas —
+ * only ~63% of the width — so the shipped viewBox renders it noticeably
+ * smaller than the other provider logos, which are full-bleed. This box is the
+ * mark centred (511, 507) with a ~10% margin; the light backing plate simply
+ * bleeds past the edges, which is what keeps a dark mark legible on dark UI.
+ */
 const OmoLogo = ({ className = 'w-5 h-5' }: OmoLogoProps) => (
   <svg
-    viewBox="0 0 1024 1024"
+    viewBox="158 154 706 706"
     role="img"
     aria-label="omo"
     className={className}

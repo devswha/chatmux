@@ -17,7 +17,7 @@ const OMO: PiCliDescriptor = {
 const runtime = createPiCliRuntime(OMO);
 
 export function buildOmoArgs(command: string, options: PiCliRunOptions): string[] {
-  return buildPiCliArgs(command, options);
+  return buildPiCliArgs(command, options, OMO.provider);
 }
 
 export function normalizeOmoEvent(

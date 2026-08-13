@@ -64,10 +64,6 @@ import {
     abortOmpSession,
 } from './omp-cli.js';
 import {
-    spawnOmo,
-    abortOmoSession,
-} from './omo-cli.js';
-import {
     stripAnsiSequences,
     normalizeDetectedUrl,
     extractUrlsFromText,
@@ -174,7 +170,14 @@ const wss = createWebSocketServer(server, {
             opencode: spawnOpenCode,
             gjc: spawnGjc,
             omp: spawnOmp,
-            omo: spawnOmo,
+            // omo is intentionally NOT registered. Its transcripts are indexed
+            // like any other session, so a session that is currently live in a
+            // tmux pane can also be opened here; spawning would start a second
+            // headless omo on the same --session-id and both processes would
+            // append to one transcript. Observed: a full turn landed in a live
+            // session that the running agent never saw. Live sessions must go
+            // through the tmux relay. Re-enable only behind a guard that
+            // refuses to spawn when the session is live.
         },
         abortFns: {
             claude: abortClaudeSDKSession,
@@ -183,7 +186,6 @@ const wss = createWebSocketServer(server, {
             opencode: abortOpenCodeSession,
             gjc: abortGjcSession,
             omp: abortOmpSession,
-            omo: abortOmoSession,
         },
         resolveToolApproval: resolveProviderToolApproval,
         getPendingApprovalsForSession: getPendingProviderApprovalsForSession,

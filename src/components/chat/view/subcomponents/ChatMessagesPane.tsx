@@ -64,7 +64,6 @@ interface ChatMessagesPaneProps {
   showThinking?: boolean;
   showImagePreviews?: boolean;
   selectedProject: Project;
-  transcriptView?: boolean;
   pendingAskToolId?: string | null;
   suppressedAskToolId?: string | null;
   onAskChoiceSelect?: (choiceNumber: number) => void;
@@ -115,7 +114,6 @@ function ChatMessagesPane({
   showThinking,
   showImagePreviews = true,
   selectedProject,
-  transcriptView = false,
   pendingAskToolId = null,
   suppressedAskToolId = null,
   onAskChoiceSelect,
@@ -270,7 +268,6 @@ function ChatMessagesPane({
                     showImagePreviews={showImagePreviews}
                     selectedProject={selectedProject}
                     provider={provider}
-                    transcriptView={transcriptView}
                     pendingAskToolId={pendingAskToolId}
                     suppressedAskToolId={suppressedAskToolId}
                     onAskChoiceSelect={onAskChoiceSelect}
@@ -295,7 +292,6 @@ function ChatMessagesPane({
                   showImagePreviews={showImagePreviews}
                   selectedProject={selectedProject}
                   provider={provider}
-                  transcriptView={transcriptView}
                   pendingAskToolId={pendingAskToolId}
                   suppressedAskToolId={suppressedAskToolId}
                   onAskChoiceSelect={onAskChoiceSelect}

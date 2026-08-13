@@ -27,7 +27,6 @@ interface ToolGroupContainerProps {
   showImagePreviews?: boolean;
   selectedProject?: Project | null;
   provider: Provider | string;
-  transcriptView?: boolean;
   pendingAskToolId?: string | null;
   suppressedAskToolId?: string | null;
   onAskChoiceSelect?: (choiceNumber: number) => void;
@@ -75,7 +74,6 @@ export default function ToolGroupContainer({
   showImagePreviews = true,
   selectedProject,
   provider,
-  transcriptView = false,
   pendingAskToolId = null,
   suppressedAskToolId = null,
   onAskChoiceSelect,
@@ -146,7 +144,6 @@ export default function ToolGroupContainer({
               showImagePreviews={showImagePreviews}
               selectedProject={selectedProject}
               provider={provider}
-              transcriptView={transcriptView}
               pendingAskToolId={pendingAskToolId}
               suppressedAskToolId={suppressedAskToolId}
               onAskChoiceSelect={onAskChoiceSelect}

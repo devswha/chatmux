@@ -113,9 +113,10 @@ const PROVIDER_CAPABILITIES: Record<LLMProvider, ProviderCapabilities> = {
     provider: 'omo',
     permissionModes: ['default'],
     defaultPermissionMode: 'default',
-    // Mirrors the Oh My Pi posture: buildPiCliArgs forwards image paths as
-    // @<path> and createPiCliRuntime terminates the tracked child with SIGTERM
-    // (`server/pi-cli.ts`), but this matrix still hides both UI controls.
+    // omo is discovery, transcript, and tmux relay only. `server/omo-cli.ts`
+    // implements the send runtime, but it is deliberately not registered in
+    // `spawnFns` (see the comment there): spawning would put a second headless
+    // omo on a session that may already be live in a tmux pane.
     supportsImages: false,
     supportsAbort: false,
     // omo's TUI renders "↑↓ navigate • enter select • esc close" and has no

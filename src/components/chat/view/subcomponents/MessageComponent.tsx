@@ -37,7 +37,6 @@ type MessageComponentProps = {
   showImagePreviews?: boolean;
   selectedProject?: Project | null;
   provider: Provider | string;
-  transcriptView?: boolean;
   pendingAskToolId?: string | null;
   suppressedAskToolId?: string | null;
   onAskChoiceSelect?: (choiceNumber: number) => void;
@@ -55,7 +54,7 @@ const compactErrorSummary = (content: string, fallback: string): string => {
   return firstLine.length > 160 ? `${firstLine.slice(0, 157)}...` : firstLine;
 };
 
-const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, showRawParameters, showThinking, showImagePreviews = true, selectedProject, provider, transcriptView = false, pendingAskToolId = null, suppressedAskToolId = null, onAskChoiceSelect }: MessageComponentProps) => {
+const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, showRawParameters, showThinking, showImagePreviews = true, selectedProject, provider, pendingAskToolId = null, suppressedAskToolId = null, onAskChoiceSelect }: MessageComponentProps) => {
   const { t } = useTranslation('chat');
   const isGrouped = prevMessage && prevMessage.type === message.type &&
     ((prevMessage.type === 'assistant') ||
@@ -180,7 +179,7 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
       ) : (
         /* Claude/Error/Tool messages on the left */
         <div className="w-full">
-          {!isGrouped && message.type !== 'error' && !(transcriptView && message.type === 'assistant') && (
+          {!isGrouped && message.type !== 'error' && (
             <div className="mb-2 flex items-center space-x-3">
               {message.type === 'tool' ? (
                 <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-gray-600 text-sm text-white dark:bg-gray-700">

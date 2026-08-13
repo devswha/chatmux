@@ -43,6 +43,22 @@ export type PiCliRunOptions = {
 
 type ActivePiProcess = ReturnType<typeof spawn> & { aborted?: boolean };
 
+const MAX_BUFFERED_STDERR_BYTES = 64 * 1024;
+
+/**
+ * Buffered stderr is worth showing only when the run failed. An aborted run is
+ * a user gesture, and a clean exit means the lines were progress logs.
+ */
+export function piCliFailureDetail(
+  exitCode: number | null,
+  aborted: boolean,
+  stderr: string,
+): string | null {
+  if (aborted || exitCode === 0) return null;
+  const detail = stderr.trim();
+  return detail.length > 0 ? detail : null;
+}
+
 function readRecord(value: unknown): AnyRecord | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     ? value as AnyRecord
@@ -61,9 +77,26 @@ function readContentText(value: unknown): string {
     .join('\n');
 }
 
-export function buildPiCliArgs(command: string, options: PiCliRunOptions): string[] {
+/**
+ * The two CLIs spell session continuation differently, and the flag names
+ * overlap misleadingly. In Oh My Pi `--resume <id>` resumes that id; in omo
+ * `--resume` takes no value and opens an interactive picker, which under
+ * `--print` with no stdin exits 13 without ever running the turn. omo's
+ * equivalent is `--session-id`, which resumes an existing id and creates it
+ * when missing.
+ */
+const PI_SESSION_FLAGS: Record<PiCliProvider, string> = {
+  omp: '--resume',
+  omo: '--session-id',
+};
+
+export function buildPiCliArgs(
+  command: string,
+  options: PiCliRunOptions,
+  provider: PiCliProvider = 'omp',
+): string[] {
   const args = ['--mode', 'json', '--print'];
-  if (options.sessionId) args.push('--resume', options.sessionId);
+  if (options.sessionId) args.push(PI_SESSION_FLAGS[provider], options.sessionId);
   if (options.model && options.model !== 'default') args.push('--model', options.model);
   if (options.effort && options.effort !== 'default') args.push('--thinking', options.effort);
 
@@ -179,6 +212,8 @@ export function createPiCliRuntime(descriptor: PiCliDescriptor): PiCliRuntime {
     let capturedSessionId = options.sessionId ?? null;
     let child: ActivePiProcess | null = null;
     let settled = false;
+    const stderrChunks: string[] = [];
+    let stderrBytes = 0;
 
     const run = new Promise<void>((resolve, reject) => {
       const finish = (error?: Error): void => {
@@ -210,7 +245,7 @@ export function createPiCliRuntime(descriptor: PiCliDescriptor): PiCliRuntime {
       try {
         // stdin must be closed: with an inherited stdin these CLIs wait for
         // interactive input and never emit their first event.
-        child = spawn(binary, buildPiCliArgs(command, options), {
+        child = spawn(binary, buildPiCliArgs(command, options, provider), {
           cwd: workingDir,
           env: process.env,
           stdio: ['ignore', 'pipe', 'pipe'],
@@ -237,15 +272,15 @@ export function createPiCliRuntime(descriptor: PiCliDescriptor): PiCliRuntime {
           for (const message of normalized.messages) writer.send(message);
         });
 
+        // stderr is a log channel for these CLIs, not an error channel: a run
+        // that exits 0 still prints config notices and hook status there.
+        // Buffer it and surface it only when the process actually fails, so
+        // ordinary logging cannot masquerade as a failed turn in the chat.
         stderr.on('data', (chunk) => {
-          const content = String(chunk).trim();
-          if (!content) return;
-          writer.send(createNormalizedMessage({
-            kind: 'error',
-            content,
-            sessionId: capturedSessionId,
-            provider,
-          }));
+          if (stderrBytes >= MAX_BUFFERED_STDERR_BYTES) return;
+          const text = String(chunk);
+          stderrBytes += text.length;
+          stderrChunks.push(text);
         });
 
         child.on('error', (error) => {
@@ -266,6 +301,19 @@ export function createPiCliRuntime(descriptor: PiCliDescriptor): PiCliRuntime {
         child.on('close', (code) => {
           activeProcesses.delete(processKey);
           if (capturedSessionId) activeProcesses.delete(capturedSessionId);
+          const failureDetail = piCliFailureDetail(
+            typeof code === 'number' ? code : null,
+            Boolean(child?.aborted),
+            stderrChunks.join(''),
+          );
+          if (failureDetail) {
+            writer.send(createNormalizedMessage({
+              kind: 'error',
+              content: failureDetail,
+              sessionId: capturedSessionId,
+              provider,
+            }));
+          }
           if (!child?.aborted) {
             writer.send(createCompleteMessage({ provider, sessionId: capturedSessionId, exitCode: code }));
           }
