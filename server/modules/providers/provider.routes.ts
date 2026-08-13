@@ -959,7 +959,7 @@ router.post(
         statusCode: 400,
       });
     }
-    const supportedClis: ExternalSpawnCli[] = ['claude', 'codex', 'cursor', 'opencode', 'omp'];
+    const supportedClis: ExternalSpawnCli[] = ['claude', 'codex', 'cursor', 'opencode', 'omp', 'omo'];
     if (body.cli !== undefined && !supportedClis.includes(body.cli as ExternalSpawnCli)) {
       throw new AppError(`cli must be one of: ${supportedClis.join(', ')}.`, {
         code: 'INVALID_CLI',

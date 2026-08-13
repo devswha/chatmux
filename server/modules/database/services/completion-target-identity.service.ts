@@ -4,7 +4,7 @@ import type { ExternalCliSession } from '@/modules/providers/index.js';
 
 const IDENTITY_VERSION = 'completion-target/v1';
 const APP_ALIAS_PREFIX = 'ct_';
-const EXTERNAL_PROVIDERS = new Set(['claude', 'codex', 'opencode', 'omp']);
+const EXTERNAL_PROVIDERS = new Set(['claude', 'codex', 'opencode', 'omp', 'omo']);
 
 export type CompletionAppIdentity = Readonly<{
   provider: string;

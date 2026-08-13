@@ -36,6 +36,10 @@ const PROVIDER_WATCH_PATHS: Array<{ provider: LLMProvider; rootPath: string }> =
     provider: 'omp',
     rootPath: path.join(os.homedir(), '.omp', 'agent', 'sessions'),
   },
+  {
+    provider: 'omo',
+    rootPath: path.join(os.homedir(), '.omo', 'agent', 'sessions'),
+  },
 ];
 
 const GJC_TERMINAL_RECEIPT_ROOT = path.join(os.homedir(), '.gjc', 'agent', 'terminal-sessions');

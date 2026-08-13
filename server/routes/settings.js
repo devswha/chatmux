@@ -73,7 +73,7 @@ const validExternalDescriptorSession = (session) => isRecord(session)
   && boundedString(session.tmux.paneId, 128)
   && Number.isSafeInteger(session.agentPid) && session.agentPid > 0
   && Number.isFinite(session.startedAtMs) && session.startedAtMs > 0;
-const externalCompletionKinds = new Set(['claude', 'codex', 'opencode', 'omp']);
+const externalCompletionKinds = new Set(['claude', 'codex', 'opencode', 'omp', 'omo']);
 const validDetailedExternalSession = (session) => isRecord(session)
   && boundedString(session.kind, 32)
   && (!externalCompletionKinds.has(session.kind) || validExternalDescriptorSession(session));

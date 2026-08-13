@@ -38,7 +38,7 @@ export function mergeExternalDiscoveryRows(
     session,
   ]));
   return rows
-    .filter((row) => row.lane === 'external' && ['claude', 'codex', 'cursor', 'opencode', 'omp', 'ssh', 'shell'].includes(row.kind))
+    .filter((row) => row.lane === 'external' && ['claude', 'codex', 'cursor', 'opencode', 'omp', 'omo', 'ssh', 'shell'].includes(row.kind))
     .map((row) => {
       const metadata = restSessions.get(tmuxPaneIdentityKey(row.tmux)) ?? previous.get(tmuxPaneIdentityKey(row.tmux));
       const { connectionIssue: _staleConnectionIssue, ...stableMetadata } = metadata ?? {};
@@ -155,7 +155,7 @@ export function useExternalCliSessions(
   const applyRestSessions = useCallback((list: ExternalCliSession[], responseDiscoveryOk: boolean) => {
     const supported = list.filter((session) => (
       session?.tmuxName
-      && ['claude', 'codex', 'cursor', 'opencode', 'omp', 'ssh', 'shell'].includes(session.kind)
+      && ['claude', 'codex', 'cursor', 'opencode', 'omp', 'omo', 'ssh', 'shell'].includes(session.kind)
     ));
     setDiscoveryOk(responseDiscoveryOk);
     if (!responseDiscoveryOk) {
