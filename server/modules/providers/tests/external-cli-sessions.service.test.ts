@@ -754,6 +754,27 @@ test('extractExternalResumeSessionId recognizes every supported native resume fo
   assert.equal(extractExternalResumeSessionId('cursor', 'agent --version'), null);
 });
 
+// omo continues a session with `--session-id <id>` — the flag ChatMux itself
+// uses in `server/pi-cli.ts`. Its `--resume` takes no value (interactive
+// picker), so a pane resumed with `--session-id` must still link back to its
+// transcript session.
+test('extractExternalResumeSessionId links omo panes started with --session-id', () => {
+  assert.equal(
+    extractExternalResumeSessionId('omo', 'omo --session-id 019ff9fa-abab-78a3-83b0-67c261374f42'),
+    '019ff9fa-abab-78a3-83b0-67c261374f42',
+  );
+  assert.equal(
+    extractExternalResumeSessionId('omo', 'node /home/user/bin/omo --session-id=019ff9fa-abab-78a3-83b0-67c261374f42'),
+    '019ff9fa-abab-78a3-83b0-67c261374f42',
+  );
+  // pi-derived `--resume <id>` argv still links if a wrapper passes it through.
+  assert.equal(extractExternalResumeSessionId('omo', 'omo --resume 019f848f_ff71_77f0'), '019f848f_ff71_77f0');
+  // The valueless picker form carries no id and must not match the prompt text.
+  assert.equal(extractExternalResumeSessionId('omo', 'omo --resume'), null);
+  // `--session-id` must never leak into the omp branch, which has no such flag.
+  assert.equal(extractExternalResumeSessionId('omp', 'omp --session-id 019f848f_ff71_77f0'), null);
+});
+
 
 test('parseClaudeRuntimeSession accepts the PID-bound native Claude receipt', () => {
   const sessionId = '92869134-b4df-453e-b3a6-ed1d750d69d9';
