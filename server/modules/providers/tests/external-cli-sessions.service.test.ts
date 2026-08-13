@@ -817,6 +817,39 @@ test('classifyExternalSessions recognizes Cursor, OpenCode, and Oh My Pi process
   ]);
 });
 
+test('classifyExternalSessions recognizes the node-launched omo shell wrapper', () => {
+  const result = classifyExternalSessions({
+    panes: [{
+      name: 'omo-work',
+      tmux: tmux('$1100', '@1100', '%1100'),
+      pid: 1100,
+      // tmux reports the interpreter, never the CLI: the measured comm is `node`.
+      command: 'node',
+      cwd: '/omo',
+    }],
+    procs: [
+      { pid: 1100, ppid: 1, comm: 'zsh', args: '-zsh' },
+      {
+        pid: 1101,
+        ppid: 1100,
+        comm: 'node',
+        // Measured argv. The PATH shim carries no extension, so `/…/bin/omo` is
+        // the argv token detection matches; a `.js` entry would not match.
+        args: 'node /home/user/.nvm/versions/node/v24.18.0/bin/omo --resume 019ff9a1-dc29-73bc-89a0-2435c969dc1b',
+      },
+    ],
+  });
+
+  assert.deepEqual(result, [{
+    tmuxName: 'omo-work',
+    tmux: tmux('$1100', '@1100', '%1100'),
+    kind: 'omo',
+    providerSessionId: '019ff9a1-dc29-73bc-89a0-2435c969dc1b',
+    cwd: '/omo',
+    agentPid: 1101,
+  }]);
+});
+
 test('classifyExternalSessions recognizes the official Cursor agent launcher shape', () => {
   const result = classifyExternalSessions({
     panes: [{

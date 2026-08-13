@@ -23,9 +23,10 @@ const FALLBACK_DEFAULT_MODEL: Record<LLMProvider, string> = {
   opencode: 'anthropic/claude-sonnet-4-5',
   gjc: 'default',
   omp: 'default',
+  omo: 'default',
 };
 
-const PROVIDERS: LLMProvider[] = ['claude', 'cursor', 'codex', 'opencode', 'gjc', 'omp'];
+const PROVIDERS: LLMProvider[] = ['claude', 'cursor', 'codex', 'opencode', 'gjc', 'omp', 'omo'];
 
 const readStoredProvider = (): LLMProvider => {
   const storedProvider = localStorage.getItem('selected-provider');
@@ -47,6 +48,7 @@ const FALLBACK_PERMISSION_MODES: Record<LLMProvider, PermissionMode[]> = {
   opencode: ['default', 'acceptEdits', 'bypassPermissions', 'plan'],
   gjc: ['default'],
   omp: ['default'],
+  omo: ['default'],
 };
 
 type ProviderCapabilities = {
@@ -372,6 +374,8 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     opencode: opencodeModel,
     gjc: 'default',
     omp: ompModel,
+    // omo has no composer-side model picker yet; the CLI keeps its own selection.
+    omo: 'default',
   }), [claudeModel, cursorModel, codexModel, opencodeModel, ompModel]);
 
   useEffect(() => {

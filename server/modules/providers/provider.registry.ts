@@ -3,6 +3,7 @@ import { CodexProvider } from '@/modules/providers/list/codex/codex.provider.js'
 import { CursorProvider } from '@/modules/providers/list/cursor/cursor.provider.js';
 import { GjcProvider } from '@/modules/providers/list/gjc/gjc.provider.js';
 import { OpenCodeProvider } from '@/modules/providers/list/opencode/opencode.provider.js';
+import { OmoProvider } from '@/modules/providers/list/omo/omo.provider.js';
 import { OmpProvider } from '@/modules/providers/list/omp/omp.provider.js';
 import type { IProvider } from '@/shared/interfaces.js';
 import type { LLMProvider } from '@/shared/types.js';
@@ -15,6 +16,7 @@ const providers: Record<LLMProvider, IProvider> = {
   opencode: new OpenCodeProvider(),
   gjc: new GjcProvider(),
   omp: new OmpProvider(),
+  omo: new OmoProvider(),
 };
 
 /**

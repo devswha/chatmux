@@ -129,7 +129,7 @@ export interface ChatInterfaceProps {
   liveSessionModel: string | null;
   liveSessionEffort: string | null;
   liveSessionName: string | null;
-  liveSessionKind: 'gjc' | 'codex' | 'claude' | 'cursor' | 'opencode' | 'omp' | null;
+  liveSessionKind: 'gjc' | 'codex' | 'claude' | 'cursor' | 'opencode' | 'omp' | 'omo' | null;
   /** True while the viewed live/external session is running a turn. */
   liveSessionProcessing?: boolean;
   ws: WebSocket | null;

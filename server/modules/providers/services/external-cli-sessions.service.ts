@@ -42,12 +42,13 @@ const CODEX_RESUME_THREAD_RE = /(?:^|\s)resume\s+([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-
 const CLAUDE_RESUME_SESSION_RE = /(?:^|\s)--resume(?:=|\s+)([0-9a-f]{8}-[0-9a-f-]{27,})(?=\s|$)/i;
 const CURSOR_RESUME_SESSION_RE = /(?:^|\s)(?:--resume|resume)(?:=|\s+)([A-Za-z0-9_-]{8,128})(?=\s|$)/;
 const OPENCODE_SESSION_RE = /(?:^|\s)--session(?:=|\s+)([A-Za-z0-9_-]{8,128})(?=\s|$)/;
-const OMP_RESUME_SESSION_RE = /(?:^|\s)(?:--resume|-r)(?:=|\s+)([A-Za-z0-9_-]{8,128})(?=\s|$)/;
+// Oh My Pi and omo are both pi-derived and accept the identical `--resume|-r` form.
+const PI_RESUME_SESSION_RE = /(?:^|\s)(?:--resume|-r)(?:=|\s+)([A-Za-z0-9_-]{8,128})(?=\s|$)/;
 const TRANSCRIPT_FILE_SESSION_ID_RE = /_([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i;
 const CODEX_ROLLOUT_FILE_RE = /^rollout-.*-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i;
 const MAX_RUNTIME_DESCRIPTORS = 2_048;
 
-export type ExternalLocalCliKind = 'claude' | 'codex' | 'cursor' | 'opencode' | 'omp';
+export type ExternalLocalCliKind = 'claude' | 'codex' | 'cursor' | 'opencode' | 'omp' | 'omo';
 export type ExternalCliKind = ExternalLocalCliKind | 'ssh' | 'shell';
 export type ExternalCliSession = {
   tmuxName: string;
@@ -201,7 +202,7 @@ export function extractExternalResumeSessionId(
   if (kind === 'codex') return extractCodexResumeThreadId(processArgs);
   if (kind === 'cursor') return processArgs.match(CURSOR_RESUME_SESSION_RE)?.[1] ?? null;
   if (kind === 'opencode') return processArgs.match(OPENCODE_SESSION_RE)?.[1] ?? null;
-  if (kind === 'omp') return processArgs.match(OMP_RESUME_SESSION_RE)?.[1] ?? null;
+  if (kind === 'omp' || kind === 'omo') return processArgs.match(PI_RESUME_SESSION_RE)?.[1] ?? null;
   return null;
 }
 
@@ -457,7 +458,7 @@ export function parseExternalPanes(output: string): ExternalPane[] {
     command: pane.command,
     ...(pane.codexThreadId ? { codexThreadId: pane.codexThreadId } : {}),
     ...(pane.cwd ? { cwd: pane.cwd } : {}),
-    ...(pane.taggedKind && ['claude', 'codex', 'cursor', 'opencode', 'omp'].includes(pane.taggedKind)
+    ...(pane.taggedKind && ['claude', 'codex', 'cursor', 'opencode', 'omp', 'omo'].includes(pane.taggedKind)
       ? { taggedKind: pane.taggedKind as ExternalLocalCliKind }
       : {}),
     ...(pane.taggedSessionId ? { taggedSessionId: pane.taggedSessionId } : {}),
@@ -500,6 +501,9 @@ function processCliKind(proc: Pick<ProcessTreeEntry, 'comm' | 'args'>): External
   if (isCursorCliProcess(proc)) return 'cursor';
   if (executable('opencode')) return 'opencode';
   if (executable('omp')) return 'omp';
+  // omo is a node script reached through a PATH shim, so argv carries
+  // `<node> /…/bin/omo` (no extension) and `executable` matches that token.
+  if (executable('omo')) return 'omo';
   if (executable('ssh')) return 'ssh';
   return null;
 }
@@ -540,7 +544,7 @@ export function classifyExternalSessions(args: {
     children.set(proc.ppid, siblings);
   }
 
-  const priority: Array<Exclude<ExternalCliKind, 'shell'>> = ['claude', 'codex', 'cursor', 'opencode', 'omp', 'ssh'];
+  const priority: Array<Exclude<ExternalCliKind, 'shell'>> = ['claude', 'codex', 'cursor', 'opencode', 'omp', 'omo', 'ssh'];
   const result: ExternalCliSession[] = [];
   for (const pane of args.panes) {
 
@@ -571,14 +575,17 @@ export function classifyExternalSessions(args: {
     }
     if (subtreeKinds.some(({ kind }) => kind === 'gjc')) continue;
 
-    // Bun-launched Oh My Pi keeps the shell as tmux's pane PID and the `omp`
-    // executable as its direct child, while pane_current_command is only `bun`.
-    // Accept that exact shell-owned wrapper shape; an OMP worker nested under
-    // an app process must remain an unclassified terminal row.
-    const directShellOmp = isInteractiveShellProcess(procByPid.get(pane.pid))
-      && subtreeKinds.some(({ kind, proc }) => kind === 'omp' && proc.ppid === pane.pid);
-    if (directShellOmp) {
-      kinds.add('omp');
+    // Bun-launched Oh My Pi and node-launched omo keep the shell as tmux's pane
+    // PID and the CLI as its direct child, while pane_current_command reads only
+    // `bun` or `node`. Accept that exact shell-owned wrapper shape; a worker
+    // nested under an app process must remain an unclassified terminal row.
+    const paneIsInteractiveShell = isInteractiveShellProcess(procByPid.get(pane.pid));
+    for (const wrappedKind of ['omp', 'omo'] as const) {
+      const directShellPi = paneIsInteractiveShell
+        && subtreeKinds.some(({ kind, proc }) => kind === wrappedKind && proc.ppid === pane.pid);
+      if (directShellPi) {
+        kinds.add(wrappedKind);
+      }
     }
     // The documented Cursor `agent` launcher execs a Node process, so tmux may
     // report `agent`, `node`, or `MainThread` while the shell-owned child argv
@@ -986,38 +993,48 @@ export function extractContainedTranscriptSessionId(
  * Resolve that file through /proc so an already-running, untagged tmux pane can
  * attach to structured history without relying on filesystem creation times.
  */
-async function inferOpenOmpSessionIds(
+const PI_TRANSCRIPT_HOME_DIRS = {
+  omp: '.omp',
+  omo: '.omo',
+} as const;
+
+async function inferOpenPiSessionIds(
   sessions: ExternalCliSession[],
 ): Promise<Map<string, string>> {
-  const targets = sessions.filter((session) => (
-    session.kind === 'omp'
-    && session.agentPid !== undefined
-  ));
-  if (targets.length === 0) return new Map();
-
-  const sessionsRoot = await realpath(join(homedir(), '.omp', 'agent', 'sessions')).catch(() => null);
-  if (!sessionsRoot) return new Map();
-
   const resolved = new Map<string, string>();
-  await Promise.all(targets.map(async (session) => {
-    const fdRoot = `/proc/${session.agentPid}/fd`;
-    const descriptors = await readdir(fdRoot).catch(() => []);
-    const transcriptById = new Map<string, string>();
-    await Promise.all(descriptors.slice(0, MAX_RUNTIME_DESCRIPTORS).map(async (descriptor) => {
-      const transcriptPath = await realpath(join(fdRoot, descriptor)).catch(() => null);
-      if (!transcriptPath) return;
-      const sessionId = extractContainedTranscriptSessionId(sessionsRoot, transcriptPath);
-      if (sessionId) transcriptById.set(sessionId, transcriptPath);
-    }));
-    if (transcriptById.size !== 1) return;
+  const kinds = Object.keys(PI_TRANSCRIPT_HOME_DIRS) as Array<keyof typeof PI_TRANSCRIPT_HOME_DIRS>;
+  await Promise.all(kinds.map(async (kind) => {
+    const targets = sessions.filter((session) => (
+      session.kind === kind
+      && session.agentPid !== undefined
+    ));
+    if (targets.length === 0) return;
 
-    const [[sessionId, transcriptPath]] = [...transcriptById];
-    if (!sessionsDb.getSessionByProviderSessionId('omp', sessionId)) {
-      await providerRegistry.resolveProvider('omp').sessionSynchronizer
-        .synchronizeFile(transcriptPath)
-        .catch(() => undefined);
-    }
-    resolved.set(tmuxPaneIdentityKey(session.tmux), sessionId);
+    const sessionsRoot = await realpath(
+      join(homedir(), PI_TRANSCRIPT_HOME_DIRS[kind], 'agent', 'sessions'),
+    ).catch(() => null);
+    if (!sessionsRoot) return;
+
+    await Promise.all(targets.map(async (session) => {
+      const fdRoot = `/proc/${session.agentPid}/fd`;
+      const descriptors = await readdir(fdRoot).catch(() => []);
+      const transcriptById = new Map<string, string>();
+      await Promise.all(descriptors.slice(0, MAX_RUNTIME_DESCRIPTORS).map(async (descriptor) => {
+        const transcriptPath = await realpath(join(fdRoot, descriptor)).catch(() => null);
+        if (!transcriptPath) return;
+        const sessionId = extractContainedTranscriptSessionId(sessionsRoot, transcriptPath);
+        if (sessionId) transcriptById.set(sessionId, transcriptPath);
+      }));
+      if (transcriptById.size !== 1) return;
+
+      const [[sessionId, transcriptPath]] = [...transcriptById];
+      if (!sessionsDb.getSessionByProviderSessionId(kind, sessionId)) {
+        await providerRegistry.resolveProvider(kind).sessionSynchronizer
+          .synchronizeFile(transcriptPath)
+          .catch(() => undefined);
+      }
+      resolved.set(tmuxPaneIdentityKey(session.tmux), sessionId);
+    }));
   }));
   return resolved;
 }
@@ -1052,11 +1069,11 @@ async function inferIndexedProviderSessionIds(
   attemptableTargetKeys: ReadonlySet<string>,
 ): Promise<Map<string, string>> {
   const unresolved = sessions.filter((session): session is ExternalCliSession & {
-    kind: 'cursor' | 'opencode' | 'omp';
+    kind: 'cursor' | 'opencode' | 'omp' | 'omo';
     cwd: string;
     startedAtMs: number;
   } => (
-    (session.kind === 'cursor' || session.kind === 'opencode' || session.kind === 'omp')
+    (session.kind === 'cursor' || session.kind === 'opencode' || session.kind === 'omp' || session.kind === 'omo')
     && !session.providerSessionId
     && typeof session.cwd === 'string'
     && typeof session.startedAtMs === 'number'
@@ -1156,7 +1173,7 @@ async function inferExternalProviderSessionIds(args: {
       panes: args.panes,
       procs: args.procs,
     }),
-    inferOpenOmpSessionIds(safeSessions),
+    inferOpenPiSessionIds(safeSessions),
     args.attemptableSessions.some((session) => session.kind === 'codex')
       ? inferFreshCodexThreadIds({
         sessions: args.attemptableSessions,
@@ -1185,7 +1202,7 @@ async function inferExternalProviderSessionIds(args: {
     authoritativeTargetKeys,
   );
   const inferredIndexed = args.attemptableSessions.some((session) => (
-    session.kind === 'cursor' || session.kind === 'opencode' || session.kind === 'omp'
+    session.kind === 'cursor' || session.kind === 'opencode' || session.kind === 'omp' || session.kind === 'omo'
   ))
     ? await inferIndexedProviderSessionIds(withDirectIds, attemptableTargetKeys)
     : new Map<string, string>();
@@ -1237,6 +1254,7 @@ const EXTERNAL_CLI_COMMANDS: Record<ExternalSpawnCli, readonly string[]> = {
   cursor: CURSOR_CLI_COMMAND_CANDIDATES,
   opencode: ['opencode'],
   omp: ['omp'],
+  omo: ['omo'],
 };
 
 type ExternalCliExecutableResolverOptions = {
@@ -1448,7 +1466,7 @@ async function discoverExternalCliSessions(
       command: pane.command,
       ...(pane.codexThreadId ? { codexThreadId: pane.codexThreadId } : {}),
       ...(pane.cwd ? { cwd: pane.cwd } : {}),
-      ...(pane.taggedKind && ['claude', 'codex', 'cursor', 'opencode', 'omp'].includes(pane.taggedKind)
+      ...(pane.taggedKind && ['claude', 'codex', 'cursor', 'opencode', 'omp', 'omo'].includes(pane.taggedKind)
         ? { taggedKind: pane.taggedKind as ExternalLocalCliKind }
         : {}),
       ...(pane.taggedSessionId ? { taggedSessionId: pane.taggedSessionId } : {}),

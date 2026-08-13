@@ -1,6 +1,6 @@
 import type { TmuxPaneIdentity, TmuxProcessGeneration } from '../../shared/tmux';
 
-export type LLMProvider = 'claude' | 'cursor' | 'codex' | 'opencode' | 'gjc' | 'omp';
+export type LLMProvider = 'claude' | 'cursor' | 'codex' | 'opencode' | 'gjc' | 'omp' | 'omo';
 
 export type ProviderModelOption = {
   value: string;
@@ -41,7 +41,7 @@ export type ExternalTerminalTarget = {
   tmux: TmuxPaneIdentity;
   process: TmuxProcessGeneration | null;
   kind: string;
-  cliKind: 'claude' | 'codex' | 'cursor' | 'opencode' | 'omp' | 'ssh' | 'shell';
+  cliKind: 'claude' | 'codex' | 'cursor' | 'opencode' | 'omp' | 'omo' | 'ssh' | 'shell';
   project: Project | null;
   projectPath?: string;
   /** Opens the structured transcript instead of attaching a terminal. */
