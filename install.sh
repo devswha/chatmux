@@ -75,6 +75,9 @@ EOF
 }
 
 ensure_managed_root() {
+  # Strip trailing slashes BEFORE any symlink test. `[ ! -L "$link/" ]` is true
+  # because a trailing slash makes the kernel resolve the link, so reordering
+  # this loop after read_managed_root_metadata silently reopens a symlink escape.
   while [ "$INSTALL_ROOT" != / ] && [ "${INSTALL_ROOT%/}" != "$INSTALL_ROOT" ]; do
     INSTALL_ROOT=${INSTALL_ROOT%/}
   done
