@@ -34,7 +34,7 @@ type TerminalCompletionDecisionResult = ReturnType<typeof completionNotification
 type GenerationObservation = Parameters<typeof completionNotificationTargetsDb.observeGeneration>[2];
 
 const DEFAULT_INTERVAL_MS = TURN_MONITOR_FALLBACK_MS;
-const EVENT_DRIVEN_EXTERNAL_PROVIDERS = new Set(['claude', 'codex', 'omp', 'opencode']);
+const EVENT_DRIVEN_EXTERNAL_PROVIDERS = new Set(['claude', 'codex', 'omp', 'omo', 'opencode']);
 
 type ResolvedActivity = Extract<ExternalSessionActivityResolutionResult, { status: 'resolved' }>;
 type MonitorResolvedActivity = ResolvedActivity & {
@@ -174,10 +174,12 @@ function completionPayload(
   const title = typeof session.tmuxName === 'string' && session.tmuxName.trim()
     ? session.tmuxName.trim()
     : 'ChatMux';
-  const label = session.kind === 'omp' ? 'Oh My Pi' : ({
+  const label = ({
     claude: 'Claude',
     codex: 'Codex',
     opencode: 'OpenCode',
+    omp: 'Oh My Pi',
+    omo: 'omo',
   } as Record<string, string>)[session.kind] ?? 'Assistant';
   return {
     title,

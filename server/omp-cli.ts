@@ -17,7 +17,7 @@ const OMP: PiCliDescriptor = {
 const runtime = createPiCliRuntime(OMP);
 
 export function buildOmpArgs(command: string, options: PiCliRunOptions): string[] {
-  return buildPiCliArgs(command, options);
+  return buildPiCliArgs(command, options, OMP.provider);
 }
 
 export function normalizeOmpEvent(

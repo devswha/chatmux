@@ -453,7 +453,6 @@ function ChatInterface({
           showThinking={showThinking}
           showImagePreviews={showImagePreviews}
           selectedProject={selectedProject}
-          transcriptView={Boolean(liveSessionKind && liveSessionKind !== 'gjc')}
           pendingAskToolId={pendingRelayAsk?.toolId ?? null}
           suppressedAskToolId={suppressedAskToolId}
           onAskChoiceSelect={handleAskChoiceSelect}

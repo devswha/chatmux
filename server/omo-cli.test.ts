@@ -2,8 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { buildOmoArgs, normalizeOmoEvent } from './omo-cli.js';
+import { buildOmpArgs } from './omp-cli.js';
 
-test('buildOmoArgs preserves resume, model, thinking, images, and prompt as distinct argv', () => {
+test('buildOmoArgs continues a session with --session-id, never --resume', () => {
   assert.deepEqual(
     buildOmoArgs('Explain this image', {
       sessionId: '019ff9fa-abab-78a3-83b0-67c261374f42',
@@ -13,13 +14,27 @@ test('buildOmoArgs preserves resume, model, thinking, images, and prompt as dist
     }),
     [
       '--mode', 'json', '--print',
-      '--resume', '019ff9fa-abab-78a3-83b0-67c261374f42',
+      '--session-id', '019ff9fa-abab-78a3-83b0-67c261374f42',
       '--model', 'anthropic/claude-opus-5',
       '--thinking', 'high',
       '@/tmp/shot.png',
       'Explain this image',
     ],
   );
+});
+
+// omo's `--resume` takes no value and opens an interactive picker; under
+// `--print` with no stdin it exits 13 without running the turn, so every
+// follow-up message in a session failed. Oh My Pi's `--resume <id>` is the
+// unrelated flag that happens to share the name.
+test('omo and Oh My Pi do not share a session flag', () => {
+  const omo = buildOmoArgs('hi', { sessionId: 'S' });
+  const omp = buildOmpArgs('hi', { sessionId: 'S' });
+
+  assert.ok(omo.includes('--session-id'), 'omo must use --session-id');
+  assert.ok(!omo.includes('--resume'), 'omo must never receive --resume');
+  assert.ok(omp.includes('--resume'), 'Oh My Pi keeps --resume');
+  assert.ok(!omp.includes('--session-id'));
 });
 
 test('buildOmoArgs omits placeholder model and effort selections', () => {
