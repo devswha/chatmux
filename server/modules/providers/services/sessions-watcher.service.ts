@@ -68,6 +68,10 @@ const gjcWatcherStartTasks = new Set<Promise<void>>();
 const gjcWatcherStartAbortControllers = new Set<AbortController>();
 let gjcWatcherRestartTimer: ReturnType<typeof setTimeout> | null = null;
 let gjcWatcherRestartDelayMs = 1_000;
+// Restarts are capped at GJC_WATCH_RESTART_MAX_MS, so a permanently broken watcher
+// otherwise logs one indistinguishable line every 30s forever. The run length makes
+// a stuck loop visible in the log without needing to count timestamps by hand.
+let gjcWatcherConsecutiveFailures = 0;
 let gjcWatcherGeneration = 0;
 let sessionWatchersClosing = false;
 const GJC_WATCH_RESTART_MAX_MS = 30_000;
@@ -435,12 +439,16 @@ async function runGjcSessionWatcherStart(
   if (signal.aborted || sessionWatchersClosing || gjcWatcher || gjcWatcherStarting) return;
   const generation = ++gjcWatcherGeneration;
   let failureReported = false;
-  const reportFailure = (): void => {
+  const reportFailure = (error?: Error): void => {
     if (failureReported || generation !== gjcWatcherGeneration || sessionWatchersClosing) return;
     failureReported = true;
+    gjcWatcherConsecutiveFailures += 1;
     controller.abort();
     if (gjcWatcher === watcher) gjcWatcher = null;
-    console.error('GJC native session watcher failed.');
+    const reason = typeof error?.cause === 'string' ? error.cause : 'unreported';
+    console.error(
+      `GJC native session watcher failed. (${reason}; consecutive ${gjcWatcherConsecutiveFailures})`
+    );
     void watcher.close()
       .catch(() => {})
       .finally(() => {
@@ -498,8 +506,9 @@ async function runGjcSessionWatcherStart(
       return;
     }
     gjcWatcherRestartDelayMs = 1_000;
-  } catch {
-    reportFailure();
+    gjcWatcherConsecutiveFailures = 0;
+  } catch (error) {
+    reportFailure(error instanceof Error ? error : undefined);
     await watcher.close();
   }
 }
@@ -680,6 +689,7 @@ export async function closeSessionsWatcher(): Promise<void> {
   ]);
   watchers.length = 0;
   gjcWatcherRestartDelayMs = 1_000;
+  gjcWatcherConsecutiveFailures = 0;
   pendingWatcherUpdate = null;
   pendingWatcherUpdateStartedAt = null;
   watcherRefreshInFlight = false;

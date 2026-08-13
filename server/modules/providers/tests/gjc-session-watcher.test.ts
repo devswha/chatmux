@@ -205,3 +205,50 @@ test('close before readiness rejects the pending start without reporting a runti
   await rejected;
   assert.equal(failures.length, 0);
 });
+
+test('each failure mode reports its own reason code and nothing from the frame', async () => {
+  for (const [frame, reason] of [
+    ['{"protocolVersion":1,"kind":"event","event":"add","path":"secret-path"}\n', 'protocol-violation'],
+    ['{"protocolVersion":1,"kind":"unknown"}\n', 'protocol-violation'],
+    ['secret-path is not json\n', 'malformed-json'],
+    [`${'x'.repeat(64 * 1024 + 1)}\n`, 'oversized-frame'],
+  ] as const) {
+    const { watcher, child, failures } = setup();
+    const started = watcher.start();
+    child.output(frame);
+
+    await assert.rejects(started, /GJC session watcher failed\./u);
+    assert.equal(failures.length, 1);
+    assert.equal(failures[0].cause, reason, frame.slice(0, 24));
+    assert.doesNotMatch(failures[0].message, /secret-path/u);
+  }
+});
+
+test('ready timeout and child exit stay distinguishable, exit status included', async () => {
+  const timedOut = setup({ readyTimeoutMs: 1 });
+  await assert.rejects(timedOut.watcher.start(), /GJC session watcher failed\./u);
+  assert.equal(timedOut.failures[0].cause, 'ready-timeout');
+
+  const exited = setup();
+  await ready(exited.watcher, exited.child);
+  exited.child.emit('exit', 3, null);
+  exited.child.emit('close', 3, null);
+  assert.equal(exited.failures.length, 1);
+  assert.equal(exited.failures[0].cause, 'child-exit code=3 signal=none');
+
+  const signalled = setup();
+  await ready(signalled.watcher, signalled.child);
+  signalled.child.emit('exit', null, 'SIGKILL');
+  assert.equal(signalled.failures[0].cause, 'child-exit code=none signal=SIGKILL');
+});
+
+test('failure diagnostics name the reason so a restart loop is diagnosable from logs alone', async () => {
+  const diagnostics: string[] = [];
+  const { watcher, child } = setup({ diagnostic: (message) => diagnostics.push(message) });
+  const started = watcher.start();
+  child.output('{"protocolVersion":1,"kind":"event","event":"add","path":"secret-path"}\n');
+
+  await assert.rejects(started, /GJC session watcher failed\./u);
+  assert.deepEqual(diagnostics, ['GJC session watcher failed. (protocol-violation)']);
+  assert.doesNotMatch(diagnostics.join(' '), /secret-path/u);
+});

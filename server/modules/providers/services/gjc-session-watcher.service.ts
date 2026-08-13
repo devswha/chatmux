@@ -7,6 +7,30 @@ const FAILURE_MESSAGE = 'GJC session watcher failed.';
 const CALLBACK_FAILURE_MESSAGE = 'GJC session watcher callback failed.';
 const STDERR_MESSAGE = 'GJC session watcher emitted diagnostics.';
 
+/**
+ * Fixed failure vocabulary. Every member is a compile-time constant that carries
+ * no transcript path, frame content, or callback detail, so a reason may be
+ * logged without breaking the invariant that watcher diagnostics never expose
+ * session data. Without it a restart loop reports thousands of identical,
+ * unactionable lines.
+ */
+export type GjcSessionWatcherFailureReason =
+  | 'spawn-failed'
+  | 'ready-timeout'
+  | 'stdin-error'
+  | 'child-error'
+  | 'child-exit'
+  | 'oversized-frame'
+  | 'invalid-utf8'
+  | 'malformed-json'
+  | 'protocol-violation'
+  | 'queue-overflow';
+
+/** Exit status is numeric/signal-name only, so it is safe to attach to a reason. */
+function exitDetail(code: unknown, signal: unknown): string {
+  return `code=${typeof code === 'number' ? code : 'none'} signal=${typeof signal === 'string' ? signal : 'none'}`;
+}
+
 export type GjcSessionWatchEvent = {
   kind: 'add' | 'change';
   path: string;
@@ -135,12 +159,12 @@ export class GjcSessionWatcher {
       this.child = child;
       child.stdout.on('data', (chunk) => this.onStdout(chunk));
       child.stderr?.on('data', () => this.diagnose(STDERR_MESSAGE));
-      child.stdin.on?.('error', () => this.fail());
-      child.on('error', () => this.fail());
-      child.on('exit', () => this.onExit());
-      child.on('close', () => this.onExit());
+      child.stdin.on?.('error', () => this.fail('stdin-error'));
+      child.on('error', () => this.fail('child-error'));
+      child.on('exit', (code, signal) => this.onExit(code, signal));
+      child.on('close', (code, signal) => this.onExit(code, signal));
     } catch {
-      this.fail();
+      this.fail('spawn-failed');
     }
     return this.starting;
   }
@@ -148,8 +172,8 @@ export class GjcSessionWatcher {
   private async waitForReady(): Promise<void> {
     await Promise.race([this.started.promise, timeout(this.options.readyTimeoutMs).then(() => {
       if (!this.ready) {
-        this.fail();
-        throw new Error(FAILURE_MESSAGE);
+        this.fail('ready-timeout');
+        throw new Error(FAILURE_MESSAGE, { cause: 'ready-timeout' });
       }
     })]);
   }
@@ -163,20 +187,20 @@ export class GjcSessionWatcher {
       const frame = this.input.subarray(0, newline);
       this.input = this.input.subarray(newline + 1);
       if (frame.length > MAX_FRAME_BYTES) {
-        this.fail();
+        this.fail('oversized-frame');
         return;
       }
       let text: string;
       try {
         text = new TextDecoder('utf-8', { fatal: true }).decode(frame).replace(/\r$/u, '');
       } catch {
-        this.fail();
+        this.fail('invalid-utf8');
         return;
       }
       this.decode(text);
       if (this.failed) return;
     }
-    if (this.input.length > MAX_FRAME_BYTES) this.fail();
+    if (this.input.length > MAX_FRAME_BYTES) this.fail('oversized-frame');
   }
 
   private decode(text: string): void {
@@ -184,15 +208,15 @@ export class GjcSessionWatcher {
     try {
       frame = JSON.parse(text);
     } catch {
-      this.fail();
+      this.fail('malformed-json');
       return;
     }
-    if (frame === null || typeof frame !== 'object' || Array.isArray(frame)) return this.fail();
+    if (frame === null || typeof frame !== 'object' || Array.isArray(frame)) return this.fail('protocol-violation');
     const record = frame as Record<string, unknown>;
     const keys = Object.keys(record);
-    if (record.protocolVersion !== 1 || typeof record.kind !== 'string') return this.fail();
+    if (record.protocolVersion !== 1 || typeof record.kind !== 'string') return this.fail('protocol-violation');
     if (record.kind === 'ready') {
-      if (this.ready || keys.length !== 2 || !keys.includes('protocolVersion') || !keys.includes('kind')) return this.fail();
+      if (this.ready || keys.length !== 2 || !keys.includes('protocolVersion') || !keys.includes('kind')) return this.fail('protocol-violation');
       this.ready = true;
       this.started.resolve();
       return;
@@ -210,9 +234,9 @@ export class GjcSessionWatcher {
       record.path.length === 0 ||
       record.path.includes('\0')
     ) {
-      return this.fail();
+      return this.fail('protocol-violation');
     }
-    if (!this.pending.has(record.path) && this.pending.size >= MAX_QUEUED_PATHS) return this.fail();
+    if (!this.pending.has(record.path) && this.pending.size >= MAX_QUEUED_PATHS) return this.fail('queue-overflow');
     this.pending.set(record.path, { kind: record.event, path: record.path });
     void this.drain();
   }
@@ -241,16 +265,17 @@ export class GjcSessionWatcher {
     safeCall(() => this.options.diagnostic(message));
   }
 
-  private fail(): void {
+  private fail(reason: GjcSessionWatcherFailureReason, detail?: string): void {
     if (this.failed || this.closed) return;
     this.failed = true;
     this.drainCancelled = true;
     this.pending.clear();
     this.drainAbort.abort();
     this.drainDone.resolve();
-    this.started.reject(new Error(FAILURE_MESSAGE));
-    this.diagnose(FAILURE_MESSAGE);
-    safeCall(() => this.options.onFailure(new Error(FAILURE_MESSAGE)));
+    const cause = detail === undefined ? reason : `${reason} ${detail}`;
+    this.started.reject(new Error(FAILURE_MESSAGE, { cause }));
+    this.diagnose(`${FAILURE_MESSAGE} (${cause})`);
+    safeCall(() => this.options.onFailure(new Error(FAILURE_MESSAGE, { cause })));
     try {
       this.child?.kill('SIGKILL');
     } catch {
@@ -258,11 +283,11 @@ export class GjcSessionWatcher {
     }
   }
 
-  private onExit(): void {
+  private onExit(code?: unknown, signal?: unknown): void {
     if (this.exitedOnce) return;
     this.exitedOnce = true;
     this.exited.resolve();
-    if (!this.closed) this.fail();
+    if (!this.closed) this.fail('child-exit', exitDetail(code, signal));
   }
 
   async close(): Promise<void> {
