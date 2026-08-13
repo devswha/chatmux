@@ -242,6 +242,26 @@ test('ready timeout and child exit stay distinguishable, exit status included', 
   assert.equal(signalled.failures[0].cause, 'child-exit code=none signal=SIGKILL');
 });
 
+// #42: ENOSPC (inotify watch exhaustion) is a host condition no restart can fix.
+// The child names it on stderr; only that fixed token is retained — the stderr
+// content itself (which may carry transcript paths) is never forwarded.
+test('detects the ENOSPC token on stderr without leaking stderr content', async () => {
+  const diagnostics: string[] = [];
+  const { watcher, child } = setup({ diagnostic: (message) => diagnostics.push(message) });
+  await ready(watcher, child);
+
+  assert.equal(watcher.enospcObserved, false);
+  child.stderr.emit('data', Buffer.from('Error: ENOSPC: System limit for number of file watchers reached, watch \'/home/user/.gjc/agent/sessions/secret.jsonl\''));
+  assert.equal(watcher.enospcObserved, true);
+  assert.deepEqual(diagnostics, ['GJC session watcher emitted diagnostics.']);
+  assert.doesNotMatch(diagnostics.join(' '), /secret/u);
+
+  const clean = setup();
+  await ready(clean.watcher, clean.child);
+  clean.child.stderr.emit('data', Buffer.from('ordinary startup notice'));
+  assert.equal(clean.watcher.enospcObserved, false);
+});
+
 test('failure diagnostics name the reason so a restart loop is diagnosable from logs alone', async () => {
   const diagnostics: string[] = [];
   const { watcher, child } = setup({ diagnostic: (message) => diagnostics.push(message) });
