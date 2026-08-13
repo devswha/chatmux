@@ -39,6 +39,36 @@ function isVisibleCodexUserMessage(payload: AnyRecord | null | undefined): boole
   return typeof payload.message === 'string' && payload.message.trim().length > 0;
 }
 
+function isSyntheticCodexUserContext(content: string): boolean {
+  const trimmed = content.trim();
+  return (
+    (trimmed.startsWith('# AGENTS.md instructions for ')
+      && trimmed.includes('<INSTRUCTIONS>')
+      && trimmed.includes('</INSTRUCTIONS>'))
+    || (trimmed.startsWith('<environment_context>')
+      && trimmed.endsWith('</environment_context>'))
+  );
+}
+
+function extractCodexResponseUserImages(
+  content: unknown,
+): Array<{ path?: string; data?: string }> | undefined {
+  if (!Array.isArray(content)) return undefined;
+
+  const attachments: Array<{ path?: string; data?: string }> = [];
+  for (const item of content) {
+    if (!item || typeof item !== 'object') continue;
+    const record = item as AnyRecord;
+    if (record.type !== 'input_image' || typeof record.image_url !== 'string') continue;
+    if (record.image_url.startsWith('data:')) {
+      attachments.push({ data: record.image_url });
+    } else if (record.image_url.trim()) {
+      attachments.push(...toImageAttachments([record.image_url]));
+    }
+  }
+  return attachments.length > 0 ? attachments : undefined;
+}
+
 /**
  * Reads the image attachments Codex records on `user_message` events.
  * Turns sent with `local_image` input items land in `local_images` as file
@@ -120,6 +150,7 @@ type CodexHistoryCacheEntry = {
   normalizedBytes: number;
   toolResults: Map<string, NormalizedMessage>;
   toolUses: Map<string, NormalizedMessage[]>;
+  userSources: WeakMap<NormalizedMessage, 'event_msg' | 'response_item'>;
   sortTimestamps: WeakMap<NormalizedMessage, number>;
 };
 
@@ -165,6 +196,7 @@ function parseCodexHistoryLine(line: string, accumulator: CodexHistoryAccumulato
     if (entry.type === 'event_msg' && isVisibleCodexUserMessage(entry.payload as AnyRecord)) {
       accumulator.messages.push({
         type: 'user',
+        codexUserSource: 'event_msg',
         timestamp: entry.timestamp,
         message: {
           role: 'user',
@@ -172,6 +204,28 @@ function parseCodexHistoryLine(line: string, accumulator: CodexHistoryAccumulato
         },
         images: extractCodexUserImages(entry.payload as AnyRecord),
       });
+    }
+
+    if (
+      entry.type === 'response_item'
+      && entry.payload?.type === 'message'
+      && entry.payload.role === 'user'
+    ) {
+      const textContent = extractCodexTextContent(entry.payload.content);
+      const images = extractCodexResponseUserImages(entry.payload.content);
+      if ((textContent.trim() || images) && !isSyntheticCodexUserContext(textContent)) {
+        accumulator.messages.push({
+          type: 'user',
+          codexUserSource: 'response_item',
+          uuid: entry.payload.id,
+          timestamp: entry.timestamp,
+          message: {
+            role: 'user',
+            content: textContent,
+          },
+          images,
+        });
+      }
     }
 
     if (
@@ -386,8 +440,47 @@ function appendNormalizedCodexHistory(
     const rawTimestamp = new Date(raw.timestamp || 0).getTime();
     const sortTimestamp = Number.isFinite(rawTimestamp) ? rawTimestamp : 0;
     for (const message of normalize(raw, sessionId)) {
-      entry.normalizedBytes += estimateCodexMessageBytes(message);
       entry.sortTimestamps.set(message, sortTimestamp);
+
+      if (message.kind === 'text' && message.role === 'user') {
+        let duplicateIndex = -1;
+        for (let index = entry.messages.length - 1; index >= 0; index -= 1) {
+          const previous = entry.messages[index];
+          const previousTimestamp = codexMessageTimestamp(previous, entry.sortTimestamps);
+          if (sortTimestamp - previousTimestamp > 100) break;
+          if (
+            previous.kind === 'text'
+            && previous.role === 'user'
+            && previous.content === message.content
+            && Math.abs(sortTimestamp - previousTimestamp) <= 10
+          ) {
+            duplicateIndex = index;
+            break;
+          }
+        }
+
+        if (duplicateIndex >= 0) {
+          const previous = entry.messages[duplicateIndex];
+          const previousSource = entry.userSources.get(previous);
+          const nextSource = raw.codexUserSource;
+          // Older Codex versions write the same prompt twice: first as a
+          // response_item and then as event_msg. Prefer event_msg because it
+          // carries compact local image paths instead of inline base64 data.
+          if (previousSource === 'response_item' && nextSource === 'event_msg') {
+            entry.normalizedBytes -= estimateCodexMessageBytes(previous);
+            entry.messages[duplicateIndex] = message;
+            entry.userSources.set(message, 'event_msg');
+            entry.normalizedBytes += estimateCodexMessageBytes(message);
+          }
+          continue;
+        }
+
+        if (raw.codexUserSource === 'event_msg' || raw.codexUserSource === 'response_item') {
+          entry.userSources.set(message, raw.codexUserSource);
+        }
+      }
+
+      entry.normalizedBytes += estimateCodexMessageBytes(message);
 
       if (message.kind === 'tool_result' && message.toolId) {
         entry.toolResults.set(message.toolId, message);
@@ -470,6 +563,7 @@ async function refreshCodexHistoryCache(
       malformed: false,
       toolResults: new Map(),
       toolUses: new Map(),
+      userSources: new WeakMap(),
       sortTimestamps: new WeakMap(),
     };
   }
