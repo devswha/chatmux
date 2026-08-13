@@ -108,13 +108,17 @@ test('one-line bootstrap tightens an existing owner-managed root and rejects uns
   assert.equal(migrated.status, 0, migrated.stderr);
   assert.equal((await fs.stat(managedRoot)).mode & 0o777, 0o700);
 
-  for (const [name, setup, expected] of [
-    ['symlink', async (target: string) => fs.symlink(path.join(root, 'missing'), target), /ordinary directory/],
+  for (const [name, setup, suffix, expected] of [
+    ['symlink', async (target: string) => fs.symlink(path.join(root, 'missing'), target), '', /ordinary directory/],
     ['symlink-trailing-slash', async (target: string) => {
       await fs.mkdir(`${target}-target`);
       await fs.symlink(`${target}-target`, target);
-    }, /ordinary directory/],
-    ['non-directory', async (target: string) => fs.writeFile(target, 'not a directory'), /ordinary directory/],
+    }, '/', /ordinary directory/],
+    ['symlink-trailing-dot', async (target: string) => {
+      await fs.mkdir(`${target}-target`);
+      await fs.symlink(`${target}-target`, target);
+    }, '/.', /ordinary directory/],
+    ['non-directory', async (target: string) => fs.writeFile(target, 'not a directory'), '', /ordinary directory/],
   ] as const) {
     const unsafeRoot = path.join(root, name);
     await setup(unsafeRoot);
@@ -122,7 +126,7 @@ test('one-line bootstrap tightens an existing owner-managed root and rejects uns
       encoding: 'utf8',
       env: {
         ...commonEnv,
-        CHATMUX_INSTALL_ROOT: name === 'symlink-trailing-slash' ? `${unsafeRoot}/` : unsafeRoot,
+        CHATMUX_INSTALL_ROOT: `${unsafeRoot}${suffix}`,
       },
     });
     assert.notEqual(result.status, 0, name);
