@@ -386,7 +386,9 @@ test('real tmux interrupt cancels a running verified fake-agent turn and repeats
   );
 
   await sendTmuxProcessAction(target, 'interrupt');
-  await delay(100);
+  // Wait for the second interrupt to be recorded instead of sleeping: a fixed
+  // delay made this assertion fail on slower CI runners (observed on Node 24).
+  await agent.waitForInterrupt(2);
   assert.equal(
     (await agent.events()).filter((event) => event.type === 'interrupt').length,
     2,
