@@ -64,6 +64,11 @@ import {
     abortOmpSession,
 } from './omp-cli.js';
 import {
+    spawnOmo,
+    abortOmoSession,
+} from './omo-cli.js';
+import { findLiveTmuxSpawnBlock } from './modules/providers/services/live-spawn-guard.service.js';
+import {
     stripAnsiSequences,
     normalizeDetectedUrl,
     extractUrlsFromText,
@@ -170,14 +175,11 @@ const wss = createWebSocketServer(server, {
             opencode: spawnOpenCode,
             gjc: spawnGjc,
             omp: spawnOmp,
-            // omo is intentionally NOT registered. Its transcripts are indexed
-            // like any other session, so a session that is currently live in a
-            // tmux pane can also be opened here; spawning would start a second
-            // headless omo on the same --session-id and both processes would
-            // append to one transcript. Observed: a full turn landed in a live
-            // session that the running agent never saw. Live sessions must go
-            // through the tmux relay. Re-enable only behind a guard that
-            // refuses to spawn when the session is live.
+            // Safe to register because findLiveTmuxSpawnBlock below refuses to
+            // spawn on a session that is currently live in a tmux pane (#44):
+            // a second headless omo on the same --session-id would otherwise
+            // append to one transcript the live agent never sees.
+            omo: spawnOmo,
         },
         abortFns: {
             claude: abortClaudeSDKSession,
@@ -186,9 +188,13 @@ const wss = createWebSocketServer(server, {
             opencode: abortOpenCodeSession,
             gjc: abortGjcSession,
             omp: abortOmpSession,
+            omo: abortOmoSession,
         },
         resolveToolApproval: resolveProviderToolApproval,
         getPendingApprovalsForSession: getPendingProviderApprovalsForSession,
+        // #44 guard: chat.send refuses to fork a session that a live tmux pane
+        // owns, for every provider that resumes by provider-native session id.
+        findLiveTmuxSpawnBlock,
     },
     shell: {
         resolveProviderSessionId: (sessionId, provider) => {

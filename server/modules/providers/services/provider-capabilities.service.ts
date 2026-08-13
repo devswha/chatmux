@@ -113,10 +113,10 @@ const PROVIDER_CAPABILITIES: Record<LLMProvider, ProviderCapabilities> = {
     provider: 'omo',
     permissionModes: ['default'],
     defaultPermissionMode: 'default',
-    // omo is discovery, transcript, and tmux relay only. `server/omo-cli.ts`
-    // implements the send runtime, but it is deliberately not registered in
-    // `spawnFns` (see the comment there): spawning would put a second headless
-    // omo on a session that may already be live in a tmux pane.
+    // The omo send runtime is registered behind the live-pane spawn guard
+    // (#44, `live-spawn-guard.service.ts`); like Oh My Pi, the runtime also
+    // forwards @<path> images and SIGTERM aborts, but this matrix mirrors the
+    // omp posture and keeps both UI controls hidden until verified end to end.
     supportsImages: false,
     supportsAbort: false,
     // omo's TUI renders "↑↓ navigate • enter select • esc close" and has no
