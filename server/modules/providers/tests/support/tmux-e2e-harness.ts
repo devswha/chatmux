@@ -207,7 +207,7 @@ export async function createTmuxE2EHarness(): Promise<TmuxE2EHarness> {
   const npmPackageDirectory = path.join(
     workspace,
     'node_modules',
-    '@chatmux-code',
+    '@gajae-code',
     'coding-agent',
   );
   const npmGjcPath = path.join(npmPackageDirectory, 'gjc');
