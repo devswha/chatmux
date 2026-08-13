@@ -76,9 +76,48 @@ let gjcWatcherRestartDelayMs = 1_000;
 // otherwise logs one indistinguishable line every 30s forever. The run length makes
 // a stuck loop visible in the log without needing to count timestamps by hand.
 let gjcWatcherConsecutiveFailures = 0;
+let gjcWatcherEnospcObserved = false;
 let gjcWatcherGeneration = 0;
 let sessionWatchersClosing = false;
 const GJC_WATCH_RESTART_MAX_MS = 30_000;
+// #42: a watcher failing at the 30s cap because of a host condition (measured:
+// inotify ENOSPC for 14.5h / 1752 attempts) cannot succeed by retrying faster.
+// After this many consecutive failures the supervisor degrades to a slow probe
+// cadence — recovery stays automatic, without a permanent 30s crash loop.
+export const GJC_WATCH_MAX_FAST_FAILURES = 20;
+export const GJC_WATCH_DEGRADED_RETRY_MS = 10 * 60_000;
+
+/** Pure restart schedule, exported for tests: fast backoff, then slow probes. */
+export function nextGjcWatcherRestartDelayMs(
+  consecutiveFailures: number,
+  currentDelayMs: number,
+): { delayMs: number; nextDelayMs: number; degraded: boolean } {
+  if (consecutiveFailures >= GJC_WATCH_MAX_FAST_FAILURES) {
+    return { delayMs: GJC_WATCH_DEGRADED_RETRY_MS, nextDelayMs: currentDelayMs, degraded: true };
+  }
+  return {
+    delayMs: currentDelayMs,
+    nextDelayMs: Math.min(currentDelayMs * 2, GJC_WATCH_RESTART_MAX_MS),
+    degraded: false,
+  };
+}
+
+export type GjcWatcherHealth = {
+  ok: boolean;
+  consecutiveFailures: number;
+  degraded: boolean;
+  enospcObserved: boolean;
+};
+
+/** Current native-watcher health for diagnostics and status surfaces. */
+export function getGjcWatcherHealth(): GjcWatcherHealth {
+  return {
+    ok: gjcWatcherConsecutiveFailures === 0,
+    consecutiveFailures: gjcWatcherConsecutiveFailures,
+    degraded: gjcWatcherConsecutiveFailures >= GJC_WATCH_MAX_FAST_FAILURES,
+    enospcObserved: gjcWatcherEnospcObserved,
+  };
+}
 
 type PendingWatcherUpdate = {
   providers: Set<LLMProvider>;
@@ -415,12 +454,27 @@ function clearGjcWatcherRestartTimer(): void {
 
 function scheduleGjcWatcherRestart(): void {
   if (sessionWatchersClosing || gjcWatcherRestartTimer) return;
-  const delay = gjcWatcherRestartDelayMs;
-  gjcWatcherRestartDelayMs = Math.min(gjcWatcherRestartDelayMs * 2, GJC_WATCH_RESTART_MAX_MS);
+  const schedule = nextGjcWatcherRestartDelayMs(
+    gjcWatcherConsecutiveFailures,
+    gjcWatcherRestartDelayMs,
+  );
+  gjcWatcherRestartDelayMs = schedule.nextDelayMs;
+  if (schedule.degraded && gjcWatcherConsecutiveFailures === GJC_WATCH_MAX_FAST_FAILURES) {
+    const remedy = gjcWatcherEnospcObserved
+      ? ' The watcher child reported ENOSPC: raise the inotify limit'
+        + ' (sudo sysctl -w fs.inotify.max_user_watches=524288, persist in /etc/sysctl.d/)'
+        + ' — other processes on this host are consuming the watches.'
+      : '';
+    console.error(
+      `GJC native session watcher degraded after ${gjcWatcherConsecutiveFailures} consecutive failures; `
+        + `retrying every ${Math.round(GJC_WATCH_DEGRADED_RETRY_MS / 60_000)} minutes. `
+        + `Session discovery updates may lag until it recovers.${remedy}`,
+    );
+  }
   gjcWatcherRestartTimer = setTimeout(() => {
     gjcWatcherRestartTimer = null;
     void startGjcSessionWatcher(true);
-  }, delay);
+  }, schedule.delayMs);
   gjcWatcherRestartTimer.unref?.();
 }
 
@@ -447,6 +501,7 @@ async function runGjcSessionWatcherStart(
     if (failureReported || generation !== gjcWatcherGeneration || sessionWatchersClosing) return;
     failureReported = true;
     gjcWatcherConsecutiveFailures += 1;
+    if (watcher.enospcObserved) gjcWatcherEnospcObserved = true;
     controller.abort();
     if (gjcWatcher === watcher) gjcWatcher = null;
     const reason = typeof error?.cause === 'string' ? error.cause : 'unreported';
@@ -511,6 +566,7 @@ async function runGjcSessionWatcherStart(
     }
     gjcWatcherRestartDelayMs = 1_000;
     gjcWatcherConsecutiveFailures = 0;
+    gjcWatcherEnospcObserved = false;
   } catch (error) {
     reportFailure(error instanceof Error ? error : undefined);
     await watcher.close();
@@ -622,7 +678,10 @@ export async function initializeSessionsWatcher(): Promise<void> {
         })
         .on('error', (error: unknown) => {
           const message = error instanceof Error ? error.message : String(error);
-          console.error(`Session watcher error for provider "${provider}"`, { error: message });
+          const remedy = message.includes('ENOSPC')
+            ? ' (inotify watch exhaustion — raise fs.inotify.max_user_watches; transcript updates fall back to the 60s reconcile pass)'
+            : '';
+          console.error(`Session watcher error for provider "${provider}"${remedy}`, { error: message });
         });
 
       watchers.push(watcher);
@@ -694,6 +753,7 @@ export async function closeSessionsWatcher(): Promise<void> {
   watchers.length = 0;
   gjcWatcherRestartDelayMs = 1_000;
   gjcWatcherConsecutiveFailures = 0;
+  gjcWatcherEnospcObserved = false;
   pendingWatcherUpdate = null;
   pendingWatcherUpdateStartedAt = null;
   watcherRefreshInFlight = false;

@@ -113,6 +113,7 @@ export class GjcSessionWatcher {
   private ready = false;
   private closed = false;
   private failed = false;
+  private enospcSeen = false;
   private exitedOnce = false;
   private input = Buffer.alloc(0);
   private readonly pending = new Map<string, GjcSessionWatchEvent>();
@@ -158,7 +159,13 @@ export class GjcSessionWatcher {
       });
       this.child = child;
       child.stdout.on('data', (chunk) => this.onStdout(chunk));
-      child.stderr?.on('data', () => this.diagnose(STDERR_MESSAGE));
+      // stderr content is never forwarded (it may name transcript paths), but
+      // the fixed ENOSPC token is safe and is the one diagnosis an operator
+      // can act on: inotify watch exhaustion needs a sysctl, not a restart.
+      child.stderr?.on('data', (chunk) => {
+        if (!this.enospcSeen && String(chunk).includes('ENOSPC')) this.enospcSeen = true;
+        this.diagnose(STDERR_MESSAGE);
+      });
       child.stdin.on?.('error', () => this.fail('stdin-error'));
       child.on('error', () => this.fail('child-error'));
       child.on('exit', (code, signal) => this.onExit(code, signal));
@@ -263,6 +270,11 @@ export class GjcSessionWatcher {
 
   private diagnose(message: string): void {
     safeCall(() => this.options.diagnostic(message));
+  }
+
+  /** True when the child's stderr named inotify watch exhaustion (ENOSPC). */
+  get enospcObserved(): boolean {
+    return this.enospcSeen;
   }
 
   private fail(reason: GjcSessionWatcherFailureReason, detail?: string): void {
