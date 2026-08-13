@@ -204,7 +204,9 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
                             ? t('messageTypes.gjc', { defaultValue: 'Gajae Code' })
                             : provider === 'omp'
                               ? t('messageTypes.omp', { defaultValue: 'Oh My Pi' })
-                              : t('messageTypes.claude'))}
+                              : provider === 'omo'
+                                ? t('messageTypes.omo', { defaultValue: 'omo' })
+                                : t('messageTypes.claude'))}
               </div>
             </div>
           )}
