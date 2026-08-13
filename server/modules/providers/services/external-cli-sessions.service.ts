@@ -44,6 +44,11 @@ const CURSOR_RESUME_SESSION_RE = /(?:^|\s)(?:--resume|resume)(?:=|\s+)([A-Za-z0-
 const OPENCODE_SESSION_RE = /(?:^|\s)--session(?:=|\s+)([A-Za-z0-9_-]{8,128})(?=\s|$)/;
 // Oh My Pi and omo are both pi-derived and accept the identical `--resume|-r` form.
 const PI_RESUME_SESSION_RE = /(?:^|\s)(?:--resume|-r)(?:=|\s+)([A-Za-z0-9_-]{8,128})(?=\s|$)/;
+// omo's canonical continuation flag is `--session-id <id>` (its `--resume` takes
+// no value and opens a picker, so no id ever appears in argv for that form).
+// ChatMux itself resumes omo with `--session-id` in `server/pi-cli.ts`, so a
+// pane started that way must link back to its transcript session.
+const OMO_SESSION_ID_RE = /(?:^|\s)--session-id(?:=|\s+)([A-Za-z0-9_-]{8,128})(?=\s|$)/;
 const TRANSCRIPT_FILE_SESSION_ID_RE = /_([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i;
 const CODEX_ROLLOUT_FILE_RE = /^rollout-.*-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i;
 const MAX_RUNTIME_DESCRIPTORS = 2_048;
@@ -202,7 +207,12 @@ export function extractExternalResumeSessionId(
   if (kind === 'codex') return extractCodexResumeThreadId(processArgs);
   if (kind === 'cursor') return processArgs.match(CURSOR_RESUME_SESSION_RE)?.[1] ?? null;
   if (kind === 'opencode') return processArgs.match(OPENCODE_SESSION_RE)?.[1] ?? null;
-  if (kind === 'omp' || kind === 'omo') return processArgs.match(PI_RESUME_SESSION_RE)?.[1] ?? null;
+  if (kind === 'omp') return processArgs.match(PI_RESUME_SESSION_RE)?.[1] ?? null;
+  if (kind === 'omo') {
+    return processArgs.match(OMO_SESSION_ID_RE)?.[1]
+      ?? processArgs.match(PI_RESUME_SESSION_RE)?.[1]
+      ?? null;
+  }
   return null;
 }
 
