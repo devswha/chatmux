@@ -64,6 +64,10 @@ import {
     abortOmpSession,
 } from './omp-cli.js';
 import {
+    spawnOmo,
+    abortOmoSession,
+} from './omo-cli.js';
+import {
     stripAnsiSequences,
     normalizeDetectedUrl,
     extractUrlsFromText,
@@ -170,6 +174,7 @@ const wss = createWebSocketServer(server, {
             opencode: spawnOpenCode,
             gjc: spawnGjc,
             omp: spawnOmp,
+            omo: spawnOmo,
         },
         abortFns: {
             claude: abortClaudeSDKSession,
@@ -178,6 +183,7 @@ const wss = createWebSocketServer(server, {
             opencode: abortOpenCodeSession,
             gjc: abortGjcSession,
             omp: abortOmpSession,
+            omo: abortOmoSession,
         },
         resolveToolApproval: resolveProviderToolApproval,
         getPendingApprovalsForSession: getPendingProviderApprovalsForSession,

@@ -113,9 +113,9 @@ const PROVIDER_CAPABILITIES: Record<LLMProvider, ProviderCapabilities> = {
     provider: 'omo',
     permissionModes: ['default'],
     defaultPermissionMode: 'default',
-    // omo is wired for discovery and transcript reading only. There is no omo
-    // send runtime (no `server/omo-cli.ts`), so nothing forwards attachments or
-    // can cancel an in-flight run yet.
+    // Mirrors the Oh My Pi posture: buildPiCliArgs forwards image paths as
+    // @<path> and createPiCliRuntime terminates the tracked child with SIGTERM
+    // (`server/pi-cli.ts`), but this matrix still hides both UI controls.
     supportsImages: false,
     supportsAbort: false,
     // omo's TUI renders "↑↓ navigate • enter select • esc close" and has no
