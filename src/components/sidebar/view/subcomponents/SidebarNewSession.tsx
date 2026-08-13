@@ -6,7 +6,7 @@ import { api } from '../../../../utils/api';
 import HomeDirInput from '../../../../shared/view/HomeDirInput';
 import { cn } from '../../../../lib/utils';
 
-type SpawnProvider = 'gjc' | 'codex' | 'claude' | 'cursor' | 'opencode' | 'omp';
+type SpawnProvider = 'gjc' | 'codex' | 'claude' | 'cursor' | 'opencode' | 'omp' | 'omo';
 
 type SpawnStatus =
   | { kind: 'idle' }
@@ -20,6 +20,7 @@ const PROVIDERS: { id: SpawnProvider; label: string }[] = [
   { id: 'cursor', label: 'Cursor' },
   { id: 'opencode', label: 'OpenCode' },
   { id: 'omp', label: 'Oh My Pi' },
+  { id: 'omo', label: 'omo' },
 ];
 
 // Working directories of successful spawns, most recent first. Typing an

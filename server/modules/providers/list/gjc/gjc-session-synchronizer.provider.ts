@@ -14,7 +14,12 @@ import {
 import type { IProviderSessionSynchronizer } from '@/shared/interfaces.js';
 import type { AnyRecord } from '@/shared/types.js';
 
-type PiTranscriptProvider = 'gjc' | 'omp';
+/**
+ * CLIs that write the pi-derived transcript dialect: the same JSONL envelope
+ * (`message`, `model_change`, `thinking_level_change`, `custom`), so one reader
+ * and one synchronizer serve all of them.
+ */
+export type PiTranscriptProvider = 'gjc' | 'omp' | 'omo';
 
 export type PiSessionSynchronizerOptions = {
   provider?: PiTranscriptProvider;

@@ -313,10 +313,11 @@ test('providerMcpService global adder writes to all providers and rejects unsupp
       workspacePath,
     });
 
-    // GJC and OMP expose read-only MCP stubs. Both must report graceful
-    // per-provider failures while writable providers receive the server.
-    assert.equal(globalResult.length, 6);
-    for (const provider of ['gjc', 'omp'] as const) {
+    // GJC, OMP, and omo expose read-only MCP stubs. Each must report a graceful
+    // per-provider failure while writable providers receive the server.
+    const readOnlyProviders = ['gjc', 'omp', 'omo'] as const;
+    assert.equal(globalResult.length, 7);
+    for (const provider of readOnlyProviders) {
       const entry = globalResult.find((result) => result.provider === provider);
       assert.ok(entry);
       assert.equal(entry.created, false);
@@ -324,7 +325,7 @@ test('providerMcpService global adder writes to all providers and rejects unsupp
     }
     assert.ok(
       globalResult
-        .filter((entry) => entry.provider !== 'gjc' && entry.provider !== 'omp')
+        .filter((entry) => !readOnlyProviders.includes(entry.provider as typeof readOnlyProviders[number]))
         .every((entry) => entry.created === true),
     );
 

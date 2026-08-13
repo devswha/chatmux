@@ -1,6 +1,7 @@
 import fsSync from 'node:fs';
 
 import { sessionsDb } from '@/modules/database/index.js';
+import type { PiTranscriptProvider } from '@/modules/providers/list/gjc/gjc-session-synchronizer.provider.js';
 import type { IProviderSessions } from '@/shared/interfaces.js';
 import type { AnyRecord, FetchHistoryOptions, FetchHistoryResult, NormalizedMessage } from '@/shared/types.js';
 import { createNormalizedMessage, generateMessageId, readObjectRecord, sliceTailPage } from '@/shared/utils.js';
@@ -188,7 +189,7 @@ function normalizeGjcToolInput(toolName: string, value: unknown): unknown {
  * its own intermediate record with a unique id so multi-part turns never collide.
  */
 async function streamPiSessionMessages(
-  provider: 'gjc' | 'omp',
+  provider: PiTranscriptProvider,
   sessionId: string,
   onMessage: (message: AnyRecord) => void,
 ): Promise<void> {
@@ -337,7 +338,7 @@ async function streamPiSessionMessages(
 }
 
 export class GjcSessionsProvider implements IProviderSessions {
-  constructor(private readonly provider: 'gjc' | 'omp' = 'gjc') {}
+  constructor(private readonly provider: PiTranscriptProvider = 'gjc') {}
   /**
    * Normalizes one flattened gjc content-part record into the shared envelope.
    */

@@ -38,6 +38,7 @@ Current provider ids accepted by the registry and `parseProvider` are:
 - `opencode`
 - `gjc`
 - `omp`
+- `omo`
 
 Those ids are mirrored in backend unions and frontend provider constants. If
 adding a new provider, update every place that hardcodes this list.

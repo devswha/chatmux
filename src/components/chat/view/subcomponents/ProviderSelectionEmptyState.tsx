@@ -321,6 +321,9 @@ export default function ProviderSelectionEmptyState({
                   defaultValue: "Ready with Gajae Code",
                 }),
                 omp: `Ready with Oh My Pi ${ompModel}`,
+                omo: t("providerSelection.readyPrompt.omo", {
+                  defaultValue: "Ready with omo",
+                }),
               }[provider]
             }
           </p>

@@ -40,6 +40,10 @@ const agentConfig: Record<AgentProvider, AgentConfig> = {
     name: 'Oh My Pi',
     color: 'gray',
   },
+  omo: {
+    name: 'omo',
+    color: 'gray',
+  },
 };
 
 const colorClasses = {

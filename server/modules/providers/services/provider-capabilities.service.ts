@@ -109,6 +109,25 @@ const PROVIDER_CAPABILITIES: Record<LLMProvider, ProviderCapabilities> = {
     // (`server/omp-cli.ts:48-49`), but this matrix still hides the effort control.
     supportsEffort: false,
   },
+  omo: {
+    provider: 'omo',
+    permissionModes: ['default'],
+    defaultPermissionMode: 'default',
+    // omo is wired for discovery and transcript reading only. There is no omo
+    // send runtime (no `server/omo-cli.ts`), so nothing forwards attachments or
+    // can cancel an in-flight run yet.
+    supportsImages: false,
+    supportsAbort: false,
+    // omo's TUI renders "↑↓ navigate • enter select • esc close" and has no
+    // "Other (type your own)" row, so every parser in
+    // tmux-interactive-prompt.service.ts rejects it. Interactive prompts stay
+    // off until omo gets its own parser.
+    supportsPermissionRequests: false,
+    supportsTokenUsage: false,
+    // `omo --list-models` reports thinking as a yes/no column and never
+    // enumerates the levels, so no effort values can be offered.
+    supportsEffort: false,
+  },
 };
 
 /**

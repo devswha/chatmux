@@ -13,7 +13,7 @@ export type ExternalCliSession = {
   tmuxName: string;
   tmux: TmuxPaneIdentity;
   process: TmuxProcessGeneration | null;
-  kind: 'claude' | 'codex' | 'cursor' | 'opencode' | 'omp' | 'ssh' | 'shell';
+  kind: 'claude' | 'codex' | 'cursor' | 'opencode' | 'omp' | 'omo' | 'ssh' | 'shell';
   projectPath?: string;
   transcriptSessionId?: string;
   sessionName?: string;

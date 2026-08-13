@@ -91,7 +91,7 @@ export default function LiveRelayComposer({
   effort?: string | null;
   sessionName?: string | null;
   workspacePath?: string | null;
-  relayKind?: 'gjc' | 'codex' | 'claude' | 'cursor' | 'opencode' | 'omp';
+  relayKind?: 'gjc' | 'codex' | 'claude' | 'cursor' | 'opencode' | 'omp' | 'omo';
   /** True while the target session is running a turn — enables the stop control. */
   isProcessing?: boolean;
   transcriptSessionId?: string | null;
