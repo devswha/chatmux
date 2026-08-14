@@ -315,6 +315,12 @@ export type FetchHistoryResult = {
   hasMore: boolean;
   offset: number;
   limit: number | null;
+  /**
+   * Stable provider-native boundary for the currently visible history segment.
+   * Providers that preserve a session id across `/clear` change this value so
+   * clients can discard cached messages from the preceding context.
+   */
+  historyEpoch?: string | null;
   tokenUsage?: unknown;
   sourceStatus?: 'available' | 'missing' | 'unreadable';
 };

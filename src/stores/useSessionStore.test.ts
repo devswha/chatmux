@@ -181,6 +181,56 @@ test('refresh preserves the message window expanded by pagination', async () => 
   }
 });
 
+test('a changed history epoch drops cached rows from the preceding context', async () => {
+  const originalFetch = globalThis.fetch;
+  const pending: PendingRequest[] = [];
+  globalThis.fetch = ((url: string) => new Promise<Response>((resolve) => {
+    pending.push({ url, resolve });
+  })) as typeof fetch;
+
+  try {
+    const store = createStore();
+    const initial = store.fetchFromServer('session', { limit: 20 });
+    pending.shift()!.resolve(response({
+      messages: [
+        { id: 'old-server', sessionId: 'session', timestamp: '2026-01-01T00:00:00Z', kind: 'text', provider: 'gjc' },
+      ],
+      total: 1,
+      hasMore: false,
+      historyEpoch: null,
+    }));
+    await initial;
+
+    store.appendRealtime('session', {
+      id: 'old-realtime',
+      sessionId: 'session',
+      timestamp: '2026-01-01T00:00:01Z',
+      kind: 'text',
+      provider: 'gjc',
+      role: 'assistant',
+      content: 'Old live response',
+    });
+
+    const refresh = store.refreshFromServer('session');
+    pending.shift()!.resolve(response({
+      messages: [
+        { id: 'new-server', sessionId: 'session', timestamp: '2026-01-01T00:00:02Z', kind: 'text', provider: 'gjc' },
+      ],
+      total: 1,
+      hasMore: false,
+      historyEpoch: 'gjc:clear-one',
+    }));
+    const slot = await refresh;
+
+    assert.equal(slot.historyEpoch, 'gjc:clear-one');
+    assert.deepEqual(slot.serverMessages.map(message => message.id), ['new-server']);
+    assert.deepEqual(slot.realtimeMessages, []);
+    assert.deepEqual(slot.merged.map(message => message.id), ['new-server']);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('refresh queues a reconcile after an explicit pagination request settles', async () => {
   const originalFetch = globalThis.fetch;
   const pending: PendingRequest[] = [];
