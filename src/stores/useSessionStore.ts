@@ -118,11 +118,14 @@ export interface SessionSlot {
   _loadingTicket: number | null;
   /** Whether subsequent pages/reconciles should request image attachment data. */
   _includeImages: boolean;
+  /** @internal Whether a provider history epoch has been observed for this slot. */
+  _historyEpochKnown: boolean;
   status: SessionStatus;
   fetchedAt: number;
   total: number;
   hasMore: boolean;
   offset: number;
+  historyEpoch: string | null;
   tokenUsage: unknown;
 }
 
@@ -147,7 +150,31 @@ function createEmptySlot(): SessionSlot {
     _reconcilePending: false,
     _loadingTicket: null,
     _includeImages: true,
+    _historyEpochKnown: false,
+    historyEpoch: null,
   };
+}
+
+/**
+ * Records a provider-native `/clear` boundary. The first observed epoch merely
+ * initializes the slot; later changes mean every cached/realtime row belongs
+ * to an earlier context and must not survive the server window replacement.
+ */
+function applyHistoryEpoch(slot: SessionSlot, data: Record<string, unknown>): boolean {
+  if (!Object.prototype.hasOwnProperty.call(data, 'historyEpoch')) {
+    return false;
+  }
+
+  const nextEpoch = typeof data.historyEpoch === 'string' ? data.historyEpoch : null;
+  const changed = slot._historyEpochKnown && slot.historyEpoch !== nextEpoch;
+  slot._historyEpochKnown = true;
+  slot.historyEpoch = nextEpoch;
+
+  if (changed) {
+    slot.realtimeMessages = EMPTY;
+    slot.tokenUsage = null;
+  }
+  return changed;
 }
 
 function getRealtimeMessageIdentity(message: NormalizedMessage): string | null {
@@ -661,6 +688,7 @@ export function useSessionStore() {
         return slot;
       }
 
+      applyHistoryEpoch(slot, data);
       slot.serverMessages = dedupeMessagesById(messages);
       slot.total = data.total ?? messages.length;
       slot.hasMore = Boolean(data.hasMore);
@@ -749,6 +777,22 @@ export function useSessionStore() {
         || slot._fetchMoreTicket !== fetchTicket
         || slot.offset !== expectedOffset
       ) {
+        return slot;
+      }
+
+      if (applyHistoryEpoch(slot, data)) {
+        // This page used an offset from the preceding context and cannot be
+        // merged into the new one. Clear it immediately and queue a fresh
+        // offset-zero reconcile after the in-flight page releases the slot.
+        slot.serverMessages = EMPTY;
+        slot.total = data.total ?? 0;
+        slot.hasMore = false;
+        slot.offset = 0;
+        recomputeMergedIfNeeded(slot);
+        notify(sessionId);
+        if (refreshFromServerRef.current) {
+          void refreshFromServerRef.current(sessionId);
+        }
         return slot;
       }
 
@@ -894,6 +938,7 @@ export function useSessionStore() {
       }
 
       const messages: NormalizedMessage[] = data.messages || [];
+      applyHistoryEpoch(slot, data);
       slot.serverMessages = dedupeMessagesById(messages);
       slot.total = data.total ?? messages.length;
       slot.hasMore = Boolean(data.hasMore);

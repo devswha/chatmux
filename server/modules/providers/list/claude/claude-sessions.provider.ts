@@ -23,6 +23,7 @@ type ClaudeHistoryResult =
     messages?: AnyRecord[];
     total?: number;
     hasMore?: boolean;
+    historyEpoch?: string | null;
   };
 
 type ClaudeHistoryMessagesResult =
@@ -30,10 +31,11 @@ type ClaudeHistoryMessagesResult =
   | {
     messages: AnyRecord[];
     total: number;
-    hasMore: boolean;
-    offset?: number;
-    limit?: number | null;
-  };
+      hasMore: boolean;
+      offset?: number;
+      limit?: number | null;
+      historyEpoch?: string | null;
+    };
 
 async function parseAgentTools(filePath: string): Promise<AnyRecord[]> {
   const tools: AnyRecord[] = [];
@@ -121,6 +123,7 @@ async function getSessionMessages(
     const agentFiles = files.filter((file) => file.endsWith('.jsonl') && file.startsWith('agent-'));
 
     const messages: AnyRecord[] = [];
+    let historyEpoch: string | null = null;
     const agentToolsCache = new Map<string, AnyRecord[]>();
 
     const fileStream = fs.createReadStream(jsonLPath);
@@ -137,6 +140,11 @@ async function getSessionMessages(
       try {
         const entry = JSON.parse(line) as AnyRecord;
         if (entry.sessionId === providerSessionId) {
+          if (isClaudeContextClearEntry(entry)) {
+            messages.length = 0;
+            historyEpoch = getClaudeHistoryEpoch(entry);
+            continue;
+          }
           messages.push(entry);
         }
       } catch {
@@ -181,7 +189,14 @@ async function getSessionMessages(
     const total = sortedMessages.length;
 
     if (limit === null) {
-      return sortedMessages;
+      return {
+        messages: sortedMessages,
+        total,
+        hasMore: false,
+        offset: 0,
+        limit: null,
+        historyEpoch,
+      };
     }
 
     const startIndex = Math.max(0, total - offset - limit);
@@ -195,6 +210,7 @@ async function getSessionMessages(
       hasMore,
       offset,
       limit,
+      historyEpoch,
     };
   } catch (error) {
     console.error(`Error reading messages for session ${sessionId}:`, error);
@@ -259,6 +275,28 @@ function parseLocalCommandPayload(content: string): ClaudeLocalCommandPayload | 
     commandMessage: commandMessage ?? '',
     commandArgs: commandArgs ?? '',
   };
+}
+
+/**
+ * Claude Code keeps the same provider session id after `/clear`. The durable
+ * transcript marks the action with its tagged local-command record, which is
+ * the authoritative boundary between the discarded and current contexts.
+ */
+function isClaudeContextClearEntry(entry: AnyRecord): boolean {
+  if (entry.message?.role !== 'user' || typeof entry.message.content !== 'string') {
+    return false;
+  }
+  const payload = parseLocalCommandPayload(entry.message.content);
+  return payload?.commandName.trim().toLowerCase() === '/clear';
+}
+
+function getClaudeHistoryEpoch(entry: AnyRecord): string {
+  const boundaryId = typeof entry.uuid === 'string' && entry.uuid
+    ? entry.uuid
+    : (typeof entry.timestamp === 'string' && entry.timestamp
+      ? entry.timestamp
+      : 'context-clear');
+  return `claude:${boundaryId}`;
 }
 
 /**
@@ -600,6 +638,7 @@ export class ClaudeSessionsProvider implements IProviderSessions {
     }
 
     const rawMessages = Array.isArray(result) ? result : (result.messages || []);
+    const historyEpoch = Array.isArray(result) ? null : (result.historyEpoch ?? null);
 
     const toolResultMap = new Map<string, ClaudeToolResult>();
     for (const raw of rawMessages) {
@@ -656,6 +695,7 @@ export class ClaudeSessionsProvider implements IProviderSessions {
       hasMore,
       offset: normalizedOffset,
       limit: normalizedLimit,
+      historyEpoch,
     };
   }
 }

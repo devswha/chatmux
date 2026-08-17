@@ -65,6 +65,13 @@ class NormalizedMessageRingBuffer {
     }
   }
 
+  reset(): void {
+    this.entries = [];
+    this.startIndex = 0;
+    this.bufferedBytes = 0;
+    this.truncated = false;
+  }
+
   get messages(): NormalizedMessage[] {
     const messages: NormalizedMessage[] = [];
     for (let index = this.startIndex; index < this.entries.length; index += 1) {
@@ -192,6 +199,7 @@ async function streamPiSessionMessages(
   provider: PiTranscriptProvider,
   sessionId: string,
   onMessage: (message: AnyRecord) => void,
+  onHistoryReset: (historyEpoch: string) => void,
 ): Promise<void> {
   try {
     const sessionFilePath = sessionsDb.getSessionById(sessionId)?.jsonl_path;
@@ -201,13 +209,24 @@ async function streamPiSessionMessages(
       return;
     }
 
+    let lineNumber = 0;
     for await (const line of readBoundedJsonlLines(sessionFilePath)) {
+      lineNumber += 1;
       if (!line.trim()) {
         continue;
       }
 
       try {
         const entry = JSON.parse(line) as AnyRecord;
+        if (entry.type === 'custom' && entry.customType === 'context_clear') {
+          const boundaryId = typeof entry.id === 'string' && entry.id
+            ? entry.id
+            : (typeof entry.timestamp === 'string' && entry.timestamp
+              ? entry.timestamp
+              : String(lineNumber));
+          onHistoryReset(`${provider}:${boundaryId}`);
+          continue;
+        }
         if (entry.type !== 'message') {
           continue;
         }
@@ -457,12 +476,16 @@ export class GjcSessionsProvider implements IProviderSessions {
       getHistoryBufferRecordLimit(normalizedLimit, normalizedOffset),
       MAX_BUFFERED_HISTORY_BYTES,
     );
+    let historyEpoch: string | null = null;
 
     try {
       await streamPiSessionMessages(this.provider, sessionId, (rawMessage) => {
         for (const message of this.normalizeHistoryEntry(rawMessage, sessionId)) {
           messageBuffer.push(message);
         }
+      }, (nextHistoryEpoch) => {
+        messageBuffer.reset();
+        historyEpoch = nextHistoryEpoch;
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -511,6 +534,7 @@ export class GjcSessionsProvider implements IProviderSessions {
       hasMore: pageHasMore || messageBuffer.truncated,
       offset: normalizedOffset,
       limit: normalizedLimit,
+      historyEpoch,
       tokenUsage: null,
     };
   }
