@@ -95,10 +95,8 @@
     --mobile-nav-padding: 20px;
     --mobile-nav-total: calc(var(--mobile-nav-height) + var(--mobile-nav-padding) + env(safe-area-inset-bottom, 0px));
 
-    /* Header safe area dimensions */
-    --header-safe-area-top: env(safe-area-inset-top, 0px);
+    /* Header spacing below the standalone status-bar safe area. */
     --header-base-padding: 8px;
-    --header-total-padding: calc(var(--header-safe-area-top) + var(--header-base-padding));
   }
   
   /* Fallback for older iOS versions */
@@ -202,12 +200,48 @@
     overflow: hidden;
   }
 
-  /* Adjust fixed inset positioning in PWA mode */
-  body.pwa-mode .fixed.inset-0 {
-    top: var(--header-total-padding);
-    left: var(--safe-area-inset-left);
-    right: var(--safe-area-inset-right);
-    bottom: 0;
+  /*
+   * Keep the native status-bar strip and app chrome in separate layers.
+   * The dedicated shell starts below the safe area and the strip is opaque,
+   * preventing standalone browser effects from blurring titles and controls.
+   */
+  .pwa-status-bar-surface {
+    position: fixed;
+    z-index: 70;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 0;
+    pointer-events: none;
+    background: hsl(var(--background));
+  }
+
+  @supports (padding-top: env(safe-area-inset-top)) {
+    @media (display-mode: standalone) {
+      .pwa-status-bar-surface {
+        height: var(--safe-area-inset-top);
+      }
+
+      body .app-shell,
+      body .fixed.inset-0:not(.app-shell) {
+        /* Tailwind's inset-0 lives in the later utilities cascade layer. */
+        top: var(--safe-area-inset-top) !important;
+        left: var(--safe-area-inset-left) !important;
+        right: var(--safe-area-inset-right) !important;
+      }
+    }
+  }
+
+  /* JavaScript fallback for iOS navigator.standalone and Android app refs. */
+  body.pwa-mode .pwa-status-bar-surface {
+    height: var(--safe-area-inset-top);
+  }
+
+  body.pwa-mode .app-shell,
+  body.pwa-mode .fixed.inset-0:not(.app-shell) {
+    top: var(--safe-area-inset-top) !important;
+    left: var(--safe-area-inset-left) !important;
+    right: var(--safe-area-inset-right) !important;
   }
   
   /* Global transition defaults */
@@ -781,12 +815,6 @@
   /* PWA specific header adjustments - uses CSS variables for consistency */
   .pwa-header-safe {
     padding-top: var(--header-base-padding);
-  }
-
-  /* When PWA mode is detected by JavaScript */
-  body.pwa-mode .pwa-header-safe {
-    /* Reset padding since #root already handles safe area */
-    padding-top: 0px !important;
   }
 
   /* For mobile PWA, add bottom padding for better spacing */
