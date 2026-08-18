@@ -115,6 +115,12 @@ Cloudflare Quick Tunnel(TryCloudflare)은 계정·도메인 없이 공개 HTTPS 
 CGNAT 환경에서는 포트포워딩이 불가능하므로 Tailscale 또는 도메인 기반 터널만
 남는다.
 
+도메인 행의 named tunnel은 §2에서 탈락시킨 Quick Tunnel(TryCloudflare)과
+다르다. 계정과 고정 도메인이 있으면 재시작에도 주소가 유지되고 SSE 제한도
+없으므로, 폰에 앱을 설치할 수 없고 Tailscale도 쓸 수 없는 경우의 상시 원격
+경로다. 대신 터널 업체 엣지에서 TLS가 종료되므로 그 업체를 신뢰해야 하고,
+로그인 비밀번호는 반드시 그 HTTPS 위로만 보낸다.
+
 ## 5. MVP 반영 항목
 
 이 결론에서 곧바로 도출되는 제품 요구사항은 "단계를 줄이는 것"이 아니라
