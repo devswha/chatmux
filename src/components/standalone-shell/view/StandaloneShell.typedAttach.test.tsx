@@ -15,6 +15,7 @@ const xtermModules = new Map([
   ['@xterm/xterm', 'export class Terminal {}'],
   ['@xterm/addon-clipboard', 'export class ClipboardAddon {}'],
   ['@xterm/addon-fit', 'export class FitAddon {}'],
+  ['@xterm/addon-image', 'export class ImageAddon {}'],
   ['@xterm/addon-web-links', 'export class WebLinksAddon {}'],
   ['@xterm/addon-webgl', 'export class WebglAddon {}'],
 ]);
