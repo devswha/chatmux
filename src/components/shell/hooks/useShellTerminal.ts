@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MutableRefObject, RefObject } from 'react';
 import { ClipboardAddon, type IClipboardProvider } from '@xterm/addon-clipboard';
 import { FitAddon } from '@xterm/addon-fit';
+import { ImageAddon } from '@xterm/addon-image';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { Terminal } from '@xterm/xterm';
@@ -56,6 +57,11 @@ const ClipboardAddonCtor = ClipboardAddon as unknown as new (
   base64?: unknown,
   provider?: IClipboardProvider,
 ) => ClipboardAddon;
+
+// Decoded images are RGBA8888: this limits one image to 16 MiB and the
+// addon's FIFO-backed scrollback storage to 64 MiB.
+const IMAGE_PIXEL_LIMIT = 2048 * 2048;
+const IMAGE_STORAGE_LIMIT_MB = 64;
 
 type UseShellTerminalOptions = {
   terminalContainerRef: RefObject<HTMLDivElement>;
@@ -137,6 +143,15 @@ export function useShellTerminal({
     // Avoid wrapped partial links in compact login flows.
     if (!minimal) {
       nextTerminal.loadAddon(new WebLinksAddon());
+    }
+
+    try {
+      nextTerminal.loadAddon(new ImageAddon({
+        pixelLimit: IMAGE_PIXEL_LIMIT,
+        storageLimit: IMAGE_STORAGE_LIMIT_MB,
+      }));
+    } catch {
+      // Image protocols are optional; retain the terminal's existing renderer.
     }
 
     try {

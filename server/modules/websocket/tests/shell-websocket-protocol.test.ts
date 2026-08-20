@@ -102,7 +102,7 @@ test('local-agent validation failure never spawns a PTY', async () => {
   assert.equal(spawned, 0);
 });
 
-test('typed attach uses the server-built exact argv', async () => {
+test('typed attach best-effort enables passthrough before the server-built exact argv', async () => {
   const commands: string[][] = [];
   const ws = new FakeWebSocket();
   handleShellConnection(ws as never, dependencies({
@@ -110,7 +110,7 @@ test('typed attach uses the server-built exact argv', async () => {
     assertFreshExternalTmuxTarget: async () => createVerifiedTmuxActionTarget(tmux, { pid: 9, startedAtMs: 1 }, 'claude', 'agent'),
   }));
   await sendInit(ws, { shellProtocolVersion: SHELL_PROTOCOL_VERSION, mode: 'typed-attach', targetClass: 'local-agent', tmux, process: { pid: 9, startedAtMs: 1 } });
-  assert.deepEqual(commands, [['-c', "tmux -S '/tmp/tmux.sock' select-window -t '@2' \\; select-pane -t '%3' \\; attach-session -t '$1'"]]);
+  assert.deepEqual(commands, [['-c', "tmux -S '/tmp/tmux.sock' set-option -g allow-passthrough on >/dev/null 2>&1 || true; exec tmux -S '/tmp/tmux.sock' select-window -t '@2' \\; select-pane -t '%3' \\; attach-session -t '$1'"]]);
 });
 
 test('plain shell preserves its command after protocol negotiation', async () => {
@@ -264,7 +264,7 @@ test('attach-only uses a valid capability with a matching generation to spawn th
     tmux,
     capability,
   });
-  assert.deepEqual(commands, [['-c', "tmux -S '/tmp/tmux.sock' select-window -t '@2' \\; select-pane -t '%3' \\; attach-session -t '$1'"]]);
+  assert.deepEqual(commands, [['-c', "tmux -S '/tmp/tmux.sock' set-option -g allow-passthrough on >/dev/null 2>&1 || true; exec tmux -S '/tmp/tmux.sock' select-window -t '@2' \\; select-pane -t '%3' \\; attach-session -t '$1'"]]);
 });
 test('attach-only permits a server hosted outside tmux', async () => {
   const capabilities = createAttachCapabilityService({ readPaneGeneration: async () => '101' });
