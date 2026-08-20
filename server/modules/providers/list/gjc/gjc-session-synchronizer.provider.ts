@@ -90,7 +90,7 @@ export const PI_AGENT_ROOT_DIRS: Record<PiTranscriptProvider, string> = {
 const PI_UNTITLED_SESSION_TITLES: Record<PiTranscriptProvider, string> = {
   gjc: 'Untitled gjc Session',
   omp: 'Untitled Oh My Pi Session',
-  omo: 'Untitled omo Session',
+  omo: 'Untitled Oh My OpenAgent Session',
 };
 
 export class GjcSessionSynchronizer implements IProviderSessionSynchronizer {

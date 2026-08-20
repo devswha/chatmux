@@ -13,7 +13,7 @@ export class OmoProviderAuth implements IProviderAuth {
       authenticated: installed,
       email: installed ? 'CLI managed' : null,
       method: installed ? 'cli' : null,
-      error: installed ? undefined : 'omo CLI is not installed',
+      error: installed ? undefined : 'Oh My OpenAgent (`omo`) CLI is not installed',
     };
   }
 }

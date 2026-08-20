@@ -12,14 +12,14 @@ export class OmoMcpProvider extends McpProvider {
   }
 
   protected async writeScopedServers(): Promise<void> {
-    throw new AppError('omo MCP configuration is not supported by ChatMux.', {
+    throw new AppError('Oh My OpenAgent MCP configuration is not supported by ChatMux.', {
       code: 'MCP_WRITE_UNSUPPORTED',
       statusCode: 400,
     });
   }
 
   protected buildServerConfig(): Record<string, unknown> {
-    throw new AppError('omo MCP configuration is not supported by ChatMux.', {
+    throw new AppError('Oh My OpenAgent MCP configuration is not supported by ChatMux.', {
       code: 'MCP_WRITE_UNSUPPORTED',
       statusCode: 400,
     });

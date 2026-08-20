@@ -179,7 +179,7 @@ function completionPayload(
     codex: 'Codex',
     opencode: 'OpenCode',
     omp: 'Oh My Pi',
-    omo: 'omo',
+    omo: 'Oh My OpenAgent',
   } as Record<string, string>)[session.kind] ?? 'Assistant';
   return {
     title,

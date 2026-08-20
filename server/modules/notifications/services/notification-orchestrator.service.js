@@ -26,6 +26,7 @@ const PROVIDER_LABELS = {
   codex: 'Codex',
   opencode: 'OpenCode',
   omp: 'Oh My Pi',
+  omo: 'Oh My OpenAgent',
   gjc: 'GJC',
   system: 'System'
 };

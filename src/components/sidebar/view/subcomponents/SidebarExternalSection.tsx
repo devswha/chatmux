@@ -19,7 +19,7 @@ const KIND_LABEL: Record<ExternalCliSession['kind'], string> = {
   cursor: 'Cursor',
   opencode: 'OpenCode',
   omp: 'Oh My Pi',
-  omo: 'omo',
+  omo: 'Oh My OpenAgent',
   ssh: 'ssh (remote)',
   shell: 'terminal',
 };

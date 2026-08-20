@@ -40,6 +40,8 @@ Current provider ids accepted by the registry and `parseProvider` are:
 - `omp`
 - `omo`
 
+Here, `omo` is the CLI/provider id for **Oh My OpenAgent**.
+
 Those ids are mirrored in backend unions and frontend provider constants. If
 adding a new provider, update every place that hardcodes this list.
 
@@ -347,5 +349,3 @@ alongside the implementation.
 - Forgetting that Claude plugin skills are discovered differently from normal
   user/project skill folders.
 - Assuming one provider's MCP config file format works for the others.
-
-

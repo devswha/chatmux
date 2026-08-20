@@ -41,7 +41,7 @@ const agentConfig: Record<AgentProvider, AgentConfig> = {
     color: 'gray',
   },
   omo: {
-    name: 'omo',
+    name: 'Oh My OpenAgent',
     color: 'gray',
   },
 };

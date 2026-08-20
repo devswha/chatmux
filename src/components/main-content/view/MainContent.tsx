@@ -328,7 +328,7 @@ function MainContent({
       cursor: 'Cursor',
       opencode: 'OpenCode',
       omp: 'Oh My Pi',
-      omo: 'omo',
+      omo: 'Oh My OpenAgent',
     }[externalTerminal.cliKind];
     const pendingCliAttachTarget = buildTranscriptCliAttachTarget({
       tmux: externalTerminal.tmux,
