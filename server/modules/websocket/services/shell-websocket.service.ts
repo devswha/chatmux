@@ -209,7 +209,12 @@ function buildTypedAttachCommand(tmux: {
   windowId: string;
   paneId: string;
 }): string {
-  return `tmux -S ${shellQuote(tmux.socketPath)} select-window -t ${shellQuote(tmux.windowId)} \\; select-pane -t ${shellQuote(tmux.paneId)} \\; attach-session -t ${shellQuote(tmux.sessionId)}`;
+  const socket = shellQuote(tmux.socketPath);
+  const attach = `tmux -S ${socket} select-window -t ${shellQuote(tmux.windowId)} \\; select-pane -t ${shellQuote(tmux.paneId)} \\; attach-session -t ${shellQuote(tmux.sessionId)}`;
+  if (os.platform() === 'win32') {
+    return `tmux -S ${socket} set-option -g allow-passthrough on *> $null; ${attach}`;
+  }
+  return `tmux -S ${socket} set-option -g allow-passthrough on >/dev/null 2>&1 || true; exec ${attach}`;
 }
 async function readTmuxSessionName(
   tmux: { socketPath: string; paneId: string },
