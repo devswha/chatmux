@@ -4,7 +4,7 @@
 
 <p align="center"><sub><a href="../../README.md">English</a> · <b>한국어</b> · <a href="README.ja.md">日本語</a> · <a href="README.zh-CN.md">简体中文</a></sub></p>
 
-<p align="center">Oh My OpenAgent, Claude Code, Codex, Cursor, OpenCode, Gajae Code, Oh My Pi를 위한 하나의 인터페이스 —<br>tmux에서 이미 실행 중인 에이전트를 한곳에 모읍니다.</p>
+<p align="center">Claude Code, Codex, OpenCode 등을 하나의 인터페이스에서 —<br>tmux에서 실행 중인 에이전트를 그대로 연결합니다.</p>
 
 <p align="center">
   <a href="https://github.com/devswha/chatmux/releases"><img src="https://img.shields.io/github/v/release/devswha/chatmux?display_name=tag&label=release&style=flat-square&color=6366f1" alt="GitHub 릴리즈"></a>
@@ -44,7 +44,7 @@ Linux x86_64(glibc 2.35+)와 tmux, 사용자 레벨 systemd, `curl`/`tar`/`sha25
 출력된 `Local` 주소를 여세요. 실행 중인 tmux 에이전트가 사이드바에 자동으로 나타납니다. 기록이 인식된 세션은 컴포저가 있는 구조화된 대화로 렌더링됩니다:
 
 <p align="center">
-  <img src="../assets/browser-chat.png" alt="데스크톱의 ChatMux: 사이드바에 프로바이더별 라이브 tmux 에이전트 세션이 RUN 및 READY 배지와 함께 나열되고, 선택한 Codex 세션이 컴포저가 있는 구조화된 대화로 렌더링됨" width="900">
+  <img src="../assets/desktop-chat-live.png" alt="데스크톱의 ChatMux: 사이드바에 7개의 라이브 코딩 에이전트가 표시되며, Oh My OpenAgent가 맨 앞에 있고 GJC, Codex, Claude, Cursor, OpenCode, Oh My Pi가 RUN 또는 READY 상태와 함께 이어짐" width="900">
 </p>
 
 같은 세션의 `CLI output` 탭은 tmux 안에서 실행되는 실제 TUI를 브라우저에 렌더링합니다. 메뉴 프롬프트에 답하고, 원본 출력을 확인하거나, 실제 키 입력으로 직접 조작하세요:
@@ -60,15 +60,15 @@ Linux x86_64(glibc 2.35+)와 tmux, 사용자 레벨 systemd, `curl`/`tar`/`sha25
 <table align="center">
   <tr>
     <td align="center">
-      <img src="../assets/mobile-tab.jpeg" width="250" alt="모바일 사이드바: 활동 배지와 드래그 핸들이 있는 프로바이더 전체 세션 목록"><br>
+      <img src="../assets/mobile-sidebar-live.png" width="250" alt="OMO를 맨 앞에 두고 활동 배지와 드래그 핸들을 표시한 일곱 코딩 에이전트의 모바일 사이드바"><br>
       <sub>전체 세션 목록</sub>
     </td>
     <td align="center">
-      <img src="../assets/mobile-chat.jpeg" width="250" alt="컴포저가 있는 Codex 세션의 모바일 대화 뷰"><br>
+      <img src="../assets/mobile-chat-live.png" width="250" alt="실제 질문과 응답이 표시된 Codex 세션의 모바일 대화 뷰"><br>
       <sub>대화 뷰</sub>
     </td>
     <td align="center">
-      <img src="../assets/mobile-cli.jpeg" width="250" alt="터미널 키 바와 함께 실제 Codex TUI에 입력하는 모바일 CLI output 뷰"><br>
+      <img src="../assets/mobile-cli-live.png" width="250" alt="같은 실제 대화를 Codex TUI와 터미널 키 바로 보여주는 모바일 CLI output 뷰"><br>
       <sub>키 바가 있는 실제 TUI</sub>
     </td>
   </tr>
@@ -76,19 +76,19 @@ Linux x86_64(glibc 2.35+)와 tmux, 사용자 레벨 systemd, `curl`/`tar`/`sha25
 
 ## 에이전트 지원
 
-아래에서 "채팅 뷰"는 세션이 읽기 쉬운 대화와 컴포저로 렌더링된다는 뜻입니다. 그렇지 않으면 ChatMux가 연결된 터미널을 제공합니다. 두 뷰 모두 실제 pane에 입력할 수 있습니다.
+아래 에이전트는 모두 자동으로 발견되며 직접 입력과 ChatMux에서의 새 세션 시작을 지원합니다. 인덱싱된 히스토리는 대화로 표시되고, 실시간 CLI 출력은 언제든 볼 수 있습니다.
 
-| 에이전트 | 자동 발견 | 채팅 뷰 | 입력 전송 | 새 세션 시작 |
-|---|:---:|---|---|:---:|
-| **Oh My OpenAgent** (`omo`) | 예 | 히스토리 인덱싱 후 | 프롬프트와 `/skill:` 스킬 | 예 |
-| **Gajae Code (GJC)** | 예 | 예 | 프롬프트와 `/` 명령 | 예 |
-| **Codex CLI** | 예 | 히스토리 인덱싱 후 | 프롬프트와 `$` 스킬 | 예 |
-| **Claude Code** | 예 | 히스토리 인덱싱 후 | 프롬프트와 `/` 스킬 | 예 |
-| **Cursor CLI** | 예 | 히스토리 인덱싱 후 | 프롬프트와 `/` 스킬 | 예 |
-| **OpenCode** | 예 | 히스토리 인덱싱 후 | 프롬프트와 `/` 스킬 | 예 |
-| **Oh My Pi** | 예 | 히스토리 인덱싱 후 | 프롬프트와 `/skill:` 스킬 | 예 |
-| **SSH tmux** | 예 | 아니오 — 터미널 전용 | 터미널 키 입력 | 아니오 |
-| **Local shell** | 예 | 아니오 — 터미널 전용 | 터미널 키 입력 | 아니오 |
+| 에이전트 | 채팅 뷰 |
+|---|---|
+| **Claude Code** | 히스토리 인덱싱 후 |
+| **Codex CLI** | 히스토리 인덱싱 후 |
+| **Cursor CLI** | 히스토리 인덱싱 후 |
+| **OpenCode** | 히스토리 인덱싱 후 |
+| **Oh My OpenAgent** (`omo`) | 히스토리 인덱싱 후 |
+| **Oh My Pi** | 히스토리 인덱싱 후 |
+| **Gajae Code (GJC)** | 기본 지원 |
+
+SSH tmux와 로컬 셸도 터미널 전용 연결로 지원합니다.
 
 <sub>Cursor 세션은 문서화된 <code>agent</code> 명령을 사용합니다. 구형 설치를 위한 레거시 <code>cursor-agent</code> 별칭도 계속 지원됩니다.</sub>
 

@@ -4,7 +4,7 @@
 
 <p align="center"><sub><a href="../../README.md">English</a> · <a href="README.ko.md">한국어</a> · <b>日本語</b> · <a href="README.zh-CN.md">简体中文</a></sub></p>
 
-<p align="center">Oh My OpenAgent、Claude Code、Codex、Cursor、OpenCode、Gajae Code、Oh My Pi のためのひとつのインターフェース —<br>tmux ですでに動いているエージェントをまとめて管理できます。</p>
+<p align="center">Claude Code、Codex、OpenCode などをひとつのインターフェースに —<br>tmux で動いているエージェントをそのまま接続。</p>
 
 <p align="center">
   <a href="https://github.com/devswha/chatmux/releases"><img src="https://img.shields.io/github/v/release/devswha/chatmux?display_name=tag&label=release&style=flat-square&color=6366f1" alt="GitHub リリース"></a>
@@ -44,7 +44,7 @@ Linux x86_64 (glibc 2.35+)、tmux、ユーザーレベルの systemd、`curl`/`t
 表示された `Local` アドレスを開くと、動作中の tmux エージェントがサイドバーに自動で現れます。認識された履歴を持つセッションは、コンポーザー付きの構造化された会話として表示されます:
 
 <p align="center">
-  <img src="../assets/browser-chat.png" alt="デスクトップの ChatMux: サイドバーに各プロバイダーのライブ tmux エージェントセッションが RUN と READY バッジ付きで並び、選択中の Codex セッションがコンポーザー付きの構造化された会話として表示される" width="900">
+  <img src="../assets/desktop-chat-live.png" alt="デスクトップ版 ChatMux: サイドバーに7つのライブコーディングエージェントが表示され、Oh My OpenAgentを先頭に、GJC、Codex、Claude、Cursor、OpenCode、Oh My PiがRUNまたはREADYステータス付きで並ぶ" width="900">
 </p>
 
 同じセッションの `CLI output` タブは、tmux 内で実際に動いている TUI をブラウザにそのまま描画します — メニュープロンプトに答え、生の出力を見守り、実際のキー入力で操作できます:
@@ -60,15 +60,15 @@ Linux x86_64 (glibc 2.35+)、tmux、ユーザーレベルの systemd、`curl`/`t
 <table align="center">
   <tr>
     <td align="center">
-      <img src="../assets/mobile-tab.jpeg" width="250" alt="モバイルのサイドバー: アクティビティバッジとドラッグハンドル付きの全プロバイダーセッション一覧"><br>
+      <img src="../assets/mobile-sidebar-live.png" width="250" alt="OMOを先頭に、7つの稼働中コーディングエージェント、アクティビティバッジ、ドラッグハンドルを表示するモバイルサイドバー"><br>
       <sub>全セッション一覧</sub>
     </td>
     <td align="center">
-      <img src="../assets/mobile-chat.jpeg" width="250" alt="Codex セッションのモバイル会話ビューとチャットコンポーザー"><br>
+      <img src="../assets/mobile-chat-live.png" width="250" alt="実際の質問と回答を表示した Codex セッションのモバイル会話ビュー"><br>
       <sub>会話ビュー</sub>
     </td>
     <td align="center">
-      <img src="../assets/mobile-cli.jpeg" width="250" alt="ターミナルキーバーで本物の Codex TUI に入力するモバイル CLI 出力ビュー"><br>
+      <img src="../assets/mobile-cli-live.png" width="250" alt="同じ実際の会話を Codex TUI とターミナルキーバーで表示するモバイル CLI 出力ビュー"><br>
       <sub>キーバー付きの本物の TUI</sub>
     </td>
   </tr>
@@ -76,19 +76,19 @@ Linux x86_64 (glibc 2.35+)、tmux、ユーザーレベルの systemd、`curl`/`t
 
 ## エージェント対応
 
-以下の「チャットビュー」は、セッションがコンポーザー付きの読みやすい会話として表示されることを意味します。それ以外は ChatMux が接続したターミナルになります。どちらのビューからも実際の pane に入力できます。
+以下のエージェントはすべて自動検出され、直接入力と ChatMux からの新規セッション開始に対応します。インデックス済みの履歴は会話として表示され、ライブ CLI 出力はいつでも確認できます。
 
-| エージェント | 自動検出 | チャットビュー | 入力送信 | 新規セッションの開始 |
-|---|:---:|---|---|:---:|
-| **Oh My OpenAgent** (`omo`) | はい | 履歴のインデックス後 | プロンプトと `/skill:` スキル | はい |
-| **Gajae Code (GJC)** | はい | はい | プロンプトと `/` コマンド | はい |
-| **Codex CLI** | はい | 履歴のインデックス後 | プロンプトと `$` スキル | はい |
-| **Claude Code** | はい | 履歴のインデックス後 | プロンプトと `/` スキル | はい |
-| **Cursor CLI** | はい | 履歴のインデックス後 | プロンプトと `/` スキル | はい |
-| **OpenCode** | はい | 履歴のインデックス後 | プロンプトと `/` スキル | はい |
-| **Oh My Pi** | はい | 履歴のインデックス後 | プロンプトと `/skill:` スキル | はい |
-| **SSH tmux** | はい | いいえ — ターミナルのみ | ターミナルのキー入力 | いいえ |
-| **Local shell** | はい | いいえ — ターミナルのみ | ターミナルのキー入力 | いいえ |
+| エージェント | チャットビュー |
+|---|---|
+| **Claude Code** | 履歴のインデックス後 |
+| **Codex CLI** | 履歴のインデックス後 |
+| **Cursor CLI** | 履歴のインデックス後 |
+| **OpenCode** | 履歴のインデックス後 |
+| **Oh My OpenAgent** (`omo`) | 履歴のインデックス後 |
+| **Oh My Pi** | 履歴のインデックス後 |
+| **Gajae Code (GJC)** | ネイティブ対応 |
+
+SSH tmux とローカルシェルも、ターミナル専用接続として利用できます。
 
 <sub>Cursor セッションはドキュメントに記載された <code>agent</code> コマンドを使用します。古いインストール向けにレガシーの <code>cursor-agent</code> エイリアスも引き続きサポートされます。</sub>
 

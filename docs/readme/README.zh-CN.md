@@ -4,7 +4,7 @@
 
 <p align="center"><sub><a href="../../README.md">English</a> · <a href="README.ko.md">한국어</a> · <a href="README.ja.md">日本語</a> · <b>简体中文</b></sub></p>
 
-<p align="center">One interface for Oh My OpenAgent, Claude Code, Codex, Cursor, OpenCode, Gajae Code, and Oh My Pi —<br>the agents already running in your tmux.</p>
+<p align="center">Claude Code、Codex、OpenCode 等代理，一个界面统一管理 —<br>直接连接 tmux 中已运行的会话。</p>
 
 <p align="center">
   <a href="https://github.com/devswha/chatmux/releases"><img src="https://img.shields.io/github/v/release/devswha/chatmux?display_name=tag&label=release&style=flat-square&color=6366f1" alt="GitHub 发布"></a>
@@ -44,7 +44,7 @@ curl -fsSL https://github.com/devswha/chatmux/releases/latest/download/install.s
 打开打印出的 `Local` 地址 — 正在运行的 tmux 代理会自动出现在侧边栏。能识别记录的会话会渲染为带输入框的结构化对话：
 
 <p align="center">
-  <img src="../assets/browser-chat.png" alt="桌面端 ChatMux：侧边栏按提供方列出带 RUN 和 READY 徽章的实时 tmux 代理会话，选中的 Codex 会话渲染为带输入框的结构化对话" width="900">
+  <img src="../assets/desktop-chat-live.png" alt="桌面端 ChatMux：侧边栏显示七个实时编码代理，Oh My OpenAgent 排在首位，随后是 GJC、Codex、Claude、Cursor、OpenCode 和 Oh My Pi，并显示 RUN 或 READY 状态" width="900">
 </p>
 
 同一会话的 `CLI output` 标签页把真正运行在 tmux 里的 TUI 渲染到浏览器中 — 回应菜单提示、查看原始输出，或用真实按键直接接管：
@@ -60,15 +60,15 @@ curl -fsSL https://github.com/devswha/chatmux/releases/latest/download/install.s
 <table align="center">
   <tr>
     <td align="center">
-      <img src="../assets/mobile-tab.jpeg" width="250" alt="移动端侧边栏：带活动徽章和拖拽手柄的跨提供方会话总表"><br>
+      <img src="../assets/mobile-sidebar-live.png" width="250" alt="移动端侧边栏：OMO 排在首位，显示七个实时编码代理、活动徽章和拖拽手柄"><br>
       <sub>完整会话总表</sub>
     </td>
     <td align="center">
-      <img src="../assets/mobile-chat.jpeg" width="250" alt="Codex 会话的移动端对话视图与聊天输入框"><br>
+      <img src="../assets/mobile-chat-live.png" width="250" alt="显示真实提问和回答的 Codex 会话移动端对话视图"><br>
       <sub>对话视图</sub>
     </td>
     <td align="center">
-      <img src="../assets/mobile-cli.jpeg" width="250" alt="通过终端按键栏向真正的 Codex TUI 输入的移动端 CLI 输出视图"><br>
+      <img src="../assets/mobile-cli-live.png" width="250" alt="在 Codex TUI 与终端按键栏中显示同一段真实对话的移动端 CLI 输出视图"><br>
       <sub>带按键栏的真实 TUI</sub>
     </td>
   </tr>
@@ -76,19 +76,19 @@ curl -fsSL https://github.com/devswha/chatmux/releases/latest/download/install.s
 
 ## 代理支持
 
-下表中“聊天视图”指会话渲染为带输入框、易于阅读的对话；否则 ChatMux 提供附加终端。两种视图都能向真实 pane 输入。
+以下代理均会被自动发现，支持直接输入，也可从 ChatMux 启动新会话。已索引的历史记录会显示为对话，实时 CLI 输出则始终可用。
 
-| 代理 | 自动发现 | 聊天视图 | 发送输入 | 新建会话 |
-|---|:---:|---|---|:---:|
-| **Oh My OpenAgent** (`omo`) | 是 | 历史索引后 | 提示词与 `/skill:` 技能 | 是 |
-| **Gajae Code (GJC)** | 是 | 是 | 提示词与 `/` 命令 | 是 |
-| **Codex CLI** | 是 | 历史索引后 | 提示词与 `$` 技能 | 是 |
-| **Claude Code** | 是 | 历史索引后 | 提示词与 `/` 技能 | 是 |
-| **Cursor CLI** | 是 | 历史索引后 | 提示词与 `/` 技能 | 是 |
-| **OpenCode** | 是 | 历史索引后 | 提示词与 `/` 技能 | 是 |
-| **Oh My Pi** | 是 | 历史索引后 | 提示词与 `/skill:` 技能 | 是 |
-| **SSH tmux** | 是 | 否 — 仅终端 | 终端按键 | 否 |
-| **Local shell** | 是 | 否 — 仅终端 | 终端按键 | 否 |
+| 代理 | 聊天视图 |
+|---|---|
+| **Claude Code** | 历史索引后 |
+| **Codex CLI** | 历史索引后 |
+| **Cursor CLI** | 历史索引后 |
+| **OpenCode** | 历史索引后 |
+| **Oh My OpenAgent** (`omo`) | 历史索引后 |
+| **Oh My Pi** | 历史索引后 |
+| **Gajae Code (GJC)** | 原生支持 |
+
+SSH tmux 和本地 shell 也可作为纯终端连接使用。
 
 <sub>Cursor 会话使用文档中的 <code>agent</code> 命令；为旧安装保留了传统的 <code>cursor-agent</code> 别名。</sub>
 

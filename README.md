@@ -4,7 +4,7 @@
 
 <p align="center"><sub><b>English</b> · <a href="docs/readme/README.ko.md">한국어</a> · <a href="docs/readme/README.ja.md">日本語</a> · <a href="docs/readme/README.zh-CN.md">简体中文</a></sub></p>
 
-<p align="center">One interface for Oh My OpenAgent, Claude Code, Codex, Cursor, OpenCode, Gajae Code, and Oh My Pi —<br>the agents already running in your tmux.</p>
+<p align="center">One interface for Claude Code, Codex, OpenCode, and more —<br>already running in your tmux.</p>
 
 <p align="center">
   <a href="https://github.com/devswha/chatmux/releases"><img src="https://img.shields.io/github/v/release/devswha/chatmux?display_name=tag&label=release&style=flat-square&color=6366f1" alt="GitHub release"></a>
@@ -44,7 +44,7 @@ Pinned versions, access modes, updates, rollback, and recovery are covered in th
 Open the printed `Local` address — running tmux agents appear in the sidebar by themselves. Sessions with a recognized transcript render as a structured conversation with a composer:
 
 <p align="center">
-  <img src="docs/assets/browser-chat.png" alt="ChatMux on desktop: the sidebar lists live tmux agent sessions across providers with RUN and READY badges, and the selected Codex session renders as a structured conversation with a composer" width="900">
+  <img src="docs/assets/desktop-chat-live.png" alt="ChatMux on desktop: the sidebar shows seven live coding agents, with Oh My OpenAgent first, followed by GJC, Codex, Claude, Cursor, OpenCode, and Oh My Pi, each with RUN or READY status" width="900">
 </p>
 
 The `CLI output` tab of the same session is the real TUI running inside tmux, rendered in the browser — answer menu prompts, watch raw output, or take over with real keystrokes:
@@ -60,15 +60,15 @@ Turn on Tailscale on the phone, scan the QR code from the install output, and us
 <table align="center">
   <tr>
     <td align="center">
-      <img src="docs/assets/mobile-tab.jpeg" width="250" alt="Mobile sidebar: the full cross-provider session roster with activity badges and drag handles"><br>
+      <img src="docs/assets/mobile-sidebar-live.png" width="250" alt="Mobile sidebar showing seven live coding agents, with OMO first, activity badges, and drag handles"><br>
       <sub>The full session roster</sub>
     </td>
     <td align="center">
-      <img src="docs/assets/mobile-chat.jpeg" width="250" alt="Mobile conversation view of a Codex session with the chat composer"><br>
+      <img src="docs/assets/mobile-chat-live.png" width="250" alt="Mobile conversation view showing a real prompt and response from a Codex session"><br>
       <sub>Conversation view</sub>
     </td>
     <td align="center">
-      <img src="docs/assets/mobile-cli.jpeg" width="250" alt="Mobile CLI output view typing into the real Codex TUI with the terminal key bar"><br>
+      <img src="docs/assets/mobile-cli-live.png" width="250" alt="Mobile CLI output view showing the same real conversation in the Codex TUI with the terminal key bar"><br>
       <sub>Real TUI with a key bar</sub>
     </td>
   </tr>
@@ -76,19 +76,19 @@ Turn on Tailscale on the phone, scan the QR code from the install output, and us
 
 ## Agent support
 
-"Chat view" below means the session renders as a readable conversation with a composer; otherwise ChatMux gives you an attached terminal. Both views can type into the real pane.
+All listed agents are discovered automatically, accept direct input, and can be launched from ChatMux. Indexed histories render as conversations; live CLI output is always available.
 
-| Agent | Found automatically | Chat view | Send input | Start new session |
-|---|:---:|---|---|:---:|
-| **Oh My OpenAgent** (`omo`) | Yes | After its history is indexed | Prompts and `/skill:` skills | Yes |
-| **Gajae Code (GJC)** | Yes | Yes | Prompts and `/` commands | Yes |
-| **Codex CLI** | Yes | After its history is indexed | Prompts and `$` skills | Yes |
-| **Claude Code** | Yes | After its history is indexed | Prompts and `/` skills | Yes |
-| **Cursor CLI** | Yes | After its history is indexed | Prompts and `/` skills | Yes |
-| **OpenCode** | Yes | After its history is indexed | Prompts and `/` skills | Yes |
-| **Oh My Pi** | Yes | After its history is indexed | Prompts and `/skill:` skills | Yes |
-| **SSH tmux** | Yes | No — terminal only | Terminal keystrokes | No |
-| **Local shell** | Yes | No — terminal only | Terminal keystrokes | No |
+| Agent | Chat view |
+|---|---|
+| **Claude Code** | After history is indexed |
+| **Codex CLI** | After history is indexed |
+| **Cursor CLI** | After history is indexed |
+| **OpenCode** | After history is indexed |
+| **Oh My OpenAgent** (`omo`) | After history is indexed |
+| **Oh My Pi** | After history is indexed |
+| **Gajae Code (GJC)** | Native |
+
+SSH tmux and local shells are also supported as terminal-only connections.
 
 <sub>Cursor sessions use the documented <code>agent</code> command; the legacy <code>cursor-agent</code> alias remains supported for older installations.</sub>
 
