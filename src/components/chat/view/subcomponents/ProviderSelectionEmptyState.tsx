@@ -322,7 +322,7 @@ export default function ProviderSelectionEmptyState({
                 }),
                 omp: `Ready with Oh My Pi ${ompModel}`,
                 omo: t("providerSelection.readyPrompt.omo", {
-                  defaultValue: "Ready with omo",
+                  defaultValue: "Ready with Oh My OpenAgent",
                 }),
               }[provider]
             }

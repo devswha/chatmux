@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="../assets/readme-hero.svg" alt="ChatMux — 모든 코딩 에이전트를 하나의 커맨드 데크로: Codex, Claude, Gajae Code, Cursor, OpenCode, Oh My Pi, omo 세션을 하나의 셀프호스트 인터페이스로 멀티플렉싱" width="900">
+  <img src="../assets/readme-hero.svg" alt="ChatMux — 모든 코딩 에이전트를 하나의 커맨드 데크로: Codex, Claude, Gajae Code, Cursor, OpenCode, Oh My Pi, Oh My OpenAgent 세션을 하나의 셀프호스트 인터페이스로 멀티플렉싱" width="900">
 </p>
 
 <p align="center"><sub><a href="../../README.md">English</a> · <b>한국어</b> · <a href="README.ja.md">日本語</a> · <a href="README.zh-CN.md">简体中文</a></sub></p>
@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/runtime-tmux-ff6b4a?style=flat-square" alt="tmux 런타임">
 </p>
 
-Gajae Code, Claude Code, Codex, Cursor CLI, OpenCode, Oh My Pi, omo 같은 코딩 에이전트를 늘 하던 대로 tmux 안에서 실행하세요. ChatMux가 알아서 찾아 데스크톱이나 휴대폰에서 모든 세션을 하나의 브라우저 페이지에 보여줍니다.
+Gajae Code, Claude Code, Codex, Cursor CLI, OpenCode, Oh My Pi, Oh My OpenAgent 같은 코딩 에이전트를 늘 하던 대로 tmux 안에서 실행하세요. ChatMux가 알아서 찾아 데스크톱이나 휴대폰에서 모든 세션을 하나의 브라우저 페이지에 보여줍니다.
 
 - **등록 절차 없음:** tmux에서 이미 실행 중인 에이전트가 사이드바에 바로 나타납니다. 감싸거나 연결하거나 재시작할 것이 없습니다.
 - **멀티 프로바이더:** 모든 프로바이더가 드래그로 정렬할 수 있는 하나의 목록에 모이고, `RUN`, `READY`, `ERROR` 배지로 실시간 상태를 보여줍니다.
@@ -86,7 +86,7 @@ Linux x86_64(glibc 2.35+)와 tmux, 사용자 레벨 systemd, `curl`/`tar`/`sha25
 | **Cursor CLI** | 예 | 히스토리 인덱싱 후 | 프롬프트와 `/` 스킬 | 예 |
 | **OpenCode** | 예 | 히스토리 인덱싱 후 | 프롬프트와 `/` 스킬 | 예 |
 | **Oh My Pi** | 예 | 히스토리 인덱싱 후 | 프롬프트와 `/skill:` 스킬 | 예 |
-| **omo** | 예 | 히스토리 인덱싱 후 | 프롬프트와 `/skill:` 스킬 | 예 |
+| **Oh My OpenAgent** (`omo`) | 예 | 히스토리 인덱싱 후 | 프롬프트와 `/skill:` 스킬 | 예 |
 | **SSH tmux** | 예 | 아니오 — 터미널 전용 | 터미널 키 입력 | 아니오 |
 | **Local shell** | 예 | 아니오 — 터미널 전용 | 터미널 키 입력 | 아니오 |
 

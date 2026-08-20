@@ -1,10 +1,10 @@
 <p align="center">
-  <img src="../assets/readme-hero.svg" alt="ChatMux — あらゆるコーディングエージェントをひとつのコマンドデッキに: Codex、Claude、Gajae Code、Cursor、OpenCode、Oh My Pi、omo のセッションをひとつのセルフホスト型インターフェースへ多重化" width="900">
+  <img src="../assets/readme-hero.svg" alt="ChatMux — あらゆるコーディングエージェントをひとつのコマンドデッキに: Codex、Claude、Gajae Code、Cursor、OpenCode、Oh My Pi、Oh My OpenAgent のセッションをひとつのセルフホスト型インターフェースへ多重化" width="900">
 </p>
 
 <p align="center"><sub><a href="../../README.md">English</a> · <a href="README.ko.md">한국어</a> · <b>日本語</b> · <a href="README.zh-CN.md">简体中文</a></sub></p>
 
-<p align="center">Claude Code、Codex、Cursor、OpenCode、Gajae Code、Oh My Pi、omo のためのひとつのインターフェース —<br>tmux ですでに動いているエージェントをまとめて管理できます。</p>
+<p align="center">Claude Code、Codex、Cursor、OpenCode、Gajae Code、Oh My Pi、Oh My OpenAgent のためのひとつのインターフェース —<br>tmux ですでに動いているエージェントをまとめて管理できます。</p>
 
 <p align="center">
   <a href="https://github.com/devswha/chatmux/releases"><img src="https://img.shields.io/github/v/release/devswha/chatmux?display_name=tag&label=release&style=flat-square&color=6366f1" alt="GitHub リリース"></a>
@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/runtime-tmux-ff6b4a?style=flat-square" alt="tmux ランタイム">
 </p>
 
-コーディングエージェント — Gajae Code、Claude Code、Codex、Cursor CLI、OpenCode、Oh My Pi、omo — は、これまでどおり tmux の中で動かします。ChatMux が自動で見つけ出し、デスクトップからでもスマホからでも、すべてのセッションをブラウザの 1 ページに表示します。
+コーディングエージェント — Gajae Code、Claude Code、Codex、Cursor CLI、OpenCode、Oh My Pi、Oh My OpenAgent — は、これまでどおり tmux の中で動かします。ChatMux が自動で見つけ出し、デスクトップからでもスマホからでも、すべてのセッションをブラウザの 1 ページに表示します。
 
 - **登録不要:** tmux ですでに動いているエージェントがサイドバーにそのまま現れます。ラップも配線も再起動も不要です。
 - **マルチプロバイダー:** すべてのプロバイダーを、ドラッグで並べ替えられるひとつのリストにまとめ、ライブ状態を `RUN`、`READY`、`ERROR` バッジで表示します。
@@ -86,7 +86,7 @@ Linux x86_64 (glibc 2.35+)、tmux、ユーザーレベルの systemd、`curl`/`t
 | **Cursor CLI** | はい | 履歴のインデックス後 | プロンプトと `/` スキル | はい |
 | **OpenCode** | はい | 履歴のインデックス後 | プロンプトと `/` スキル | はい |
 | **Oh My Pi** | はい | 履歴のインデックス後 | プロンプトと `/skill:` スキル | はい |
-| **omo** | はい | 履歴のインデックス後 | プロンプトと `/skill:` スキル | はい |
+| **Oh My OpenAgent** (`omo`) | はい | 履歴のインデックス後 | プロンプトと `/skill:` スキル | はい |
 | **SSH tmux** | はい | いいえ — ターミナルのみ | ターミナルのキー入力 | いいえ |
 | **Local shell** | はい | いいえ — ターミナルのみ | ターミナルのキー入力 | いいえ |
 

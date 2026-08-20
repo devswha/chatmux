@@ -1,10 +1,10 @@
 <p align="center">
-  <img src="docs/assets/readme-hero.svg" alt="ChatMux — every coding agent, one command deck: Codex, Claude, Gajae Code, Cursor, OpenCode, Oh My Pi, and omo sessions multiplexed into one self-hosted interface" width="900">
+  <img src="docs/assets/readme-hero.svg" alt="ChatMux — every coding agent, one command deck: Codex, Claude, Gajae Code, Cursor, OpenCode, Oh My Pi, and Oh My OpenAgent sessions multiplexed into one self-hosted interface" width="900">
 </p>
 
 <p align="center"><sub><b>English</b> · <a href="docs/readme/README.ko.md">한국어</a> · <a href="docs/readme/README.ja.md">日本語</a> · <a href="docs/readme/README.zh-CN.md">简体中文</a></sub></p>
 
-<p align="center">One interface for Claude Code, Codex, Cursor, OpenCode, Gajae Code, Oh My Pi, and omo —<br>the agents already running in your tmux.</p>
+<p align="center">One interface for Claude Code, Codex, Cursor, OpenCode, Gajae Code, Oh My Pi, and Oh My OpenAgent —<br>the agents already running in your tmux.</p>
 
 <p align="center">
   <a href="https://github.com/devswha/chatmux/releases"><img src="https://img.shields.io/github/v/release/devswha/chatmux?display_name=tag&label=release&style=flat-square&color=6366f1" alt="GitHub release"></a>
@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/runtime-tmux-ff6b4a?style=flat-square" alt="tmux runtime">
 </p>
 
-You run coding agents — Gajae Code, Claude Code, Codex, Cursor CLI, OpenCode, Oh My Pi, omo — inside tmux, like always. ChatMux finds them by itself and shows every session in one browser page, from your desktop or your phone.
+You run coding agents — Gajae Code, Claude Code, Codex, Cursor CLI, OpenCode, Oh My Pi, Oh My OpenAgent — inside tmux, like always. ChatMux finds them by itself and shows every session in one browser page, from your desktop or your phone.
 
 - **Zero registration:** Agents already running in tmux just appear in the sidebar. Nothing to wrap, wire, or restart.
 - **Multi-provider:** Every provider in a single drag-sortable list, with `RUN`, `READY`, and `ERROR` badges for live state.
@@ -86,7 +86,7 @@ Turn on Tailscale on the phone, scan the QR code from the install output, and us
 | **Cursor CLI** | Yes | After its history is indexed | Prompts and `/` skills | Yes |
 | **OpenCode** | Yes | After its history is indexed | Prompts and `/` skills | Yes |
 | **Oh My Pi** | Yes | After its history is indexed | Prompts and `/skill:` skills | Yes |
-| **omo** | Yes | After its history is indexed | Prompts and `/skill:` skills | Yes |
+| **Oh My OpenAgent** (`omo`) | Yes | After its history is indexed | Prompts and `/skill:` skills | Yes |
 | **SSH tmux** | Yes | No — terminal only | Terminal keystrokes | No |
 | **Local shell** | Yes | No — terminal only | Terminal keystrokes | No |
 

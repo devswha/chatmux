@@ -20,7 +20,7 @@ const PROVIDERS: { id: SpawnProvider; label: string }[] = [
   { id: 'cursor', label: 'Cursor' },
   { id: 'opencode', label: 'OpenCode' },
   { id: 'omp', label: 'Oh My Pi' },
-  { id: 'omo', label: 'omo' },
+  { id: 'omo', label: 'Oh My OpenAgent' },
 ];
 
 // Working directories of successful spawns, most recent first. Typing an

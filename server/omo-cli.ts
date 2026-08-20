@@ -11,7 +11,7 @@ import type { NormalizedMessage } from './shared/types.js';
 const OMO: PiCliDescriptor = {
   provider: 'omo',
   binary: 'omo',
-  label: 'omo',
+  label: 'Oh My OpenAgent',
 };
 
 const runtime = createPiCliRuntime(OMO);

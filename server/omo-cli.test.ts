@@ -103,13 +103,13 @@ test('normalizeOmoEvent ignores the non-message envelopes the CLI also emits', (
   }
 });
 
-test('normalizeOmoEvent surfaces errors with an omo-labelled fallback', () => {
+test('normalizeOmoEvent surfaces errors with an Oh My OpenAgent-labelled fallback', () => {
   assert.equal(
     normalizeOmoEvent({ type: 'error', error: { message: 'boom' } }, 'session-1').messages[0].content,
     'boom',
   );
   assert.equal(
     normalizeOmoEvent({ type: 'error' }, 'session-1').messages[0].content,
-    'omo failed.',
+    'Oh My OpenAgent failed.',
   );
 });

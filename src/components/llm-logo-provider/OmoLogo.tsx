@@ -3,7 +3,7 @@ type OmoLogoProps = {
 };
 
 /**
- * Official omo mark from oh-my-openagent `.github/assets/omo-icon-light.svg`.
+ * Official Oh My OpenAgent mark from `.github/assets/omo-icon-light.svg`.
  *
  * Cropped to the cat itself rather than to the source canvas. Measured from a
  * 512px render, the mark occupies x 190..832, y 220..794 of the 1024 canvas —
@@ -16,7 +16,7 @@ const OmoLogo = ({ className = 'w-5 h-5' }: OmoLogoProps) => (
   <svg
     viewBox="158 154 706 706"
     role="img"
-    aria-label="omo"
+    aria-label="Oh My OpenAgent"
     className={className}
     xmlns="http://www.w3.org/2000/svg"
   >
