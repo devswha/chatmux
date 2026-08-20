@@ -114,11 +114,28 @@
       "sourceAvailable": "Ziel: {{version}} (neuester Commit auf main). Quell-Updates haben keine feste Release-Version.",
       "releaseAvailable": "Ein exaktes Release-Ziel ist verfügbar{{version}}."
     },
+    "releaseNotes": {
+      "title": "Neu in v{{version}}",
+      "viewFull": "Vollständige Release Notes ansehen"
+    },
     "confirm": {
       "message": "Der Server wird aktualisiert und neu gestartet. Aktive Web-Arbeit kann unterbrochen werden."
     },
     "progress": {
-      "message": "Server wird aktualisiert. Der Fortschritt bleibt erhalten, wenn dieser Bildschirm geschlossen wird oder der Server neu startet."
+      "message": "Server wird aktualisiert. Der Fortschritt bleibt erhalten, wenn dieser Bildschirm geschlossen wird oder der Server neu startet.",
+      "download": "{{downloaded}} MB / {{total}} MB heruntergeladen",
+      "downloadUnsized": "{{downloaded}} MB heruntergeladen",
+      "phases": {
+        "queued": "Warten auf Start…",
+        "downloading": "Release wird heruntergeladen…",
+        "verifying": "Download wird überprüft…",
+        "staging": "Neues Release wird vorbereitet…",
+        "cutting_over": "Wechsel zum neuen Release…",
+        "restarting": "Server wird neu gestartet…",
+        "verifying_health": "Serverzustand wird geprüft…",
+        "rolling_back": "Rollback läuft…",
+        "succeeded": "Abschluss…"
+      }
     },
     "success": {
       "message": "Update überprüft. Der neue Bildschirm wird angewendet."

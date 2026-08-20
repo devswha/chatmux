@@ -21,12 +21,13 @@ export default function AgentsSettingsTab({
   const [selectedAgent, setSelectedAgent] = useState<AgentProvider>('claude');
   const [selectedCategory, setSelectedCategory] = useState<AgentCategory>('account');
   const visibleCategories = useMemo<AgentCategory[]>(() => {
-    if (selectedAgent === 'omp') return ['account'];
+    // Neither pi-derived CLI exposes a ChatMux-managed permission surface.
+    if (selectedAgent === 'omp' || selectedAgent === 'omo') return ['account'];
     return ['account', 'permissions'];
   }, [selectedAgent]);
 
   const visibleAgents = useMemo<AgentProvider[]>(() => {
-    return ['claude', 'cursor', 'codex', 'opencode', 'omp'];
+    return ['claude', 'cursor', 'codex', 'opencode', 'omp', 'omo'];
   }, []);
 
   const agentContextById = useMemo<Record<AgentProvider, AgentContext>>(() => ({
@@ -54,6 +55,10 @@ export default function AgentsSettingsTab({
       authStatus: providerAuthStatus.omp,
       onLogin: () => onProviderLogin('omp'),
     },
+    omo: {
+      authStatus: providerAuthStatus.omo,
+      onLogin: () => onProviderLogin('omo'),
+    },
   }), [
     onProviderLogin,
     providerAuthStatus.claude,
@@ -62,6 +67,7 @@ export default function AgentsSettingsTab({
     providerAuthStatus.gjc,
     providerAuthStatus.opencode,
     providerAuthStatus.omp,
+    providerAuthStatus.omo,
   ]);
 
   useEffect(() => {

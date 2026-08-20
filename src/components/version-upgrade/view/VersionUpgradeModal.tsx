@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer, useRef } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { InstallMode, SystemUpdateStatus, UpdateJob } from "../../../hooks/useVersionCheck";
@@ -12,6 +12,8 @@ interface VersionUpgradeModalProps {
     currentVersion: string;
     runningVersion: string | null;
     latestVersion: string | null;
+    releaseNotes: string | null;
+    releaseUrl: string | null;
     installMode: InstallMode;
     clientRefreshAvailable: boolean;
     serverUpdateAvailable: boolean;
@@ -76,6 +78,27 @@ const TERMINAL_FAILURE_PHASES = new Set<TerminalFailurePhase>(['failed', 'failed
 
 function isTerminalFailurePhase(phase: UpdateJob['phase']): phase is TerminalFailurePhase {
     return TERMINAL_FAILURE_PHASES.has(phase as TerminalFailurePhase);
+}
+
+/** Overall update progress in percent per worker phase; downloading interpolates by bytes. */
+const PHASE_PROGRESS_SPAN: Partial<Record<UpdateJob['phase'], [number, number]>> = {
+    queued: [0, 5],
+    downloading: [5, 45],
+    verifying: [45, 55],
+    staging: [55, 70],
+    cutting_over: [70, 80],
+    restarting: [80, 90],
+    verifying_health: [90, 98],
+    rolling_back: [98, 98],
+};
+
+export function releaseUpdatePercent(job: UpdateJob): number | null {
+    const span = PHASE_PROGRESS_SPAN[job.phase];
+    if (!span) return job.phase === 'succeeded' ? 100 : null;
+    const [start, end] = span;
+    if (job.phase !== 'downloading' || !job.progress?.totalBytes) return start;
+    const fraction = Math.min(1, Math.max(0, job.progress.downloadedBytes / job.progress.totalBytes));
+    return start + (end - start) * fraction;
 }
 const UPDATE_BOOT_ID_KEY_PREFIX = 'chatmux:update:initial-boot:';
 
@@ -156,6 +179,8 @@ export function VersionUpgradeModal({
     currentVersion,
     runningVersion,
     latestVersion,
+    releaseNotes,
+    releaseUrl,
     installMode,
     clientRefreshAvailable,
     serverUpdateAvailable,
@@ -169,6 +194,8 @@ export function VersionUpgradeModal({
     const [phase, dispatch] = useReducer(reduceUpdatePhase, { kind: 'idle' });
     const refreshedRef = useRef(false);
     const jobPollInFlightRef = useRef(false);
+    // Latest polled release job, kept only to render phase and download progress.
+    const [releaseJob, setReleaseJob] = useState<UpdateJob | null>(null);
 
     const applyRefreshOnce = useCallback(async (serverVersion: string): Promise<boolean> => {
         if (refreshedRef.current) return true;
@@ -193,6 +220,7 @@ export function VersionUpgradeModal({
                 }
                 // A restart temporarily interrupts polling; retain the durable job id and retry.
                 if (!response.ok || !job || job.id !== waiting.jobId) return;
+                setReleaseJob(job);
                 if (isTerminalFailurePhase(job.phase)) {
                     clearInitialBootId(job.id);
                     dispatch({ type: 'release_terminal', phase: job.phase, message: job.error });
@@ -276,6 +304,7 @@ export function VersionUpgradeModal({
 
     const handleUpdateNow = useCallback(async () => {
         if (!canUpdate || !serverUpdateAvailable || (installMode !== 'release' && installMode !== 'source')) return;
+        setReleaseJob(null);
         dispatch({ type: 'set', phase: { kind: 'starting' } });
         try {
             const response = await authenticatedFetch('/api/system/update', {
@@ -318,6 +347,19 @@ export function VersionUpgradeModal({
 
     if (!isOpen) return null;
     const busy = phase.kind === 'starting' || phase.kind === 'waiting';
+    // The cached poll result is only valid for the job this wait is bound to.
+    const activeReleaseJob = phase.kind === 'waiting' && phase.mode === 'release' && releaseJob?.id === phase.jobId ? releaseJob : null;
+    const percent = activeReleaseJob ? releaseUpdatePercent(activeReleaseJob) : null;
+    const downloadDetail = activeReleaseJob?.phase === 'downloading' && activeReleaseJob.progress
+        ? (activeReleaseJob.progress.totalBytes
+            ? t('versionUpdate.progress.download', {
+                downloaded: (activeReleaseJob.progress.downloadedBytes / (1024 * 1024)).toFixed(1),
+                total: (activeReleaseJob.progress.totalBytes / (1024 * 1024)).toFixed(1),
+            })
+            : t('versionUpdate.progress.downloadUnsized', {
+                downloaded: (activeReleaseJob.progress.downloadedBytes / (1024 * 1024)).toFixed(1),
+            }))
+        : null;
     const updateAllowed = serverUpdateAvailable && canUpdate && (installMode === 'release' || installMode === 'source');
     const manualText = installMode === 'release'
         ? t('versionUpdate.manual.release')
@@ -352,8 +394,47 @@ export function VersionUpgradeModal({
                     </div>
                 )}
 
+                {serverUpdateAvailable && installMode === 'release' && releaseNotes && (
+                    <div className="space-y-1.5">
+                        <h3 className="text-sm font-medium text-gray-900 dark:text-white">
+                            {t('versionUpdate.releaseNotes.title', { version: latestVersion ?? '' })}
+                        </h3>
+                        <pre className="max-h-48 overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-gray-200 bg-gray-50 p-3 font-sans text-xs leading-relaxed text-gray-700 dark:border-gray-700 dark:bg-gray-900/40 dark:text-gray-300">{releaseNotes}</pre>
+                        {releaseUrl && (
+                            <a href={releaseUrl} target="_blank" rel="noreferrer" className="inline-block text-xs text-blue-600 underline dark:text-blue-400">
+                                {t('versionUpdate.releaseNotes.viewFull')}
+                            </a>
+                        )}
+                    </div>
+                )}
+
                 {phase.kind === 'confirm' && <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">{t('versionUpdate.confirm.message')}</div>}
-                {busy && <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">{t('versionUpdate.progress.message')}</div>}
+                {busy && (
+                    <div className="space-y-2 rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800 dark:border-blue-900/40 dark:bg-blue-900/20 dark:text-blue-200">
+                        <div className="flex items-center justify-between gap-3">
+                            <span>
+                                {activeReleaseJob
+                                    ? t(`versionUpdate.progress.phases.${activeReleaseJob.phase}`, { defaultValue: t('versionUpdate.progress.message') })
+                                    : t('versionUpdate.progress.message')}
+                            </span>
+                            {percent !== null && <span className="font-medium tabular-nums">{Math.round(percent)}%</span>}
+                        </div>
+                        <div
+                            role="progressbar"
+                            aria-label={t('versionUpdate.ariaLabels.progress')}
+                            aria-valuemin={0}
+                            aria-valuemax={100}
+                            {...(percent === null ? {} : { 'aria-valuenow': Math.round(percent) })}
+                            className="h-2 overflow-hidden rounded-full bg-blue-200 dark:bg-blue-900/50"
+                        >
+                            {percent === null
+                                ? <div className="h-full w-1/3 animate-pulse rounded-full bg-blue-500" />
+                                : <div className="h-full rounded-full bg-blue-500 transition-all duration-500" style={{ width: `${percent}%` }} />}
+                        </div>
+                        {downloadDetail && <div className="text-xs text-blue-700 dark:text-blue-300">{downloadDetail}</div>}
+                        {activeReleaseJob && <div className="text-xs text-blue-700 dark:text-blue-300">{t('versionUpdate.progress.message')}</div>}
+                    </div>
+                )}
                 {phase.kind === 'success' && <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">{t('versionUpdate.success.message')}</div>}
                 {phase.kind === 'failed' && <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{phase.message}</div>}
                 {phase.kind === 'failed_rolled_back' && <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{t('versionUpdate.errors.failedRolledBack', { error: phase.message })}</div>}

@@ -75,6 +75,30 @@ test('proven inactive active job becomes a durable sanitized failure and frees s
   } finally { cleanup(directory); }
 });
 
+test('download progress lives in a sidecar, never the v1 state file, and dies with the job', () => {
+  const directory = root();
+  try {
+    const store = new ReleaseUpdateStateStore(directory, { now: () => 100 });
+    const job = descriptor(1);
+    store.create(job);
+    store.transition(job.id, 'downloading');
+    store.recordDownloadProgress(job.id, { downloadedBytes: 1024 });
+    assert.deepEqual(store.publicStatus(job.id)?.progress, { downloadedBytes: 1024 });
+    store.recordDownloadProgress(job.id, { downloadedBytes: 2048, totalBytes: 4096 });
+    // Rollback compatibility: a prior release's closed-schema reader must be
+    // able to parse the state file, so progress may never appear in it.
+    assert.equal(readFileSync(path.join(directory, 'release-update-state.json'), 'utf8').includes('progress'), false);
+    const resumed = new ReleaseUpdateStateStore(directory, { now: () => 100 });
+    assert.deepEqual(resumed.publicActiveStatus()?.progress, { downloadedBytes: 2048, totalBytes: 4096 });
+    assert.throws(() => store.recordDownloadProgress(job.id, { downloadedBytes: 5000, totalBytes: 4096 }), ReleaseUpdateStateError);
+    assert.throws(() => store.recordDownloadProgress(job.id, { downloadedBytes: -1 }), ReleaseUpdateStateError);
+    store.transition(job.id, 'succeeded');
+    assert.throws(() => store.recordDownloadProgress(job.id, { downloadedBytes: 4096 }), ReleaseUpdateStateError);
+    assert.equal(store.publicStatus(job.id)?.progress, undefined);
+    assert.equal(fs.existsSync(path.join(directory, 'release-update-progress.json')), false);
+  } finally { cleanup(directory); }
+});
+
 test('inactive recovery never mutates invalid or corrupt records', () => {
   const directory = root();
   try {

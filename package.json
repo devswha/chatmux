@@ -1,7 +1,7 @@
 {
   "name": "chatmux",
   "private": true,
-  "version": "1.6.1",
+  "version": "1.8.14",
   "productName": "ChatMux",
   "description": "A self-hosted web interface for coding-agent sessions running in tmux",
   "type": "module",
@@ -78,7 +78,8 @@
   },
   "overrides": {
     "brace-expansion": "^5.0.8",
-    "minimatch": "^10.2.5"
+    "minimatch": "^10.2.5",
+    "undici": "^8.9.0"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.165",

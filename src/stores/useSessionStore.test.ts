@@ -126,6 +126,226 @@ test('newer accepted pagination and refresh settle loading and reset the paginat
   }
 });
 
+test('refresh preserves the message window expanded by pagination', async () => {
+  const originalFetch = globalThis.fetch;
+  const pending: PendingRequest[] = [];
+  globalThis.fetch = ((url: string) => new Promise<Response>((resolve) => {
+    pending.push({ url, resolve });
+  })) as typeof fetch;
+
+  try {
+    const store = createStore();
+    const initial = store.fetchFromServer('session', { limit: 2 });
+    pending.shift()!.resolve(response({
+      messages: [
+        { id: 'new-1', sessionId: 'session', timestamp: '2026-01-01T00:02:00Z', kind: 'text', provider: 'claude' },
+        { id: 'new-2', sessionId: 'session', timestamp: '2026-01-01T00:03:00Z', kind: 'text', provider: 'claude' },
+      ],
+      total: 4,
+      hasMore: true,
+    }));
+    await initial;
+
+    const page = store.fetchMore('session', { limit: 2 });
+    pending.shift()!.resolve(response({
+      messages: [
+        { id: 'old-1', sessionId: 'session', timestamp: '2026-01-01T00:00:00Z', kind: 'text', provider: 'claude' },
+        { id: 'old-2', sessionId: 'session', timestamp: '2026-01-01T00:01:00Z', kind: 'text', provider: 'claude' },
+      ],
+      total: 4,
+      hasMore: false,
+    }));
+    await page;
+
+    const refresh = store.refreshFromServer('session');
+    assert.match(pending[0].url, /limit=20/);
+    pending.shift()!.resolve(response({
+      messages: [
+        { id: 'old-1', sessionId: 'session', timestamp: '2026-01-01T00:00:00Z', kind: 'text', provider: 'claude' },
+        { id: 'old-2', sessionId: 'session', timestamp: '2026-01-01T00:01:00Z', kind: 'text', provider: 'claude' },
+        { id: 'new-1', sessionId: 'session', timestamp: '2026-01-01T00:02:00Z', kind: 'text', provider: 'claude' },
+        { id: 'new-2', sessionId: 'session', timestamp: '2026-01-01T00:03:00Z', kind: 'text', provider: 'claude' },
+      ],
+      total: 4,
+      hasMore: false,
+    }));
+    const refreshedSlot = await refresh;
+
+    assert.deepEqual(
+      refreshedSlot.serverMessages.map(message => message.id),
+      ['old-1', 'old-2', 'new-1', 'new-2'],
+    );
+    assert.equal(refreshedSlot.offset, 4);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('a changed history epoch drops cached rows from the preceding context', async () => {
+  const originalFetch = globalThis.fetch;
+  const pending: PendingRequest[] = [];
+  globalThis.fetch = ((url: string) => new Promise<Response>((resolve) => {
+    pending.push({ url, resolve });
+  })) as typeof fetch;
+
+  try {
+    const store = createStore();
+    const initial = store.fetchFromServer('session', { limit: 20 });
+    pending.shift()!.resolve(response({
+      messages: [
+        { id: 'old-server', sessionId: 'session', timestamp: '2026-01-01T00:00:00Z', kind: 'text', provider: 'gjc' },
+      ],
+      total: 1,
+      hasMore: false,
+      historyEpoch: null,
+    }));
+    await initial;
+
+    store.appendRealtime('session', {
+      id: 'old-realtime',
+      sessionId: 'session',
+      timestamp: '2026-01-01T00:00:01Z',
+      kind: 'text',
+      provider: 'gjc',
+      role: 'assistant',
+      content: 'Old live response',
+    });
+
+    const refresh = store.refreshFromServer('session');
+    pending.shift()!.resolve(response({
+      messages: [
+        { id: 'new-server', sessionId: 'session', timestamp: '2026-01-01T00:00:02Z', kind: 'text', provider: 'gjc' },
+      ],
+      total: 1,
+      hasMore: false,
+      historyEpoch: 'gjc:clear-one',
+    }));
+    const slot = await refresh;
+
+    assert.equal(slot.historyEpoch, 'gjc:clear-one');
+    assert.deepEqual(slot.serverMessages.map(message => message.id), ['new-server']);
+    assert.deepEqual(slot.realtimeMessages, []);
+    assert.deepEqual(slot.merged.map(message => message.id), ['new-server']);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('refresh queues a reconcile after an explicit pagination request settles', async () => {
+  const originalFetch = globalThis.fetch;
+  const pending: PendingRequest[] = [];
+  globalThis.fetch = ((url: string) => new Promise<Response>((resolve) => {
+    pending.push({ url, resolve });
+  })) as typeof fetch;
+
+  try {
+    const store = createStore();
+    const initial = store.fetchFromServer('session', { limit: 2 });
+    pending.shift()!.resolve(response({
+      messages: [
+        { id: 'new-1', sessionId: 'session', timestamp: '2026-01-01T00:02:00Z', kind: 'text', provider: 'claude' },
+        { id: 'new-2', sessionId: 'session', timestamp: '2026-01-01T00:03:00Z', kind: 'text', provider: 'claude' },
+      ],
+      total: 4,
+      hasMore: true,
+    }));
+    await initial;
+
+    const page = store.fetchMore('session', { limit: 2 });
+    const refresh = store.refreshFromServer('session');
+    const duplicateRefresh = store.refreshFromServer('session');
+    assert.equal(pending.length, 1, 'refresh reuses the pending slot instead of issuing a competing request');
+
+    pending.shift()!.resolve(response({
+      messages: [
+        { id: 'old-1', sessionId: 'session', timestamp: '2026-01-01T00:00:00Z', kind: 'text', provider: 'claude' },
+        { id: 'old-2', sessionId: 'session', timestamp: '2026-01-01T00:01:00Z', kind: 'text', provider: 'claude' },
+      ],
+      total: 4,
+      hasMore: false,
+    }));
+    const pagedSlot = await page;
+    assert.deepEqual(
+      pagedSlot.serverMessages.map(message => message.id),
+      ['old-1', 'old-2', 'new-1', 'new-2'],
+    );
+    assert.equal(pending.length, 1, 'multiple refreshes coalesce into one deferred reconcile');
+    pending.shift()!.resolve(response({
+      messages: [
+        { id: 'old-1', sessionId: 'session', timestamp: '2026-01-01T00:00:00Z', kind: 'text', provider: 'claude' },
+        { id: 'old-2', sessionId: 'session', timestamp: '2026-01-01T00:01:00Z', kind: 'text', provider: 'claude' },
+        { id: 'new-1', sessionId: 'session', timestamp: '2026-01-01T00:02:00Z', kind: 'text', provider: 'claude' },
+        { id: 'new-2', sessionId: 'session', timestamp: '2026-01-01T00:03:00Z', kind: 'text', provider: 'claude' },
+        { id: 'latest', sessionId: 'session', timestamp: '2026-01-01T00:04:00Z', kind: 'text', provider: 'claude' },
+      ],
+      total: 5,
+      hasMore: false,
+    }));
+    const [refreshedSlot, duplicateRefreshedSlot] = await Promise.all([refresh, duplicateRefresh]);
+    assert.equal(duplicateRefreshedSlot, pagedSlot);
+    assert.deepEqual(
+      refreshedSlot.serverMessages.map(message => message.id),
+      ['old-1', 'old-2', 'new-1', 'new-2', 'latest'],
+    );
+    assert.equal(refreshedSlot.total, 5);
+    assert.equal(refreshedSlot.hasMore, false);
+    assert.equal(refreshedSlot.offset, 5);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('refresh queues a reconcile after a load-all request settles', async () => {
+  const originalFetch = globalThis.fetch;
+  const pending: PendingRequest[] = [];
+  globalThis.fetch = ((url: string) => new Promise<Response>((resolve) => {
+    pending.push({ url, resolve });
+  })) as typeof fetch;
+
+  try {
+    const store = createStore();
+    const initial = store.fetchFromServer('session', { limit: 1 });
+    pending.shift()!.resolve(response({
+      messages: [
+        { id: 'new', sessionId: 'session', timestamp: '2026-01-01T00:01:00Z', kind: 'text', provider: 'claude' },
+      ],
+      total: 2,
+      hasMore: true,
+    }));
+    await initial;
+
+    const loadAll = store.fetchFromServer('session', { limit: null, offset: 0 });
+    const refresh = store.refreshFromServer('session');
+    assert.equal(pending.length, 1, 'refresh does not compete with the full-history request');
+
+    pending.shift()!.resolve(response({
+      messages: [
+        { id: 'old', sessionId: 'session', timestamp: '2026-01-01T00:00:00Z', kind: 'text', provider: 'claude' },
+        { id: 'new', sessionId: 'session', timestamp: '2026-01-01T00:01:00Z', kind: 'text', provider: 'claude' },
+      ],
+      total: 2,
+      hasMore: false,
+    }));
+    const fullSlot = await loadAll;
+    assert.equal(pending.length, 1, 'the deferred reconcile starts after the full-history request');
+    pending.shift()!.resolve(response({
+      messages: [
+        { id: 'old', sessionId: 'session', timestamp: '2026-01-01T00:00:00Z', kind: 'text', provider: 'claude' },
+        { id: 'new', sessionId: 'session', timestamp: '2026-01-01T00:01:00Z', kind: 'text', provider: 'claude' },
+      ],
+      total: 2,
+      hasMore: false,
+    }));
+    const refreshedSlot = await refresh;
+
+    assert.equal(refreshedSlot, fullSlot);
+    assert.deepEqual(refreshedSlot.serverMessages.map(message => message.id), ['old', 'new']);
+    assert.equal(refreshedSlot.hasMore, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('inactive session slots are LRU-bounded while active and streaming slots survive until clear', () => {
   const store = createStore();
   store.getSlot('active');

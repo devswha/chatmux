@@ -18,7 +18,12 @@ import {
   sessionsDb,
   userDb,
 } from '../../modules/database/index.js';
-import { notifyLiveTurnEnded, notifyRunStopped } from '../notification-orchestrator.js';
+import {
+  notifyInputRequired,
+  createNotificationEvent,
+  notifyLiveTurnEnded,
+  notifyRunStopped,
+} from '../notification-orchestrator.js';
 
 async function withIsolatedDatabase(runTest) {
   const previousDatabasePath = process.env.DATABASE_PATH;
@@ -102,6 +107,106 @@ test('push payload uses the app session id when notified with a provider session
       assert.equal(sentPayloads.length, 0, 'completion producers only create durable outbox decisions');
     });
   } finally {
+    webPush.sendNotification = originalSendNotification;
+  }
+});
+
+test('preserves an explicit dedupe key for distinct permission requests', () => {
+  const event = createNotificationEvent({
+    provider: 'codex',
+    sessionId: 'permission-session',
+    code: 'permission.required',
+    dedupeKey: 'permission-request-2',
+  });
+  assert.equal(event.dedupeKey, 'permission-request-2');
+});
+
+test('INPUT notification uses the action preference and navigates to the mapped app session', async () => {
+  const originalSendNotification = webPush.sendNotification;
+  const sentPayloads = [];
+  webPush.sendNotification = async (_subscription, payload) => {
+    sentPayloads.push(JSON.parse(payload));
+    return {};
+  };
+
+  try {
+    await withIsolatedDatabase(async () => {
+      const userId = Number(userDb.createUser('input-user', 'hash').id);
+      notificationPreferencesDb.updateCompletionPreferencesAndDeliveryState(userId, {
+        channels: { webPush: true },
+        events: { actionRequired: true, stop: false, liveStop: false, error: false },
+      }, Date.now(), true);
+      pushSubscriptionsDb.saveSubscription(userId, 'https://example.test/input-push', 'p256dh', 'auth');
+      sessionsDb.createAppSession('input-app-session', 'codex', '/workspace/demo');
+      sessionsDb.assignProviderSessionId('input-app-session', 'codex', 'codex-native-input');
+
+      notifyInputRequired({
+        userId,
+        provider: 'codex',
+        sessionId: 'codex-native-input',
+        sessionName: 'codex-pane',
+        occurrenceKey: 'input-navigation-occurrence',
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+
+      assert.equal(sentPayloads.length, 1);
+      assert.equal(sentPayloads[0].title, 'codex-pane');
+      assert.equal(sentPayloads[0].body, 'Codex: Input required — the tmux session is waiting for you');
+      assert.equal(sentPayloads[0].data.sessionId, 'input-app-session');
+      assert.equal(sentPayloads[0].data.code, 'input.required');
+    });
+  } finally {
+    webPush.sendNotification = originalSendNotification;
+  }
+});
+
+test('collapses duplicate input occurrences across producers without suppressing a later RUN to INPUT edge', async () => {
+  const originalSendNotification = webPush.sendNotification;
+  const originalNow = Date.now;
+  const sentPayloads = [];
+  const occurrence = `cross-producer-${originalNow()}`;
+  webPush.sendNotification = async (_subscription, payload) => {
+    sentPayloads.push(JSON.parse(payload));
+    return {};
+  };
+
+  try {
+    await withIsolatedDatabase(async () => {
+      const userId = Number(userDb.createUser('input-dedupe-user', 'hash').id);
+      notificationPreferencesDb.updateCompletionPreferencesAndDeliveryState(userId, {
+        channels: { webPush: true },
+        events: { actionRequired: true, stop: false, liveStop: false, error: false },
+      }, Date.now(), true);
+      pushSubscriptionsDb.saveSubscription(userId, 'https://example.test/input-dedupe-push', 'p256dh', 'auth');
+
+      let now = originalNow();
+      Date.now = () => now;
+      notifyInputRequired({
+        userId,
+        provider: 'codex',
+        sessionId: 'input-dedupe-session',
+        occurrenceKey: occurrence,
+      });
+      now += 20_001;
+      notifyInputRequired({
+        userId,
+        provider: 'codex',
+        sessionId: 'input-dedupe-session',
+        occurrenceKey: occurrence,
+      });
+      notifyInputRequired({
+        userId,
+        provider: 'codex',
+        sessionId: 'input-dedupe-session',
+        occurrenceKey: `${occurrence}-next-run`,
+      });
+      Date.now = originalNow;
+      await new Promise((resolve) => setImmediate(resolve));
+
+      assert.equal(sentPayloads.length, 2);
+    });
+  } finally {
+    Date.now = originalNow;
     webPush.sendNotification = originalSendNotification;
   }
 });

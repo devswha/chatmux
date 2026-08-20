@@ -77,6 +77,17 @@
       "label": "Koyu Mod",
       "description": "Açık ve koyu temalar arasında geçiş yap"
     },
+    "interfaceFontSize": {
+      "label": "Arayüz yazı tipi boyutu",
+      "description": "Sohbetler, oturumlar, ayarlar ve arayüzün geri kalanındaki metin boyutunu değiştir",
+      "small": "Küçük",
+      "medium": "Orta",
+      "large": "Büyük"
+    },
+    "imagePreviews": {
+      "label": "Görsel önizlemeleri",
+      "description": "Sohbet geçmişindeki görsel eklerini yükle ve göster"
+    },
     "projectSorting": {
       "label": "Proje Sıralama",
       "description": "Projelerin kenar çubuğunda nasıl sıralanacağı",

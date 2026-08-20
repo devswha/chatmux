@@ -25,6 +25,7 @@ export type UpdateJob = {
   phase: UpdateJobPhase;
   targetVersion: string;
   error?: string;
+  progress?: { downloadedBytes: number; totalBytes?: number };
 };
 
 export type SystemUpdateStatus = {
@@ -40,7 +41,7 @@ export type SystemUpdateStatus = {
     targetRevision?: string;
     targetVersion?: string;
   } | null;
-  release?: { available?: boolean; targetVersion?: string | null } | null;
+  release?: { available?: boolean; targetVersion?: string | null; notes?: string | null; url?: string | null } | null;
   activeJob?: UpdateJob | null;
 };
 
@@ -69,6 +70,8 @@ export const useVersionCheck = (_owner: string, _repo: string) => {
   const [canUpdate, setCanUpdate] = useState(false);
   const [activeJob, setActiveJob] = useState<UpdateJob | null>(null);
   const [sourceUpdate, setSourceUpdate] = useState<{ operationId: string; initialBootId: string } | null>(null);
+  const [releaseNotes, setReleaseNotes] = useState<string | null>(null);
+  const [releaseUrl, setReleaseUrl] = useState<string | null>(null);
   const requestInFlight = useRef(false);
 
   const refresh = useCallback(async () => {
@@ -108,6 +111,8 @@ export const useVersionCheck = (_owner: string, _repo: string) => {
             ? sourceTargetVersion
             : null,
       );
+      setReleaseNotes(status.mode === 'release' && typeof status.release?.notes === 'string' ? status.release.notes : null);
+      setReleaseUrl(status.mode === 'release' && typeof status.release?.url === 'string' ? status.release.url : null);
       setAvailability(status.mode === 'source'
         ? (sourceAvailable ? 'available' : status.source?.available === false ? 'unavailable' : 'unknown')
         : (status.release?.available === true ? 'available' : status.release?.available === false ? 'unavailable' : 'unknown'));
@@ -149,6 +154,8 @@ export const useVersionCheck = (_owner: string, _repo: string) => {
     installMode,
     latestVersion,
     refresh,
+    releaseNotes,
+    releaseUrl,
     runningVersion,
     serverUpdateAvailable,
     sourceUpdateInFlight: sourceUpdate !== null,

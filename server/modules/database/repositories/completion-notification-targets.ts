@@ -212,6 +212,7 @@ export class CompletionNotificationTargetsRepository {
     generationIdentityKey: string,
     appIdentityKey: string,
     appAliases: string[] = [],
+    generationAliases: string[] = [],
   ): CanonicalCompletionTarget {
     return this.db.transaction(() => {
       this.db.prepare(`
@@ -231,19 +232,18 @@ export class CompletionNotificationTargetsRepository {
       }
 
       const generation = this.db.prepare(
-        'SELECT id, kind, canonical_target_id FROM completion_notification_targets WHERE identity_key = ?',
-      ).get(generationIdentityKey) as { id: number; kind: string; canonical_target_id: number | null } | undefined;
+        'SELECT id, kind, canonical_target_id, revision FROM completion_notification_targets WHERE identity_key = ?',
+      ).get(generationIdentityKey) as {
+        id: number;
+        kind: string;
+        canonical_target_id: number | null;
+        revision: number;
+      } | undefined;
       if (!generation || generation.kind !== 'external_generation') {
         throw new Error('generation promotion requires an external generation target');
       }
       const generationCanonical = this.resolveTarget(generation.id);
-      if (
-        generation.canonical_target_id !== null
-        && (!generationCanonical || generationCanonical.id !== app.id
-          || generationCanonical.identity_key !== appIdentityKey)
-      ) {
-        throw new Error('generation promotion canonical identity conflict');
-      }
+      if (!generationCanonical) throw new Error('generation promotion canonical target is missing');
 
       for (const alias of new Set(appAliases)) {
         const existing = this.db.prepare('SELECT target_id FROM completion_notification_aliases WHERE alias = ?')
@@ -253,6 +253,30 @@ export class CompletionNotificationTargetsRepository {
         }
         if (!existing) {
           this.db.prepare('INSERT INTO completion_notification_aliases (alias, target_id) VALUES (?, ?)').run(alias, app.id);
+        }
+      }
+
+      // A CLI process generation can change its provider-native conversation
+      // without restarting (`/resume`, `/new`). Generation aliases follow that
+      // live binding, while app aliases and app-scoped watches remain attached
+      // to their conversations.
+      for (const alias of new Set(generationAliases)) {
+        const existing = this.db.prepare('SELECT target_id FROM completion_notification_aliases WHERE alias = ?')
+          .get(alias) as { target_id: number } | undefined;
+        const existingCanonical = existing ? this.resolveTarget(existing.target_id) : undefined;
+        if (
+          existingCanonical
+          && existingCanonical.id !== generationCanonical.id
+          && existingCanonical.id !== app.id
+        ) {
+          throw new Error('completion notification generation alias is already owned by another target');
+        }
+        if (existing) {
+          this.db.prepare('UPDATE completion_notification_aliases SET target_id = ? WHERE alias = ?')
+            .run(app.id, alias);
+        } else {
+          this.db.prepare('INSERT INTO completion_notification_aliases (alias, target_id) VALUES (?, ?)')
+            .run(alias, app.id);
         }
       }
 
@@ -266,8 +290,20 @@ export class CompletionNotificationTargetsRepository {
         this.db.prepare(`UPDATE completion_notification_targets
           SET canonical_target_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
           .run(app.id, generation.id);
+      } else if (generationCanonical.id !== app.id) {
         this.db.prepare(`UPDATE completion_notification_targets
-          SET revision = revision + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(app.id);
+          SET canonical_target_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
+          .run(app.id, generation.id);
+        // Activity state belongs to the old conversation. Re-baseline the new
+        // binding so an old running arm cannot notify for a resumed transcript.
+        this.db.prepare('DELETE FROM completion_notification_generation_state WHERE generation_target_id = ?')
+          .run(generation.id);
+      }
+      if (generationCanonical.id !== app.id || generation.canonical_target_id === null) {
+        const nextRevision = Math.max(app.revision, generationCanonical.revision, generation.revision) + 1;
+        this.db.prepare(`UPDATE completion_notification_targets
+          SET revision = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
+          .run(nextRevision, app.id);
       }
       const promoted = this.resolveTarget(generation.id);
       if (!promoted || promoted.id !== app.id || promoted.identity_key !== appIdentityKey) {

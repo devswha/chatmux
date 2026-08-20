@@ -26,6 +26,11 @@ export interface PersistedUpdateRecoveryDescriptor {
   rollbackState: ReleaseRollbackState;
 }
 
+export interface PersistedUpdateProgress {
+  downloadedBytes: number;
+  totalBytes?: number;
+}
+
 export interface PersistedUpdateJob {
   descriptor: ImmutableUpdateJobDescriptor;
   phase: ReleaseUpdatePhase;
@@ -82,6 +87,11 @@ function validateRecoveryDescriptor(value: unknown): value is PersistedUpdateRec
   return validReleasePath(value.priorRelease.path) && !!parseStrictSemVer(value.priorRelease.version) && validReleasePath(value.targetRelease.path) && !!parseStrictSemVer(value.targetRelease.version) && value.priorRelease.path !== value.targetRelease.path && value.priorRelease.version !== value.targetRelease.version && (value.cutoverState === 'prepared' || value.cutoverState === 'live_link_swapped') && (value.rollbackState === 'not_started' || value.rollbackState === 'in_progress' || value.rollbackState === 'completed' || value.rollbackState === 'failed');
 }
 
+function validateProgress(value: unknown): value is PersistedUpdateProgress {
+  if (!isPlainObject(value) || Object.keys(value).some((key) => !['downloadedBytes', 'totalBytes'].includes(key)) || !validInteger(value.downloadedBytes)) return false;
+  return value.totalBytes === undefined || (validInteger(value.totalBytes) && value.totalBytes > 0);
+}
+
 function validateJob(value: unknown): value is PersistedUpdateJob {
   if (!isPlainObject(value) || Object.keys(value).some((key) => !['descriptor', 'phase', 'updatedAt', 'completedAt', 'completionOrdinal', 'locked', 'error', 'recovery'].includes(key)) || !validateImmutableUpdateJobDescriptor(value.descriptor) || !isUpdatePhase(value.phase) || !validInteger(value.updatedAt) || typeof value.locked !== 'boolean') return false;
   const descriptor = value.descriptor as ImmutableUpdateJobDescriptor;
@@ -114,6 +124,7 @@ export class ReleaseUpdateStateStore {
   private readonly allocatorPath: string;
   private readonly lockPath: string;
   private readonly isProcessAlive: (pid: number) => boolean;
+  private readonly progressPath: string;
 
   constructor(private readonly root: string, options: ReleaseUpdateStateStoreOptions = {}) {
     this.fs = options.fs ?? fs;
@@ -124,6 +135,9 @@ export class ReleaseUpdateStateStore {
     this.statePath = path.join(root, 'release-update-state.json');
     this.allocatorPath = path.join(root, 'release-update-completion-ordinal.json');
     this.lockPath = path.join(root, 'release-update-state.lock');
+    // Sidecar keeps cosmetic progress out of the closed schemaVersion-1 job
+    // record so a rolled-back prior release can still parse the state file.
+    this.progressPath = path.join(root, 'release-update-progress.json');
   }
 
   initialize(): void {
@@ -189,6 +203,8 @@ export class ReleaseUpdateStateStore {
         this.writeState(state);
         return job;
       }
+      // Terminal outcome: the sidecar progress no longer describes live work.
+      this.removeProgressSidecar();
       // High-water durability precedes the terminal record, so a crash cannot reuse an ordinal.
       allocator += 1;
       this.writeAllocator(allocator);
@@ -201,6 +217,35 @@ export class ReleaseUpdateStateStore {
       this.prune(state, allocator);
       return job;
     });
+  }
+  /** Durable download progress for the nonterminal job; display-only, never authority. */
+  recordDownloadProgress(id: string, progress: PersistedUpdateProgress): PersistedUpdateJob {
+    if (!isOpaqueUpdateJobId(id) || !validateProgress(progress) || (progress.totalBytes !== undefined && progress.downloadedBytes > progress.totalBytes)) throw new ReleaseUpdateStateError('Invalid update download progress.');
+    return this.withExclusiveLock(() => {
+      const state = this.readState();
+      const ordinal = this.repairAllocator(state);
+      this.prune(state, ordinal);
+      const job = state.jobs[id];
+      if (!job) throw new ReleaseUpdateStateError('Update job not found.');
+      if (isTerminalUpdatePhase(job.phase)) throw new ReleaseUpdateStateError('Terminal update job cannot record progress.');
+      this.atomicWrite(this.progressPath, JSON.stringify({ jobId: id, downloadedBytes: progress.downloadedBytes, ...(progress.totalBytes === undefined ? {} : { totalBytes: progress.totalBytes }) }) + '\n');
+      return job;
+    });
+  }
+  /** Best-effort sidecar read: corruption or absence only hides the cosmetic bar. */
+  private readProgressSidecar(jobId: string): PersistedUpdateProgress | null {
+    try {
+      if (!this.fs.existsSync(this.progressPath)) return null;
+      const raw: unknown = JSON.parse(this.fs.readFileSync(this.progressPath, 'utf8'));
+      if (!isPlainObject(raw) || raw.jobId !== jobId) return null;
+      const { jobId: _jobId, ...progress } = raw;
+      return validateProgress(progress) ? progress : null;
+    } catch {
+      return null;
+    }
+  }
+  private removeProgressSidecar(): void {
+    try { if (this.fs.existsSync(this.progressPath)) this.fs.unlinkSync(this.progressPath); } catch { /* Cosmetic only. */ }
   }
   /** Persists the release-link recovery authority before any live-link mutation. */
   persistRecoveryCheckpoint(id: string, recovery: PersistedUpdateRecoveryDescriptor): PersistedUpdateJob {
@@ -285,6 +330,7 @@ export class ReleaseUpdateStateStore {
       updatedAt: job.updatedAt,
       ...(job.completedAt === undefined ? {} : { completedAt: job.completedAt }),
       targetVersion: job.descriptor.release.version,
+      ...(isTerminalUpdatePhase(job.phase) ? {} : (() => { const progress = this.readProgressSidecar(job.descriptor.id); return progress ? { progress } : {}; })()),
       ...(job.error ? { error: job.error } : {}),
     };
   }
@@ -302,6 +348,7 @@ export class ReleaseUpdateStateStore {
         createdAt: active.descriptor.createdAt,
         updatedAt: active.updatedAt,
         targetVersion: active.descriptor.release.version,
+        ...((() => { const progress = this.readProgressSidecar(active.descriptor.id); return progress ? { progress } : {}; })()),
         ...(active.error ? { error: active.error } : {}),
       };
     });

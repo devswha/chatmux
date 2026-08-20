@@ -49,6 +49,131 @@
           "1.6.0"
         ]
       }
+    },
+    "1.7.0": {
+      "database": {
+        "rollbackCompatibleFrom": [
+          "1.6.1"
+        ]
+      }
+    },
+    "1.8.0": {
+      "database": {
+        "rollbackCompatibleFrom": [
+          "1.7.0"
+        ]
+      }
+    },
+    "1.8.1": {
+      "database": {
+        "rollbackCompatibleFrom": [
+          "1.8.0"
+        ]
+      }
+    },
+    "1.8.2": {
+      "database": {
+        "rollbackCompatibleFrom": [
+          "1.8.1"
+        ]
+      }
+    },
+    "1.8.3": {
+      "database": {
+        "rollbackCompatibleFrom": [
+          "1.8.2"
+        ]
+      }
+    },
+    "1.8.4": {
+      "database": {
+        "rollbackCompatibleFrom": [
+          "1.8.3"
+        ]
+      }
+    },
+    "1.8.5": {
+      "database": {
+        "rollbackCompatibleFrom": [
+          "1.8.4"
+        ]
+      }
+    },
+    "1.8.6": {
+      "database": {
+        "rollbackCompatibleFrom": [
+          "1.8.5"
+        ]
+      }
+    },
+    "1.8.7": {
+      "database": {
+        "rollbackCompatibleFrom": [
+          "1.8.6"
+        ]
+      }
+    },
+    "1.8.8": {
+      "database": {
+        "rollbackCompatibleFrom": [
+          "1.8.7"
+        ]
+      }
+    },
+    "1.8.9": {
+      "database": {
+        "rollbackCompatibleFrom": [
+          "1.8.8"
+        ]
+      }
+    },
+    "1.8.10": {
+      "database": {
+        "rollbackCompatibleFrom": [
+          "1.8.9"
+        ]
+      }
+    },
+    "1.8.11": {
+      "database": {
+        "rollbackCompatibleFrom": [
+          "1.8.10"
+        ]
+      }
+    },
+    "1.8.12": {
+      "database": {
+        "rollbackCompatibleFrom": [
+          "1.8.11"
+        ]
+      }
+    },
+    "1.8.13": {
+      "database": {
+        "rollbackCompatibleFrom": [
+          "1.8.12"
+        ]
+      }
+    },
+    "1.8.14": {
+      "database": {
+        "rollbackCompatibleFrom": [
+          "1.8.0",
+          "1.8.1",
+          "1.8.2",
+          "1.8.3",
+          "1.8.4",
+          "1.8.5",
+          "1.8.6",
+          "1.8.7",
+          "1.8.8",
+          "1.8.9",
+          "1.8.10",
+          "1.8.11",
+          "1.8.12",
+          "1.8.13"
+        ]
+      }
     }
   }
 }

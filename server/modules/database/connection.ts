@@ -41,8 +41,18 @@ function resolveDatabasePath(): string {
 function ensureDatabaseDirectory(dbPath: string): void {
   const dir = path.dirname(dbPath);
   if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     console.log('Created database directory:', dir);
+  }
+}
+
+function secureDatabaseFiles(dbPath: string): void {
+  for (const filePath of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`]) {
+    try {
+      if (fs.existsSync(filePath)) fs.chmodSync(filePath, 0o600);
+    } catch {
+      // chmod is not supported consistently on Windows filesystems.
+    }
   }
 }
 
@@ -70,6 +80,7 @@ export function getConnection(): Database.Database {
   ensureDatabaseDirectory(dbPath);
 
   instance = new Database(dbPath);
+  secureDatabaseFiles(dbPath);
 
   // app_config must exist immediately — the auth middleware reads
   // the JWT secret at module-load time, before initializeDatabase() runs.

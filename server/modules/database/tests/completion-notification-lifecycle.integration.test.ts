@@ -307,7 +307,17 @@ function detailedSession() {
   };
 }
 
-test('resolver redacts identity keys from pre- and post-promotion identity conflicts', async () => {
+test('resolver does not expose a previously promoted app target after its mapping disappears', async () => {
+  await withIsolatedDatabase(() => {
+    sessionsDb.createSession('resolver-session', 'claude', '/workspace/resolver', undefined, undefined, undefined, process.execPath);
+    assert.equal(resolveCompletionTargetsFromDetailedScan(detailedSession(), 1)[0]?.target.kind, 'app');
+
+    sessionsDb.deleteSessionById('resolver-session');
+    assert.deepEqual(resolveCompletionTargetsFromDetailedScan(detailedSession(), 1), []);
+  });
+});
+
+test('resolver contains pre- and post-promotion identity conflicts without exposing identity keys', async () => {
   await withIsolatedDatabase(() => {
     sessionsDb.createSession('resolver-session', 'claude', '/workspace/resolver', undefined, undefined, undefined, process.execPath);
     const repository = completionNotificationTargetsDb;
@@ -317,11 +327,7 @@ test('resolver redacts identity keys from pre- and post-promotion identity confl
       return createTarget.call(repository, identityKey, kind, aliases);
     }) as typeof repository.createTarget;
     try {
-      assert.throws(() => resolveCompletionTargetsFromDetailedScan(detailedSession(), 1),
-        /completion_target_identity_conflict.*pre_promotion.*actualTargetId.*901.*actualKind.*app/);
-      assert.throws(() => resolveCompletionTargetsFromDetailedScan(detailedSession(), 1),
-        (error: Error) => !error.message.includes('wrong-pre')
-          && !error.message.includes('completion-target/v1:'));
+      assert.deepEqual(resolveCompletionTargetsFromDetailedScan(detailedSession(), 1), []);
     } finally {
       repository.createTarget = createTarget;
     }
@@ -331,11 +337,7 @@ test('resolver redacts identity keys from pre- and post-promotion identity confl
       id: 902, kind: 'app', identity_key: 'wrong-post', revision: 1,
     })) as typeof repository.promoteGenerationToApp);
     try {
-      assert.throws(() => resolveCompletionTargetsFromDetailedScan(detailedSession(), 1),
-        /completion_target_identity_conflict.*post_promotion.*actualTargetId.*902.*actualKind.*app/);
-      assert.throws(() => resolveCompletionTargetsFromDetailedScan(detailedSession(), 1),
-        (error: Error) => !error.message.includes('wrong-post')
-          && !error.message.includes('completion-target/v1:'));
+      assert.deepEqual(resolveCompletionTargetsFromDetailedScan(detailedSession(), 1), []);
     } finally {
       repository.promoteGenerationToApp = promote;
     }

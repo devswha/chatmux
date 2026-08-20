@@ -21,9 +21,11 @@ import {
     createProviderToolApprovals,
     createDiscoveryCollector,
     createPaneOutputStream,
+    createTmuxOutputActivityMonitor,
     getCurrentTmuxPaneIdentity,
     getCurrentTmuxPaneIdentityState,
     initializeSessionsWatcher,
+    onTranscriptChanged,
     readTmuxPaneIdentity,
     runTmux,
     createTmuxRuntimeAdapter,
@@ -72,6 +74,11 @@ import {
     abortOmpSession,
 } from './omp-cli.js';
 import {
+    spawnOmo,
+    abortOmoSession,
+} from './omo-cli.js';
+import { findLiveTmuxSpawnBlock } from './modules/providers/services/live-spawn-guard.service.js';
+import {
     stripAnsiSequences,
     normalizeDetectedUrl,
     extractUrlsFromText,
@@ -85,9 +92,16 @@ import settingsRoutes from './routes/settings.js';
 import projectModuleRoutes from './modules/projects/projects.routes.js';
 import userRoutes from './routes/user.js';
 import providerRoutes from './modules/providers/provider.routes.js';
+import { sessionsService } from './modules/providers/services/sessions.service.js';
+import { buildExternalCliRuntimePath } from './modules/providers/services/external-cli-sessions.service.js';
 import { assetsRoutes } from './modules/assets/index.js';
 import { initializeDatabase, projectsDb, sessionsDb, userDb } from './modules/database/index.js';
-import { startCompletionOutboxDispatcher, startExternalTurnMonitor, startLiveTurnMonitor } from './modules/notifications/index.js';
+import {
+    notifyTmuxInputRequiredIfWatched,
+    startCompletionOutboxDispatcher,
+    startExternalTurnMonitor,
+    startLiveTurnMonitor,
+} from './modules/notifications/index.js';
 import { filesRoutes } from './modules/files/index.js';
 import { configureWebPush } from './services/vapid-keys.js';
 import { authenticateToken, authenticateWebSocket, AUTH_MODE } from './middleware/auth.js';
@@ -112,6 +126,13 @@ const RUNNING_VERSION = (() => {
 const SERVER_BOOT_ID = randomUUID();
 // How this install was deployed — decides whether one-click self-update is offered.
 const INSTALL_MODE = detectInstallMode(APP_ROOT);
+// Under systemd the user service inherits a minimal PATH that misses
+// user-installed agent CLIs (~/.local/bin, ~/.bun/bin, ~/.cargo/bin). The
+// release updater restarts the server via `systemctl --user restart`, so a
+// server that worked from an interactive shell would suddenly fail every
+// provider spawn with `spawn gjc ENOENT`. Normalize the process PATH once so
+// spawns resolve the same binaries regardless of how the server was launched.
+process.env.PATH = buildExternalCliRuntimePath();
 
 console.log('SERVER_PORT from env:', process.env.SERVER_PORT);
 
@@ -167,11 +188,24 @@ app.locals.runtimeOperationPolicy = herdrPolicy;
 const discoveryCollector = createDiscoveryCollector({ runtimeRegistry: terminalRuntimeRegistry });
 app.locals.discoveryCollector = discoveryCollector;
 const paneOutputStream = createPaneOutputStream({ runtimeRegistry: terminalRuntimeRegistry });
+const tmuxOutputActivityMonitor = createTmuxOutputActivityMonitor(discoveryCollector, {
+    onInputRequired: process.env.CHATMUX_LIVE_NOTIFY === '0'
+        ? undefined
+        : notifyTmuxInputRequiredIfWatched,
+});
+tmuxOutputActivityMonitor.start();
+const stopTranscriptDiscoveryRefresh = onTranscriptChanged(() => {
+    discoveryCollector.forceRefresh();
+});
 
 // Single WebSocket server for chat and shell paths.
 const wss = createWebSocketServer(server, {
     verifyClient: {
         authenticateWebSocket,
+    },
+    serverInfo: {
+        version: RUNNING_VERSION,
+        bootId: SERVER_BOOT_ID,
     },
     chat: {
         spawnFns: {
@@ -181,6 +215,11 @@ const wss = createWebSocketServer(server, {
             opencode: spawnOpenCode,
             gjc: spawnGjc,
             omp: spawnOmp,
+            // Safe to register because findLiveTmuxSpawnBlock below refuses to
+            // spawn on a session that is currently live in a tmux pane (#44):
+            // a second headless omo on the same --session-id would otherwise
+            // append to one transcript the live agent never sees.
+            omo: spawnOmo,
         },
         abortFns: {
             claude: abortClaudeSDKSession,
@@ -189,9 +228,13 @@ const wss = createWebSocketServer(server, {
             opencode: abortOpenCodeSession,
             gjc: abortGjcSession,
             omp: abortOmpSession,
+            omo: abortOmoSession,
         },
         resolveToolApproval: resolveProviderToolApproval,
         getPendingApprovalsForSession: getPendingProviderApprovalsForSession,
+        // #44 guard: chat.send refuses to fork a session that a live tmux pane
+        // owns, for every provider that resumes by provider-native session id.
+        findLiveTmuxSpawnBlock,
     },
     shell: {
         resolveProviderSessionId: (sessionId, provider) => {
@@ -248,6 +291,13 @@ app.use(compression({
         return compression.filter(req, res);
     },
 }));
+// Credential endpoints are public and never need the large upload payload budget.
+app.use('/api/auth', express.json({
+    limit: '64kb',
+    type: (req) => (req.headers['content-type'] || '').includes('json')
+}));
+app.use('/api/auth', express.urlencoded({ limit: '64kb', extended: true }));
+
 app.use(express.json({
     limit: '50mb',
     type: (req) => {
@@ -449,72 +499,27 @@ app.get('/api/projects/:projectId/sessions/:sessionId/token-usage', authenticate
 
         // Handle Codex sessions
         if (provider === 'codex') {
-            const codexSessionsDir = path.join(homeDir, '.codex', 'sessions');
-
-            // Find the session file by searching for the session ID
-            const findSessionFile = async (dir) => {
-                try {
-                    const entries = await fsPromises.readdir(dir, { withFileTypes: true });
-                    for (const entry of entries) {
-                        const fullPath = path.join(dir, entry.name);
-                        if (entry.isDirectory()) {
-                            const found = await findSessionFile(fullPath);
-                            if (found) return found;
-                        } else if (entry.name.includes(providerNativeSessionId) && entry.name.endsWith('.jsonl')) {
-                            return fullPath;
-                        }
-                    }
-                } catch (error) {
-                    // Skip directories we can't read
-                }
-                return null;
-            };
-
-            const sessionFilePath = await findSessionFile(codexSessionsDir);
-
-            if (!sessionFilePath) {
-                return res.status(404).json({ error: 'Codex session file not found', sessionId: safeSessionId });
+            if (!sessionRow.provider_session_id || !sessionRow.jsonl_path) {
+                return res.status(404).json({ error: 'Codex transcript not found', sessionId: safeSessionId });
             }
 
-            // Read and parse the Codex JSONL file
-            let fileContent;
-            try {
-                fileContent = await fsPromises.readFile(sessionFilePath, 'utf8');
-            } catch (error) {
-                if (error.code === 'ENOENT') {
-                    return res.status(404).json({ error: 'Session file not found', path: sessionFilePath });
-                }
-                throw error;
+            const history = await sessionsService.fetchHistory(safeSessionId, {
+                limit: 0,
+                offset: 0,
+            });
+            if (history.sourceStatus === 'missing') {
+                return res.status(404).json({ error: 'Codex transcript not found', sessionId: safeSessionId });
             }
-            const lines = fileContent.trim().split('\n');
-            let inputTokens = 0;
-            let outputTokens = 0;
-            let totalTokens = 0;
-            let contextWindow = 200000; // Default for Codex/OpenAI
-
-            // Find the latest token_count event with info (scan from end)
-            for (let i = lines.length - 1; i >= 0; i--) {
-                try {
-                    const entry = JSON.parse(lines[i]);
-
-                    // Codex stores token info in event_msg with type: "token_count"
-                    if (entry.type === 'event_msg' && entry.payload?.type === 'token_count' && entry.payload?.info) {
-                        const tokenInfo = entry.payload.info;
-                        if (tokenInfo.total_token_usage) {
-                            inputTokens = tokenInfo.total_token_usage.input_tokens || 0;
-                            outputTokens = tokenInfo.total_token_usage.output_tokens || 0;
-                            totalTokens = tokenInfo.total_token_usage.total_tokens || inputTokens + outputTokens;
-                        }
-                        if (tokenInfo.model_context_window) {
-                            contextWindow = tokenInfo.model_context_window;
-                        }
-                        break; // Stop after finding the latest token count
-                    }
-                } catch (parseError) {
-                    // Skip lines that can't be parsed
-                    continue;
-                }
+            if (history.sourceStatus === 'unreadable') {
+                return res.status(500).json({ error: 'Failed to read Codex transcript', sessionId: safeSessionId });
             }
+            const tokenUsage = history.tokenUsage && typeof history.tokenUsage === 'object'
+                ? history.tokenUsage
+                : {};
+            const inputTokens = readUsageNumber(tokenUsage.inputTokens);
+            const outputTokens = readUsageNumber(tokenUsage.outputTokens);
+            const totalTokens = readUsageNumber(tokenUsage.used) || inputTokens + outputTokens;
+            const contextWindow = readUsageNumber(tokenUsage.total) || 200000;
 
             return res.json({
                 used: totalTokens,
@@ -825,8 +830,23 @@ async function startServer() {
             // Notify on tmux-driven GJC and external CLI turn completions.
             // Server-side so web push works with every tab closed.
             // Shared kill switch: CHATMUX_LIVE_NOTIFY=0.
-            startLiveTurnMonitor();
-            startExternalTurnMonitor();
+            const ensureSharedDiscovery = async () => {
+                await discoveryCollector.ensureFresh(2_000, true);
+                return discoveryCollector.currentDetailed();
+            };
+            startLiveTurnMonitor(2_000, async () => {
+                const latest = await ensureSharedDiscovery();
+                return latest.live
+                    ? {
+                        ...latest.live,
+                        transcriptPaths: latest.live.transcriptPaths ?? new Map(),
+                    }
+                    : { ok: false, sessions: [], transcriptPaths: new Map() };
+            });
+            startExternalTurnMonitor(2_000, async () => {
+                const latest = await ensureSharedDiscovery();
+                return latest.external ?? { ok: false, sessions: [] };
+            });
 
         });
 
@@ -837,6 +857,9 @@ async function startServer() {
                 return;
             }
             shutdownStarted = true;
+            stopTranscriptDiscoveryRefresh();
+            tmuxOutputActivityMonitor.dispose();
+            discoveryCollector.dispose();
 
             // Stop new HTTP/WebSocket work before permanently gating GJC starts.
             server.close();

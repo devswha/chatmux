@@ -36,7 +36,7 @@ test('worker fails closed before any filesystem or process effect for invalid CL
   const effects: string[] = [];
   const worker = new ReleaseUpdateWorker({
     home: '/home/owner',
-    store: { get: () => { effects.push('get'); return null; }, transition: () => { effects.push('transition'); throw new Error('unexpected'); }, persistRecoveryCheckpoint: () => { effects.push('checkpoint'); throw new Error('unexpected'); } },
+    store: { get: () => { effects.push('get'); return null; }, transition: () => { effects.push('transition'); throw new Error('unexpected'); }, persistRecoveryCheckpoint: () => { effects.push('checkpoint'); throw new Error('unexpected'); }, recordDownloadProgress: () => { effects.push('progress'); throw new Error('unexpected'); } },
     fs: new Proxy({}, { get: () => () => { effects.push('filesystem'); throw new Error('unexpected'); } }) as never,
     run: async () => { effects.push('process'); return { code: 0, stdout: '', stderr: '' }; },
     health: async () => { effects.push('health'); return true; },
@@ -49,7 +49,7 @@ test('worker records a durable failed outcome when the immutable job is unavaila
   const transitions: string[] = [];
   const worker = new ReleaseUpdateWorker({
     home: '/home/owner',
-    store: { get: () => null, transition: (_id, phase) => { transitions.push(phase); return undefined as never; }, persistRecoveryCheckpoint: () => undefined as never },
+    store: { get: () => null, transition: (_id, phase) => { transitions.push(phase); return undefined as never; }, persistRecoveryCheckpoint: () => undefined as never, recordDownloadProgress: () => undefined as never },
   });
   await assert.rejects(worker.run('AbCdEfGhIjKlMnOpQrStUv'), ReleaseUpdateWorkerError);
   assert.deepEqual(transitions, []);
@@ -77,6 +77,7 @@ test('pre-cutover staging faults become a durable failed outcome without invokin
       }) as never,
       transition: (_id, phase) => { phases.push(phase); return undefined as never; },
       persistRecoveryCheckpoint: () => undefined as never,
+      recordDownloadProgress: () => undefined as never,
     },
     fs: { mkdir: async () => { throw new Error('disk fault'); }, rm: async () => undefined } as never,
     run: async () => { throw new Error('process must not run'); },
@@ -95,24 +96,14 @@ const tarListing = [
 ].join('\n');
 
 async function releaseTree(directory: string, version: string, compatibility = ['1.0.0']): Promise<void> {
-  await fs.mkdir(path.join(directory, 'scripts'), { recursive: true });
-  await fs.mkdir(path.join(directory, 'dist-server', 'server'), { recursive: true });
-  await fs.writeFile(path.join(directory, 'package.json'), JSON.stringify({ version }));
+  await fs.mkdir(path.join(directory, 'scripts'), { recursive: true, mode: 0o755 });
+  await fs.mkdir(path.join(directory, 'dist-server', 'server'), { recursive: true, mode: 0o755 });
+  await fs.writeFile(path.join(directory, 'package.json'), JSON.stringify({ version }), { mode: 0o644 });
   await fs.writeFile(path.join(directory, 'release-update-metadata.json'), JSON.stringify({
     schema: 1, updaterProtocol: 1, version, compatibility: { database: { rollbackCompatibleFrom: compatibility } },
-  }));
-  await fs.writeFile(path.join(directory, 'scripts', 'chatmux-runtime.mjs'), '');
-  await fs.writeFile(path.join(directory, 'dist-server', 'server', 'release-update-worker.js'), '');
-  await Promise.all([
-    fs.chmod(directory, 0o755),
-    fs.chmod(path.join(directory, 'scripts'), 0o755),
-    fs.chmod(path.join(directory, 'dist-server'), 0o755),
-    fs.chmod(path.join(directory, 'dist-server', 'server'), 0o755),
-    fs.chmod(path.join(directory, 'package.json'), 0o644),
-    fs.chmod(path.join(directory, 'release-update-metadata.json'), 0o644),
-    fs.chmod(path.join(directory, 'scripts', 'chatmux-runtime.mjs'), 0o644),
-    fs.chmod(path.join(directory, 'dist-server', 'server', 'release-update-worker.js'), 0o644),
-  ]);
+  }), { mode: 0o644 });
+  await fs.writeFile(path.join(directory, 'scripts', 'chatmux-runtime.mjs'), '', { mode: 0o644 });
+  await fs.writeFile(path.join(directory, 'dist-server', 'server', 'release-update-worker.js'), '', { mode: 0o644 });
 }
 
 async function workerFixture(options: {
@@ -123,6 +114,7 @@ async function workerFixture(options: {
   fetch?: (url: string, signal: AbortSignal) => AsyncIterable<Uint8Array>;
   requestTimeoutMs?: number;
   nativeResponse?: boolean;
+  contentLength?: boolean;
   crashAt?: 'prepared' | 'live_link_swapped' | 'rollback_in_progress' | 'rollback_link_restored' | 'rollback_completed' | 'terminalized';
 } = {}) {
   const home = await fs.mkdtemp(path.join(tmpdir(), 'chatmux-release-worker-'));
@@ -156,6 +148,7 @@ async function workerFixture(options: {
   const commandEnvironments: NodeJS.ProcessEnv[] = [];
   const healthArgs: Array<[string, number, string]> = [];
   let restartCount = 0;
+  const progressWrites: Array<{ downloadedBytes: number; totalBytes?: number }> = [];
   const worker = new ReleaseUpdateWorker({
     home,
     store: {
@@ -165,6 +158,10 @@ async function workerFixture(options: {
         return state.transition(id, phase, error);
       },
       persistRecoveryCheckpoint: state.persistRecoveryCheckpoint.bind(state),
+      recordDownloadProgress: (id, progress) => {
+        progressWrites.push(progress);
+        return state.recordDownloadProgress(id, progress);
+      },
     },
     fetch: async (url, fetchOptions) => {
       const body = options.fetch?.(url, fetchOptions.signal) ?? (async function* () {
@@ -177,7 +174,11 @@ async function workerFixture(options: {
         for await (const chunk of body) chunks.push(chunk);
         return new Response(Buffer.concat(chunks), { status: 200 }) as never;
       }
-      return { status: 200, headers: { get: () => null }, body };
+      return {
+        status: 200,
+        headers: { get: (name: string) => (options.contentLength && name.toLowerCase() === 'content-length' && !url.endsWith('.sha256') ? String(archive.byteLength) : null) },
+        body,
+      };
     },
     run: async (command, args, processOptions) => {
       commandEnvironments.push(processOptions?.env ?? {});
@@ -201,7 +202,7 @@ async function workerFixture(options: {
     },
   });
   return {
-    root, releases, prior, descriptor, state, phases, commands, commandEnvironments, healthArgs, worker,
+    root, releases, prior, descriptor, state, phases, commands, commandEnvironments, healthArgs, worker, progressWrites,
     cleanup: () => fs.rm(home, { recursive: true, force: true }),
   };
 }
@@ -223,6 +224,30 @@ test('worker performs a complete staged cutover with exact health descriptor arg
     }
     assert.equal(fixture.state.get(jobId)?.phase, 'succeeded');
   } finally { await fixture.cleanup(); }
+});
+
+test('worker persists durable archive download progress with and without a declared total', async () => {
+  const sized = await workerFixture({ contentLength: true });
+  try {
+    await sized.worker.run(jobId);
+    assert.deepEqual(sized.progressWrites.at(-1), { downloadedBytes: archive.byteLength, totalBytes: archive.byteLength });
+    assert.ok(sized.progressWrites.every((write) => write.totalBytes === archive.byteLength));
+  } finally { await sized.cleanup(); }
+  // Unsized multi-chunk body inside the throttle window: the terminal flush
+  // must still persist the true byte count, not the first chunk's.
+  const half = Math.floor(archive.byteLength / 2);
+  const unsized = await workerFixture({
+    fetch: (url) => (async function* () {
+      if (url.endsWith('.sha256')) { yield Buffer.from(`${archiveHash}  chatmux-server-1.2.3-linux-x64-node22.tar.gz\n`); return; }
+      yield archive.subarray(0, half);
+      yield archive.subarray(half);
+    })(),
+  });
+  try {
+    await unsized.worker.run(jobId);
+    assert.deepEqual(unsized.progressWrites.at(-1), { downloadedBytes: archive.byteLength });
+    assert.ok(unsized.progressWrites.some((write) => write.downloadedBytes === half));
+  } finally { await unsized.cleanup(); }
 });
 
 test('worker preserves native Response status, headers, and body across its bounded timer wrapper', async () => {

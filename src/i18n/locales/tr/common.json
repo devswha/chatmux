@@ -144,11 +144,28 @@
       "sourceAvailable": "Hedef: {{version}} (main dalındaki en son işleme). Kaynak güncellemelerinin sabit bir sürüm numarası yoktur.",
       "releaseAvailable": "Tam sürüm hedefi{{version}} kullanılabilir."
     },
+    "releaseNotes": {
+      "title": "v{{version}} sürümündeki yenilikler",
+      "viewFull": "Tüm sürüm notlarını görüntüle"
+    },
     "confirm": {
       "message": "Sunucu güncellenecek ve yeniden başlatılacak. Devam eden web çalışmaları kesintiye uğrayabilir."
     },
     "progress": {
-      "message": "Sunucu güncelleniyor. İndirme, doğrulama, hazırlama, yeniden başlatma ve sistem durumu denetimi ilerlemesi, bu ekran kapatılsa veya sunucu yeniden başlatılsa da korunur."
+      "message": "Sunucu güncelleniyor. İndirme, doğrulama, hazırlama, yeniden başlatma ve sistem durumu denetimi ilerlemesi, bu ekran kapatılsa veya sunucu yeniden başlatılsa da korunur.",
+      "download": "{{downloaded}} MB / {{total}} MB indirildi",
+      "downloadUnsized": "{{downloaded}} MB indirildi",
+      "phases": {
+        "queued": "Başlatma bekleniyor…",
+        "downloading": "Sürüm indiriliyor…",
+        "verifying": "İndirme doğrulanıyor…",
+        "staging": "Yeni sürüm hazırlanıyor…",
+        "cutting_over": "Yeni sürüme geçiliyor…",
+        "restarting": "Sunucu yeniden başlatılıyor…",
+        "verifying_health": "Sunucu durumu denetleniyor…",
+        "rolling_back": "Geri alınıyor…",
+        "succeeded": "Tamamlanıyor…"
+      }
     },
     "success": {
       "message": "Güncelleme doğrulandı. Ekran yenileniyor."
@@ -182,7 +199,8 @@
       "showSidebar": "Kenar çubuğunu göster",
       "settings": "Ayarlar",
       "updateAvailable": "Güncelleme mevcut",
-      "closeSidebar": "Kenar çubuğunu kapat"
+      "closeSidebar": "Kenar çubuğunu kapat",
+      "progress": "Güncelleme ilerlemesi"
     }
   }
 }

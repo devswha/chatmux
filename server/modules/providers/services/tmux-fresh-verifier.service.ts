@@ -21,6 +21,7 @@ export type VerifiedTmuxActionTarget = Readonly<{
   process: Readonly<TmuxProcessGeneration>;
   kind: ExternalCliKind | 'gjc';
   tmuxName: string | null;
+  providerSessionId: string | null;
   readonly [verifiedTmuxActionTarget]: true;
 }>;
 
@@ -38,12 +39,14 @@ export function createVerifiedTmuxActionTarget(
   process: TmuxProcessGeneration,
   kind: ExternalCliKind | 'gjc',
   tmuxName: string | null,
+  providerSessionId: string | null = null,
 ): VerifiedTmuxActionTarget {
   return Object.freeze({
     tmux: Object.freeze({ ...tmux }),
     process: Object.freeze({ ...process }),
     kind,
     tmuxName,
+    providerSessionId,
     [verifiedTmuxActionTarget]: true as const,
   });
 }
@@ -66,6 +69,9 @@ export async function assertFreshExternalTmuxTarget(
     && sameTmuxPaneIdentity(session.tmux, tmux)
     && session.agentPid === process.pid
     && session.startedAtMs === process.startedAtMs
+    // Discovery excluded this pane (cross-user / cross-HOME / socket owner
+    // mismatch); control paths must honor the exclusion, not just the UI.
+    && !session.connectionIssue
   ));
   if (!target) {
     throw new AppError('The selected tmux pane now belongs to a different agent process.', {
@@ -75,5 +81,11 @@ export async function assertFreshExternalTmuxTarget(
   }
 
   await (deps.assertPaneIdentity ?? assertTmuxPaneIdentity)(tmux);
-  return createVerifiedTmuxActionTarget(tmux, process, target.kind, target.tmuxName);
+  return createVerifiedTmuxActionTarget(
+    tmux,
+    process,
+    target.kind,
+    target.tmuxName,
+    target.providerSessionId ?? null,
+  );
 }

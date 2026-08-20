@@ -54,7 +54,12 @@ type ServiceWorkerFixture = Events & {
   getRegistration: () => Promise<RegistrationFixture | undefined>;
 };
 
-function setup({ controller = true }: { controller?: boolean } = {}) {
+function setup({ controller = true, storage = new Map<string, string>(), navigationType = () => 'navigate', now = () => 1_000 }: {
+  controller?: boolean;
+  storage?: Map<string, string>;
+  navigationType?: () => string;
+  now?: () => number;
+} = {}) {
   let registration: RegistrationFixture | undefined;
   let registerCalls = 0;
   const serviceWorker: ServiceWorkerFixture = Object.assign(new Events(), {
@@ -67,7 +72,6 @@ function setup({ controller = true }: { controller?: boolean } = {}) {
     getRegistration: async () => registration,
   });
 
-  const storage = new Map<string, string>();
   let reloads = 0;
   const timers: Array<() => void> = [];
   const coordinator = createServiceWorkerRefreshCoordinator({
@@ -82,6 +86,8 @@ function setup({ controller = true }: { controller?: boolean } = {}) {
       return timers.length;
     },
     clearTimeout: () => {},
+    navigationType,
+    now,
   });
 
   return {
@@ -103,6 +109,40 @@ test('shares registration and refresh coordination with verified server updates'
   assert.equal(await fixture.coordinator.refreshAfterServerUpdate(options), 'reloaded');
   assert.equal(await fixture.coordinator.refresh(options), 'already-reloaded');
   assert.equal(fixture.reloads, 1);
+});
+
+// Regression: the old per-version session guard let only the FIRST stale
+// document reload; every other document restored from the back/forward cache
+// stayed stranded on the old bundle (실사고: 모바일 PWA 뒤로가기/복귀마다 옛 UI).
+test('every restored stale document heals; only reload-born documents are loop-blocked', async () => {
+  const storage = new Map<string, string>();
+  const options: ServiceWorkerRefreshOptions = { serverVersion: '2.0.0' };
+
+  // Document A (bfcache restore of a stale bundle) reloads.
+  const docA = setup({ controller: false, storage });
+  docA.setRegistration({});
+  assert.equal(await docA.coordinator.refreshAfterServerUpdate(options), 'reloaded');
+  assert.equal(docA.reloads, 1);
+
+  // Document B — another stale history entry in the SAME session — must also
+  // be allowed to heal instead of being blocked by A's marker.
+  const docB = setup({ controller: false, storage, now: () => 2_000 });
+  docB.setRegistration({});
+  assert.equal(await docB.coordinator.refreshAfterServerUpdate(options), 'reloaded');
+  assert.equal(docB.reloads, 1);
+
+  // Document C was itself produced by an auto-reload moments ago and still
+  // mismatches: the origin serves a stale bundle — break the loop.
+  const docC = setup({ controller: false, storage, navigationType: () => 'reload', now: () => 3_000 });
+  docC.setRegistration({});
+  assert.equal(await docC.coordinator.refreshAfterServerUpdate(options), 'already-reloaded');
+  assert.equal(docC.reloads, 0);
+
+  // Outside the loop window a reload-born document may retry (bounded retry).
+  const docD = setup({ controller: false, storage, navigationType: () => 'reload', now: () => 40_000 });
+  docD.setRegistration({});
+  assert.equal(await docD.coordinator.refreshAfterServerUpdate(options), 'reloaded');
+  assert.equal(docD.reloads, 1);
 });
 test('a failed initial registration can be retried', async () => {
   const fixture = setup({ controller: false });

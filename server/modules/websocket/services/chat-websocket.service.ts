@@ -78,6 +78,17 @@ type ChatWebSocketDependencies = {
   ) => void;
   /** Provider-runtime approvals included in `chat_subscribed` after reconnect. */
   getPendingApprovalsForSession: (providerSessionId: string) => unknown[];
+  /**
+   * Live-pane spawn guard (#44): resolves the tmux session that currently
+   * owns a provider-native session id, or null when spawning is safe. When a
+   * transcript is live in a tmux pane, spawning a headless resume would put a
+   * second writer on the same JSONL and the live agent would never see the
+   * message, so `chat.send` must refuse instead.
+   */
+  findLiveTmuxSpawnBlock?: (
+    provider: LLMProvider,
+    providerSessionId: string | null | undefined,
+  ) => Promise<{ tmuxName: string } | null>;
   /** Optional non-chat protocol mounted on the authenticated /ws gateway. */
   handleDiscovery?: (ws: WebSocket, data: AnyRecord) => boolean;
 };
@@ -173,6 +184,23 @@ async function handleChatSend(
     return;
   }
 
+  if (session.provider_session_id && dependencies.findLiveTmuxSpawnBlock) {
+    const liveOwner = await dependencies.findLiveTmuxSpawnBlock(
+      provider,
+      session.provider_session_id,
+    );
+    if (liveOwner) {
+      sendProtocolError(
+        ws,
+        'SESSION_LIVE_IN_TMUX',
+        `This session is currently live in tmux session "${liveOwner.tmuxName}". `
+          + 'Send input through the live session view instead of starting a second process.',
+        sessionId,
+      );
+      return;
+    }
+  }
+
   const run = chatRunRegistry.startRun({
     appSessionId: sessionId,
     provider,
@@ -215,7 +243,7 @@ async function handleChatSend(
 
   try {
     const providerRun = spawnFn(command, runtimeOptions, run.writer);
-    if (provider === 'gjc' || provider === 'omp') {
+    if (provider === 'gjc' || provider === 'omp' || provider === 'omo') {
       const abortHandle = (providerRun as ProviderSpawnResult).abortHandle;
       if (abortHandle) {
         run.writer.setAbortHandle(abortHandle);
@@ -263,7 +291,7 @@ async function handleChatAbort(
   if (abortFn && abortSessionId) {
     success = Boolean(await abortFn(abortSessionId));
   }
-  if (!success && (run.provider === 'gjc' || run.provider === 'omp')) {
+  if (!success && (run.provider === 'gjc' || run.provider === 'omp' || run.provider === 'omo')) {
     sendProtocolError(ws, 'ABORT_FAILED', `Session "${sessionId}" could not be aborted.`, sessionId);
     return;
   }

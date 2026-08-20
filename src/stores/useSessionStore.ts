@@ -67,6 +67,8 @@ export interface NormalizedMessage {
   toolInput?: unknown;
   toolId?: string;
   toolResult?: { content: string; isError: boolean; toolUseResult?: unknown } | null;
+  toolResultTruncated?: boolean;
+  toolResultBytes?: number;
   isError?: boolean;
   text?: string;
   tokens?: number;
@@ -110,13 +112,20 @@ export interface SessionSlot {
   _fetchMoreTicket: number | null;
   /** @internal Number of server requests still using this slot. */
   _pendingRequests: number;
+  /** @internal Reconcile requested while another server request was active. */
+  _reconcilePending: boolean;
   /** @internal Request currently allowed to settle `loading`. */
   _loadingTicket: number | null;
+  /** Whether subsequent pages/reconciles should request image attachment data. */
+  _includeImages: boolean;
+  /** @internal Whether a provider history epoch has been observed for this slot. */
+  _historyEpochKnown: boolean;
   status: SessionStatus;
   fetchedAt: number;
   total: number;
   hasMore: boolean;
   offset: number;
+  historyEpoch: string | null;
   tokenUsage: unknown;
 }
 
@@ -138,8 +147,34 @@ function createEmptySlot(): SessionSlot {
     _fetchSeq: 0,
     _fetchMoreTicket: null,
     _pendingRequests: 0,
+    _reconcilePending: false,
     _loadingTicket: null,
+    _includeImages: true,
+    _historyEpochKnown: false,
+    historyEpoch: null,
   };
+}
+
+/**
+ * Records a provider-native `/clear` boundary. The first observed epoch merely
+ * initializes the slot; later changes mean every cached/realtime row belongs
+ * to an earlier context and must not survive the server window replacement.
+ */
+function applyHistoryEpoch(slot: SessionSlot, data: Record<string, unknown>): boolean {
+  if (!Object.prototype.hasOwnProperty.call(data, 'historyEpoch')) {
+    return false;
+  }
+
+  const nextEpoch = typeof data.historyEpoch === 'string' ? data.historyEpoch : null;
+  const changed = slot._historyEpochKnown && slot.historyEpoch !== nextEpoch;
+  slot._historyEpochKnown = true;
+  slot.historyEpoch = nextEpoch;
+
+  if (changed) {
+    slot.realtimeMessages = EMPTY;
+    slot.tokenUsage = null;
+  }
+  return changed;
 }
 
 function getRealtimeMessageIdentity(message: NormalizedMessage): string | null {
@@ -520,6 +555,11 @@ function dedupeMessagesById(messages: NormalizedMessage[]): NormalizedMessage[] 
 export function useSessionStore() {
   const storeRef = useRef(new Map<string, SessionSlot>());
   const activeSessionIdRef = useRef<string | null>(null);
+  const refreshFromServerRef = useRef<((sessionId: string) => Promise<SessionSlot>) | null>(null);
+  const queuedRefreshesRef = useRef(new Map<string, {
+    promise: Promise<SessionSlot>;
+    resolve: (slot: SessionSlot) => void;
+  }>());
   // Bump to force re-render — only when the active session's data changes.
   // Session ids are stable for the whole conversation lifetime (the backend
   // allocates them before the first send), so slots are keyed directly with
@@ -579,6 +619,21 @@ export function useSessionStore() {
     return slot;
   }, [touchSlot]);
 
+  const runQueuedRefresh = useCallback((sessionId: string, slot: SessionSlot) => {
+    if (!slot._reconcilePending || slot._pendingRequests !== 0) {
+      return;
+    }
+    const queued = queuedRefreshesRef.current.get(sessionId);
+    if (!queued || !refreshFromServerRef.current) {
+      return;
+    }
+    slot._reconcilePending = false;
+    void refreshFromServerRef.current(sessionId).then((refreshedSlot) => {
+      queued.resolve(refreshedSlot);
+      queuedRefreshesRef.current.delete(sessionId);
+    });
+  }, []);
+
   const has = useCallback((sessionId: string) => {
     return storeRef.current.has(sessionId);
   }, []);
@@ -594,9 +649,13 @@ export function useSessionStore() {
     opts: {
       limit?: number | null;
       offset?: number;
+      includeImages?: boolean;
     } = {},
   ) => {
     const slot = beginRequest(sessionId);
+    if (typeof opts.includeImages === 'boolean') {
+      slot._includeImages = opts.includeImages;
+    }
     const fetchTicket = ++slot._fetchSeq;
     if (slot.status !== 'streaming') {
       slot._loadingTicket = fetchTicket;
@@ -610,6 +669,7 @@ export function useSessionStore() {
         params.append('limit', String(opts.limit));
         params.append('offset', String(opts.offset ?? 0));
       }
+      if (!slot._includeImages) params.set('includeImages', 'false');
 
       const qs = params.toString();
       const url = `/api/providers/sessions/${encodeURIComponent(sessionId)}/messages${qs ? `?${qs}` : ''}`;
@@ -628,6 +688,7 @@ export function useSessionStore() {
         return slot;
       }
 
+      applyHistoryEpoch(slot, data);
       slot.serverMessages = dedupeMessagesById(messages);
       slot.total = data.total ?? messages.length;
       slot.hasMore = Boolean(data.hasMore);
@@ -660,9 +721,10 @@ export function useSessionStore() {
       if (slot._loadingTicket === fetchTicket) {
         slot._loadingTicket = null;
       }
+      runQueuedRefresh(sessionId, slot);
       trimInactiveSlots();
     }
-  }, [beginRequest, notify, trimInactiveSlots]);
+  }, [beginRequest, notify, runQueuedRefresh, trimInactiveSlots]);
 
   /**
    * Load older (paginated) messages and prepend to serverMessages.
@@ -671,10 +733,14 @@ export function useSessionStore() {
     sessionId: string,
     opts: {
       limit?: number;
+      includeImages?: boolean;
     } = {},
   ) => {
     const store = storeRef.current;
     const slot = store.get(sessionId) ?? createEmptySlot();
+    if (typeof opts.includeImages === 'boolean') {
+      slot._includeImages = opts.includeImages;
+    }
     if (!slot.hasMore || slot._fetchMoreTicket !== null) {
       touchSlot(sessionId, slot);
       return slot;
@@ -692,6 +758,7 @@ export function useSessionStore() {
     const limit = opts.limit ?? 20;
     params.append('limit', String(limit));
     params.append('offset', String(expectedOffset));
+    if (!slot._includeImages) params.set('includeImages', 'false');
 
     const qs = params.toString();
     const url = `/api/providers/sessions/${encodeURIComponent(sessionId)}/messages${qs ? `?${qs}` : ''}`;
@@ -710,6 +777,22 @@ export function useSessionStore() {
         || slot._fetchMoreTicket !== fetchTicket
         || slot.offset !== expectedOffset
       ) {
+        return slot;
+      }
+
+      if (applyHistoryEpoch(slot, data)) {
+        // This page used an offset from the preceding context and cannot be
+        // merged into the new one. Clear it immediately and queue a fresh
+        // offset-zero reconcile after the in-flight page releases the slot.
+        slot.serverMessages = EMPTY;
+        slot.total = data.total ?? 0;
+        slot.hasMore = false;
+        slot.offset = 0;
+        recomputeMergedIfNeeded(slot);
+        notify(sessionId);
+        if (refreshFromServerRef.current) {
+          void refreshFromServerRef.current(sessionId);
+        }
         return slot;
       }
 
@@ -744,9 +827,10 @@ export function useSessionStore() {
       if (slot._loadingTicket === fetchTicket) {
         slot._loadingTicket = null;
       }
+      runQueuedRefresh(sessionId, slot);
       trimInactiveSlots();
     }
-  }, [notify, touchSlot, trimInactiveSlots]);
+  }, [notify, runQueuedRefresh, touchSlot, trimInactiveSlots]);
 
   /**
    * Append a realtime (WebSocket) message to the correct session slot.
@@ -803,8 +887,35 @@ export function useSessionStore() {
    */
   const refreshFromServer = useCallback(async (
     sessionId: string,
+    opts: { includeImages?: boolean } = {},
   ) => {
+    // Reconcile polling is lower priority than an explicit initial, paginated,
+    // or load-all request. Let that window mutation finish instead of
+    // invalidating its fetch ticket and making the UI believe an unchanged
+    // slot was successfully expanded.
+    const pendingSlot = storeRef.current.get(sessionId);
+    if (pendingSlot && typeof opts.includeImages === 'boolean') {
+      pendingSlot._includeImages = opts.includeImages;
+    }
+    if (pendingSlot && pendingSlot._pendingRequests > 0) {
+      pendingSlot._reconcilePending = true;
+      touchSlot(sessionId, pendingSlot);
+      const queued = queuedRefreshesRef.current.get(sessionId);
+      if (queued) {
+        return queued.promise;
+      }
+      let resolve!: (slot: SessionSlot) => void;
+      const promise = new Promise<SessionSlot>((nextResolve) => {
+        resolve = nextResolve;
+      });
+      queuedRefreshesRef.current.set(sessionId, { promise, resolve });
+      return promise;
+    }
+
     const slot = beginRequest(sessionId);
+    if (typeof opts.includeImages === 'boolean') {
+      slot._includeImages = opts.includeImages;
+    }
     const fetchTicket = ++slot._fetchSeq;
     if (slot.status === 'loading') {
       slot._loadingTicket = fetchTicket;
@@ -814,7 +925,7 @@ export function useSessionStore() {
       // transcript is not re-pulled in full on every refresh (latest-N + scroll-up
       // lazy-load stays intact). total/hasMore below keep older messages reachable.
       const loadedCount = slot.serverMessages.length + slot.realtimeMessages.length;
-      const url = buildRefreshMessagesUrl(sessionId, loadedCount);
+      const url = buildRefreshMessagesUrl(sessionId, loadedCount, slot._includeImages);
       const response = await authenticatedFetch(url);
 
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -823,10 +934,11 @@ export function useSessionStore() {
 
       // Only the latest request may replace this session's loaded window.
       if (fetchTicket !== slot._fetchSeq) {
-        return;
+        return slot;
       }
 
       const messages: NormalizedMessage[] = data.messages || [];
+      applyHistoryEpoch(slot, data);
       slot.serverMessages = dedupeMessagesById(messages);
       slot.total = data.total ?? messages.length;
       slot.hasMore = Boolean(data.hasMore);
@@ -844,6 +956,7 @@ export function useSessionStore() {
       );
       recomputeMergedIfNeeded(slot);
       notify(sessionId);
+      return slot;
     } catch (error) {
       console.error(`[SessionStore] refresh failed for ${sessionId}:`, error);
       if (
@@ -854,14 +967,18 @@ export function useSessionStore() {
         slot.status = 'idle';
         notify(sessionId);
       }
+      return slot;
     } finally {
       slot._pendingRequests -= 1;
       if (slot._loadingTicket === fetchTicket) {
         slot._loadingTicket = null;
       }
+      runQueuedRefresh(sessionId, slot);
       trimInactiveSlots();
     }
-  }, [beginRequest, notify, trimInactiveSlots]);
+  }, [beginRequest, notify, runQueuedRefresh, touchSlot, trimInactiveSlots]);
+
+  refreshFromServerRef.current = refreshFromServer;
 
   /**
    * Update session status.

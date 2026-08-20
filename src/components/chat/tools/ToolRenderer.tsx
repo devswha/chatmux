@@ -27,6 +27,8 @@ interface ToolRendererProps {
   showRawParameters?: boolean;
   rawToolInput?: string;
   isSubagentContainer?: boolean;
+  pendingAsk?: boolean;
+  onAskChoiceSelect?: (choiceNumber: number) => void;
   subagentState?: {
     childTools: SubagentChildTool[];
     currentToolIndex: number;
@@ -38,7 +40,7 @@ function getToolCategory(toolName: string): string {
   if (['Edit', 'Write', 'ApplyPatch'].includes(toolName)) return 'edit';
   if (['Grep', 'Glob'].includes(toolName)) return 'search';
   if (toolName === 'Bash') return 'bash';
-  if (['TodoWrite', 'TodoRead'].includes(toolName)) return 'todo';
+  if (['TodoWrite', 'TodoRead', 'todo'].includes(toolName)) return 'todo';
   if (['TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet'].includes(toolName)) return 'task';
   if (toolName === 'Task') return 'agent';
   if (toolName === 'exit_plan_mode' || toolName === 'ExitPlanMode') return 'plan';
@@ -82,7 +84,9 @@ export const ToolRenderer: React.FC<ToolRendererProps> = memo(({
   showRawParameters = false,
   rawToolInput,
   isSubagentContainer,
-  subagentState
+  subagentState,
+  pendingAsk = false,
+  onAskChoiceSelect,
 }) => {
   const config = getToolConfig(toolName);
   const displayConfig: any = mode === 'input' ? config.input : config.result;
@@ -219,7 +223,8 @@ export const ToolRenderer: React.FC<ToolRendererProps> = memo(({
     const contentProps = displayConfig.getContentProps?.(parsedData, {
       selectedProject,
       createDiff,
-      onFileOpen
+      onFileOpen,
+      toolResult,
     }) || {};
 
     let contentComponent: React.ReactNode = null;
@@ -271,6 +276,8 @@ export const ToolRenderer: React.FC<ToolRendererProps> = memo(({
           <QuestionAnswerContent
             questions={contentProps.questions || []}
             answers={contentProps.answers || {}}
+            pending={pendingAsk}
+            onSelectChoice={pendingAsk ? onAskChoiceSelect : undefined}
           />
         );
         break;

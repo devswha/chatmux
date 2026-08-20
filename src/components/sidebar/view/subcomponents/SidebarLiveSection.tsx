@@ -14,7 +14,7 @@ import {
 } from '@dnd-kit/sortable';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { X } from 'lucide-react';
+import { AlertTriangle, X } from 'lucide-react';
 
 import type { ExternalTerminalTarget, Project, ProjectSession } from '../../../../types/app';
 import {
@@ -32,6 +32,7 @@ import SessionProviderLogo from '../../../llm-logo-provider/SessionProviderLogo'
 import type { TmuxPaneIdentity, TmuxPaneTarget } from '../../../../../shared/tmux';
 import type { ExternalCliSession } from '../../hooks/useExternalCliSessions';
 import { tmuxPaneIdentityKey } from '../../../../../shared/tmux';
+import type { ProviderConnectionIssue } from '../../../../../shared/provider-connection';
 
 import SessionCompletionBell from './SessionCompletionBell';
 import SessionActivityBadge from './SessionActivityBadge';
@@ -62,7 +63,9 @@ type SidebarLiveSectionProps = {
   // Ids whose transcript tail shows a turn in progress — RUN (green) instead
   // of READY (blue). Presentational only.
   liveSessionRunning: ReadonlySet<string>;
+  liveSessionInput?: ReadonlySet<string>;
   liveSessionErrors?: ReadonlySet<string>;
+  liveSessionConnectionIssues?: ReadonlyMap<string, ProviderConnectionIssue>;
   selectedSession: ProjectSession | null;
   onProjectSelect: (project: Project) => void;
   onSessionSelect: (session: ProjectSession, projectId: string) => void;
@@ -171,7 +174,9 @@ export default function SidebarLiveSection({
   liveSessionPresence = EMPTY_SESSION_PRESENCE,
   liveSessionKinds,
   liveSessionRunning,
+  liveSessionInput = EMPTY_SESSION_IDS,
   liveSessionErrors = EMPTY_SESSION_IDS,
+  liveSessionConnectionIssues = new Map(),
   selectedSession,
   onProjectSelect,
   onSessionSelect,
@@ -549,8 +554,8 @@ export default function SidebarLiveSection({
                       <button
                         type="button"
                         title={title}
-                        disabled={!isPresent}
-                        aria-disabled={!isPresent}
+                        disabled={!isPresent || liveSessionConnectionIssues.has(session.id)}
+                        aria-disabled={!isPresent || liveSessionConnectionIssues.has(session.id)}
                         onClick={() => onSessionSelect(session, project.projectId)}
                         className="flex min-w-0 flex-1 items-start gap-2 px-1.5 py-1.5 text-left disabled:cursor-not-allowed disabled:opacity-60"
                       >
@@ -559,8 +564,10 @@ export default function SidebarLiveSection({
                           <span className="flex items-center gap-2">
                             {isPresent && (
                               <SessionActivityBadge
-                                state={liveSessionErrors.has(session.id)
+                                state={liveSessionConnectionIssues.has(session.id)
+                                  || liveSessionErrors.has(session.id)
                                   ? 'error'
+                                  : liveSessionInput.has(session.id) ? 'input'
                                   : liveSessionRunning.has(session.id) ? 'running' : 'ready'}
                               />
                             )}
@@ -591,7 +598,17 @@ export default function SidebarLiveSection({
                         {canClose && closeButton(session.id, tmuxName!)}
                       </>
                     )}
-                    details={canClose ? closeStrip(session.id, tmuxName!) : null}
+                    details={(
+                      <>
+                        {liveSessionConnectionIssues.has(session.id) && (
+                          <p className="flex items-start gap-1.5 px-2 pb-1.5 pl-10 text-[11px] text-amber-600 dark:text-amber-400" role="alert">
+                            <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
+                            <span>{t(`connectionIssues.${liveSessionConnectionIssues.get(session.id)}`, { agent: 'GJC' })}</span>
+                          </p>
+                        )}
+                        {canClose && closeStrip(session.id, tmuxName!)}
+                      </>
+                    )}
                   />
                 );
               }
@@ -620,8 +637,10 @@ export default function SidebarLiveSection({
                   <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                     <span className="flex items-center gap-2">
                       {isPresent && (
-                        <SessionActivityBadge state={liveSessionErrors.has(id)
+                        <SessionActivityBadge state={liveSessionConnectionIssues.has(id)
+                          || liveSessionErrors.has(id)
                           ? 'error'
+                          : liveSessionInput.has(id) ? 'input'
                           : liveSessionRunning.has(id) ? 'running' : 'ready'} />
                       )}
                       {isPresent && liveSessionKinds.get(id) === 'batch' && (
@@ -656,8 +675,8 @@ export default function SidebarLiveSection({
                   content={isIdle ? (
                     <button
                       type="button"
-                      disabled={!isPresent}
-                      aria-disabled={!isPresent}
+                      disabled={!isPresent || liveSessionConnectionIssues.has(id)}
+                      aria-disabled={!isPresent || liveSessionConnectionIssues.has(id)}
                       onClick={() => {
                         const target = liveSessionTargets.get(id);
                         if (tmuxName && target && projects[0]) {
@@ -700,6 +719,12 @@ export default function SidebarLiveSection({
                     <>
                       {isPresent && openError.has(id) && (
                         <p className="px-2 pb-1.5 pl-10 text-[11px] text-red-500">{openError.get(id)}</p>
+                      )}
+                      {isPresent && liveSessionConnectionIssues.has(id) && (
+                        <p className="flex items-start gap-1.5 px-2 pb-1.5 pl-10 text-[11px] text-amber-600 dark:text-amber-400" role="alert">
+                          <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
+                          <span>{t(`connectionIssues.${liveSessionConnectionIssues.get(id)}`, { agent: 'GJC' })}</span>
+                        </p>
                       )}
                       {canClose && closeStrip(id, tmuxName!)}
                     </>

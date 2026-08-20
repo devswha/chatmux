@@ -2,6 +2,7 @@ import webPush from 'web-push';
 
 import { getConnection } from '../modules/database/connection.js';
 
+const DEFAULT_VAPID_SUBJECT = 'https://github.com/devswha/chatmux';
 let cachedKeys = null;
 const db = getConnection();
 
@@ -27,7 +28,7 @@ function getPublicKey() {
 function configureWebPush() {
   const keys = ensureVapidKeys();
   webPush.setVapidDetails(
-    'mailto:noreply@chatmux.local',
+    process.env.VAPID_SUBJECT?.trim() || DEFAULT_VAPID_SUBJECT,
     keys.publicKey,
     keys.privateKey
   );

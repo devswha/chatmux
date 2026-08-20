@@ -13,7 +13,7 @@ export default function MainContentStateView({ mode, isMobile, onMenuClick }: Ma
   return (
     <div className="flex h-full flex-col">
       {isMobile && (
-        <div className="pwa-header-safe flex-shrink-0 border-b border-border/50 bg-background/80 p-2 backdrop-blur-sm sm:p-3">
+        <div className="pwa-header-safe flex-shrink-0 border-b border-border/50 bg-background p-2 sm:p-3">
           <MobileMenuButton onMenuClick={onMenuClick} compact />
         </div>
       )}

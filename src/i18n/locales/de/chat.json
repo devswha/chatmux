@@ -56,7 +56,15 @@
     "waiting": "Warte auf deine Antwort in der CLI",
     "instruction": "Bitte wähl eine Option in deinem Terminal, in dem Claude läuft.",
     "selectedOption": "✓ Claude hat Option {{number}} ausgewählt",
-    "instructionDetail": "In der CLI würdest du diese Option interaktiv mit den Pfeiltasten oder durch Eingabe der Nummer auswählen."
+    "instructionDetail": "In der CLI würdest du diese Option interaktiv mit den Pfeiltasten oder durch Eingabe der Nummer auswählen.",
+    "directInput": "Direkteingabe (Sonstiges)",
+    "numberInstruction": "Senden Sie die angezeigte Nummer im Chat. Letzte Nummer: Direkteingabe · 0: Abbrechen",
+    "numberInstructionWithCustomNumber": "Senden Sie die angezeigte Nummer im Chat · {{number}}: Direkteingabe · 0: Abbrechen",
+    "numberInstructionNoCustom": "Senden Sie die angezeigte Nummer im Chat · 0: Abbrechen",
+    "multiNumberInstruction": "Senden Sie eine oder mehrere Nummern durch Kommas getrennt · 0: Abbrechen",
+    "cancelChoice": "Abbrechen (0)",
+    "multiTapInstruction": "Optionen antippen zum Umschalten, dann absenden · 0: abbrechen",
+    "submitChoices": "Absenden ({{count}})"
   },
   "thinking": {
     "title": "Denkt nach...",
@@ -151,6 +159,9 @@
       "scrollToLoad": "Nach oben scrollen, um mehr zu laden",
       "showingLast": "Letzte {{count}} Nachrichten werden angezeigt ({{total}} gesamt)",
       "loadEarlier": "Frühere Nachrichten laden",
+      "loadFullToolOutput": "Vollständige Ausgabe laden",
+      "loadingFullToolOutput": "Vollständige Ausgabe wird geladen...",
+      "fullToolOutputFailed": "Vollständige Ausgabe konnte nicht geladen werden.",
       "loadAll": "Alle Nachrichten laden",
       "loadingAll": "Alle Nachrichten werden geladen...",
       "allLoaded": "Alle Nachrichten geladen",
@@ -228,7 +239,15 @@
     "delivered": "Zugestellt",
     "queued": "In Warteschlange",
     "towerUnavailable": "Kontrollturm läuft nicht — Senden nicht möglich",
-    "sendFailed": "Senden fehlgeschlagen"
+    "sendFailed": "Senden fehlgeschlagen",
+    "selectionNumberRequired": "Geben Sie eine angezeigte Nummer ein (0-{{max}}).",
+    "multiSelectionNumberRequired": "Geben Sie eine oder mehrere angezeigte Nummern durch Kommas getrennt ein.",
+    "customInputPlaceholder": "Eigene Antwort eingeben…",
+    "customInputReady": "Geben Sie die eigene Antwort ein.",
+    "selectionDelivered": "Auswahl übermittelt.",
+    "selectionPlaceholder": "Auswahlnummer eingeben (0-{{max}})…",
+    "multiSelectionPlaceholder": "Auswahlnummern durch Kommas getrennt eingeben…",
+    "placeholderShort": "Nachricht an {{name}}…"
   },
   "transcript": {
     "conversationTab": "Chat",

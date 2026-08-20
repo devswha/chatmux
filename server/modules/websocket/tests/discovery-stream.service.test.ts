@@ -70,7 +70,9 @@ function collector(initial = snapshot(1), onStart?: () => void) {
     setActive: (next) => { active = next; },
     forceRefresh: () => undefined,
     tick: async () => undefined,
+    ensureFresh: async () => undefined,
     currentSnapshot: () => current,
+    currentDetailed: () => ({ takenAtMs: null, external: null, live: null }),
     onSnapshot: (listener) => { listeners.add(listener); return () => listeners.delete(listener); },
   };
   return {
@@ -199,7 +201,36 @@ test('bounded queue emits resync without oversized payload and closes only susta
   clock = SLOW_CLIENT_MS; source.emit(snapshot(102)); assert.equal(ws.closeCode, 1013);
   stream.dispose();
 });
+test('queue overflow suppresses stale snapshots until the client resyncs', () => {
+  const source = collector();
+  const stream = createDiscoveryStream(source.instance);
+  const ws = new FakeWebSocket();
+  ws.bufferedAmount = MAX_BUFFERED_AMOUNT + 1;
+  subscribe(stream, ws);
 
+  for (let revision = 2; revision <= MAX_QUEUED_MESSAGES + 3; revision += 1) {
+    source.emit(snapshot(revision));
+  }
+
+  ws.bufferedAmount = 0;
+  source.emit(snapshot(MAX_QUEUED_MESSAGES + 4));
+  source.emit(snapshot(MAX_QUEUED_MESSAGES + 5));
+  assert.deepEqual(frames(ws).map((event) => event.kind), ['discovery.resync_required']);
+
+  stream.handle(ws as never, { type: 'discovery.resync', reason: 'queue_overflow' });
+  assert.deepEqual(frames(ws).map((event) => event.kind), [
+    'discovery.resync_required',
+    'discovery.v2.snapshot',
+  ]);
+
+  source.emit(snapshot(MAX_QUEUED_MESSAGES + 6));
+  assert.deepEqual(frames(ws).map((event) => event.kind), [
+    'discovery.resync_required',
+    'discovery.v2.snapshot',
+    'discovery.v2.snapshot',
+  ]);
+  stream.dispose();
+});
 test('unchanged ticks heartbeat every cadence and resync is rate-limited', () => {
   let clock = 0;
   const source = collector();
@@ -255,6 +286,26 @@ test('unauthenticated websocket upgrades cannot subscribe to discovery', async (
   });
   assert.equal(status, 401);
   assert.equal(source.starts(), 0);
+  await new Promise<void>((resolve, reject) => wss.close((error) => error ? reject(error) : resolve()));
+  await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+});
+test('chat connections receive a server_hello identity frame before any other traffic', async () => {
+  const server = createServer();
+  const wss = createWebSocketServer(server, {
+    verifyClient: { authenticateWebSocket: () => ({ id: 1, username: 'test' }) },
+    serverInfo: { version: '9.9.9', bootId: 'boot-hello' },
+  } as never);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address(); assert.ok(address && typeof address !== 'string');
+  const client = new ClientWebSocket(`ws://127.0.0.1:${address.port}/ws`);
+  const first = await new Promise<Record<string, unknown>>((resolve, reject) => {
+    client.once('message', (frame) => resolve(JSON.parse(String(frame)) as Record<string, unknown>));
+    client.once('error', reject);
+  });
+  assert.equal(first.kind, 'server_hello');
+  assert.equal(first.serverVersion, '9.9.9');
+  assert.equal(first.bootId, 'boot-hello');
+  client.close();
   await new Promise<void>((resolve, reject) => wss.close((error) => error ? reject(error) : resolve()));
   await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
 });

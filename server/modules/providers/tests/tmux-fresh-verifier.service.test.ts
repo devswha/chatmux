@@ -51,13 +51,15 @@ test('fresh verifier performs one uncached scan without populating the display c
   assert.equal(Object.isFrozen(target.process), true);
 });
 
-test('fresh verifier rejects coordinate, process, terminal-only, and absent targets', async () => {
+test('fresh verifier rejects coordinate, process, terminal-only, connection-issue, and absent targets', async () => {
   const cases: Array<{ sessions: ExternalCliSession[]; requestedTmux?: typeof tmux; requestedProcess?: typeof processGeneration }> = [
     { sessions: [session], requestedTmux: { ...tmux, paneId: '%10' } },
     { sessions: [session], requestedProcess: { ...processGeneration, pid: 43 } },
     { sessions: [{ ...session, kind: 'ssh' }] },
     { sessions: [{ ...session, kind: 'shell' }] },
     { sessions: [] },
+    { sessions: [{ ...session, connectionIssue: 'agent_user_mismatch' }] },
+    { sessions: [{ ...session, connectionIssue: 'tmux_socket_owner_mismatch' }] },
   ];
   for (const entry of cases) {
     await assert.rejects(
@@ -157,6 +159,23 @@ test('local-agent verifier falls back to the live gjc lineage lane for panes mis
       assertPaneIdentity: async () => {},
     }),
     (error: unknown) => error instanceof AppError && error.code === 'TMUX_ACTION_NOT_LINEAGE',
+  );
+
+  // A live row discovery marked with a connection issue must never authorize
+  // control, even when pane identity and process generation both match.
+  await assert.rejects(
+    assertFreshLocalAgentTmuxTarget(tmux, processGeneration, {
+      assertExternal: async () => {
+        throw new AppError('not external', { code: 'TMUX_PROCESS_GENERATION_MISMATCH', statusCode: 409 });
+      },
+      loadLiveSessions: async () => [
+        { ...liveSession, connectionIssue: 'tmux_socket_owner_mismatch' } as unknown as LiveGjcSession,
+      ],
+      assertPaneIdentity: async () => {},
+    }),
+    (error: unknown) => error instanceof AppError
+      && error.code === 'TMUX_PROCESS_GENERATION_MISMATCH'
+      && error.statusCode === 409,
   );
 
   // Non-mismatch failures (e.g. protection) must surface unchanged, without

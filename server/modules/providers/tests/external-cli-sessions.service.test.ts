@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  applyInferredProviderSessionIds,
   assignFreshCodexThreadIds,
   assignFreshIndexedProviderSessionIds,
   assignUniqueIndexedProviderSessionIds,
@@ -10,15 +11,18 @@ import {
   buildExternalCliRuntimePath,
   createExternalCliSessionDiscovery,
   createExternalCliSessionInferenceRetryBackoff,
+  extractCodexThreadIdFromRolloutPath,
   extractCodexResumeThreadId,
   extractExternalResumeSessionId,
   extractContainedTranscriptSessionId,
   isCodexRuntimeProcess,
+  isClaudeRuntimeProcess,
   normalizeExternalPaneOutput,
   parseClaudeRuntimeSession,
   parseExternalPanes,
   parseProcessStartTime,
   parsePsTree,
+  selectObservedCodexThread,
   selectPrimaryCodexProcessPid,
   resolveExternalCliExecutable,
   withoutNodeModulesBins,
@@ -75,6 +79,32 @@ test('external CLI discovery refreshes only after its one-second TTL expires', a
   nowMs += 1;
   await discovery.getExternalCliSessionsDetailed();
   assert.equal(scanCount, 2);
+});
+
+test('fresh detailed discovery bypasses a completed display-cache result', async () => {
+  let freshScans = 0;
+  const freshSession = {
+    tmuxName: 'fresh',
+    tmux: tmux('$8', '@8', '%8'),
+    kind: 'shell' as const,
+  };
+  const discovery = createExternalCliSessionDiscovery({
+    discover: async () => ({ ok: true, sessions: [] }),
+    discoverFresh: async () => {
+      freshScans += 1;
+      return { ok: true, sessions: [freshSession] };
+    },
+  });
+
+  assert.deepEqual(await discovery.getExternalCliSessionsDetailed(), {
+    ok: true,
+    sessions: [],
+  });
+  assert.deepEqual(await discovery.getExternalCliSessionsDetailedFresh(), {
+    ok: true,
+    sessions: [freshSession],
+  });
+  assert.equal(freshScans, 1);
 });
 
 test('external CLI discovery shares one in-flight scan across concurrent callers', async () => {
@@ -149,6 +179,17 @@ test('Codex process selection accepts the npm wrapper and native child pair', ()
   assert.equal(selectPrimaryCodexProcessPid([]), null);
 });
 
+test('Claude receipt inference recognizes argv-wrapped Claude runtimes', () => {
+  assert.equal(isClaudeRuntimeProcess({
+    comm: 'node',
+    args: 'node /opt/homebrew/bin/claude --resume session-id',
+  }), true);
+  assert.equal(isClaudeRuntimeProcess({
+    comm: 'node',
+    args: 'node /opt/homebrew/bin/codex',
+  }), false);
+});
+
 test('external CLI resolution excludes app-local npm shims', async () => {
   const searchPath = [
     '/app/node_modules/.bin',
@@ -190,6 +231,7 @@ test('external CLI runtime PATH restores user Node and Bun launchers under syste
       '/home/test/.local/bin',
       '/home/test/.bun/bin',
       '/home/test/.cargo/bin',
+      '/home/test/.npm-global/bin',
       '/opt/node/bin',
       '/usr/bin',
     ].join(':'),
@@ -335,6 +377,113 @@ test('assignFreshCodexThreadIds ignores threads outside the launch window', () =
     1_000,
   );
   assert.equal(assigned.size, 0);
+});
+
+test('extractCodexThreadIdFromRolloutPath accepts only contained rollout JSONL files', () => {
+  const id = '019fb3d1-08f9-7ab0-a87e-5986efb405d4';
+  assert.equal(
+    extractCodexThreadIdFromRolloutPath(
+      `/home/user/.codex/sessions/2026/07/31/rollout-2026-07-31T01-17-28-${id}.jsonl`,
+      '/home/user/.codex/sessions',
+    ),
+    id,
+  );
+  assert.equal(
+    extractCodexThreadIdFromRolloutPath(
+      `/home/user/other/rollout-2026-07-31T01-17-28-${id}.jsonl`,
+      '/home/user/.codex/sessions',
+    ),
+    null,
+  );
+  assert.equal(
+    extractCodexThreadIdFromRolloutPath(
+      `/home/user/.codex/sessions/2026/07/31/not-a-rollout-${id}.jsonl`,
+      '/home/user/.codex/sessions',
+    ),
+    null,
+  );
+});
+
+test('selectObservedCodexThread follows new and resumed rollouts without a launch window', () => {
+  const processKey = 'pane-process-generation';
+  const first = selectObservedCodexThread({
+    processKey,
+    threads: [{ id: 'old', modifiedAtMs: 10 }],
+  });
+  assert.equal(first.selectedId, 'old');
+
+  const opened = selectObservedCodexThread({
+    processKey,
+    threads: [
+      { id: 'old', modifiedAtMs: 10 },
+      { id: 'new-days-later', modifiedAtMs: 20 },
+    ],
+    previous: first,
+  });
+  assert.equal(opened.selectedId, 'new-days-later');
+
+  const resumedOld = selectObservedCodexThread({
+    processKey,
+    threads: [
+      { id: 'old', modifiedAtMs: 30 },
+      { id: 'new-days-later', modifiedAtMs: 20 },
+    ],
+    previous: opened,
+  });
+  assert.equal(resumedOld.selectedId, 'old');
+});
+
+test('selectObservedCodexThread resets state for a restarted process generation', () => {
+  const previous = selectObservedCodexThread({
+    processKey: 'old-process',
+    threads: [{ id: 'old-thread', modifiedAtMs: 100 }],
+  });
+  const restarted = selectObservedCodexThread({
+    processKey: 'new-process',
+    threads: [
+      { id: 'old-thread', modifiedAtMs: 100 },
+      { id: 'new-thread', modifiedAtMs: 200 },
+    ],
+    previous,
+  });
+  assert.equal(restarted.selectedId, 'new-thread');
+});
+
+test('selectObservedCodexThread prefers current file activity over a stale launch hint', () => {
+  const selected = selectObservedCodexThread({
+    processKey: 'live-process',
+    launchThreadId: 'stale-tag',
+    threads: [
+      { id: 'stale-tag', modifiedAtMs: 100 },
+      { id: 'current-thread', modifiedAtMs: 200 },
+    ],
+  });
+  assert.equal(selected.selectedId, 'current-thread');
+});
+
+test('runtime transcript evidence overrides stale tags but fallback inference does not', () => {
+  const session = {
+    tmuxName: 'codex',
+    tmux: tmux('$105', '@105', '%105'),
+    kind: 'codex' as const,
+    providerSessionId: 'stale-tag',
+  };
+  const targetKey = tmuxTargetKey(session.tmux);
+  assert.equal(
+    applyInferredProviderSessionIds(
+      [session],
+      new Map([[targetKey, 'runtime-thread']]),
+      new Set([targetKey]),
+    )[0].providerSessionId,
+    'runtime-thread',
+  );
+  assert.equal(
+    applyInferredProviderSessionIds(
+      [session],
+      new Map([[targetKey, 'fresh-fallback']]),
+    )[0].providerSessionId,
+    'stale-tag',
+  );
 });
 
 test('assignFreshIndexedProviderSessionIds pairs unique disk transcripts newest-first', () => {
@@ -605,6 +754,27 @@ test('extractExternalResumeSessionId recognizes every supported native resume fo
   assert.equal(extractExternalResumeSessionId('cursor', 'agent --version'), null);
 });
 
+// omo continues a session with `--session-id <id>` — the flag ChatMux itself
+// uses in `server/pi-cli.ts`. Its `--resume` takes no value (interactive
+// picker), so a pane resumed with `--session-id` must still link back to its
+// transcript session.
+test('extractExternalResumeSessionId links omo panes started with --session-id', () => {
+  assert.equal(
+    extractExternalResumeSessionId('omo', 'omo --session-id 019ff9fa-abab-78a3-83b0-67c261374f42'),
+    '019ff9fa-abab-78a3-83b0-67c261374f42',
+  );
+  assert.equal(
+    extractExternalResumeSessionId('omo', 'node /home/user/bin/omo --session-id=019ff9fa-abab-78a3-83b0-67c261374f42'),
+    '019ff9fa-abab-78a3-83b0-67c261374f42',
+  );
+  // pi-derived `--resume <id>` argv still links if a wrapper passes it through.
+  assert.equal(extractExternalResumeSessionId('omo', 'omo --resume 019f848f_ff71_77f0'), '019f848f_ff71_77f0');
+  // The valueless picker form carries no id and must not match the prompt text.
+  assert.equal(extractExternalResumeSessionId('omo', 'omo --resume'), null);
+  // `--session-id` must never leak into the omp branch, which has no such flag.
+  assert.equal(extractExternalResumeSessionId('omp', 'omp --session-id 019f848f_ff71_77f0'), null);
+});
+
 
 test('parseClaudeRuntimeSession accepts the PID-bound native Claude receipt', () => {
   const sessionId = '92869134-b4df-453e-b3a6-ed1d750d69d9';
@@ -666,6 +836,39 @@ test('classifyExternalSessions recognizes Cursor, OpenCode, and Oh My Pi process
     { tmuxName: 'omp-work', tmux: tmux('$1000', '@1000', '%1000'), kind: 'omp', providerSessionId: 'omp_session_123', cwd: '/omp', agentPid: 1001 },
     { tmuxName: 'opencode-work', tmux: tmux('$900', '@900', '%900'), kind: 'opencode', providerSessionId: 'ses_open_123', cwd: '/opencode', agentPid: 901 },
   ]);
+});
+
+test('classifyExternalSessions recognizes the node-launched omo shell wrapper', () => {
+  const result = classifyExternalSessions({
+    panes: [{
+      name: 'omo-work',
+      tmux: tmux('$1100', '@1100', '%1100'),
+      pid: 1100,
+      // tmux reports the interpreter, never the CLI: the measured comm is `node`.
+      command: 'node',
+      cwd: '/omo',
+    }],
+    procs: [
+      { pid: 1100, ppid: 1, comm: 'zsh', args: '-zsh' },
+      {
+        pid: 1101,
+        ppid: 1100,
+        comm: 'node',
+        // Measured argv. The PATH shim carries no extension, so `/…/bin/omo` is
+        // the argv token detection matches; a `.js` entry would not match.
+        args: 'node /home/user/.nvm/versions/node/v24.18.0/bin/omo --resume 019ff9a1-dc29-73bc-89a0-2435c969dc1b',
+      },
+    ],
+  });
+
+  assert.deepEqual(result, [{
+    tmuxName: 'omo-work',
+    tmux: tmux('$1100', '@1100', '%1100'),
+    kind: 'omo',
+    providerSessionId: '019ff9a1-dc29-73bc-89a0-2435c969dc1b',
+    cwd: '/omo',
+    agentPid: 1101,
+  }]);
 });
 
 test('classifyExternalSessions recognizes the official Cursor agent launcher shape', () => {

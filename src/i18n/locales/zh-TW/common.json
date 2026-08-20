@@ -144,11 +144,28 @@
       "sourceAvailable": "目標：{{version}}（main 分支的最新提交）。原始碼更新沒有固定的發行版本。",
       "releaseAvailable": "可使用精確的發行目標{{version}}。"
     },
+    "releaseNotes": {
+      "title": "v{{version}} 新功能",
+      "viewFull": "檢視完整發行說明"
+    },
     "confirm": {
       "message": "伺服器將更新並重新啟動。進行中的網頁工作可能會中斷。"
     },
     "progress": {
-      "message": "正在更新伺服器。下載、驗證、暫存、重新啟動和健康狀態檢查的進度會被保留，即使關閉此畫面或伺服器重新啟動也是如此。"
+      "message": "正在更新伺服器。下載、驗證、暫存、重新啟動和健康狀態檢查的進度會被保留，即使關閉此畫面或伺服器重新啟動也是如此。",
+      "download": "已下載 {{downloaded}} MB / {{total}} MB",
+      "downloadUnsized": "已下載 {{downloaded}} MB",
+      "phases": {
+        "queued": "等待開始…",
+        "downloading": "正在下載新版本…",
+        "verifying": "正在驗證下載…",
+        "staging": "正在暫存新版本…",
+        "cutting_over": "正在切換到新版本…",
+        "restarting": "正在重新啟動伺服器…",
+        "verifying_health": "正在檢查伺服器健康狀態…",
+        "rolling_back": "正在復原…",
+        "succeeded": "正在完成…"
+      }
     },
     "success": {
       "message": "更新已驗證。正在重新整理畫面。"
@@ -182,7 +199,8 @@
       "showSidebar": "顯示側邊欄",
       "settings": "設定",
       "updateAvailable": "有可用更新",
-      "closeSidebar": "關閉側邊欄"
+      "closeSidebar": "關閉側邊欄",
+      "progress": "更新進度"
     }
   }
 }

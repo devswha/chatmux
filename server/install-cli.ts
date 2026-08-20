@@ -370,14 +370,42 @@ async function inspectTailscale(run: CommandRunner): Promise<{
   }
 }
 
+/** Managed HTTPS Serve port persisted across installs; null before the first configure. */
+function storedManagedServePort(): number | null {
+  const stored = Number(appConfigDb.get(MANAGED_SERVE_PORT_KEY) ?? '');
+  return Number.isInteger(stored) && stored > 0 && stored <= 65_535 ? stored : null;
+}
+
 async function configureTailscaleServe(
   run: CommandRunner,
   serverPort: number,
-  requestedHttpsPort: number | null,
+  managedHttpsPort: number | null,
 ): Promise<{ url: string; httpsPort: number; changed: boolean }> {
   const { stdout: statusJson } = await run('tailscale', ['serve', 'status', '--json']).catch(() => ({ stdout: '{}', stderr: '' }));
   const { stdout: statusText } = await run('tailscale', ['serve', 'status']).catch(() => ({ stdout: '', stderr: '' }));
   const existingUrls = parseServeStatus(statusText, serverPort);
+  // A managed front must keep its HTTPS port across installs and updates: the
+  // user's bookmark/QR/PWA points at it. When the server port drifted, re-point
+  // that same front instead of adopting whichever front matches the new port
+  // (실사고: update reset 3002→3001 and left 8453 proxying a dead port).
+  if (managedHttpsPort !== null) {
+    const managedUrl = existingUrls.find((candidate) => Number(new URL(candidate).port || 443) === managedHttpsPort);
+    if (managedUrl) {
+      return { url: managedUrl, httpsPort: managedHttpsPort, changed: false };
+    }
+    await run('tailscale', [
+      'serve',
+      '--bg',
+      '--yes',
+      `--https=${managedHttpsPort}`,
+      `http://127.0.0.1:${serverPort}`,
+    ]);
+    const { stdout: refreshed } = await run('tailscale', ['serve', 'status']);
+    const url = parseServeStatus(refreshed, serverPort)
+      .find((candidate) => Number(new URL(candidate).port || 443) === managedHttpsPort);
+    if (!url) throw new Error('The managed Tailscale Serve front could not be re-pointed at the server');
+    return { url, httpsPort: managedHttpsPort, changed: true };
+  }
   if (existingUrls.length > 0) {
     const existing = new URL(existingUrls[0]);
     const httpsPort = Number(existing.port || 443);
@@ -385,7 +413,7 @@ async function configureTailscaleServe(
   }
 
   const occupied = parseServePorts(statusJson);
-  const preferred = requestedHttpsPort ?? chooseServePort(occupied);
+  const preferred = chooseServePort(occupied);
   if (occupied.has(preferred)) {
     throw new Error(`Tailscale Serve HTTPS port ${preferred} is already used by another service`);
   }
@@ -530,14 +558,22 @@ export async function runInstallCli(args: string[], context: InstallContext): Pr
   const useTailscale = tailscaleOwner !== null;
 
   // Preserve the previous remote mode only so a reinstall can explain a mode
-  // change caused by the currently available network.
+  // change caused by the currently available network. The configured port is
+  // preserved too: resetting it to the default silently detaches the user's
+  // Serve front, bookmarks, and QR (실사고: update reset 3002→3001).
   let previousRemoteMode: 'tailscale' | 'vpn' | null = null;
+  let previousServerPort: number | null = null;
   try {
     const previousEnvironment = await fs.readFile(configPath, 'utf8');
     if (/^CHATMUX_ALLOW_UNAUTH_REMOTE=1$/m.test(previousEnvironment)) previousRemoteMode = 'vpn';
     else if (/^CHATMUX_AUTH=tailscale$/m.test(previousEnvironment)) previousRemoteMode = 'tailscale';
+    const storedPort = Number(/^SERVER_PORT=(\d{1,5})$/m.exec(previousEnvironment)?.[1] ?? '');
+    if (Number.isInteger(storedPort) && storedPort > 0 && storedPort <= 65_535) previousServerPort = storedPort;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+  }
+  if (!options.serverPortExplicit && previousServerPort !== null) {
+    options.serverPort = previousServerPort;
   }
 
   if (!options.dryRun) {
@@ -613,7 +649,7 @@ export async function runInstallCli(args: string[], context: InstallContext): Pr
 
   let tailscaleUrl: string | null = null;
   if (useTailscale) {
-    const serve = await configureTailscaleServe(run, options.serverPort, null);
+    const serve = await configureTailscaleServe(run, options.serverPort, storedManagedServePort());
     tailscaleUrl = serve.url;
     appConfigDb.set(MANAGED_SERVE_PORT_KEY, String(serve.httpsPort));
   }
@@ -863,7 +899,7 @@ export async function runAccessCli(args: string[], context: Pick<InstallContext,
       await updateManagedUnitHost(home, '127.0.0.1');
       await run('systemctl', ['--user', 'daemon-reload']);
       const serverPort = Number(process.env.SERVER_PORT || DEFAULT_SERVER_PORT);
-      const serve = await configureTailscaleServe(run, serverPort, null);
+      const serve = await configureTailscaleServe(run, serverPort, storedManagedServePort());
       appConfigDb.set(MANAGED_SERVE_PORT_KEY, String(serve.httpsPort));
       await run('systemctl', ['--user', 'restart', 'chatmux.service']);
       console.log(`Tailscale access enabled: ${serve.url}`);

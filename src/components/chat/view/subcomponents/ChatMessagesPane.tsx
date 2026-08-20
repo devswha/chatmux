@@ -62,8 +62,11 @@ interface ChatMessagesPaneProps {
   onGrantToolPermission: (suggestion: { entry: string; toolName: string }) => { success: boolean };
   showRawParameters?: boolean;
   showThinking?: boolean;
+  showImagePreviews?: boolean;
   selectedProject: Project;
-  transcriptView?: boolean;
+  pendingAskToolId?: string | null;
+  suppressedAskToolId?: string | null;
+  onAskChoiceSelect?: (choiceNumber: number) => void;
 }
 
 function ChatMessagesPane({
@@ -109,8 +112,11 @@ function ChatMessagesPane({
   onGrantToolPermission,
   showRawParameters,
   showThinking,
+  showImagePreviews = true,
   selectedProject,
-  transcriptView = false,
+  pendingAskToolId = null,
+  suppressedAskToolId = null,
+  onAskChoiceSelect,
 }: ChatMessagesPaneProps) {
   const { t } = useTranslation('chat');
   const groupedVisibleMessages = useMemo(
@@ -259,9 +265,12 @@ function ChatMessagesPane({
                     onGrantToolPermission={onGrantToolPermission}
                     showRawParameters={showRawParameters}
                     showThinking={showThinking}
+                    showImagePreviews={showImagePreviews}
                     selectedProject={selectedProject}
                     provider={provider}
-                    transcriptView={transcriptView}
+                    pendingAskToolId={pendingAskToolId}
+                    suppressedAskToolId={suppressedAskToolId}
+                    onAskChoiceSelect={onAskChoiceSelect}
                   />
                 );
               }
@@ -280,9 +289,12 @@ function ChatMessagesPane({
                   onGrantToolPermission={onGrantToolPermission}
                   showRawParameters={showRawParameters}
                   showThinking={showThinking}
+                  showImagePreviews={showImagePreviews}
                   selectedProject={selectedProject}
                   provider={provider}
-                  transcriptView={transcriptView}
+                  pendingAskToolId={pendingAskToolId}
+                  suppressedAskToolId={suppressedAskToolId}
+                  onAskChoiceSelect={onAskChoiceSelect}
                 />
               );
             });

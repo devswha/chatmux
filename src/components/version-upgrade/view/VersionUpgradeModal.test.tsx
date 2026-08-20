@@ -7,7 +7,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 
 import { compareSemVer, type UpdateJob } from '../../../hooks/useVersionCheck';
 
-import { authoritativeUpdateWait, hasServerRebooted, hasVerifiedServerUpdate, hasVerifiedSourceUpdate, reduceUpdatePhase, sourceAuthorityFromStatus, sourceWaitInitialBootId, VersionUpgradeModal } from './VersionUpgradeModal';
+import { authoritativeUpdateWait, hasServerRebooted, hasVerifiedServerUpdate, hasVerifiedSourceUpdate, reduceUpdatePhase, releaseUpdatePercent, sourceAuthorityFromStatus, sourceWaitInitialBootId, VersionUpgradeModal } from './VersionUpgradeModal';
 
 const baseProps = {
   isOpen: true,
@@ -23,9 +23,48 @@ const baseProps = {
   activeJob: null,
   sourceUpdateInFlight: false,
   sourceUpdate: null,
+  releaseNotes: null,
+  releaseUrl: null,
 };
 
+test('release notes render only for release-mode updates that carry notes', () => {
+  const withNotes = renderToStaticMarkup(createElement(VersionUpgradeModal, {
+    ...baseProps,
+    releaseNotes: '## What\u2019s Changed\n* fix(relay): example fix',
+    releaseUrl: 'https://github.com/devswha/chatmux/releases/tag/v1.1.0',
+  }));
+  assert.ok(withNotes.includes('versionUpdate.releaseNotes.title'));
+  assert.ok(withNotes.includes('example fix'));
+  assert.ok(withNotes.includes('versionUpdate.releaseNotes.viewFull'));
+  assert.ok(withNotes.includes('https://github.com/devswha/chatmux/releases/tag/v1.1.0'));
+
+  const withoutNotes = renderToStaticMarkup(createElement(VersionUpgradeModal, baseProps));
+  assert.ok(!withoutNotes.includes('versionUpdate.releaseNotes.title'));
+
+  const sourceMode = renderToStaticMarkup(createElement(VersionUpgradeModal, {
+    ...baseProps,
+    installMode: 'source' as const,
+    releaseNotes: 'irrelevant',
+  }));
+  assert.ok(!sourceMode.includes('versionUpdate.releaseNotes.title'));
+});
+
 const succeededJob: UpdateJob = { id: 'abcdefghijklmnopqrstuv', phase: 'succeeded', targetVersion: '1.1.0' };
+
+test('release update percent maps phases to spans and interpolates the download by bytes', () => {
+  const job = (phase: UpdateJob['phase'], progress?: UpdateJob['progress']): UpdateJob => ({
+    id: 'abcdefghijklmnopqrstuv', phase, targetVersion: '1.1.0', ...(progress ? { progress } : {}),
+  });
+  assert.equal(releaseUpdatePercent(job('queued')), 0);
+  // Unknown total: hold the phase floor instead of pretending a byte percentage.
+  assert.equal(releaseUpdatePercent(job('downloading', { downloadedBytes: 10 })), 5);
+  assert.equal(releaseUpdatePercent(job('downloading', { downloadedBytes: 50, totalBytes: 100 })), 25);
+  assert.equal(releaseUpdatePercent(job('downloading', { downloadedBytes: 100, totalBytes: 100 })), 45);
+  assert.equal(releaseUpdatePercent(job('verifying')), 45);
+  assert.equal(releaseUpdatePercent(job('restarting')), 80);
+  assert.equal(releaseUpdatePercent(job('succeeded')), 100);
+  assert.equal(releaseUpdatePercent(job('failed')), null);
+});
 
 test('hasServerRebooted: only a present, different bootId counts', () => {
   assert.equal(hasServerRebooted('boot-a', { bootId: 'boot-b' }), true);

@@ -36,6 +36,7 @@ export interface SubagentChildTool {
 }
 
 export interface ChatMessage {
+  sessionId?: string;
   type: string;
   content?: string;
   displayText?: string;
@@ -49,6 +50,8 @@ export interface ChatMessage {
   toolName?: string;
   toolInput?: unknown;
   toolResult?: ToolResult | null;
+  toolResultTruncated?: boolean;
+  toolResultBytes?: number;
   toolId?: string;
   toolCallId?: string;
   commandName?: string;
@@ -126,7 +129,7 @@ export interface ChatInterfaceProps {
   liveSessionModel: string | null;
   liveSessionEffort: string | null;
   liveSessionName: string | null;
-  liveSessionKind: 'gjc' | 'codex' | 'claude' | 'cursor' | 'opencode' | 'omp' | null;
+  liveSessionKind: 'gjc' | 'codex' | 'claude' | 'cursor' | 'opencode' | 'omp' | 'omo' | null;
   /** True while the viewed live/external session is running a turn. */
   liveSessionProcessing?: boolean;
   ws: WebSocket | null;
@@ -141,6 +144,7 @@ export interface ChatInterfaceProps {
   onShowSettings?: () => void;
   showRawParameters?: boolean;
   showThinking?: boolean;
+  showImagePreviews?: boolean;
   sendByCtrlEnter?: boolean;
   externalMessageUpdate?: number;
   newSessionTrigger?: number;

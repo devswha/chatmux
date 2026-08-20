@@ -411,6 +411,89 @@ test('managed install automatically uses Tailscale identity and prints its HTTPS
   closeConnection();
 });
 
+test('reinstall preserves the configured port and re-points the managed Serve front', async (t) => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'chatmux-install-repoint-'));
+  const originalDatabasePath = process.env.DATABASE_PATH;
+  t.after(async () => {
+    if (originalDatabasePath === undefined) delete process.env.DATABASE_PATH;
+    else process.env.DATABASE_PATH = originalDatabasePath;
+    await fs.rm(home, { recursive: true, force: true });
+  });
+
+  // Previous install: custom port 39207, managed HTTPS front on 8453 whose
+  // proxy target went stale (the incident shape: old port left behind).
+  const managedRoot = path.join(home, '.chatmux');
+  await fs.mkdir(path.join(managedRoot, 'data'), { recursive: true, mode: 0o700 });
+  await fs.writeFile(path.join(managedRoot, 'chatmux.env'), 'CHATMUX_AUTH=tailscale\nSERVER_PORT=39207\nDATABASE_PATH="x"\n', { mode: 0o600 });
+  process.env.DATABASE_PATH = path.join(managedRoot, 'data', 'auth.db');
+  {
+    // Dynamic on purpose (file convention): the database module must attach
+    // AFTER this test points DATABASE_PATH at the fixture home.
+    const { initializeDatabase, closeConnection, appConfigDb } = await import('@/modules/database/index.js');
+    await initializeDatabase();
+    appConfigDb.set('tailscale_serve_https_port', '8453');
+    closeConnection();
+  }
+
+  const commands: string[] = [];
+  let repointed = false;
+  const originalLog = console.log;
+  console.log = () => {};
+  try {
+    await runInstallCli(['--yes'], {
+      appRoot: process.cwd(),
+      version: 'test',
+      home,
+      platform: 'linux',
+      arch: 'x64',
+      nodeVersion: '22.22.2',
+      healthCheck: async () => {},
+      portAvailable: async () => true,
+      run: async (command, args) => {
+        commands.push([command, ...args].join(' '));
+        if (command === 'tailscale' && args.join(' ') === 'status --json') {
+          return {
+            stdout: JSON.stringify({
+              BackendState: 'Running',
+              Self: { UserID: 42 },
+              User: { 42: { LoginName: 'owner@example.com' } },
+            }),
+            stderr: '',
+          };
+        }
+        if (command === 'tailscale' && args.join(' ') === 'serve status --json') {
+          return { stdout: JSON.stringify({ TCP: { 8453: {} } }), stderr: '' };
+        }
+        if (command === 'tailscale' && args.join(' ') === 'serve status') {
+          return {
+            stdout: repointed
+              ? 'https://host.example.ts.net:8453 (tailnet only)\n|-- / proxy http://127.0.0.1:39207\n'
+              : 'https://host.example.ts.net:8453 (tailnet only)\n|-- / proxy http://127.0.0.1:39150\n',
+            stderr: '',
+          };
+        }
+        if (command === 'tailscale' && args[0] === 'serve' && args.includes('--bg')) {
+          repointed = true;
+          return { stdout: '', stderr: '' };
+        }
+        if (command === 'qrencode') return { stdout: 'QR\n', stderr: '' };
+        return { stdout: '', stderr: '' };
+      },
+    });
+  } finally {
+    console.log = originalLog;
+  }
+
+  // The configured port survived the reinstall (no silent reset to 3001)...
+  const environment = await fs.readFile(path.join(managedRoot, 'chatmux.env'), 'utf8');
+  const unit = await fs.readFile(path.join(home, '.config', 'systemd', 'user', 'chatmux.service'), 'utf8');
+  assert.match(environment, /^SERVER_PORT=39207$/m);
+  assert.match(unit, /^Environment=SERVER_PORT=39207$/m);
+  // ...and the SAME managed HTTPS front was re-pointed at the live port,
+  // instead of being orphaned or replaced by a new front.
+  assert.ok(commands.includes('tailscale serve --bg --yes --https=8453 http://127.0.0.1:39207'), commands.join('\n'));
+});
+
 test('access enable vpn rebinds the unit and enable tailscale restores loopback', async (t) => {
   const home = await fs.mkdtemp(path.join(os.tmpdir(), 'chatmux-access-vpn-'));
   const savedEnvironment: Record<string, string | undefined> = {};

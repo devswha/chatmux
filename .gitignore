@@ -157,3 +157,6 @@ tasks/
 /release/
 chatmux-source.tar.gz
 chatmux-sidebar.html
+
+# Local agent session state
+/.omo/

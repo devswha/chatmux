@@ -102,7 +102,12 @@ export function parseOmpTranscriptActiveModelLine(
   }
 }
 
-async function readLastTranscriptActiveModel(
+/**
+ * Shared by every pi-derived CLI (omp, gjc, omo): they all record
+ * `model_change`, `thinking_level_change`, and `configured_model_chain` with
+ * the same shape, so the last active model is read the same way.
+ */
+export async function readLastTranscriptActiveModel(
   filePath: string,
 ): Promise<ProviderCurrentActiveModel | null> {
   let model: string | null = null;

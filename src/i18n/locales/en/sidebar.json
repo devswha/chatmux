@@ -3,6 +3,15 @@
     "hideSidebar": "Hide sidebar",
     "refresh": "Refresh projects and sessions (Ctrl+R)"
   },
+  "connectionIssues": {
+    "agent_user_mismatch": "{{agent}} connection excluded: it runs as a different user than ChatMux.",
+    "agent_home_mismatch": "{{agent}} connection excluded: it uses a different HOME than ChatMux.",
+    "agent_context_unreadable": "{{agent}} connection excluded: ChatMux cannot read its process information.",
+    "tmux_socket_owner_mismatch": "{{agent}} connection excluded: the tmux server has a different owner.",
+    "tmux_pane_ambiguous": "{{agent}} connection excluded: the tmux pane identifier is ambiguous.",
+    "transcript_ambiguous": "{{agent}} connection excluded: the active transcript is ambiguous.",
+    "transcript_permission_denied": "{{agent}} connection excluded: ChatMux cannot read the transcript."
+  },
   "actions": {
     "settings": "Settings",
     "installApp": "Install app"

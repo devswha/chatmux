@@ -1,4 +1,4 @@
-import { memo, useMemo, useRef } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import SessionProviderLogo from '../../../llm-logo-provider/SessionProviderLogo';
@@ -7,11 +7,13 @@ import type {
   ClaudePermissionSuggestion,
   PermissionGrantResult,
   Provider,
+  ToolResult,
 } from '../../types/types';
 import { formatUsageLimitText } from '../../utils/chatFormatting';
 import type { Project } from '../../../../types/app';
 import { ToolRenderer, shouldHideToolResult } from '../../tools';
 import { Reasoning, ReasoningTrigger, ReasoningContent } from '../../../../shared/view/ui';
+import { authenticatedFetch } from '../../../../utils/api';
 
 import ChatMessageImages from './ChatMessageImages';
 import { Markdown } from './Markdown';
@@ -32,9 +34,12 @@ type MessageComponentProps = {
   onGrantToolPermission?: (suggestion: ClaudePermissionSuggestion) => PermissionGrantResult | null | undefined;
   showRawParameters?: boolean;
   showThinking?: boolean;
+  showImagePreviews?: boolean;
   selectedProject?: Project | null;
   provider: Provider | string;
-  transcriptView?: boolean;
+  pendingAskToolId?: string | null;
+  suppressedAskToolId?: string | null;
+  onAskChoiceSelect?: (choiceNumber: number) => void;
 };
 
 type InteractiveOption = {
@@ -49,7 +54,7 @@ const compactErrorSummary = (content: string, fallback: string): string => {
   return firstLine.length > 160 ? `${firstLine.slice(0, 157)}...` : firstLine;
 };
 
-const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, showRawParameters, showThinking, selectedProject, provider, transcriptView = false }: MessageComponentProps) => {
+const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, showRawParameters, showThinking, showImagePreviews = true, selectedProject, provider, pendingAskToolId = null, suppressedAskToolId = null, onAskChoiceSelect }: MessageComponentProps) => {
   const { t } = useTranslation('chat');
   const isGrouped = prevMessage && prevMessage.type === message.type &&
     ((prevMessage.type === 'assistant') ||
@@ -62,9 +67,18 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
     () => formatUsageLimitText(String(message.content || '')),
     [message.content]
   );
+  const [fullToolResult, setFullToolResult] = useState<ToolResult | null>(null);
+  const [isLoadingFullToolResult, setIsLoadingFullToolResult] = useState(false);
+  const [fullToolResultError, setFullToolResultError] = useState(false);
+  useEffect(() => {
+    setFullToolResult(null);
+    setIsLoadingFullToolResult(false);
+    setFullToolResultError(false);
+  }, [message.sessionId, message.toolId]);
+  const effectiveToolResult = fullToolResult ?? message.toolResult;
   const errorContent = String(message.content || '');
   const errorSummary = compactErrorSummary(errorContent, t('messageTypes.error'));
-  const toolResultContent = String(message.toolResult?.content || '');
+  const toolResultContent = String(effectiveToolResult?.content || '');
   const toolErrorSummary = compactErrorSummary(toolResultContent, t('messageTypes.error'));
   const assistantCopyContent = message.isToolUse
     ? String(message.displayText || message.content || '')
@@ -82,6 +96,33 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
   const formattedTime = useMemo(() => new Date(message.timestamp).toLocaleTimeString(), [message.timestamp]);
   const shouldHideThinkingMessage = Boolean(message.isThinking && !showThinking);
 
+  const loadFullToolResult = async () => {
+    if (!message.sessionId || !message.toolId || isLoadingFullToolResult) return;
+    setIsLoadingFullToolResult(true);
+    setFullToolResultError(false);
+    try {
+      const params = new URLSearchParams({ toolId: message.toolId });
+      const response = await authenticatedFetch(
+        `/api/providers/sessions/${encodeURIComponent(message.sessionId)}/tool-result?${params}`,
+      );
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const body = await response.json();
+      const data = body?.data ?? body;
+      const result = data.toolResult as ToolResult | null | undefined;
+      if (!result) {
+        throw new Error('Missing tool result');
+      }
+      const content = typeof result.content === 'string'
+        ? result.content
+        : JSON.stringify(result.content ?? '', null, 2);
+      setFullToolResult({ ...result, content });
+    } catch {
+      setFullToolResultError(true);
+    } finally {
+      setIsLoadingFullToolResult(false);
+    }
+  };
+
   if (shouldHideThinkingMessage) {
     return null;
   }
@@ -96,7 +137,7 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
         /* User turn on the right: claude.ai-style attachment cards above the bubble */
         <div className="flex w-full items-end space-x-0 sm:w-auto sm:max-w-[85%] sm:space-x-3 md:max-w-md lg:max-w-lg xl:max-w-xl">
           <div className="flex min-w-0 flex-1 flex-col items-end gap-2 sm:flex-initial">
-            {message.images && message.images.length > 0 && (
+            {showImagePreviews && message.images && message.images.length > 0 && (
               <ChatMessageImages
                 images={message.images}
                 projectId={selectedProject?.projectId}
@@ -138,7 +179,7 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
       ) : (
         /* Claude/Error/Tool messages on the left */
         <div className="w-full">
-          {!isGrouped && message.type !== 'error' && !(transcriptView && message.type === 'assistant') && (
+          {!isGrouped && message.type !== 'error' && (
             <div className="mb-2 flex items-center space-x-3">
               {message.type === 'tool' ? (
                 <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-gray-600 text-sm text-white dark:bg-gray-700">
@@ -162,7 +203,9 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
                             ? t('messageTypes.gjc', { defaultValue: 'Gajae Code' })
                             : provider === 'omp'
                               ? t('messageTypes.omp', { defaultValue: 'Oh My Pi' })
-                              : t('messageTypes.claude'))}
+                              : provider === 'omo'
+                                ? t('messageTypes.omo', { defaultValue: 'omo' })
+                                : t('messageTypes.claude'))}
               </div>
             </div>
           )}
@@ -179,11 +222,11 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
                   </div>
                 </div>
 
-                {message.toolInput && (
+                {message.toolInput && suppressedAskToolId !== message.toolId && (
                   <ToolRenderer
                     toolName={message.toolName || 'UnknownTool'}
                     toolInput={message.toolInput}
-                    toolResult={message.toolResult}
+                    toolResult={effectiveToolResult}
                     toolId={message.toolId}
                     mode="input"
                     onFileOpen={onFileOpen}
@@ -193,12 +236,14 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
                     rawToolInput={typeof message.toolInput === 'string' ? message.toolInput : undefined}
                     isSubagentContainer={message.isSubagentContainer}
                     subagentState={message.subagentState}
+                    pendingAsk={pendingAskToolId === message.toolId}
+                    onAskChoiceSelect={onAskChoiceSelect}
                   />
                 )}
 
                 {/* Tool Result Section — Bash renders its output inside the command row above. */}
-                {message.toolResult && message.toolName !== 'Bash' && !shouldHideToolResult(message.toolName || 'UnknownTool', message.toolResult) && (
-                  message.toolResult.isError ? (
+                {effectiveToolResult && message.toolName !== 'Bash' && !shouldHideToolResult(message.toolName || 'UnknownTool', effectiveToolResult) && (
+                  effectiveToolResult.isError ? (
                     <details
                       id={`tool-result-${message.toolId}`}
                       className="relative mt-2 scroll-mt-4 rounded border border-red-200/60 bg-red-50/50 p-3 dark:border-red-800/40 dark:bg-red-950/10"
@@ -222,7 +267,7 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
                       <ToolRenderer
                         toolName={message.toolName || 'UnknownTool'}
                         toolInput={message.toolInput}
-                        toolResult={message.toolResult}
+                        toolResult={effectiveToolResult}
                         toolId={message.toolId}
                         mode="result"
                         onFileOpen={onFileOpen}
@@ -231,6 +276,30 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
                       />
                     </div>
                   )
+                )}
+                {message.toolResultTruncated && !fullToolResult && (
+                  <div className="mt-2 flex items-center gap-2 text-xs">
+                    <button
+                      type="button"
+                      className="rounded border border-border bg-muted/40 px-2.5 py-1 text-foreground hover:bg-muted disabled:opacity-60"
+                      onClick={loadFullToolResult}
+                      disabled={isLoadingFullToolResult}
+                    >
+                      {isLoadingFullToolResult
+                        ? t('session.messages.loadingFullToolOutput')
+                        : t('session.messages.loadFullToolOutput')}
+                    </button>
+                    {message.toolResultBytes && (
+                      <span className="text-muted-foreground">
+                        {(message.toolResultBytes / 1024).toFixed(0)} KB
+                      </span>
+                    )}
+                    {fullToolResultError && (
+                      <span className="text-red-600 dark:text-red-400">
+                        {t('session.messages.fullToolOutputFailed')}
+                      </span>
+                    )}
+                  </div>
                 )}
               </>
             ) : message.isInteractivePrompt ? (

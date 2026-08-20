@@ -144,11 +144,28 @@
       "sourceAvailable": "目标：{{version}}（main 分支的最新提交）。源码更新没有固定的发行版本。",
       "releaseAvailable": "可使用精确的发行目标{{version}}。"
     },
+    "releaseNotes": {
+      "title": "v{{version}} 新功能",
+      "viewFull": "查看完整发布说明"
+    },
     "confirm": {
       "message": "服务器将更新并重启。进行中的网页工作可能会中断。"
     },
     "progress": {
-      "message": "正在更新服务器。下载、验证、暂存、重启和运行状况检查的进度会被保留，即使关闭此页面或服务器重启也是如此。"
+      "message": "正在更新服务器。下载、验证、暂存、重启和运行状况检查的进度会被保留，即使关闭此页面或服务器重启也是如此。",
+      "download": "已下载 {{downloaded}} MB / {{total}} MB",
+      "downloadUnsized": "已下载 {{downloaded}} MB",
+      "phases": {
+        "queued": "等待开始…",
+        "downloading": "正在下载新版本…",
+        "verifying": "正在验证下载…",
+        "staging": "正在暂存新版本…",
+        "cutting_over": "正在切换到新版本…",
+        "restarting": "正在重启服务器…",
+        "verifying_health": "正在检查服务器运行状况…",
+        "rolling_back": "正在回滚…",
+        "succeeded": "正在完成…"
+      }
     },
     "success": {
       "message": "更新已验证。正在刷新页面。"
@@ -182,7 +199,8 @@
       "showSidebar": "显示侧边栏",
       "settings": "设置",
       "updateAvailable": "有可用更新",
-      "closeSidebar": "关闭侧边栏"
+      "closeSidebar": "关闭侧边栏",
+      "progress": "更新进度"
     }
   }
 }

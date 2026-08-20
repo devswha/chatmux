@@ -7,7 +7,7 @@ use std::sync::mpsc::{self, RecvTimeoutError, TrySendError};
 use std::thread;
 use std::time::Duration;
 
-use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{Config, ErrorKind, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 
 const READY_FRAME: &[u8] = b"{\"protocolVersion\":1,\"kind\":\"ready\"}\n";
 const WATCH_ERROR: &[u8] = b"chatmux-core: watcher failed\n";
@@ -127,18 +127,24 @@ fn wait_for_stdin_eof() -> bool {
 /// `MAX_WATCH_DIR_DEPTH`. With `emit_existing`, transcripts already present
 /// are reported as synthetic add frames: a directory created moments before
 /// its watch lands may already contain the session file the event was for.
-/// Vanished directories are not failures; only stdout write errors are fatal.
-fn watch_directory_tree(
-    watcher: &mut RecommendedWatcher,
+/// Vanished directories are not failures; watch-install and stdout errors are.
+fn watch_directory_tree<W: Watcher>(
+    watcher: &mut W,
     stdout: &mut impl Write,
     roots: &[PathBuf],
     dir: &Path,
     depth: usize,
     emit_existing: bool,
 ) -> bool {
-    let _ = watcher.watch(dir, RecursiveMode::NonRecursive);
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return true;
+    match watcher.watch(dir, RecursiveMode::NonRecursive) {
+        Ok(()) => {}
+        Err(error) if is_vanished_directory_error(&error) => return true,
+        Err(_) => return false,
+    }
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return true,
+        Err(_) => return false,
     };
     for entry in entries.flatten() {
         let Ok(file_type) = entry.file_type() else {
@@ -168,11 +174,19 @@ fn watch_directory_tree(
     true
 }
 
+fn is_vanished_directory_error(error: &notify::Error) -> bool {
+    match &error.kind {
+        ErrorKind::PathNotFound => true,
+        ErrorKind::Io(error) => error.kind() == io::ErrorKind::NotFound,
+        _ => false,
+    }
+}
+
 /// Extends the watch set when a directory appears inside a root at an
 /// observable depth, whether freshly created or moved in.
-fn watch_created_directories(
+fn watch_created_directories<W: Watcher>(
     stdout: &mut impl Write,
-    watcher: &mut RecommendedWatcher,
+    watcher: &mut W,
     roots: &[PathBuf],
     event: &Event,
 ) -> bool {
@@ -262,9 +276,21 @@ fn frame_for_path(kind: OutputEvent, path: &Path, roots: &[PathBuf]) -> Option<V
 }
 
 fn frame_for_resolved_path(kind: OutputEvent, path: &Path, roots: &[PathBuf]) -> Option<Vec<u8>> {
-    if path.extension() != Some(OsStr::new("jsonl"))
-        || !roots.iter().any(|root| is_inside_root(path, root))
-    {
+    let inside_root = roots.iter().any(|root| is_inside_root(path, root));
+    let is_jsonl = path.extension() == Some(OsStr::new("jsonl"));
+    let is_pane_receipt = path.parent().is_some_and(|parent| {
+        roots.iter().any(|root| parent == root)
+            && path
+                .file_name()
+                .and_then(OsStr::to_str)
+                .is_some_and(|name| {
+                    name.strip_prefix("tmux-%").is_some_and(|pane_id| {
+                        !pane_id.is_empty()
+                            && pane_id.chars().all(|character| character.is_ascii_digit())
+                    })
+                })
+    });
+    if !inside_root || (!is_jsonl && !is_pane_receipt) {
         return None;
     }
     let path = path.to_str()?;
@@ -314,9 +340,82 @@ fn fail() -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{OutputEvent, directory_depth, frame_for_path, frame_for_resolved_path};
+    use super::{
+        OutputEvent, directory_depth, frame_for_path, frame_for_resolved_path, watch_directory_tree,
+    };
+    use notify::{Config, EventHandler, RecursiveMode, Watcher, WatcherKind};
     use std::fs;
     use std::path::{Path, PathBuf};
+    struct FailingWatcher {
+        error: Option<notify::Error>,
+    }
+
+    impl Watcher for FailingWatcher {
+        fn new<F: EventHandler>(_event_handler: F, _config: Config) -> notify::Result<Self> {
+            Ok(Self { error: None })
+        }
+
+        fn watch(&mut self, _path: &Path, _recursive_mode: RecursiveMode) -> notify::Result<()> {
+            Err(self
+                .error
+                .take()
+                .unwrap_or_else(|| notify::Error::generic("unexpected watch")))
+        }
+
+        fn unwatch(&mut self, _path: &Path) -> notify::Result<()> {
+            Ok(())
+        }
+
+        fn kind() -> WatcherKind {
+            WatcherKind::NullWatcher
+        }
+    }
+
+    #[test]
+    fn propagates_non_vanished_watch_install_failures() {
+        let directory = std::env::temp_dir().join(format!(
+            "chatmux-core-watch-error-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+        ));
+        fs::create_dir(&directory).unwrap();
+        let mut watcher = FailingWatcher {
+            error: Some(notify::Error::generic("watch limit reached")),
+        };
+        let mut output = Vec::new();
+
+        assert!(!watch_directory_tree(
+            &mut watcher,
+            &mut output,
+            std::slice::from_ref(&directory),
+            &directory,
+            0,
+            false,
+        ));
+
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn ignores_vanished_directory_watch_install_failures() {
+        let directory = PathBuf::from("/nonexistent/chatmux-core-watch-test");
+        let mut watcher = FailingWatcher {
+            error: Some(notify::Error::path_not_found()),
+        };
+        let mut output = Vec::new();
+
+        assert!(watch_directory_tree(
+            &mut watcher,
+            &mut output,
+            std::slice::from_ref(&directory),
+            &directory,
+            0,
+            false,
+        ));
+    }
 
     #[test]
     fn directory_depth_is_relative_to_the_closest_containing_root() {
@@ -329,7 +428,7 @@ mod tests {
     }
 
     #[test]
-    fn frames_only_canonical_jsonl_paths_inside_roots() {
+    fn frames_only_supported_canonical_paths_inside_roots() {
         let container = std::env::temp_dir().join(format!(
             "chatmux-core-watch-frame-test-{}-{}",
             std::process::id(),
@@ -344,12 +443,32 @@ mod tests {
         let root = fs::canonicalize(root).unwrap();
         let session = transcripts.join("session.jsonl");
         let ignored = transcripts.join("session.txt");
+        let pane_receipt = root.join("tmux-%7");
         fs::write(&session, b"{}\n").unwrap();
         fs::write(&ignored, b"ignored").unwrap();
+        fs::write(&pane_receipt, b"/workspace\n/session.jsonl\n").unwrap();
 
         assert!(frame_for_path(OutputEvent::Add, &session, std::slice::from_ref(&root),).is_some());
+        assert!(
+            frame_for_path(
+                OutputEvent::Change,
+                &pane_receipt,
+                std::slice::from_ref(&root),
+            )
+            .is_some()
+        );
         assert_eq!(
             frame_for_path(OutputEvent::Change, &ignored, std::slice::from_ref(&root),),
+            None
+        );
+        let nested_receipt = transcripts.join("tmux-%8");
+        fs::write(&nested_receipt, b"ignored").unwrap();
+        assert_eq!(
+            frame_for_path(
+                OutputEvent::Change,
+                &nested_receipt,
+                std::slice::from_ref(&root),
+            ),
             None
         );
 

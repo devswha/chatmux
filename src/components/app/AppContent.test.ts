@@ -198,3 +198,34 @@ test('capability refresh consumes the discovery roster without adding its own re
   assert.match(hook, /onSessionsChangeRef\.current\?\.\(/);
   assert.doesNotMatch(refreshCallback, /api\.externalSessions/);
 });
+
+test('standalone chrome keeps app UI below a separate opaque safe-area surface', () => {
+  const appContent = readFileSync(new URL('./AppContent.tsx', import.meta.url), 'utf8');
+  const styles = readFileSync(new URL('../../index.css', import.meta.url), 'utf8');
+  const documentHtml = readFileSync(new URL('../../../index.html', import.meta.url), 'utf8');
+  const themeContext = readFileSync(new URL('../../contexts/ThemeContext.jsx', import.meta.url), 'utf8');
+  const opaqueChromeSources = [
+    '../main-content/view/subcomponents/MainContentStateView.tsx',
+    '../sidebar/view/subcomponents/SidebarContent.tsx',
+    '../sidebar/view/subcomponents/SidebarCollapsed.tsx',
+  ].map((source) => readFileSync(new URL(source, import.meta.url), 'utf8'));
+
+  assert.match(appContent, /className="pwa-status-bar-surface"/);
+  assert.match(appContent, /className="app-shell fixed inset-0 flex bg-background"/);
+  assert.match(styles, /\.pwa-status-bar-surface\s*\{/);
+  assert.match(styles, /background: hsl\(var\(--background\)\)/);
+  assert.doesNotMatch(styles, /\.pwa-status-bar-surface[\s\S]{0,400}backdrop-filter/);
+  assert.match(documentHtml, /apple-mobile-web-app-status-bar-style" content="black"/);
+  assert.doesNotMatch(documentHtml, /black-translucent/);
+  assert.doesNotMatch(themeContext, /black-translucent/);
+  assert.match(styles, /body \.app-shell,[\s\S]*top: var\(--safe-area-inset-top\) !important/);
+  assert.match(styles, /left: var\(--safe-area-inset-left\) !important/);
+  assert.match(styles, /right: var\(--safe-area-inset-right\) !important/);
+  assert.match(styles, /\.fixed\.inset-0:not\(\.app-shell\)/);
+  assert.doesNotMatch(styles, /body\.pwa-mode \.fixed\.inset-0\s*\{/);
+  assert.doesNotMatch(styles, /\.pwa-header-safe[\s\S]{0,160}padding-top: 0/);
+  for (const source of opaqueChromeSources) {
+    assert.doesNotMatch(source, /backdrop-blur/);
+    assert.match(source, /bg-background/);
+  }
+});

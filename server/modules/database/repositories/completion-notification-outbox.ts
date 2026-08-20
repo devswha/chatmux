@@ -78,13 +78,13 @@ export class CompletionNotificationOutboxRepository {
   recordTerminalDecision(input: TerminalCompletionDecision): TerminalCompletionDecisionResult {
     return this.db.transaction((): TerminalCompletionDecisionResult => {
       const state = this.db.prepare(`SELECT generation.high_water_seq, generation.armed_seq, generation.monitor_state,
-        generation.last_evidence_cursor, target.identity_key
+        generation.last_evidence_cursor
         FROM completion_notification_generation_state generation
         JOIN completion_notification_targets target ON target.id = generation.generation_target_id
         WHERE generation.generation_target_id = ? AND target.kind = 'external_generation'`)
         .get(input.generationTargetId) as {
           high_water_seq: number; armed_seq: number | null; monitor_state: string;
-          last_evidence_cursor: string | null; identity_key: string;
+          last_evidence_cursor: string | null;
         } | undefined;
       if (!state) {
         const target = this.db.prepare('SELECT kind FROM completion_notification_targets WHERE id = ?')
@@ -96,8 +96,15 @@ export class CompletionNotificationOutboxRepository {
           VALUES (?, 'terminal', ?)`).run(input.generationTargetId, input.evidenceCursor);
         return { status: 'baselined', decisionIds: [] };
       }
+      const canonical = resolveCanonicalCompletionTarget(this.db, input.generationTargetId);
+      if (!canonical) throw new Error('terminal completion decision could not resolve canonical target');
       const sequence = state.monitor_state === 'terminal' ? state.high_water_seq : state.armed_seq;
-      const decisionKey = sequence === null ? null : JSON.stringify([state.identity_key, sequence, input.eventCode]);
+      // The same provider conversation can be visible through multiple tmux
+      // panes. Key completion decisions by the conversation and exact terminal
+      // transcript evidence, not by the pane/process generation that observed it.
+      const decisionKey = sequence === null
+        ? null
+        : JSON.stringify([canonical.identity_key, input.evidenceCursor, input.eventCode]);
       if (state.monitor_state === 'terminal' && state.last_evidence_cursor === input.evidenceCursor) {
         return {
           status: 'replay',
@@ -112,8 +119,17 @@ export class CompletionNotificationOutboxRepository {
           WHERE generation_target_id = ?`).run(input.evidenceCursor, input.generationTargetId);
         return { status: 'baselined', decisionIds: [] };
       }
-      const canonical = resolveCanonicalCompletionTarget(this.db, input.generationTargetId);
-      if (!canonical) throw new Error('terminal completion decision could not resolve canonical target');
+      const replay = this.db.prepare(`SELECT id FROM completion_notification_outbox
+        WHERE decision_key = ? ORDER BY user_id, id`).all(decisionKey) as Array<{ id: number }>;
+      if (replay.length > 0) {
+        const disarmed = this.db.prepare(`UPDATE completion_notification_generation_state
+          SET armed_seq = NULL, monitor_state = 'terminal', last_evidence_cursor = ?,
+              state_revision = state_revision + 1, updated_at = CURRENT_TIMESTAMP
+          WHERE generation_target_id = ? AND armed_seq = ? AND monitor_state = 'running'`)
+          .run(input.evidenceCursor, input.generationTargetId, sequence).changes;
+        if (disarmed !== 1) throw new Error('terminal completion decision lost armed generation compare-and-swap');
+        return { status: 'replay', decisionIds: replay.map(({ id }) => id) };
+      }
       const owners = this.db.prepare(`SELECT DISTINCT watch.user_id
         FROM completion_notification_watches watch
         JOIN user_notification_preferences preference ON preference.user_id = watch.user_id
@@ -281,6 +297,16 @@ export class CompletionNotificationOutboxRepository {
 
   acknowledge(deliveryId: number, claimToken: string, now: number): boolean {
     return this.finishClaim(deliveryId, claimToken, `state = 'acknowledged', acknowledged_at = ?, error_class = NULL`, [now]);
+  }
+
+  /** A sent push whose acknowledgement could not be persisted must never be reclaimed. */
+  sentUnacknowledged(deliveryId: number, claimToken: string): boolean {
+    return this.finishClaim(
+      deliveryId,
+      claimToken,
+      `state = 'permanent_failed', error_class = 'sent_unacknowledged'`,
+      [],
+    );
   }
   /**
    * Call immediately before transport. A paused policy wins the token CAS and

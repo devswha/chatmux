@@ -57,7 +57,15 @@
     "waiting": "Waiting for your response in the CLI",
     "instruction": "Please select an option in your terminal where Claude is running.",
     "selectedOption": "✓ Claude selected option {{number}}",
-    "instructionDetail": "In the CLI, you would select this option interactively using arrow keys or by typing the number."
+    "instructionDetail": "In the CLI, you would select this option interactively using arrow keys or by typing the number.",
+    "directInput": "Direct input (Other)",
+    "numberInstruction": "Send the displayed number in chat. Last number: direct input · 0: cancel",
+    "numberInstructionWithCustomNumber": "Send the displayed number in chat · {{number}}: direct input · 0: cancel",
+    "numberInstructionNoCustom": "Send the displayed number in chat · 0: cancel",
+    "multiNumberInstruction": "Send one or more numbers separated by commas · 0: cancel",
+    "cancelChoice": "Cancel (0)",
+    "multiTapInstruction": "Tap options to toggle, then submit · 0: cancel",
+    "submitChoices": "Submit ({{count}})"
   },
   "thinking": {
     "title": "Thinking...",
@@ -165,6 +173,9 @@
       "showingLast": "Showing last {{count}} messages ({{total}} total)",
       "loadEarlier": "Load earlier messages",
       "loadAll": "Load all messages",
+      "loadFullToolOutput": "Load full output",
+      "loadingFullToolOutput": "Loading full output...",
+      "fullToolOutputFailed": "Could not load full output.",
       "loadingAll": "Loading all messages...",
       "allLoaded": "All messages loaded",
       "perfWarning": "All messages loaded — scrolling may be slower. Click \"Scroll to bottom\" to restore performance."
@@ -242,7 +253,15 @@
     "delivered": "Delivered",
     "queued": "Queued",
     "towerUnavailable": "Control tower is not running — cannot send",
-    "sendFailed": "Failed to send"
+    "sendFailed": "Failed to send",
+    "selectionNumberRequired": "Enter a displayed number (0-{{max}}).",
+    "multiSelectionNumberRequired": "Enter one or more displayed numbers separated by commas.",
+    "customInputPlaceholder": "Type the custom answer…",
+    "customInputReady": "Type the custom answer.",
+    "selectionDelivered": "Selection delivered.",
+    "selectionPlaceholder": "Enter a choice number (0-{{max}})…",
+    "multiSelectionPlaceholder": "Enter choice numbers separated by commas…",
+    "placeholderShort": "Message {{name}}…"
   },
   "readOnly": {
     "banner": "Driven by gjc in tmux — read-only. It updates live; interact from the tmux side."

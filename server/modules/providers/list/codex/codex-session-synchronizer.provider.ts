@@ -1,6 +1,6 @@
 import os from 'node:os';
 import path from 'node:path';
-import { readFile } from 'node:fs/promises';
+import { open } from 'node:fs/promises';
 
 import { sessionsDb } from '@/modules/database/index.js';
 import {
@@ -17,6 +17,30 @@ type ParsedSession = {
   projectPath: string;
   sessionName?: string;
 };
+
+const CODEX_TITLE_SCAN_CHUNK_BYTES = 256 * 1024;
+
+function parseCodexTaskCompleteTitle(line: string): string | undefined {
+  const trimmed = line.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  try {
+    const data = JSON.parse(trimmed) as Record<string, unknown>;
+    const payload = data.payload as Record<string, unknown> | undefined;
+    const lastAgentMessage = typeof payload?.last_agent_message === 'string'
+      ? payload.last_agent_message
+      : undefined;
+    return data.type === 'event_msg'
+      && payload?.type === 'task_complete'
+      && lastAgentMessage?.trim()
+      ? lastAgentMessage
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * Session indexer for Codex transcript artifacts.
@@ -169,74 +193,62 @@ export class CodexSessionSynchronizer implements IProviderSessionSynchronizer {
    * never mistaken for the user's prompt.
    */
   private async extractFirstUserMessageFromStart(filePath: string): Promise<string | undefined> {
-    try {
-      const content = await readFile(filePath, 'utf8');
-      const lines = content.split(/\r?\n/);
-
-      for (const rawLine of lines) {
-        const line = rawLine.trim();
-        if (!line) {
-          continue;
-        }
-
-        let parsed: unknown;
-        try {
-          parsed = JSON.parse(line);
-        } catch {
-          continue;
-        }
-
-        const data = parsed as Record<string, unknown>;
-        const eventType = typeof data.type === 'string' ? data.type : undefined;
-        const payload = data.payload as Record<string, unknown> | undefined;
-        const payloadType = typeof payload?.type === 'string' ? payload.type : undefined;
-        const message = typeof payload?.message === 'string' ? payload.message : undefined;
-
-        if (eventType === 'event_msg' && payloadType === 'user_message' && message?.trim()) {
-          return message;
-        }
-      }
-    } catch {
-      // Ignore missing/unreadable files so sync can continue.
-    }
-
-    return undefined;
+    return (await extractFirstValidJsonlData<string>(filePath, (rawData) => {
+      const data = rawData as Record<string, unknown>;
+      const payload = data.payload as Record<string, unknown> | undefined;
+      const message = typeof payload?.message === 'string' ? payload.message : undefined;
+      return data.type === 'event_msg'
+        && payload?.type === 'user_message'
+        && message?.trim()
+        ? message
+        : undefined;
+    })) ?? undefined;
   }
 
   private async extractLastAgentMessageFromEnd(filePath: string): Promise<string | undefined> {
-    try {
-      const content = await readFile(filePath, 'utf8');
-      const lines = content.split(/\r?\n/);
-
-      for (let index = lines.length - 1; index >= 0; index -= 1) {
-        const line = lines[index]?.trim();
-        if (!line) {
-          continue;
-        }
-
-        let parsed: unknown;
-        try {
-          parsed = JSON.parse(line);
-        } catch {
-          continue;
-        }
-
-        const data = parsed as Record<string, unknown>;
-        const eventType = typeof data.type === 'string' ? data.type : undefined;
-        const payload = data.payload as Record<string, unknown> | undefined;
-        const payloadType = typeof payload?.type === 'string' ? payload.type : undefined;
-        const lastAgentMessage = typeof payload?.last_agent_message === 'string'
-          ? payload.last_agent_message
-          : undefined;
-
-        if (eventType === 'event_msg' && payloadType === 'task_complete' && lastAgentMessage?.trim()) {
-          return lastAgentMessage;
-        }
-      }
-    } catch {
-      // Ignore missing/unreadable files so sync can continue.
+    const handle = await open(filePath, 'r').catch(() => null);
+    if (!handle) {
+      return undefined;
     }
 
-    return undefined;
+    try {
+      const { size } = await handle.stat();
+      let position = size;
+      let leadingFragment = Buffer.alloc(0);
+
+      while (position > 0) {
+        const start = Math.max(0, position - CODEX_TITLE_SCAN_CHUNK_BYTES);
+        const buffer = Buffer.allocUnsafe(position - start);
+        const { bytesRead } = await handle.read(buffer, 0, buffer.length, start);
+        if (bytesRead === 0) {
+          break;
+        }
+
+        const combined = leadingFragment.length > 0
+          ? Buffer.concat([buffer.subarray(0, bytesRead), leadingFragment])
+          : buffer.subarray(0, bytesRead);
+        let lineEnd = combined.length;
+        let newline = combined.lastIndexOf(0x0a, lineEnd - 1);
+        while (newline >= 0) {
+          const title = parseCodexTaskCompleteTitle(
+            combined.subarray(newline + 1, lineEnd).toString('utf8'),
+          );
+          if (title) {
+            return title;
+          }
+          lineEnd = newline;
+          newline = combined.lastIndexOf(0x0a, lineEnd - 1);
+        }
+
+        leadingFragment = Buffer.from(combined.subarray(0, lineEnd));
+        position = start;
+      }
+
+      return parseCodexTaskCompleteTitle(leadingFragment.toString('utf8'));
+    } catch {
+      return undefined;
+    } finally {
+      await handle.close();
+    }
   }
 }

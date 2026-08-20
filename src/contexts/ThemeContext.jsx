@@ -36,7 +36,7 @@ export const ThemeProvider = ({ children }) => {
       // Update iOS status bar style and theme color for dark mode
       const statusBarMeta = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]');
       if (statusBarMeta) {
-        statusBarMeta.setAttribute('content', 'black-translucent');
+        statusBarMeta.setAttribute('content', 'black');
       }
       
       const themeColorMeta = document.querySelector('meta[name="theme-color"]');

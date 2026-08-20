@@ -27,6 +27,7 @@ function harness() {
   let stateRevision = 0;
   let lastEvidenceCursor: string | null = null;
   const observed: any[] = []; const decisions: any[] = []; const wakes: number[] = []; const pruned: number[] = [];
+  const actions: any[] = [];
   const touches: any[] = [];
   const operations: string[] = [];
   let staleCandidates: any[] = [];
@@ -48,7 +49,7 @@ function harness() {
     resolveTargets: ((detailed: any) => detailed.sessions.filter((item: any) => item.kind !== 'cursor').map((item: any) => ({
       generationIdentityKey: completionExternalGenerationIdentityKey(completionExternalGenerationIdentityFromSession(item)!),
       generationTargetId: item.generationTargetId ?? 17,
-      appSessionId: null, target: { alias: 'target' }, mappingState: item.mappingState ?? 'inactive_match',
+      appSessionId: item.appSessionId ?? null, target: { alias: 'target', watched: item.watched ?? true }, mappingState: item.mappingState ?? 'inactive_match',
     }))) as any,
     observeGeneration: (_id, cursor, observation) => {
       if (throwObserve) throw new Error('db');
@@ -93,10 +94,11 @@ function harness() {
       return ids.length;
     },
     generationCount: () => 0,
+    notifyActionRequired: (action) => { actions.push(action); },
     now: () => 30 * 24 * 60 * 60 * 1_000 + 1,
   });
   return {
-    monitor, observed, decisions, terminalResults, wakes, pruned, touches, operations,
+    monitor, observed, decisions, terminalResults, wakes, pruned, touches, operations, actions,
     setSessions: (value: any[]) => { sessions = value; },
     setDetailedOk: (value: boolean) => { detailedOk = value; },
     setStaleCandidates: (value: any[]) => { staleCandidates = value; },
@@ -104,6 +106,40 @@ function harness() {
     setThrowObserve: (value: boolean) => { throwObserve = value; }, primary,
   };
 }
+
+test('notifies once for each watched RUN to INPUT transition', async () => {
+  const h = harness();
+  h.setAnswer(resolved('asking_user', 'none', 'startup-input')); await h.monitor.tick();
+  assert.equal(h.actions.length, 0, 'startup INPUT is only a baseline');
+
+  h.setAnswer(resolved('running', 'none', 'run-1')); await h.monitor.tick();
+  h.setAnswer(resolved('asking_user', 'none', 'input-1')); await h.monitor.tick();
+  await h.monitor.tick();
+  assert.equal(h.actions.length, 1, 'the same prompt is not repeated');
+  assert.deepEqual(
+    { ...h.actions[0], occurrenceKey: typeof h.actions[0]?.occurrenceKey },
+    {
+      userId: 1,
+      provider: 'claude',
+      sessionId: 'target',
+      tmuxName: 'pane',
+      occurrenceKey: 'string',
+    },
+  );
+
+  h.setAnswer(resolved('running', 'none', 'run-2')); await h.monitor.tick();
+  h.setAnswer(resolved('asking_user', 'none', 'input-2')); await h.monitor.tick();
+  assert.equal(h.actions.length, 2, 'a later RUN to INPUT transition notifies again');
+  assert.notEqual(h.actions[0]?.occurrenceKey, h.actions[1]?.occurrenceKey);
+});
+
+test('does not notify for an unwatched RUN to INPUT transition', async () => {
+  const h = harness();
+  h.setSessions([session({ watched: false })]);
+  h.setAnswer(resolved('running', 'none', 'run')); await h.monitor.tick();
+  h.setAnswer(resolved('asking_user', 'none', 'input')); await h.monitor.tick();
+  assert.equal(h.actions.length, 0);
+});
 
 test('external monitor silently persists a startup reply-ready baseline, then creates a durable decision after a running arm', async () => {
   const h = harness();
@@ -120,6 +156,22 @@ test('external monitor silently persists a startup reply-ready baseline, then cr
   assert.equal(h.decisions.length, 3);
   assert.deepEqual(h.terminalResults, [[1], [1]]);
   assert.equal(h.wakes.length, 1);
+});
+
+test('external completion deep-links only with the mapped app session id', async () => {
+  const mapped = harness();
+  mapped.setSessions([session({ appSessionId: 'app-session-1' })]);
+  mapped.setAnswer({
+    ...resolved('waiting_user', 'reply_ready'),
+    appSession: { session_id: 'app-session-1' },
+  });
+  await mapped.monitor.tick();
+  assert.equal(mapped.decisions[0]?.payload.navigation.href, '/session/app-session-1');
+
+  const unmapped = harness();
+  await unmapped.monitor.tick();
+  assert.equal(unmapped.decisions[0]?.payload.navigation.href, '/');
+  assert.notEqual(unmapped.decisions[0]?.payload.navigation.href, '/session/target');
 });
 
 test('terminal replay is delegated to the durable decision repository after an armed generation', async () => {
@@ -242,4 +294,17 @@ test('read backoff resets when a provider binding changes', async () => {
   assert.equal(calls, 2, 'second failure schedules backoff');
   current = session({ providerSessionId: 'late' }); await monitor.tick();
   assert.equal(calls, 3, 'binding change clears the pending backoff');
+});
+
+test('removing an external generation clears its read backoff', async () => {
+  const h = harness();
+  h.setAnswer({ status: 'unavailable', activity: 'unknown', reasonCode: 'transcript_read_unavailable', appSession: null, transcriptEnded: false });
+  await h.monitor.tick();
+  assert.equal(h.monitor.stats().read_unavailable, 1);
+
+  h.setSessions([]);
+  await h.monitor.tick();
+  h.setSessions([session()]);
+  await h.monitor.tick();
+  assert.equal(h.monitor.stats().read_unavailable, 2);
 });

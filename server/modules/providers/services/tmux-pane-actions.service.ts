@@ -12,11 +12,26 @@ const WINDOW_ID_RE = /^@\d+$/;
 const PANE_ID_RE = /^%\d+$/;
 let pasteBufferSequence = 0;
 export type TmuxProcessAction = 'interrupt' | 'escape';
+export type TmuxSelectionKey =
+  | 'Up'
+  | 'Down'
+  | 'Left'
+  | 'Right'
+  | 'Enter'
+  | 'Space'
+  | 'Tab'
+  | 'BTab'
+  | 'Escape';
 
-const TMUX_PROCESS_ACTION_KEYS: Readonly<Record<TmuxProcessAction, 'C-c' | 'Escape'>> = {
-  interrupt: 'C-c',
-  escape: 'Escape',
-};
+function tmuxProcessActionKey(
+  target: VerifiedTmuxActionTarget,
+  action: TmuxProcessAction,
+): 'C-c' | 'Escape' {
+  if (action === 'escape') return 'Escape';
+  // Codex handles Esc as "interrupt the active turn". Ctrl+C is a process
+  // signal and can terminate the CLI when its activity status is briefly stale.
+  return target.kind === 'codex' ? 'Escape' : 'C-c';
+}
 
 export function readTmuxPaneIdentity(value: unknown): TmuxPaneIdentity {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -115,7 +130,7 @@ export async function assertTmuxPaneIdentity(
   }
 }
 
-export async function sendToTmuxPane(
+export async function pasteToTmuxPane(
   target: VerifiedTmuxActionTarget,
   message: string,
   run: TmuxRunner = runTmux,
@@ -136,6 +151,15 @@ export async function sendToTmuxPane(
   await requireTmuxSuccess(identity, [
     'paste-buffer', '-d', '-p', '-b', bufferName, '-t', identity.paneId,
   ], run);
+}
+
+export async function sendToTmuxPane(
+  target: VerifiedTmuxActionTarget,
+  message: string,
+  run: TmuxRunner = runTmux,
+): Promise<void> {
+  await pasteToTmuxPane(target, message, run);
+  const identity = target.tmux;
   await requireTmuxSuccess(identity, ['send-keys', '-t', identity.paneId, 'Enter'], run);
 }
 /**
@@ -151,8 +175,39 @@ export async function sendTmuxProcessAction(
   const identity = target.tmux;
   await assertTmuxPaneIdentity(identity, run);
   await requireTmuxSuccess(identity, [
-    'send-keys', '-t', identity.paneId, TMUX_PROCESS_ACTION_KEYS[action],
+    'send-keys', '-t', identity.paneId, tmuxProcessActionKey(target, action),
   ], run);
+}
+
+/**
+ * Sends an internally constructed, allowlisted selector key sequence.
+ * User input is converted to these tokens by the ask service and can never
+ * become an arbitrary tmux key name.
+ */
+export async function sendTmuxSelectionKeys(
+  target: VerifiedTmuxActionTarget,
+  keys: readonly TmuxSelectionKey[],
+  run: TmuxRunner = runTmux,
+  delay: (ms: number) => Promise<void> = (ms) =>
+    new Promise((resolve) => setTimeout(resolve, ms)),
+): Promise<void> {
+  if (keys.length === 0 || keys.length > 160) {
+    throw new AppError('invalid selector key sequence.', {
+      code: 'INVALID_TMUX_SELECTION',
+      statusCode: 400,
+    });
+  }
+  const identity = target.tmux;
+  await assertTmuxPaneIdentity(identity, run);
+  for (let index = 0; index < keys.length; index += 1) {
+    await requireTmuxSuccess(identity, [
+      'send-keys', '-t', identity.paneId, keys[index],
+    ], run);
+    if (index < keys.length - 1) {
+      // OMP can drop adjacent cursor events delivered in a single UI frame.
+      await delay(60);
+    }
+  }
 }
 
 export async function captureTmuxPane(

@@ -12,7 +12,9 @@ registry, container image, desktop delivery, or an unverified source build.
 ## Supported target and filesystem layout
 
 The first supported artifact target is Linux on x86_64 with glibc 2.35 or
-newer and a Node.js 22 runtime. It is a server artifact only.
+newer. The bootstrap installer self-provisions Node.js 22.22.2; manual runtime
+operation requires Node.js 22.22.2 or newer within the 22.x line. It is a server
+artifact only.
 
 | Path | Purpose |
 |---|---|
@@ -31,8 +33,7 @@ Before the first deployment, confirm the host contract:
 test "$(uname -s)" = Linux
 test "$(uname -m)" = x86_64
 getconf GNU_LIBC_VERSION    # requires glibc 2.35 or newer
-node --version              # requires v22
-```
+node --version              # manual runtime requires v22.22.2 or newer
 
 Use the release-install procedure in [INSTALL.md](INSTALL.md) to verify the
 checksum, unpack a versioned release, install `chatmux.service`, and activate
@@ -96,9 +97,12 @@ the ordinary mobile update experience.
 ## Managed-root safety
 
 `~/.chatmux` is a security boundary. It must be a real directory owned by the
-installing user with mode `0700`; the installer and updater refuse a symlink,
-non-directory, wrong owner, unsafe mode, or identity replacement before network,
-database, service, or link effects. Do not “fix” this through the mobile UI.
+installing user with mode `0700`; the installer and detached update worker refuse
+a symlink, non-directory, wrong owner, unsafe mode, or identity replacement
+before their network, database, service, or link effects. The update router first
+records update state, creates its state directory, and discovers releases before
+the worker applies this managed-root check. Do not “fix” this through the mobile
+UI.
 An operator must stop, inspect the path and ownership, remove or relocate an
 unexpected symlink only after confirming its target is safe, then recreate or
 repair the managed root as the intended user with `0700` before manual recovery.

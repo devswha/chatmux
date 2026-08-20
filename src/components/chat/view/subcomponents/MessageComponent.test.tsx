@@ -9,11 +9,15 @@ import type { ChatMessage } from '../../types/types';
 
 import MessageComponent from './MessageComponent';
 
-const renderMessage = (message: ChatMessage): string => renderToStaticMarkup(createElement(MessageComponent, {
+const renderMessage = (
+  message: ChatMessage,
+  suppressedAskToolId: string | null = null,
+): string => renderToStaticMarkup(createElement(MessageComponent, {
   message,
   prevMessage: null,
   createDiff: () => [],
   provider: 'claude',
+  suppressedAskToolId,
 }));
 
 test('standalone conversation errors keep details collapsed and omit the redundant provider header', () => {
@@ -47,4 +51,64 @@ test('non-Bash tool failures expose full output only through a collapsed disclos
   assert.match(html, /<details[^>]*id="tool-result-tool-1"(?![^>]*\sopen(?:=|\s|>))[^>]*>/);
   assert.match(html, /Read Error/);
   assert.match(html, /Internal lookup detail/);
+});
+
+test('screen-driven multi-question asks hide the inert transcript duplicate', () => {
+  const message: ChatMessage = {
+    type: 'assistant',
+    content: '',
+    timestamp: '2026-08-08T00:00:00.000Z',
+    isToolUse: true,
+    toolName: 'AskUserQuestion',
+    toolId: 'ask-multi',
+    toolInput: {
+      questions: [
+        { question: 'First?', options: [{ label: 'A' }, { label: 'B' }] },
+        { question: 'Second?', options: [{ label: 'C' }, { label: 'D' }], multiSelect: true },
+      ],
+    },
+  };
+
+  assert.match(renderMessage(message), /Second\?/);
+  assert.doesNotMatch(renderMessage(message, 'ask-multi'), /Second\?/);
+});
+
+test('image preview preference omits attachment markup when disabled', () => {
+  const message: ChatMessage = {
+    type: 'user',
+    content: 'inspect this',
+    timestamp: '2026-08-10T00:00:00.000Z',
+    images: [{ data: 'data:image/png;base64,aGVsbG8=', name: 'sample.png' }],
+  };
+  const props = {
+    message,
+    prevMessage: null,
+    createDiff: () => [],
+    provider: 'codex',
+  };
+
+  assert.match(renderToStaticMarkup(createElement(MessageComponent, props)), /sample\.png/);
+  assert.doesNotMatch(
+    renderToStaticMarkup(createElement(MessageComponent, { ...props, showImagePreviews: false })),
+    /sample\.png|data:image\/png/,
+  );
+});
+
+test('truncated tool history offers an explicit full-output load action', () => {
+  const html = renderMessage({
+    sessionId: 'session-1',
+    type: 'assistant',
+    content: '',
+    timestamp: '2026-08-10T00:00:00.000Z',
+    isToolUse: true,
+    toolName: 'Bash',
+    toolInput: JSON.stringify({ command: 'diagnostic' }),
+    toolId: 'tool-large',
+    toolResult: { content: 'bounded preview', isError: false },
+    toolResultTruncated: true,
+    toolResultBytes: 2 * 1024 * 1024,
+  });
+
+  assert.match(html, /Load full output/);
+  assert.match(html, /2048 KB/);
 });

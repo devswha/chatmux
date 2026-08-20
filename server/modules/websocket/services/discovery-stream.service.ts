@@ -25,6 +25,7 @@ type Subscriber = {
   queuedBytes: number;
   slowSince: number | null;
   resyncs: number[];
+  awaitingResync: boolean;
 };
 function send(ws: WebSocket, payload: unknown): boolean {
   if (ws.readyState !== WS_OPEN_STATE) return false;
@@ -68,7 +69,7 @@ export function createDiscoveryStream(collector: DiscoveryCollector, now = Date.
       unchangedTicks += 1;
       if (unchangedTicks % HEARTBEAT_CADENCE === 0) {
         for (const subscriber of subscribers.values()) {
-          if (subscriber.queue.length === 0 && snapshot.v2) {
+          if (!subscriber.awaitingResync && subscriber.queue.length === 0 && snapshot.v2) {
             enqueue(subscriber, { kind: 'discovery.v2.heartbeat', version: 2, epoch: snapshot.v2.epoch, globalRevision: snapshot.v2.globalRevision });
           }
         }
@@ -95,6 +96,7 @@ export function createDiscoveryStream(collector: DiscoveryCollector, now = Date.
   function enqueue(subscriber: Subscriber, payload: unknown): void {
     const frame = JSON.stringify(payload);
     if (subscriber.queue.length >= MAX_QUEUED_MESSAGES || subscriber.queuedBytes + Buffer.byteLength(frame) > MAX_QUEUED_BYTES) {
+      subscriber.awaitingResync = true;
       subscriber.queue = [JSON.stringify({ kind: 'discovery.resync_required', epoch: collector.currentSnapshot().epoch, reason: 'queue_overflow' })];
       subscriber.queuedBytes = Buffer.byteLength(subscriber.queue[0]!);
     } else {
@@ -103,7 +105,20 @@ export function createDiscoveryStream(collector: DiscoveryCollector, now = Date.
     }
     flush(subscriber);
   }
-  function snapshotV2(subscriber: Subscriber, current = collector.currentSnapshot()): void {
+  function snapshotV2(
+    subscriber: Subscriber,
+    current = collector.currentSnapshot(),
+    resetAfterResync = false,
+  ): void {
+    if (subscriber.awaitingResync && !resetAfterResync) {
+      flush(subscriber);
+      return;
+    }
+    if (resetAfterResync) {
+      subscriber.awaitingResync = false;
+      subscriber.queue = [];
+      subscriber.queuedBytes = 0;
+    }
     if (!current.v2) {
       enqueue(subscriber, { kind: 'protocol_error', code: 'RUNTIME_DISCOVERY_UNAVAILABLE', error: 'Runtime discovery v2 is unavailable.' });
       return;
@@ -134,6 +149,7 @@ export function createDiscoveryStream(collector: DiscoveryCollector, now = Date.
       queuedBytes: 0,
       slowSince: null,
       resyncs: [],
+      awaitingResync: false,
     };
     subscriber.lanes = lanes;
     subscribers.set(ws, subscriber);
@@ -141,7 +157,7 @@ export function createDiscoveryStream(collector: DiscoveryCollector, now = Date.
     const current = collector.currentSnapshot();
     if (!lanesChanged && known && known.epoch === current.v2!.epoch && known.globalRevision === current.v2!.globalRevision) {
       enqueue(subscriber, { kind: 'discovery.v2.heartbeat', version: 2, epoch: current.v2!.epoch, globalRevision: current.v2!.globalRevision });
-    } else snapshotV2(subscriber, current);
+    } else snapshotV2(subscriber, current, true);
     collector.setActive(true);
     collector.start();
   }
@@ -161,7 +177,7 @@ export function createDiscoveryStream(collector: DiscoveryCollector, now = Date.
           ws.close(1008, 'discovery_resync_rate_limited');
         } else {
           subscriber.resyncs.push(now());
-          snapshotV2(subscriber);
+          snapshotV2(subscriber, collector.currentSnapshot(), true);
         }
       }
       return true;

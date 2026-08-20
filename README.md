@@ -4,7 +4,7 @@
 
 <p align="center"><sub><b>English</b> · <a href="docs/readme/README.ko.md">한국어</a> · <a href="docs/readme/README.ja.md">日本語</a> · <a href="docs/readme/README.zh-CN.md">简体中文</a></sub></p>
 
-<p align="center"><b>ChatMux</b> is a self-hosted web interface for discovering, reading, and controlling<br>coding-agent sessions running in tmux — from your desktop or your phone.</p>
+<p align="center">One interface for Claude Code, Codex, Cursor, OpenCode, Gajae Code, and Oh My Pi —<br>the agents already running in your tmux.</p>
 
 <p align="center">
   <a href="https://github.com/devswha/chatmux/releases"><img src="https://img.shields.io/github/v/release/devswha/chatmux?display_name=tag&label=release&style=flat-square&color=6366f1" alt="GitHub release"></a>
@@ -13,101 +13,49 @@
   <img src="https://img.shields.io/badge/runtime-tmux-ff6b4a?style=flat-square" alt="tmux runtime">
 </p>
 
-<p align="center">
-  <a href="#install"><b>Install</b></a>
-  &nbsp;·&nbsp;
-  <a href="#browser"><b>Browser</b></a>
-  &nbsp;·&nbsp;
-  <a href="#mobile"><b>Mobile</b></a>
-  &nbsp;·&nbsp;
-  <a href="#agent-support"><b>Agent support</b></a>
-  &nbsp;·&nbsp;
-  <a href="#remote-access"><b>Remote access</b></a>
-  &nbsp;·&nbsp;
-  <a href="docs/INSTALL.md"><b>Docs</b></a>
-</p>
+You run coding agents — Gajae Code, Claude Code, Codex, Cursor CLI, OpenCode, Oh My Pi — inside tmux, like always. ChatMux finds them by itself and shows every session in one browser page, from your desktop or your phone.
 
-<br>
+- **Zero registration:** Agents already running in tmux just appear in the sidebar. Nothing to wrap, wire, or restart.
+- **Multi-provider:** Every provider in a single drag-sortable list, with `RUN`, `READY`, and `ERROR` badges for live state.
+- **Chat or terminal:** Recognized transcripts read as conversations; everything else is a real attached terminal. Input only ever reaches a pane whose identity ChatMux has verified.
+- **Phone-ready:** Installable PWA over Tailscale or a LAN password — the full roster, conversations, and the real TUI with a key bar.
+- **tmux stays the boss:** Restart or remove ChatMux any time; your tmux sessions keep running untouched.
 
-You run coding agents — Gajae Code, Claude Code, Codex, Cursor CLI, OpenCode,
-Oh My Pi — inside tmux, like always. ChatMux finds them by itself and shows
-every session in one browser page:
+ChatMux does not bundle any AI subscription. Install and log in to each agent CLI as the same OS user that runs ChatMux.
 
-<table align="center">
-  <tr>
-    <td width="50%" valign="top">
-      <b>No registration</b><br>
-      <sub>Agents already running in tmux just appear in the sidebar. Nothing to wrap, wire, or restart.</sub>
-    </td>
-    <td width="50%" valign="top">
-      <b>One ordered sidebar</b><br>
-      <sub>Every provider in a single drag-sortable list, with <code>RUN</code>, <code>READY</code>, and <code>ERROR</code> badges for live state.</sub>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <b>Chat or terminal</b><br>
-      <sub>Recognized transcripts read as conversations; everything else is a real attached terminal. Input only ever reaches a pane whose identity ChatMux has verified.</sub>
-    </td>
-    <td width="50%" valign="top">
-      <b>tmux stays the boss</b><br>
-      <sub>Restart or remove ChatMux any time; your tmux sessions keep running untouched.</sub>
-    </td>
-  </tr>
-</table>
-
-<p align="center"><sub>ChatMux does not bundle any AI subscription — install and log in to each agent CLI as the same OS user that runs ChatMux.</sub></p>
-
-<a id="install"></a>
-## Install
-
-Linux x86_64 (glibc 2.35+) with tmux, user-level systemd, and
-`curl`/`tar`/`sha256sum`:
+## Getting started
 
 ```bash
 curl -fsSL https://github.com/devswha/chatmux/releases/latest/download/install.sh | bash
 ```
 
+Requires Linux x86_64 (glibc 2.35+) with tmux, user-level systemd, and `curl`/`tar`/`sha256sum`.
+
+The installer downloads the canonical release archive, verifies its SHA-256, starts a user-level service, and prints your addresses — plus a QR code for the phone. `chatmux status` shows them again any time.
+
 <p align="center">
   <img src="docs/assets/install.png" alt="install.sh output: download and verification, the local and Tailscale phone addresses, and a QR code to open ChatMux on the phone" width="760">
-  <br>
-  <sub>One command: verified download, a user-level service, your addresses, and a QR for the phone.</sub>
 </p>
 
-The installer downloads the canonical release archive, verifies its SHA-256,
-starts a user-level service, and prints your addresses. `chatmux status` shows
-them again any time. Pinned versions, access modes, updates, rollback, and
-recovery are covered in the [installation guide](docs/INSTALL.md); source
-development is covered in [Development](#development).
+Pinned versions, access modes, updates, rollback, and recovery are covered in the [installation guide](docs/INSTALL.md).
 
-<a id="browser"></a>
-## Browser
+## In the browser
 
-Open the printed `Local` address — running tmux agents appear in the sidebar
-by themselves. Sessions with a recognized transcript render as a structured
-conversation with a composer:
+Open the printed `Local` address — running tmux agents appear in the sidebar by themselves. Sessions with a recognized transcript render as a structured conversation with a composer:
 
 <p align="center">
   <img src="docs/assets/browser-chat.png" alt="ChatMux on desktop: the sidebar lists live tmux agent sessions across providers with RUN and READY badges, and the selected Codex session renders as a structured conversation with a composer" width="900">
-  <br>
-  <sub>The conversation view: cross-provider sidebar on the left, structured transcript and composer on the right.</sub>
 </p>
 
-The `CLI output` tab of the same session is the real TUI running inside tmux,
-rendered in the browser — answer menu prompts, watch raw output, or take over
-with real keystrokes:
+The `CLI output` tab of the same session is the real TUI running inside tmux, rendered in the browser — answer menu prompts, watch raw output, or take over with real keystrokes:
 
 <p align="center">
   <img src="docs/assets/browser-cli.png" alt="The CLI output tab of the same session: the real Codex TUI running inside tmux, rendered in the browser" width="900">
-  <br>
-  <sub>The same session as a real terminal — because sometimes you need the actual TUI.</sub>
 </p>
 
-<a id="mobile"></a>
-## Mobile
+## On the phone
 
-Turn on Tailscale on the phone, scan the QR code from the install output, and
-use the in-app **Install app** button to keep ChatMux as a PWA:
+Turn on Tailscale on the phone, scan the QR code from the install output, and use the in-app **Install app** button to keep ChatMux as a PWA:
 
 <table align="center">
   <tr>
@@ -126,12 +74,9 @@ use the in-app **Install app** button to keep ChatMux as a PWA:
   </tr>
 </table>
 
-<a id="agent-support"></a>
 ## Agent support
 
-"Chat view" below means the session renders as a readable conversation with a
-composer; otherwise ChatMux gives you an attached terminal. Both views can
-type into the real pane.
+"Chat view" below means the session renders as a readable conversation with a composer; otherwise ChatMux gives you an attached terminal. Both views can type into the real pane.
 
 | Agent | Found automatically | Chat view | Send input | Start new session |
 |---|:---:|---|---|:---:|
@@ -146,49 +91,35 @@ type into the real pane.
 
 <sub>Cursor sessions use the documented <code>agent</code> command; the legacy <code>cursor-agent</code> alias remains supported for older installations.</sub>
 
-<a id="remote-access"></a>
 ## Remote access
 
-With Tailscale logged in, the installer configures Tailscale Serve
-automatically: approved tailnet accounts use the private HTTPS address with no
-separate password, and everyone else is denied. Without Tailscale, installation
-enables password access on the LAN with a one-time owner password:
+With Tailscale logged in, the installer configures Tailscale Serve automatically: approved tailnet accounts use the private HTTPS address with no separate password, and everyone else is denied. Without Tailscale, installation enables password access on the LAN with a one-time owner password:
 
 ```bash
-chatmux access password              # rotate/recover (signs out all sessions)
+chatmux access password             # rotate/recover (signs out all sessions)
 chatmux access enable tailscale     # switch modes after Tailscale is available
 ```
 
-User allowlists, longer sessions, VPN mode, SSH tunnels, and public TLS
-options are covered in the [remote access guide](docs/REMOTE-ACCESS.md) and
-the [installation guide](docs/INSTALL.md).
+User allowlists, longer sessions, VPN mode, SSH tunnels, and public TLS options are covered in the [remote access guide](docs/REMOTE-ACCESS.md).
 
-## How it works
+## CLI
 
-```mermaid
-flowchart LR
-  subgraph Host[Self-hosted machine]
-    TMUX[tmux sessions]
-    AGENTS[GJC · Claude · Codex · Cursor · OpenCode · Oh My Pi]
-    SSH[Remote SSH panes]
-    INDEX[Session discovery + transcript index]
-    API[ChatMux API]
+The `chatmux` command manages the installed service:
 
-    TMUX --> AGENTS
-    TMUX --> SSH
-    AGENTS --> INDEX
-    INDEX --> API
-  end
-
-  API --> WEB[Web / PWA]
-  WEB -->|spawn · relay · resume · kill| API
+```bash
+chatmux status                  # version, addresses, data locations
+chatmux access users            # allowed Tailscale accounts
+chatmux access allow user@example.com
+chatmux sandbox ~/my-project    # run inside a Docker sandbox
 ```
 
-ChatMux links tmux process ancestry to native transcript identifiers. A matching
-working directory alone is never enough to authorize a destructive action, and
-the tmux session identifier is rechecked before relay or termination.
+## Security and data boundaries
 
-<a id="development"></a>
+- ChatMux links tmux process ancestry to native transcript identifiers. A matching working directory alone is never enough to authorize a destructive action, and the tmux session identifier is rechecked before relay or termination.
+- The backend binds to loopback. Tailscale mode trusts Serve identity headers only from loopback on the expected HTTPS origin; the installer never enables Funnel or a public listener, and unapproved users fail closed.
+- Password mode uses `HttpOnly`, `SameSite=Strict` cookies with persistent logout revocation.
+- State and indexes live below `~/.chatmux`. Back up `~/.chatmux/data` before migration or upgrade.
+
 ## Development
 
 ```bash
@@ -198,20 +129,7 @@ npm ci
 npm run dev
 ```
 
-Open <http://127.0.0.1:5173>. Development requires Node.js `22.22.2+` on the
-22.x line or `24.15.0+` on the 24.x line, npm, Git, tmux, and Rust `1.85.1`.
-`npm run verify` runs the full release gate: audit, typecheck, Rust checks,
-tests, lint, identity checks, and a production build.
-
-## Security and data boundaries
-
-- The backend binds to loopback. Tailscale mode trusts Serve identity headers
-  only from loopback on the expected HTTPS origin; the installer never enables
-  Funnel or a public listener, and unapproved users fail closed.
-- Password mode uses `HttpOnly`, `SameSite=Strict` cookies with persistent
-  logout revocation.
-- State and indexes live below `~/.chatmux`. Back up `~/.chatmux/data` before
-  migration or upgrade.
+Open <http://127.0.0.1:5173>. Development requires Node.js `22.22.2+` on the 22.x line or `24.15.0+` on the 24.x line, npm, Git, tmux, and Rust `1.85.1`. `npm run verify` runs the full release gate: audit, typecheck, Rust checks, tests, lint, identity checks, and a production build.
 
 ## Documentation
 
@@ -223,6 +141,6 @@ tests, lint, identity checks, and a production build.
 - [Contributing](CONTRIBUTING.md)
 - [Issue tracker](https://github.com/devswha/chatmux/issues)
 
-<p align="center">
-  <sub><a href="LICENSE">GNU AGPL v3</a> · built for people who live in tmux</sub>
-</p>
+## License
+
+[AGPL-3.0](LICENSE) · built for people who live in tmux

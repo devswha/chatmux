@@ -5,9 +5,18 @@ export { cursorCliCommandOrDefault } from './list/cursor/cursor-cli-command.js';
 
 export { initializeSessionsWatcher } from './services/sessions-watcher.service.js';
 export { closeSessionsWatcher } from './services/sessions-watcher.service.js';
-export { getLiveGjcSessionsDetailed, IDLE_GJC_ID_PREFIX } from './services/live-sessions.service.js';
+export {
+  onTranscriptChanged,
+  transcriptChangeVersion,
+} from './services/transcript-change.service.js';
+export {
+  getLiveGjcSessionsDetailed,
+  IDLE_GJC_ID_PREFIX,
+  type LiveGjcSessionsDetailedResult,
+} from './services/live-sessions.service.js';
 export {
   getExternalCliSessionsDetailed,
+  getExternalCliSessionsDetailedFresh,
   type ExternalCliSession,
   type ExternalCliSessionsDetailedResult,
 } from './services/external-cli-sessions.service.js';
@@ -62,3 +71,20 @@ export {
   type PaneSubscriptionKey,
 } from './services/pane-output-stream.service.js';
 export type { PaneOutputStreamOptions } from './services/pane-output-stream.service.js';
+export {
+  TMUX_OUTPUT_CLEAR_CONFIRM_MS,
+  TMUX_OUTPUT_FALLBACK_MS,
+  TMUX_OUTPUT_MAX_WAIT_MS,
+  TMUX_OUTPUT_QUIET_MS,
+  createTmuxControlObserver,
+  createTmuxOutputActivityMonitor,
+  tmuxControlOutputPaneId,
+  tmuxOutputActivityFinished,
+  type TmuxControlObserver,
+  type TmuxControlObserverFactory,
+  type TmuxOutputActivityState,
+  type TmuxOutputActivityTarget,
+  type TmuxOutputActivityTransition,
+  type TmuxOutputActivityMonitorOptions,
+} from './services/tmux-output-activity-monitor.service.js';
+export { observeTmuxInputActivity } from './services/tmux-input-occurrence.service.js';

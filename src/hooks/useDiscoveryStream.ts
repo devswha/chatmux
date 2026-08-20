@@ -3,10 +3,14 @@ import { useEffect, useRef, useState } from 'react';
 import type { ServerEvent } from '../contexts/WebSocketContext';
 import type { DiscoveryLane, DiscoveryV2, PublicTerminalTarget, RuntimeCapabilities, SourceLaneState, TmuxDiscoveryProjection } from '../../shared/terminal-runtime';
 import { publicTerminalKey, sourceLaneKey } from '../../shared/terminal-runtime';
+import type { ProviderConnectionIssue } from '../../shared/provider-connection';
 
 export type { DiscoveryLane } from '../../shared/terminal-runtime';
 
-export type DiscoveryRow = TmuxDiscoveryProjection & { [key: string]: unknown };
+export type DiscoveryRow = TmuxDiscoveryProjection & {
+  connectionIssue?: ProviderConnectionIssue;
+  [key: string]: unknown;
+};
 
 /** A runtime-neutral operation row used by Herdr-aware surfaces. */
 export type RuntimeDiscoveryRow = {

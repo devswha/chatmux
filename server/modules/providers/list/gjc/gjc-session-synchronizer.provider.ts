@@ -14,7 +14,12 @@ import {
 import type { IProviderSessionSynchronizer } from '@/shared/interfaces.js';
 import type { AnyRecord } from '@/shared/types.js';
 
-type PiTranscriptProvider = 'gjc' | 'omp';
+/**
+ * CLIs that write the pi-derived transcript dialect: the same JSONL envelope
+ * (`message`, `model_change`, `thinking_level_change`, `custom`), so one reader
+ * and one synchronizer serve all of them.
+ */
+export type PiTranscriptProvider = 'gjc' | 'omp' | 'omo';
 
 export type PiSessionSynchronizerOptions = {
   provider?: PiTranscriptProvider;
@@ -70,6 +75,24 @@ function extractGjcTextFromContent(content: unknown): string {
  * live on the top-level header line (`{"type":"session","id":..,"cwd":..}`),
  * unlike Codex which nests them under `payload`.
  */
+/**
+ * Per-provider home directories. These are exhaustive Records rather than
+ * `provider === 'x' ? … : …` on purpose: a ternary silently routes any new
+ * union member into its else branch, which is exactly how omo ended up
+ * scanning gjc's transcripts. A Record makes adding a provider a type error.
+ */
+export const PI_AGENT_ROOT_DIRS: Record<PiTranscriptProvider, string> = {
+  gjc: path.join(os.homedir(), '.gjc', 'agent'),
+  omp: path.join(os.homedir(), '.omp', 'agent'),
+  omo: path.join(os.homedir(), '.omo', 'agent'),
+};
+
+const PI_UNTITLED_SESSION_TITLES: Record<PiTranscriptProvider, string> = {
+  gjc: 'Untitled gjc Session',
+  omp: 'Untitled Oh My Pi Session',
+  omo: 'Untitled omo Session',
+};
+
 export class GjcSessionSynchronizer implements IProviderSessionSynchronizer {
   private readonly provider: PiTranscriptProvider;
   private readonly sessionRoots: string[];
@@ -79,9 +102,7 @@ export class GjcSessionSynchronizer implements IProviderSessionSynchronizer {
 
   constructor(options: PiSessionSynchronizerOptions = {}) {
     this.provider = options.provider ?? 'gjc';
-    const agentRoot = this.provider === 'omp'
-      ? path.join(os.homedir(), '.omp', 'agent')
-      : path.join(os.homedir(), '.gjc', 'agent');
+    const agentRoot = PI_AGENT_ROOT_DIRS[this.provider];
     const defaultAdditionalRoots = this.provider === 'gjc'
       ? [process.env.GJC_LIVE_SESSION_DIR || path.join(os.tmpdir(), 'gjc-live-sessions')]
       : [];
@@ -89,9 +110,7 @@ export class GjcSessionSynchronizer implements IProviderSessionSynchronizer {
       options.sessionsDir ?? path.join(agentRoot, 'sessions'),
       ...(options.additionalSessionDirs ?? defaultAdditionalRoots),
     ])];
-    this.untitledSession = this.provider === 'omp'
-      ? 'Untitled Oh My Pi Session'
-      : 'Untitled gjc Session';
+    this.untitledSession = PI_UNTITLED_SESSION_TITLES[this.provider];
     this.initialScanDoneKey = `${this.provider}_initial_scan_done`;
     this.pendingSessionFilesKey = `${this.provider}_pending_session_files`;
   }

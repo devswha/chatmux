@@ -1,5 +1,6 @@
 import type { ExternalTerminalTarget, Project, ProjectSession } from '../../../types/app';
 import type { TmuxPaneIdentity, TmuxPaneTarget } from '../../../../shared/tmux';
+import type { ProviderConnectionIssue } from '../../../../shared/provider-connection';
 import type { ExternalCliSession } from '../hooks/useExternalCliSessions';
 import type {
   CompletionNotificationDescriptor,
@@ -21,7 +22,9 @@ export type SidebarProps = {
   liveSessionTargets: ReadonlyMap<string, TmuxPaneTarget>;
   liveSessionKinds: ReadonlyMap<string, string>;
   liveSessionRunning: ReadonlySet<string>;
+  liveSessionInput?: ReadonlySet<string>;
   liveSessionErrors?: ReadonlySet<string>;
+  liveSessionConnectionIssues?: ReadonlyMap<string, ProviderConnectionIssue>;
   liveSessionsLoaded: boolean;
   onProjectSelect: (project: Project) => void;
   onSessionSelect: (session: ProjectSession, projectId?: string) => void;
@@ -62,6 +65,8 @@ export type CompletionNotificationDescriptorStatus = {
   globalPaused: boolean;
   pending: boolean;
   error: CompletionNotificationReason | null;
+  /** A passive check found a subscription registered with an obsolete VAPID key. */
+  deviceRepairRequired?: boolean;
 };
 
 export type CompletionNotificationsHookApi = {

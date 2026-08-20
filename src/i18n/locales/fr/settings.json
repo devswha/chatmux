@@ -76,6 +76,17 @@
       "label": "Mode sombre",
       "description": "Basculer entre les thèmes clair et sombre"
     },
+    "interfaceFontSize": {
+      "label": "Taille du texte de l’interface",
+      "description": "Modifier la taille du texte dans les discussions, sessions, paramètres et le reste de l’interface",
+      "small": "Petite",
+      "medium": "Moyenne",
+      "large": "Grande"
+    },
+    "imagePreviews": {
+      "label": "Aperçus d’images",
+      "description": "Charger et afficher les images jointes dans l’historique du chat"
+    },
     "projectSorting": {
       "label": "Tri des projets",
       "description": "Ordre d'affichage des projets dans la barre latérale",

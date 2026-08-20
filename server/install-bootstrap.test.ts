@@ -108,15 +108,23 @@ test('one-line bootstrap tightens an existing owner-managed root and rejects uns
   assert.equal(migrated.status, 0, migrated.stderr);
   assert.equal((await fs.stat(managedRoot)).mode & 0o777, 0o700);
 
-  for (const [name, setup, expected] of [
-    ['symlink', async (target: string) => fs.symlink(path.join(root, 'missing'), target), /ordinary directory/],
-    ['non-directory', async (target: string) => fs.writeFile(target, 'not a directory'), /ordinary directory/],
+  // A trailing "/" or "/." makes the kernel resolve a symlink, so the suffixed cases
+  // fail closed only while ensure_managed_root normalizes the root before inspecting it.
+  const symlinkToDirectory = async (target: string): Promise<void> => {
+    await fs.mkdir(`${target}-target`);
+    await fs.symlink(`${target}-target`, target);
+  };
+  for (const [name, setup, expected, suffix] of [
+    ['symlink', async (target: string) => fs.symlink(path.join(root, 'missing'), target), /ordinary directory/, ''],
+    ['non-directory', async (target: string) => fs.writeFile(target, 'not a directory'), /ordinary directory/, ''],
+    ['symlink-trailing-slash', symlinkToDirectory, /ordinary directory/, '/'],
+    ['symlink-trailing-dot', symlinkToDirectory, /ordinary directory/, '/.'],
   ] as const) {
     const unsafeRoot = path.join(root, name);
     await setup(unsafeRoot);
     const result = spawnSync('bash', [installerPath, '--local'], {
       encoding: 'utf8',
-      env: { ...commonEnv, CHATMUX_INSTALL_ROOT: unsafeRoot },
+      env: { ...commonEnv, CHATMUX_INSTALL_ROOT: `${unsafeRoot}${suffix}` },
     });
     assert.notEqual(result.status, 0, name);
     assert.match(result.stderr, expected);

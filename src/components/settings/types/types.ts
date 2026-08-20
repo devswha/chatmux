@@ -2,6 +2,7 @@ import type { Dispatch, SetStateAction } from 'react';
 
 import type { LLMProvider } from '../../../types/app';
 import type { ProviderAuthStatus } from '../../provider-auth/types';
+import type { InterfaceFontSize } from '../../../utils/interfaceFontSize';
 
 export type SettingsMainTab = 'agents' | 'appearance' | 'access';
 export type AgentProvider = LLMProvider;
@@ -9,6 +10,7 @@ export type AgentCategory = 'account' | 'permissions';
 export type ProjectSortOrder = 'name' | 'date';
 export type SaveStatus = 'success' | 'error' | null;
 export type CodexPermissionMode = 'default' | 'acceptEdits' | 'bypassPermissions';
+export type { InterfaceFontSize };
 
 export type SettingsProject = {
   name: string;

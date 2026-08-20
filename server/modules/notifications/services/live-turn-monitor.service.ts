@@ -1,12 +1,28 @@
 import { createHash } from 'node:crypto';
 import { open, stat } from 'node:fs/promises';
 
-import { userDb } from '@/modules/database/index.js';
+import {
+  completionAppAlias,
+  completionNotificationTargetsDb,
+  userDb,
+} from '@/modules/database/index.js';
 import {
   createCompletionDecision,
+  notifyInputRequired,
   notifyRunFailed,
 } from '@/modules/notifications/services/notification-orchestrator.service.js';
-import { getLiveGjcSessionsDetailed, IDLE_GJC_ID_PREFIX } from '@/modules/providers/index.js';
+import {
+  getLiveGjcSessionsDetailed,
+  IDLE_GJC_ID_PREFIX,
+  onTranscriptChanged,
+  type LiveGjcSessionsDetailedResult,
+  observeTmuxInputActivity,
+} from '@/modules/providers/index.js';
+
+import {
+  startEventDrivenMonitorLoop,
+  TURN_MONITOR_FALLBACK_MS,
+} from './event-driven-monitor-loop.service.js';
 
 /**
  * Live turn monitor — "답변이 왔을 때 알림" for tmux-driven gjc sessions.
@@ -83,6 +99,12 @@ type MonitorDeps = {
     stopReason: LiveTurnEnd;
     occurrenceKey?: string;
   }) => unknown;
+  notifyActionRequired?: (args: {
+    userId: number;
+    sessionId: string;
+    tmuxName: string | null;
+    occurrenceKey: string;
+  }) => unknown;
   getUserId: () => number | null;
   readDelta?: (path: string, start: number, end: number) => Promise<string | Buffer>;
   statSize?: (path: string) => Promise<number>;
@@ -151,11 +173,43 @@ export function createLiveTurnMonitor(deps: MonitorDeps) {
         const line = lineBytes.toString('utf8');
         if (line.includes('"stopReason"') && line.includes('"message"')) {
           try {
-            const record = JSON.parse(line) as { type?: unknown; message?: { role?: unknown; stopReason?: unknown } };
-            const { role, stopReason } = record.message ?? {};
+            const record = JSON.parse(line) as {
+              type?: unknown;
+              message?: { role?: unknown; stopReason?: unknown; content?: unknown };
+            };
+            const { role, stopReason, content } = record.message ?? {};
             const terminalStopReason: LiveTurnEnd | null = (
               stopReason === 'stop' || stopReason === 'error'
             ) ? stopReason : null;
+            const asksForInput = record.type === 'message'
+              && role === 'assistant'
+              && stopReason === 'toolUse'
+              && Array.isArray(content)
+              && content.some((item) => (
+                item
+                && typeof item === 'object'
+                && (item as { type?: unknown }).type === 'toolCall'
+                && ['ask', 'AskUserQuestion', 'request_user_input'].includes(
+                  String((item as { name?: unknown }).name ?? ''),
+                )
+              ));
+            if (asksForInput) {
+              try {
+                const fallbackOccurrenceKey = `gjc:${sessionId}:${byteEnd}:${createHash('sha256').update(line).digest('hex')}`;
+                await deps.notifyActionRequired?.({
+                  userId,
+                  sessionId,
+                  tmuxName: cursor.tmuxName,
+                  occurrenceKey: observeTmuxInputActivity({
+                    provider: 'gjc',
+                    providerSessionId: sessionId,
+                  }, 'transcript', true) ?? fallbackOccurrenceKey,
+                });
+              } catch {
+                cursor.offset = lineStart;
+                return;
+              }
+            }
             if (record.type === 'message' && role === 'assistant' && terminalStopReason) {
               const notification = {
                 userId,
@@ -240,6 +294,10 @@ export function createLiveTurnMonitor(deps: MonitorDeps) {
       for (const id of cursors.keys()) {
         if (!seen.has(id)) cursors.delete(id);
       }
+      for (const key of diagnosticLastReported.keys()) {
+        const sessionId = key.slice(key.indexOf('\0') + 1);
+        if (sessionId && !seen.has(sessionId)) diagnosticLastReported.delete(key);
+      }
     } catch {
       emitDiagnostic('tick_unavailable');
     } finally {
@@ -250,18 +308,21 @@ export function createLiveTurnMonitor(deps: MonitorDeps) {
   return { tick, cursorCount: () => cursors.size };
 }
 
-const DEFAULT_INTERVAL_MS = 5000;
+const DEFAULT_INTERVAL_MS = TURN_MONITOR_FALLBACK_MS;
 
 /**
  * Starts the production monitor. Disabled with CHATMUX_LIVE_NOTIFY=0.
  * Self-host is single-user: events route to the first user.
  */
-export function startLiveTurnMonitor(intervalMs = DEFAULT_INTERVAL_MS): (() => void) | null {
+export function startLiveTurnMonitor(
+  intervalMs = DEFAULT_INTERVAL_MS,
+  getDetailed: () => Promise<LiveGjcSessionsDetailedResult> = getLiveGjcSessionsDetailed,
+): (() => void) | null {
   if (process.env.CHATMUX_LIVE_NOTIFY === '0') {
     return null;
   }
   const monitor = createLiveTurnMonitor({
-    getDetailed: getLiveGjcSessionsDetailed,
+    getDetailed,
     notify: ({ userId, sessionId, tmuxName, stopReason, occurrenceKey }) => {
       if (stopReason === 'stop' && occurrenceKey) {
         createCompletionDecision({
@@ -285,6 +346,18 @@ export function startLiveTurnMonitor(intervalMs = DEFAULT_INTERVAL_MS): (() => v
         error: 'GJC turn ended with an error',
       });
     },
+    notifyActionRequired: ({ userId, sessionId, tmuxName, occurrenceKey }) => {
+      const alias = completionAppAlias({ provider: 'gjc', sessionId });
+      const target = completionNotificationTargetsDb.resolveAlias(alias);
+      if (!target || !completionNotificationTargetsDb.getWatch(userId, target.id)) return;
+      notifyInputRequired({
+        userId,
+        provider: 'gjc',
+        sessionId,
+        sessionName: tmuxName,
+        occurrenceKey,
+      });
+    },
     getUserId: () => {
       try {
         const user = userDb.getFirstUser();
@@ -297,11 +370,10 @@ export function startLiveTurnMonitor(intervalMs = DEFAULT_INTERVAL_MS): (() => v
       console.warn(`Live turn monitor diagnostic: ${code}${sessionId ? ` for ${sessionId}` : ''} (count ${count}).`);
     },
   });
-  const timer = setInterval(() => {
-    void monitor.tick().catch(() => {
-      // detection is best-effort; never crash the server loop
-    });
-  }, intervalMs);
-  timer.unref?.();
-  return () => clearInterval(timer);
+  return startEventDrivenMonitorLoop({
+    tick: monitor.tick,
+    subscribe: onTranscriptChanged,
+    accepts: (change) => change.provider === 'gjc',
+    fallbackMs: intervalMs,
+  });
 }

@@ -116,8 +116,20 @@ function navigationHref(navigation) {
   }
 }
 
+function sessionIdFromNavigationHref(href) {
+  try {
+    const url = new URL(href, self.location.origin);
+    const match = url.pathname.match(/^\/session\/([^/]+)$/);
+    return match ? decodeURIComponent(match[1]) : null;
+  } catch {
+    return null;
+  }
+}
+
 function completionNavigation(navigation) {
-  return { href: navigationHref(navigation) || '/' };
+  const href = navigationHref(navigation) || '/';
+  const sessionId = sessionIdFromNavigationHref(href);
+  return { href, sessionId };
 }
 function isSameOriginClient(client) {
   try {
@@ -179,8 +191,28 @@ self.addEventListener('notificationclick', event => {
 
   const navigation = navigationHref(event.notification.data?.navigation);
   if (navigation) {
+    // Notifications created by an older installed worker only stored href.
+    // Recover the id from the already same-origin-validated route so the
+    // focused-client fallback still opens the right chat when navigate()
+    // rejects (notably on iOS standalone PWAs).
+    const storedSessionId = event.notification.data?.navigation?.sessionId;
+    const sessionId = typeof storedSessionId === 'string' && storedSessionId
+      ? storedSessionId
+      : sessionIdFromNavigationHref(navigation);
     event.waitUntil(
-      focusClientOrOpen(navigation, client => client.navigate(navigation))
+      focusClientOrOpen(navigation, client => {
+        client.postMessage({
+          type: 'notification:navigate',
+          sessionId,
+          provider: null,
+          urlPath: navigation
+        });
+        try {
+          return Promise.resolve(client.navigate(navigation)).catch(() => undefined);
+        } catch {
+          return Promise.resolve();
+        }
+      })
     );
     return;
   }

@@ -5,6 +5,7 @@ import { tmuxPaneIdentityKey, type TmuxPaneIdentity, type TmuxProcessGeneration 
 import { readRestSessionContainer } from '../../../utils/liveSessions';
 import { useWebSocket } from '../../../contexts/WebSocketContext';
 import { useDiscoveryStream, type DiscoveryRow, type RuntimeDiscoveryRow } from '../../../hooks/useDiscoveryStream';
+import type { ProviderConnectionIssue } from '../../../../shared/provider-connection';
 
 export type ExternalSessionActivity = 'running' | 'waiting_user' | 'asking_user' | 'error' | 'unknown';
 
@@ -12,7 +13,7 @@ export type ExternalCliSession = {
   tmuxName: string;
   tmux: TmuxPaneIdentity;
   process: TmuxProcessGeneration | null;
-  kind: 'claude' | 'codex' | 'cursor' | 'opencode' | 'omp' | 'ssh' | 'shell';
+  kind: 'claude' | 'codex' | 'cursor' | 'opencode' | 'omp' | 'omo' | 'ssh' | 'shell';
   projectPath?: string;
   transcriptSessionId?: string;
   sessionName?: string;
@@ -25,6 +26,7 @@ export type ExternalCliSession = {
   attachCapability?: string;
   presence?: 'present' | 'stale';
   authority?: 'stream' | 'rest' | 'none';
+  connectionIssue?: ProviderConnectionIssue;
 };
 
 export type HerdrTerminalSession = {
@@ -43,9 +45,10 @@ export function mergeExternalDiscoveryRows(
     session,
   ]));
   return rows
-    .filter((row) => row.lane === 'external' && ['claude', 'codex', 'cursor', 'opencode', 'omp', 'ssh', 'shell'].includes(row.kind))
+    .filter((row) => row.lane === 'external' && ['claude', 'codex', 'cursor', 'opencode', 'omp', 'omo', 'ssh', 'shell'].includes(row.kind))
     .map((row) => {
       const metadata = restSessions.get(tmuxPaneIdentityKey(row.tmux)) ?? previous.get(tmuxPaneIdentityKey(row.tmux));
+      const { connectionIssue: _staleConnectionIssue, ...stableMetadata } = metadata ?? {};
       if (row.presence !== 'present') {
         return externalIdentityOnly({
           tmuxName: row.tmuxName,
@@ -56,12 +59,13 @@ export function mergeExternalDiscoveryRows(
         }, 'stream');
       }
       return {
-        ...metadata,
+        ...stableMetadata,
         tmuxName: row.tmuxName,
         tmux: row.tmux,
         process: row.process,
         kind: row.kind as ExternalCliSession['kind'],
         activity: row.activity,
+        ...(row.connectionIssue ? { connectionIssue: row.connectionIssue } : {}),
         projectPath: row.cwd ?? metadata?.projectPath,
         presence: 'present' as const,
         authority: 'stream' as const,
@@ -173,7 +177,7 @@ export function useExternalCliSessions(
   const applyRestSessions = useCallback((list: ExternalCliSession[], responseDiscoveryOk: boolean) => {
     const supported = list.filter((session) => (
       session?.tmuxName
-      && ['claude', 'codex', 'cursor', 'opencode', 'omp', 'ssh', 'shell'].includes(session.kind)
+      && ['claude', 'codex', 'cursor', 'opencode', 'omp', 'omo', 'ssh', 'shell'].includes(session.kind)
     ));
     setDiscoveryOk(responseDiscoveryOk);
     if (!responseDiscoveryOk) {

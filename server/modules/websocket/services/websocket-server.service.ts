@@ -20,6 +20,8 @@ type WebSocketServerDependencies = {
   panes?: ReturnType<typeof createPaneOutputStream>;
   herdrControl?: HerdrControlBridge;
   spawnHerdrController?: (command: string, args: string[]) => HerdrControllerProcess;
+  /** Identity announced to every chat client so stale bundles can self-refresh. */
+  serverInfo?: { version: string | null; bootId: string };
 };
 function sendPaneProtocolError(ws: WebSocket, error: unknown): void {
   if (ws.readyState !== ws.OPEN) return;
@@ -96,6 +98,17 @@ export function createWebSocketServer(
     }
 
     if (pathname === '/ws') {
+      // First frame on the app socket: lets a client that survived a server
+      // update detect the version skew immediately on (re)connect instead of
+      // waiting for the next /health poll.
+      if (dependencies.serverInfo && ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify({
+          kind: 'server_hello',
+          serverVersion: dependencies.serverInfo.version,
+          bootId: dependencies.serverInfo.bootId,
+          timestamp: new Date().toISOString(),
+        }));
+      }
       handleChatConnection(ws, incomingRequest, {
         ...dependencies.chat,
         handleDiscovery: (socket, data) => {

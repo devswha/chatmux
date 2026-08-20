@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import { useEffect, useRef, useState, type MutableRefObject } from 'react';
-import { Server, SquareTerminal, X } from 'lucide-react';
+import { AlertTriangle, Server, SquareTerminal, X } from 'lucide-react';
 
 import type { ExternalTerminalTarget, Project } from '../../../../types/app';
 import { api } from '../../../../utils/api';
@@ -19,6 +19,7 @@ const KIND_LABEL: Record<ExternalCliSession['kind'], string> = {
   cursor: 'Cursor',
   opencode: 'OpenCode',
   omp: 'Oh My Pi',
+  omo: 'omo',
   ssh: 'ssh (remote)',
   shell: 'terminal',
 };
@@ -27,13 +28,16 @@ const isAttachOnlyKind = (kind: ExternalCliSession['kind']): boolean => (
   kind === 'ssh' || kind === 'shell'
 );
 const isExternalSessionAuthoritative = (session: ExternalCliSession): boolean => (
-  session.presence !== 'stale' && session.authority !== 'none'
+  !session.connectionIssue
+  && session.presence !== 'stale'
+  && session.authority !== 'none'
 );
 
 const sessionActivityState = (
   session: ExternalCliSession,
   canKill: boolean,
 ): SessionActivityState | null => {
+  if (session.connectionIssue) return 'error';
   if (!canKill) return null;
   switch (session.activity ?? 'unknown') {
     case 'running':
@@ -346,6 +350,15 @@ export function SidebarExternalSessionRow({
   );
   const details = (
     <>
+      {session.connectionIssue && (
+        <p
+          className="flex items-start gap-1.5 px-2 pb-1.5 pl-10 text-[11px] text-amber-600 dark:text-amber-400"
+          role="alert"
+        >
+          <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
+          <span>{t(`connectionIssues.${session.connectionIssue}`, { agent: KIND_LABEL[session.kind] })}</span>
+        </p>
+      )}
       {error && <p className="px-2 pb-1.5 pl-10 text-[11px] text-red-500">{error}</p>}
       {confirming && (
         <div className="mx-2 mb-1 flex items-center justify-end gap-1 rounded-md bg-muted/50 px-2 py-1.5 text-[11px]">

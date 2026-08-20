@@ -10,6 +10,7 @@ import { useChatSessionState } from '../hooks/useChatSessionState';
 import { useChatRealtimeHandlers } from '../hooks/useChatRealtimeHandlers';
 import { useChatComposerState } from '../hooks/useChatComposerState';
 import { useSessionStore } from '../../../stores/useSessionStore';
+import { findPendingRelayAsk, findUnansweredRelayAskToolId } from '../utils/pendingRelayAsk';
 
 import ChatMessagesPane from './subcomponents/ChatMessagesPane';
 import ChatComposer from './subcomponents/ChatComposer';
@@ -38,6 +39,7 @@ function ChatInterface({
   onShowSettings,
   showRawParameters,
   showThinking,
+  showImagePreviews,
   sendByCtrlEnter,
   externalMessageUpdate,
   newSessionTrigger,
@@ -140,6 +142,7 @@ function ChatInterface({
     statusCheckSentAtRef,
     lastSeqRef,
     sessionStore,
+    showImagePreviews,
   });
 
   useEffect(() => {
@@ -278,7 +281,14 @@ function ChatInterface({
   // reply shows up in place. Ref keeps refreshFromServer out of the effect deps.
   const refreshFromServerRef = useRef(sessionStore.refreshFromServer);
   refreshFromServerRef.current = sessionStore.refreshFromServer;
-  const liveOpenSessionId = isSessionReadOnly ? (selectedSession?.id ?? null) : null;
+  // External CLI kinds (claude/codex/...) refresh on the faster
+  // refreshCurrentMessages interval above; gjc and cwd-fallback live sessions
+  // (liveSessionKind === null: in liveSessionIds without confirmed lineage)
+  // have no other refresh path, so this poll must keep covering both.
+  const liveOpenSessionId =
+    isSessionReadOnly && (liveSessionKind === 'gjc' || liveSessionKind == null)
+      ? (selectedSession?.id ?? null)
+      : null;
   useEffect(() => {
     if (!liveOpenSessionId) {
       return;
@@ -342,6 +352,30 @@ function ChatInterface({
   // reserve enough bottom space to keep the floating status tab from
   // overlapping the last message.
   const hasActivityIndicator = Boolean(sessionActivity && pendingPermissionRequests.length === 0);
+  const supportsRelayAsk = isSessionReadOnly
+    && (liveSessionKind === 'gjc' || liveSessionKind === 'codex' || liveSessionKind === 'omp' || liveSessionKind === 'claude');
+  const pendingRelayAsk = useMemo(
+    () => supportsRelayAsk ? findPendingRelayAsk(chatMessages) : null,
+    [chatMessages, supportsRelayAsk],
+  );
+  const unansweredRelayAskToolId = useMemo(
+    () => supportsRelayAsk ? findUnansweredRelayAskToolId(chatMessages) : null,
+    [chatMessages, supportsRelayAsk],
+  );
+  // Multi-question asks must use the screen-derived card. Suppress their
+  // transcript duplicate so users cannot mistake inert history rows for the
+  // active choices after the native TUI advances to question two.
+  const suppressedAskToolId = unansweredRelayAskToolId === pendingRelayAsk?.toolId
+    ? null
+    : unansweredRelayAskToolId;
+
+  // Bridges transcript-rendered ask cards to the relay composer: the composer
+  // registers its choice submitter here, and tapped choices reuse the same
+  // validated relay path as typed numbers.
+  const askChoiceSubmitRef = useRef<((choiceNumber: number) => void) | null>(null);
+  const handleAskChoiceSelect = useCallback((choiceNumber: number) => {
+    askChoiceSubmitRef.current?.(choiceNumber);
+  }, []);
 
   if (!selectedProject) {
     const selectedProviderLabel =
@@ -417,8 +451,11 @@ function ChatInterface({
           onGrantToolPermission={handleGrantToolPermission}
           showRawParameters={showRawParameters}
           showThinking={showThinking}
+          showImagePreviews={showImagePreviews}
           selectedProject={selectedProject}
-          transcriptView={Boolean(liveSessionKind && liveSessionKind !== 'gjc')}
+          pendingAskToolId={pendingRelayAsk?.toolId ?? null}
+          suppressedAskToolId={suppressedAskToolId}
+          onAskChoiceSelect={handleAskChoiceSelect}
         />
 
         <div className="relative flex-shrink-0">
@@ -456,6 +493,9 @@ function ChatInterface({
                 workspacePath={selectedProject.fullPath || selectedProject.path}
                 relayKind={liveSessionKind ?? 'gjc'}
                 isProcessing={liveSessionProcessing}
+                transcriptSessionId={selectedSession?.id ?? null}
+                pendingAsk={pendingRelayAsk}
+                choiceSubmitRef={askChoiceSubmitRef}
               />
             ) : (
               <div className="chat-composer-shell relative flex-shrink-0 px-2 pb-3 pt-2 sm:px-4">
@@ -524,7 +564,11 @@ function ChatInterface({
           onTextareaInput={handleTextareaInput}
           isInputFocused={isInputFocused}
           onInputFocusChange={handleInputFocusChange}
-          placeholder={t('input.placeholder', {
+          placeholder={typeof window !== 'undefined'
+            && window.matchMedia?.('(max-width: 640px)').matches === true
+            // The command/file hints wrap to a second line on phone widths.
+            ? t('input.placeholderDefault', { defaultValue: 'Type your message...' })
+            : t('input.placeholder', {
             provider:
               provider === 'cursor'
                 ? t('messageTypes.cursor')

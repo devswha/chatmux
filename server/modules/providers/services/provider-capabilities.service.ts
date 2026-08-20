@@ -109,6 +109,26 @@ const PROVIDER_CAPABILITIES: Record<LLMProvider, ProviderCapabilities> = {
     // (`server/omp-cli.ts:48-49`), but this matrix still hides the effort control.
     supportsEffort: false,
   },
+  omo: {
+    provider: 'omo',
+    permissionModes: ['default'],
+    defaultPermissionMode: 'default',
+    // The omo send runtime is registered behind the live-pane spawn guard
+    // (#44, `live-spawn-guard.service.ts`); like Oh My Pi, the runtime also
+    // forwards @<path> images and SIGTERM aborts, but this matrix mirrors the
+    // omp posture and keeps both UI controls hidden until verified end to end.
+    supportsImages: false,
+    supportsAbort: false,
+    // omo's TUI renders "↑↓ navigate • enter select • esc close" and has no
+    // "Other (type your own)" row, so every parser in
+    // tmux-interactive-prompt.service.ts rejects it. Interactive prompts stay
+    // off until omo gets its own parser.
+    supportsPermissionRequests: false,
+    supportsTokenUsage: false,
+    // `omo --list-models` reports thinking as a yes/no column and never
+    // enumerates the levels, so no effort values can be offered.
+    supportsEffort: false,
+  },
 };
 
 /**

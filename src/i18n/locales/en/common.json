@@ -149,11 +149,28 @@
       "sourceAvailable": "Target: {{version}} (latest main commit). Source updates do not have a fixed release version.",
       "releaseAvailable": "An exact release target is available{{version}}."
     },
+    "releaseNotes": {
+      "title": "What's new in v{{version}}",
+      "viewFull": "View full release notes"
+    },
     "confirm": {
       "message": "The server will update and restart. Active web work may disconnect."
     },
     "progress": {
-      "message": "Updating server. Progress is retained if this screen closes or the server restarts."
+      "message": "Updating server. Progress is retained if this screen closes or the server restarts.",
+      "download": "{{downloaded}} MB / {{total}} MB downloaded",
+      "downloadUnsized": "{{downloaded}} MB downloaded",
+      "phases": {
+        "queued": "Waiting to start…",
+        "downloading": "Downloading release…",
+        "verifying": "Verifying download…",
+        "staging": "Staging new release…",
+        "cutting_over": "Switching to the new release…",
+        "restarting": "Restarting server…",
+        "verifying_health": "Checking server health…",
+        "rolling_back": "Rolling back…",
+        "succeeded": "Finalizing…"
+      }
     },
     "success": {
       "message": "Update verified. Applying the new screen."

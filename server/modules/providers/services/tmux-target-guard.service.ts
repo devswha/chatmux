@@ -52,6 +52,9 @@ export async function assertLineageTmuxTarget(
   const exact = matches.find((session) => (
     session.process?.pid === process.pid
     && session.process.startedAtMs === process.startedAtMs
+    // Discovery excluded this pane (cross-user / cross-HOME / socket owner
+    // mismatch); control paths must honor the exclusion, not just the UI.
+    && !session.connectionIssue
   ));
   if (!exact) {
     throw new AppError(
@@ -67,6 +70,7 @@ export async function assertLineageTmuxTarget(
     process,
     'gjc',
     exact.tmuxName,
+    exact.id,
   );
 }
 

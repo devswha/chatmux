@@ -62,7 +62,7 @@ verify_checksum() {
   [ "$actual" = "$expected" ] || fail "checksum verification failed for $(basename "$payload")"
 }
 read_managed_root_metadata() {
-  metadata=$(stat -c '%F|%u|%d|%i|%a' -- "$INSTALL_ROOT") || fail "could not inspect managed root"
+  metadata=$(LC_ALL=C stat -c '%F|%u|%d|%i|%a' -- "$INSTALL_ROOT") || fail "could not inspect managed root"
   old_ifs=$IFS
   IFS='|'
   read root_type root_uid root_device root_inode root_mode <<EOF
@@ -74,6 +74,19 @@ EOF
 }
 
 ensure_managed_root() {
+  # `stat` and the test builtins resolve a trailing "/" or "/." through a symlink, so a
+  # managed root given as "link/" or "link/." is inspected as the link TARGET and slips
+  # past the ordinary-directory check below. Normalize before any inspection; reordering
+  # this loop after read_managed_root_metadata silently reopens the symlink escape.
+  while [ "$INSTALL_ROOT" != / ]; do
+    case $INSTALL_ROOT in
+      */.) INSTALL_ROOT=${INSTALL_ROOT%/.} ;;
+      */) INSTALL_ROOT=${INSTALL_ROOT%/} ;;
+      *) break ;;
+    esac
+    [ -n "$INSTALL_ROOT" ] || INSTALL_ROOT=/
+  done
+
   if [ -e "$INSTALL_ROOT" ] || [ -L "$INSTALL_ROOT" ]; then
     read_managed_root_metadata
   else

@@ -63,7 +63,7 @@ export type ShellOutgoingMessage = ShellInitMessage | ShellV3ClientMessage | She
 export type ShellIncomingMessage = ShellV3ServerMessage
   | { type: 'output'; data: string; seq?: number }
   | { type: 'replay_start'; mode?: 'resume' | 'redraw' }
-  | { type: 'auth_url'; url?: string }
+  | { type: 'auth_url'; url?: string; autoOpen?: boolean }
   | { type: 'url_open'; url?: string }
   | { type: 'error'; code?: string; reloadRequired?: boolean; message?: string }
   | { type: string; [key: string]: unknown };

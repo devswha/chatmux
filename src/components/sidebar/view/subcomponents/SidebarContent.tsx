@@ -5,6 +5,7 @@ import { ScrollArea } from '../../../../shared/view/ui';
 import type { ExternalTerminalTarget, Project, ProjectSession } from '../../../../types/app';
 import type { TmuxPaneIdentity, TmuxPaneTarget } from '../../../../../shared/tmux';
 import { readPublicTerminalTarget } from '../../../../../shared/terminal-runtime';
+import type { ProviderConnectionIssue } from '../../../../../shared/provider-connection';
 import { api } from '../../../../utils/api';
 import { useExternalCliSessions, type ExternalCliSession, type HerdrTerminalSession } from '../../hooks/useExternalCliSessions';
 
@@ -28,7 +29,9 @@ type SidebarContentProps = {
   liveSessionTargets: ReadonlyMap<string, TmuxPaneTarget>;
   liveSessionKinds: ReadonlyMap<string, string>;
   liveSessionRunning: ReadonlySet<string>;
+  liveSessionInput?: ReadonlySet<string>;
   liveSessionErrors: ReadonlySet<string>;
+  liveSessionConnectionIssues?: ReadonlyMap<string, ProviderConnectionIssue>;
   liveSessionsLoaded: boolean;
   onProjectSelect: (project: Project) => void;
   onSessionSelect: (session: ProjectSession, projectId?: string) => void;
@@ -62,7 +65,9 @@ export default function SidebarContent({
   liveSessionTargets,
   liveSessionKinds,
   liveSessionRunning,
+  liveSessionInput = new Set<string>(),
   liveSessionErrors,
+  liveSessionConnectionIssues = new Map(),
   liveSessionsLoaded,
   onProjectSelect,
   onSessionSelect,
@@ -143,7 +148,7 @@ export default function SidebarContent({
   };
 
   return (
-    <div className="flex h-full flex-col bg-background/80 backdrop-blur-sm md:w-72 md:select-none">
+    <div className="flex h-full flex-col bg-background md:w-72 md:select-none">
       <SidebarHeader
         isPWA={isPWA}
         isMobile={isMobile}
@@ -173,7 +178,9 @@ export default function SidebarContent({
               liveSessionTargets={liveSessionTargets}
               liveSessionKinds={liveSessionKinds}
               liveSessionRunning={liveSessionRunning}
+              liveSessionInput={liveSessionInput}
               liveSessionErrors={liveSessionErrors}
+              liveSessionConnectionIssues={liveSessionConnectionIssues}
               onExternalTerminalOpen={onExternalTerminalOpen}
               onExternalSessionsChanged={refreshDiscoveredSessions}
             />

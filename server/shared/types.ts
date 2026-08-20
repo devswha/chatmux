@@ -65,7 +65,7 @@ export type AuthenticatedWebSocketRequest = IncomingMessage & {
  * Use this as the source of truth whenever a function or payload needs to identify
  * a specific LLM integration.
  */
-export type LLMProvider = 'claude' | 'codex' | 'cursor' | 'opencode' | 'gjc' | 'omp';
+export type LLMProvider = 'claude' | 'codex' | 'cursor' | 'opencode' | 'gjc' | 'omp' | 'omo';
 
 /**
  * One selectable model row in a provider model catalog.
@@ -262,6 +262,10 @@ export type NormalizedMessage = {
     isError?: boolean;
     toolUseResult?: unknown;
   };
+  /** History transport sent only a bounded preview of this tool output. */
+  toolResultTruncated?: boolean;
+  /** UTF-8 byte size of the complete persisted tool output. */
+  toolResultBytes?: number;
   isError?: boolean;
   text?: string;
   tokens?: number;
@@ -298,6 +302,8 @@ export type FetchHistoryOptions = {
   limit?: number | null;
   offset?: number;
   providerSessionId?: string;
+  /** False omits image attachment metadata/data from the transport response. */
+  includeImages?: boolean;
 };
 
 /**
@@ -311,7 +317,14 @@ export type FetchHistoryResult = {
   hasMore: boolean;
   offset: number;
   limit: number | null;
+  /**
+   * Stable provider-native boundary for the currently visible history segment.
+   * Providers that preserve a session id across `/clear` change this value so
+   * clients can discard cached messages from the preceding context.
+   */
+  historyEpoch?: string | null;
   tokenUsage?: unknown;
+  sourceStatus?: 'available' | 'missing' | 'unreadable';
 };
 
 // ---------------------------

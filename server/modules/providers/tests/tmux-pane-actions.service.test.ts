@@ -6,9 +6,11 @@ import {
   captureTmuxPane,
   killTmuxPane,
   killTmuxSession,
+  pasteToTmuxPane,
   readTmuxPaneIdentity,
   readTmuxProcessGeneration,
   sendTmuxProcessAction,
+  sendTmuxSelectionKeys,
   sendToTmuxPane,
   stopAgentProcessInPane,
 } from '@/modules/providers/services/tmux-pane-actions.service.js';
@@ -99,6 +101,13 @@ test('send targets one pane and preserves literal input', async () => {
     'send-keys', '-t', identity.paneId, 'Enter',
   ]);
 });
+
+test('paste can stage native prompt feedback without submitting Enter', async () => {
+  const { calls, run } = recordingRunner(['$7\t@8\t%9\n']);
+  await pasteToTmuxPane(target, 'change the plan', run);
+  assert.equal(calls.some(({ args }) => args.at(-1) === 'Enter'), false);
+  assert.equal(calls.some(({ args }) => args.includes('paste-buffer')), true);
+});
 test('send refuses a stale pane before staging bytes in a tmux buffer', async () => {
   const { calls, run } = recordingRunner(['$7\t@8\t%999\n']);
   await assert.rejects(
@@ -107,18 +116,32 @@ test('send refuses a stale pane before staging bytes in a tmux buffer', async ()
   );
   assert.equal(calls.some(({ args }) => args.includes('load-buffer')), false);
 });
-test('process actions assemble only the typed interrupt and escape argv arrays', async () => {
+test('process actions use Codex Escape interrupts and typed escape argv arrays', async () => {
   const interrupt = recordingRunner(['$7\t@8\t%9\n']);
   await sendTmuxProcessAction(target, 'interrupt', interrupt.run);
   assert.deepEqual(interrupt.calls.map(({ args }) => args), [
     ['-S', identity.socketPath, 'display-message', '-p', '-t', identity.paneId, '#{session_id}\t#{window_id}\t#{pane_id}'],
-    ['-S', identity.socketPath, 'send-keys', '-t', identity.paneId, 'C-c'],
+    ['-S', identity.socketPath, 'send-keys', '-t', identity.paneId, 'Escape'],
   ]);
 
   const escape = recordingRunner(['$7\t@8\t%9\n']);
   await sendTmuxProcessAction(target, 'escape', escape.run);
   assert.deepEqual(escape.calls[1]?.args, [
     '-S', identity.socketPath, 'send-keys', '-t', identity.paneId, 'Escape',
+  ]);
+});
+
+test('non-Codex process interrupts retain Ctrl+C', async () => {
+  const claudeTarget = createVerifiedTmuxActionTarget(
+    identity,
+    { pid: 42, startedAtMs: 1234 },
+    'claude',
+    'test',
+  );
+  const interrupt = recordingRunner(['$7\t@8\t%9\n']);
+  await sendTmuxProcessAction(claudeTarget, 'interrupt', interrupt.run);
+  assert.deepEqual(interrupt.calls[1]?.args, [
+    '-S', identity.socketPath, 'send-keys', '-t', identity.paneId, 'C-c',
   ]);
 });
 
@@ -129,6 +152,24 @@ test('process action refuses a stale pane before sending keys', async () => {
     (error) => error instanceof AppError && error.code === 'TMUX_PANE_GENERATION_MISMATCH',
   );
   assert.equal(calls.some(({ args }) => args.includes('send-keys')), false);
+});
+
+test('selector actions recheck the exact pane and send only allowlisted keys separately', async () => {
+  const { calls, run } = recordingRunner(['$7\t@8\t%9\n']);
+  await sendTmuxSelectionKeys(target, ['Down', 'Down', 'Enter'], run, async () => {});
+  assert.deepEqual(calls.slice(1).map(({ args }) => args), [
+    ['-S', identity.socketPath, 'send-keys', '-t', identity.paneId, 'Down'],
+    ['-S', identity.socketPath, 'send-keys', '-t', identity.paneId, 'Down'],
+    ['-S', identity.socketPath, 'send-keys', '-t', identity.paneId, 'Enter'],
+  ]);
+});
+
+test('selector actions reject empty and oversized internally constructed sequences', async () => {
+  await assert.rejects(
+    sendTmuxSelectionKeys(target, [], recordingRunner().run),
+    (error) => error instanceof AppError && error.code === 'INVALID_TMUX_SELECTION',
+  );
+  assert.equal(recordingRunner().calls.length, 0);
 });
 
 test('default process stop respawns a shell in the same pane', async () => {

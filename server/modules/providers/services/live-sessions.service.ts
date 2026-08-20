@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { open, readdir, readFile, realpath, stat } from 'node:fs/promises';
+import { constants as fsConstants } from 'node:fs';
+import { access, open, readdir, readFile, realpath, stat } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 
@@ -9,32 +10,28 @@ import {
   type TmuxPaneIdentity,
   type TmuxProcessGeneration,
 } from '../../../../shared/tmux.js';
+import type { ProviderConnectionIssue } from '../../../../shared/provider-connection.js';
 
 import { recordHostCommand } from './host-command-metrics.service.js';
+import {
+  hostDiscoverySnapshotSource,
+  type HostDiscoverySnapshot,
+} from './host-discovery-snapshot.service.js';
+import { validateLocalAgentContext } from './local-agent-context.service.js';
+import { transcriptChangeVersion } from './transcript-change.service.js';
 
 /**
  * Live gjc session detection + tmux-session naming.
  *
- * A gjc session is "live" when a running gjc process has its transcript file open.
- * For the "작동 중" fleet view we also map each live session id → the tmux session
- * NAME it runs in (omg / stock / flask / …), by PROCESS LINEAGE:
- *   - lsof over the gjc session roots → {session-id uuid, holder pid} for open
- *     transcript files (holder argv confirmed gjc; comm is unreliable under bun/node)
- *   - /proc/<pid>/stat    → the holder's ancestor pid chain
- *   - tmux list-panes     → {session_name, pane_pid, pane cwd (realpath)}
- *   - a pane_pid found in the holder's ancestor chain → that pane's tmux name (0 ambiguity)
- *   - cwd equality is a FALLBACK only (many-to-many when panes share a cwd)
+ * A GJC pane is discovered by process lineage, then bound to its active
+ * transcript through GJC's pane-specific terminal receipt. Exact --resume
+ * metadata, the active process's own file descriptors, and a small bounded
+ * runtime-receipt scan are compatibility fallbacks. Every binding is checked
+ * against the current process generation and real pane cwd.
  *
- * Matching is PATH-AGNOSTIC (uuid + realpath'd cwds), so the production app's
- * decoy HOME (whose `.gjc` is a symlink) does not break it. tmux/lsof/proc access
- * is ISOLATED here and fails closed to [] (or tmuxName:null on a miss — the UI
- * falls back to the conversation title).
- *
- * gjc creates the transcript only at the FIRST user message, so a freshly booted
- * (or long-idle-restarted) gjc TUI is invisible to the lsof pipeline until the
- * user talks once (하코 관찰: 재시작 직후 tmux 세션이 전부 안 보임). Those panes
- * are detected separately by PROCESS SUBTREE (same evidence grade as a lineage
- * claim) and surfaced as synthetic `idle-gjc:<tmux name>` rows.
+ * GJC creates the transcript only at the FIRST user message. Until then the
+ * lineage-proven pane is surfaced as a synthetic `idle-gjc:<tmux name>` row so
+ * the user can start the conversation from ChatMux.
  */
 
 const SESSIONS_SEGMENT = '.gjc/agent/sessions';
@@ -76,6 +73,8 @@ export type LiveGjcSession = {
   running: boolean | null;
   /** Whether the last turn-relevant record is an assistant/provider error. */
   error?: boolean | null;
+  /** Deterministic reason this pane was not bound to a transcript. */
+  connectionIssue?: ProviderConnectionIssue;
 };
 
 /** Synthetic id prefix for gjc panes that opened no transcript yet (first message pending). */
@@ -96,7 +95,8 @@ export function isGjcCommandLine(cmdline: string): boolean {
   const argv = cmdline.includes('\0')
     ? cmdline.split('\0').filter(Boolean)
     : cmdline.trim().split(/\s+/).filter(Boolean);
-  return argv.some((token) => basename(token) === 'gjc') || cmdline.includes('@chatmux-code/coding-agent');
+  return argv.some((token) => basename(token) === 'gjc')
+    || cmdline.includes('@gajae-code/coding-agent');
 }
 
 /** Roots gjc writes transcripts under; a live transcript sits in one of them. */
@@ -125,7 +125,8 @@ export function isGjcProcessArgs(args: string): boolean {
     return true;
   }
   if ((head === 'bun' || head === 'node') && tokens.length > 1) {
-    return basename(tokens[1]) === 'gjc' || tokens[1].includes('@chatmux-code/coding-agent');
+    return basename(tokens[1]) === 'gjc'
+      || tokens[1].includes('@gajae-code/coding-agent');
   }
   return false;
 }
@@ -490,28 +491,10 @@ async function safeRealpath(target: string): Promise<string | null> {
   }
 }
 
-/** Reads the parent pid from /proc/<pid>/stat (comm may contain spaces/parens). */
-async function readParentPid(pid: number): Promise<number | null> {
-  try {
-    recordHostCommand('read', ['proc']);
-    const content = await readFile(`/proc/${pid}/stat`, 'utf8');
-    const rparen = content.lastIndexOf(')');
-    if (rparen < 0) {
-      return null;
-    }
-    // After "pid (comm)" the fields are: state ppid pgrp … → index 1 is ppid.
-    const fields = content.slice(rparen + 2).trim().split(/\s+/);
-    const ppid = Number.parseInt(fields[1] ?? '', 10);
-    return Number.isFinite(ppid) ? ppid : null;
-  } catch {
-    return null;
-  }
-}
-
 // ── Runtime-receipt lane ─────────────────────────────────────────────────────
 // gjc 0.10.2 keeps no open fd on its transcript while idle (open-append-close), so
-// the lsof lane misses quiet TUI sessions. This was observed on 2026-07-14 when a
-// transcript existed on disk but `lsof -c gjc` was silent, leaving only a read-only
+// descriptor inspection misses quiet TUI sessions. This was observed on 2026-07-14
+// when a transcript existed on disk but no fd stayed open, leaving only a read-only
 // banner with no relay composer. gjc leaves an authoritative per-session receipt
 // under the pane's cwd, rewritten on every turn event:
 //   <cwd>/.gjc/_session-<id>/runtime/runtime-state.json
@@ -599,8 +582,8 @@ export function selectAuthoritativePaneReceipt(
 
 // A workspace .gjc dir accumulates one _session-* dir per session; cap the scan so
 // a pathological directory cannot stall the live poll.
-export const RECEIPT_ATTEMPT_LIMIT = 512;
-export const RUNTIME_RECEIPT_FALLBACK_LIMIT = 511;
+export const RECEIPT_ATTEMPT_LIMIT = 18;
+export const RUNTIME_RECEIPT_FALLBACK_LIMIT = 16;
 export const GJC_CMDLINE_MAX_BYTES = 64 * 1024;
 const RUNTIME_RECEIPT_DIR_LIMIT = RECEIPT_ATTEMPT_LIMIT;
 const RUNTIME_RECEIPT_DIR_RE = /^_session-[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -640,7 +623,17 @@ type RuntimeReceiptAttempt = {
   receipt: RuntimeReceipt | null;
   attempts: 0 | 1;
   attemptedEntry: string | null;
+  issue?: ProviderConnectionIssue;
 };
+
+function permissionIssue(error: unknown): ProviderConnectionIssue | undefined {
+  const code = error && typeof error === 'object' && 'code' in error
+    ? (error as { code?: unknown }).code
+    : null;
+  return code === 'EACCES' || code === 'EPERM'
+    ? 'transcript_permission_denied'
+    : undefined;
+}
 
 export function runtimeReceiptFallbackBudget(consumedAttempts: number): number {
   return Math.min(
@@ -679,7 +672,7 @@ async function readExactResumeReceipt(
     if (!transcript?.sessionFile || transcript.sessionId.toLowerCase() !== sessionId) {
       return { receipt: null, attempts: 1, attemptedEntry };
     }
-    await stat(transcript.sessionFile);
+    await access(transcript.sessionFile, fsConstants.R_OK);
     const receiptCwd = typeof parsed.cwd === 'string' ? ((await safeRealpath(parsed.cwd)) ?? parsed.cwd) : null;
     if (
       (receiptCwd !== null && receiptCwd !== paneCwd)
@@ -697,11 +690,12 @@ async function readExactResumeReceipt(
       attempts: 1,
       attemptedEntry,
     };
-  } catch {
+  } catch (error) {
     return {
       receipt: null,
       attempts: attemptedEntry === null ? 0 : 1,
       attemptedEntry,
+      issue: permissionIssue(error),
     };
   }
 }
@@ -755,19 +749,13 @@ async function readPaneRuntimeReceipts(
 }
 
 /** Reads gjc 0.11+'s pane-specific `terminal-sessions/tmux-%N` receipt. */
-async function readPaneTerminalReceipt(panePid: number): Promise<RuntimeReceiptAttempt> {
+async function readPaneTerminalReceipt(paneId: string): Promise<RuntimeReceiptAttempt> {
   let attempted = false;
   try {
-    recordHostCommand('read', ['proc']);
-    const environment = await readFile(`/proc/${panePid}/environ`, 'utf8');
-    const paneValue = environment
-      .split('\0')
-      .find((entry) => entry.startsWith('TMUX_PANE='))
-      ?.slice('TMUX_PANE='.length);
-    if (!paneValue || !/^%\d+$/.test(paneValue)) {
+    if (!/^%\d+$/.test(paneId)) {
       return { receipt: null, attempts: 0, attemptedEntry: null };
     }
-    const receiptPath = join(homedir(), '.gjc', 'agent', 'terminal-sessions', `tmux-${paneValue}`);
+    const receiptPath = join(homedir(), '.gjc', 'agent', 'terminal-sessions', `tmux-${paneId}`);
     attempted = true;
     recordHostCommand('read', ['runtime-receipt']);
     const [content, meta] = await Promise.all([readFile(receiptPath, 'utf8'), stat(receiptPath)]);
@@ -775,7 +763,7 @@ async function readPaneTerminalReceipt(panePid: number): Promise<RuntimeReceiptA
     if (!receipt?.sessionFile) {
       return { receipt: null, attempts: 1, attemptedEntry: null };
     }
-    await stat(receipt.sessionFile);
+    await access(receipt.sessionFile, fsConstants.R_OK);
     return {
       receipt: {
         ...receipt,
@@ -784,35 +772,89 @@ async function readPaneTerminalReceipt(panePid: number): Promise<RuntimeReceiptA
       attempts: 1,
       attemptedEntry: null,
     };
-  } catch {
-    return { receipt: null, attempts: attempted ? 1 : 0, attemptedEntry: null };
+  } catch (error) {
+    return {
+      receipt: null,
+      attempts: attempted ? 1 : 0,
+      attemptedEntry: null,
+      issue: permissionIssue(error),
+    };
   }
 }
 
-/** /proc/<pid> dir mtime ≈ process start — the cheap stale-receipt floor. */
+const GJC_RUNTIME_DESCRIPTOR_LIMIT = 2_048;
+
+/**
+ * Compatibility fallback for GJC versions without pane receipts. It examines
+ * only the proven GJC process's descriptors, never the full session tree.
+ */
+async function readOpenGjcTranscript(agentPid: number): Promise<RuntimeReceiptAttempt> {
+  let descriptors: string[];
+  try {
+    recordHostCommand('read', ['proc']);
+    descriptors = await readdir(`/proc/${agentPid}/fd`);
+  } catch (error) {
+    return {
+      receipt: null,
+      attempts: 0,
+      attemptedEntry: null,
+      issue: permissionIssue(error),
+    };
+  }
+
+  const transcripts = new Map<string, RuntimeReceipt>();
+  let denied = false;
+  await Promise.all(descriptors.slice(0, GJC_RUNTIME_DESCRIPTOR_LIMIT).map(async (descriptor) => {
+    try {
+      const path = await realpath(`/proc/${agentPid}/fd/${descriptor}`);
+      const transcript = resolveInteractiveSessionTranscript(path);
+      if (!transcript?.sessionFile) return;
+      const metadata = await stat(transcript.sessionFile);
+      const existing = transcripts.get(transcript.sessionId);
+      if (!existing || metadata.mtimeMs > existing.mtimeMs) {
+        transcripts.set(transcript.sessionId, {
+          ...transcript,
+          cwd: null,
+          mtimeMs: metadata.mtimeMs,
+        });
+      }
+    } catch (error) {
+      denied ||= permissionIssue(error) !== undefined;
+    }
+  }));
+
+  if (transcripts.size === 1) {
+    return {
+      receipt: transcripts.values().next().value ?? null,
+      attempts: 0,
+      attemptedEntry: null,
+    };
+  }
+  return {
+    receipt: null,
+    attempts: 0,
+    attemptedEntry: null,
+    issue: transcripts.size > 1
+      ? 'transcript_ambiguous'
+      : denied ? 'transcript_permission_denied' : undefined,
+  };
+}
+
+/** Process start time used as the stale-receipt floor (/proc, then portable ps). */
 async function processStartMs(pid: number): Promise<number | null> {
   try {
     return (await stat(`/proc/${pid}`)).mtimeMs;
   } catch {
-    return null;
-  }
-}
-
-/** Walks the ancestor pid chain [pid, ppid, …] toward init (depth/cycle guarded). */
-async function buildPidChain(pid: number): Promise<number[]> {
-  const chain: number[] = [];
-  const seen = new Set<number>();
-  let cur = pid;
-  for (let i = 0; i < 64 && cur > 1 && !seen.has(cur); i += 1) {
-    chain.push(cur);
-    seen.add(cur);
-    const parent = await readParentPid(cur);
-    if (parent == null) {
-      break;
+    try {
+      const output = (await runCommand('ps', [
+        '-p', String(pid), '-o', 'lstart=',
+      ])).trim();
+      const parsed = Date.parse(output);
+      return Number.isFinite(parsed) ? parsed : null;
+    } catch {
+      return null;
     }
-    cur = parent;
   }
-  return chain;
 }
 
 /** Maps session id → transcript path from lsof `n` lines (first path wins). */
@@ -1293,6 +1335,63 @@ const modelCache = new Map<string, {
   effort: string | null;
 }>();
 
+const LIVE_ENRICHMENT_CACHE_MS = 30_000;
+const LIVE_ENRICHMENT_CACHE_MAX_ENTRIES = 256;
+const liveEnrichmentCache = new Map<string, {
+  path: string;
+  version: string;
+  expiresAtMs: number;
+  value: {
+    model: string | null;
+    effort: string | null;
+    running: boolean | null;
+    error: boolean | null;
+  };
+}>();
+
+async function readLiveTranscriptEnrichment(
+  sessionId: string,
+  path: string,
+): Promise<{
+  model: string | null;
+  effort: string | null;
+  running: boolean | null;
+  error: boolean | null;
+}> {
+  const version = transcriptChangeVersion('gjc', sessionId);
+  const now = Date.now();
+  const cached = liveEnrichmentCache.get(sessionId);
+  if (
+    cached
+    && cached.path === path
+    && cached.version === version
+    && cached.expiresAtMs > now
+  ) {
+    liveEnrichmentCache.delete(sessionId);
+    liveEnrichmentCache.set(sessionId, cached);
+    return cached.value;
+  }
+  const preferences = await readLastSessionPreferencesFromFile(path);
+  const activity = await readTurnActivityFromFile(path);
+  const value = {
+    model: preferences.model,
+    effort: preferences.effort,
+    running: activity === null ? null : activity === 'running',
+    error: activity === null ? null : activity === 'error',
+  };
+  liveEnrichmentCache.delete(sessionId);
+  liveEnrichmentCache.set(sessionId, {
+    path,
+    version,
+    expiresAtMs: now + LIVE_ENRICHMENT_CACHE_MS,
+    value,
+  });
+  if (liveEnrichmentCache.size > LIVE_ENRICHMENT_CACHE_MAX_ENTRIES) {
+    liveEnrichmentCache.delete(liveEnrichmentCache.keys().next().value!);
+  }
+  return value;
+}
+
 async function readRange(path: string, start: number, end: number): Promise<Buffer> {
   const handle = await open(path, 'r');
   try {
@@ -1363,16 +1462,14 @@ async function readLastSessionPreferencesFromFile(
 
 /**
  * Returns live gjc sessions with their tmux session name + generation id.
- * Empty when tmux is absent. An lsof failure no longer empties the list because
- * the ps-subtree idle lane is independent; transcript-backed rows are simply
- * absent for that poll.
+ * Empty when tmux is absent. A ps failure marks the lane unavailable because
+ * process lineage is required before any pane may be bound or controlled.
  *
  * Concurrent callers share one in-flight scan (single-flight): several browser
- * clients poll every 5s, and overlapping tmux/lsof/ps storms were themselves
- * causing the transient misses this lane exists to avoid.
+ * clients share one tmux/ps/receipt pass.
  */
 export type LiveGjcSessionsDetailedResult = {
-  /** False only when tmux could not provide a pane roster. */
+  /** False when tmux or the process roster is unavailable. */
   ok: boolean;
   sessions: LiveGjcSession[];
   /** session id → open transcript path (server-internal; NOT for API responses). */
@@ -1386,6 +1483,7 @@ export type LiveGjcSessionDiscovery = {
 
 export type LiveGjcSessionDiscoveryOptions = {
   commandRunner?: LiveGjcSessionCommandRunner;
+  hostSnapshot?: () => Promise<HostDiscoverySnapshot>;
 };
 
 async function runDiscoveryCommand(
@@ -1404,7 +1502,12 @@ export function createLiveGjcSessionDiscovery(
   let inFlight: Promise<LiveGjcSessionsDetailedResult> | null = null;
   const scanShared = (): Promise<LiveGjcSessionsDetailedResult> => {
     if (!inFlight) {
-      inFlight = scanLiveGjcSessions(commandRunner).finally(() => {
+      inFlight = Promise.resolve()
+        .then(async () => scanLiveGjcSessions(
+          commandRunner,
+          options.hostSnapshot ? await options.hostSnapshot() : undefined,
+        ))
+        .finally(() => {
         inFlight = null;
       });
     }
@@ -1418,7 +1521,9 @@ export function createLiveGjcSessionDiscovery(
   };
 }
 
-const defaultLiveGjcSessionDiscovery = createLiveGjcSessionDiscovery();
+const defaultLiveGjcSessionDiscovery = createLiveGjcSessionDiscovery({
+  hostSnapshot: hostDiscoverySnapshotSource.get,
+});
 
 /** Compatible session-only wrapper for existing callers. */
 export async function getLiveGjcSessions(): Promise<LiveGjcSession[]> {
@@ -1430,198 +1535,196 @@ export async function getLiveGjcSessionsDetailed(): Promise<LiveGjcSessionsDetai
   return defaultLiveGjcSessionDiscovery.getLiveGjcSessionsDetailed();
 }
 
-/** True when the pid holding a transcript is itself a gjc process (not e.g. this server). */
-async function isGjcHolderPid(pid: number): Promise<boolean> {
-  try {
-    recordHostCommand('read', ['proc']);
-    return isGjcCommandLine(await readFile(`/proc/${pid}/cmdline`, 'utf8'));
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Lists open files under the gjc session roots in `lsof -F pn` format. `+D`
- * aborts entirely if ANY path argument is missing, so absent roots are dropped
- * first; with no root present we fall back to the legacy comm selector.
- */
-async function runLsofOverSessionRoots(
-  commandRunner: LiveGjcSessionCommandRunner = runCommand,
-): Promise<string> {
-  const roots: string[] = [];
-  for (const root of gjcSessionRoots()) {
-    try {
-      if ((await stat(root)).isDirectory()) {
-        roots.push(root);
-      }
-    } catch {
-      // absent root — skip so lsof +D does not abort
-    }
-  }
-  const args = roots.length > 0
-    ? ['-F', 'pn', ...roots.flatMap((root) => ['+D', root])]
-    : ['-c', 'gjc', '-F', 'pn'];
-  return runDiscoveryCommand(commandRunner, 'lsof', args);
-}
-
 async function scanLiveGjcSessions(
   commandRunner: LiveGjcSessionCommandRunner = runCommand,
+  hostSnapshot?: HostDiscoverySnapshot,
 ): Promise<LiveGjcSessionsDetailedResult> {
-  let tmuxOutput: string;
-  try {
-    tmuxOutput = await runDiscoveryCommand(commandRunner, 'tmux', ['list-panes', '-a', '-F', `#{socket_path}${TMUX_FIELD_SEP}#{session_id}${TMUX_FIELD_SEP}#{window_id}${TMUX_FIELD_SEP}#{pane_id}${TMUX_FIELD_SEP}#{session_name}${TMUX_FIELD_SEP}#{pane_pid}${TMUX_FIELD_SEP}#{pane_current_command}${TMUX_FIELD_SEP}#{pane_current_path}`]);
-  } catch {
-    return { ok: false, sessions: [], transcriptPaths: new Map() };
-  }
-  if (!tmuxHasPanes(tmuxOutput)) {
-    return { ok: false, sessions: [], transcriptPaths: new Map() };
-  }
   const panes: Array<{ name: string; tmux: TmuxPaneIdentity; pid: number; cwd: string; cmd: string }> = [];
-  for (const pane of parseTmuxPanes(tmuxOutput)) {
-    panes.push({ name: pane.name, tmux: pane.tmux, pid: pane.pid, cmd: pane.cmd, cwd: (await safeRealpath(pane.cwd)) ?? pane.cwd });
-  }
-
-  // Transcript lane (lsof). Selection is interpreter-agnostic: a gjc session is a
-  // running process holding its transcript open, whether it runs as a native
-  // `gjc` binary or under bun/node (comm = 'bun'/'node'). We list open files under
-  // the gjc session roots, then keep only gjc-argv holders. A transient lsof
-  // failure must not blank the whole fleet — the idle lane still reports panes.
-  let lsofOutput = '';
-  try {
-    lsofOutput = await runLsofOverSessionRoots(commandRunner);
-  } catch {
-    lsofOutput = '';
-  }
-  const sessions: Array<{
-    id: string;
-    pidChain: number[];
-    cwd: string | null;
-    process: TmuxProcessGeneration | null;
-  }> = [];
-  for (const { id, pid } of parseLsofPidSessions(lsofOutput)) {
-    // lsof over the session roots also lists non-gjc holders (e.g. this server
-    // process tailing transcripts). Keep only holders whose argv is gjc itself.
-    if (pid === process.pid || !(await isGjcHolderPid(pid))) {
-      continue;
+  let processes: Array<{ pid: number; ppid: number; args: string }>;
+  if (hostSnapshot) {
+    if (!hostSnapshot.ok || hostSnapshot.panes.length === 0) {
+      return { ok: false, sessions: [], transcriptPaths: new Map() };
     }
-    sessions.push({
-      id,
-      pidChain: await buildPidChain(pid),
-      cwd: await safeRealpath(`/proc/${pid}/cwd`),
-      process: await processStartMs(pid).then((startedAtMs) => (
-        startedAtMs === null ? null : { pid, startedAtMs }
-      )),
-    });
+    for (const pane of hostSnapshot.panes) {
+      if (!pane.cwd) continue;
+      panes.push({
+        name: pane.name,
+        tmux: pane.tmux,
+        pid: pane.pid,
+        cmd: pane.command,
+        cwd: (await safeRealpath(pane.cwd)) ?? pane.cwd,
+      });
+    }
+    processes = hostSnapshot.processes.map((process) => ({
+      pid: process.pid,
+      ppid: process.ppid,
+      args: isGjcProcessArgs(process.args ?? '')
+        ? process.args!
+        : `${process.comm} ${process.args ?? ''}`.trim(),
+    }));
+  } else {
+    let tmuxOutput: string;
+    try {
+      tmuxOutput = await runDiscoveryCommand(commandRunner, 'tmux', ['list-panes', '-a', '-F', `#{socket_path}${TMUX_FIELD_SEP}#{session_id}${TMUX_FIELD_SEP}#{window_id}${TMUX_FIELD_SEP}#{pane_id}${TMUX_FIELD_SEP}#{session_name}${TMUX_FIELD_SEP}#{pane_pid}${TMUX_FIELD_SEP}#{pane_current_command}${TMUX_FIELD_SEP}#{pane_current_path}`]);
+    } catch {
+      return { ok: false, sessions: [], transcriptPaths: new Map() };
+    }
+    if (!tmuxHasPanes(tmuxOutput)) {
+      return { ok: false, sessions: [], transcriptPaths: new Map() };
+    }
+    for (const pane of parseTmuxPanes(tmuxOutput)) {
+      panes.push({ name: pane.name, tmux: pane.tmux, pid: pane.pid, cmd: pane.cmd, cwd: (await safeRealpath(pane.cwd)) ?? pane.cwd });
+    }
+    // Process lineage proves which GJC generation belongs to each pane. The
+    // pane-specific receipt is then the primary transcript binding.
+    let psOutput: string;
+    try {
+      psOutput = await runDiscoveryCommand(commandRunner, 'ps', ['-eo', 'pid,ppid,args']);
+    } catch {
+      return { ok: false, sessions: [], transcriptPaths: new Map() };
+    }
+    processes = parsePsArgsTree(psOutput);
   }
 
-  const sessionPaths = extractSessionPathsFromLsof(lsofOutput);
-  const named = computeLiveSessions({ tmuxPresent: true, panes, sessions });
-
-  // gjc panes with no open transcript (first message pending). Best-effort:
-  // a ps failure only hides idle rows, never the lsof-backed ones. Exclusion
-  // is LINEAGE names only — a cwd label must not hide a subtree-proven pane.
-  let idlePanes: Array<{
+  const discovered = findIdleGjcTmuxSessions({
+    panes,
+    procs: processes,
+    excludedPaneIds: new Set(),
+  });
+  const gjcPanes: Array<{
     name: string;
     tmux: TmuxPaneIdentity;
     agentPid: number;
     process: TmuxProcessGeneration | null;
     kind: 'interactive' | 'batch' | null;
-  }> = [];
-  try {
-    const psOutput = await runDiscoveryCommand(commandRunner, 'ps', ['-eo', 'pid,ppid,args']);
-    const discovered = findIdleGjcTmuxSessions({
-      panes,
-      procs: parsePsArgsTree(psOutput),
-      excludedPaneIds: new Set(
-        named.flatMap((session) => (
-          session.claim === 'lineage' && session.tmux ? [session.tmux.paneId] : []
-        )),
-      ),
-    });
-    idlePanes = await Promise.all(discovered.map(async (idle) => {
-      const startedAtMs = await processStartMs(idle.agentPid);
-      return {
-        ...idle,
-        process: startedAtMs === null ? null : { pid: idle.agentPid, startedAtMs },
-      };
-    }));
-  } catch {
-    // ignore — the idle lane is additive
-  }
+  }> = await Promise.all(discovered.map(async (pane) => {
+    const startedAtMs = await processStartMs(pane.agentPid);
+    return {
+      ...pane,
+      process: startedAtMs === null ? null : { pid: pane.agentPid, startedAtMs },
+    };
+  }));
+
   // A cwd-only receipt is not pane-specific. It is therefore usable only when
   // exactly one current subtree-proven pane can claim that cwd; a pane with an
   // unavailable process generation still makes the mapping ambiguous.
-  const idlePaneCwdCounts = new Map<string, number>();
-  for (const idle of idlePanes) {
+  const paneCwdCounts = new Map<string, number>();
+  const paneIdCounts = new Map<string, number>();
+  for (const gjcPane of gjcPanes) {
     for (const pane of panes) {
-      if (pane.tmux.paneId !== idle.tmux.paneId) continue;
-      idlePaneCwdCounts.set(pane.cwd, (idlePaneCwdCounts.get(pane.cwd) ?? 0) + 1);
+      if (tmuxPaneIdentityKey(pane.tmux) !== tmuxPaneIdentityKey(gjcPane.tmux)) continue;
+      paneCwdCounts.set(pane.cwd, (paneCwdCounts.get(pane.cwd) ?? 0) + 1);
+      paneIdCounts.set(
+        pane.tmux.paneId,
+        (paneIdCounts.get(pane.tmux.paneId) ?? 0) + 1,
+      );
     }
   }
 
+  const sessionPaths = new Map<string, string>();
+  const claimedIds = new Set<string>();
+  const boundRows: Array<{
+    id: string;
+    tmuxName: string;
+    tmux: TmuxPaneIdentity;
+    process: TmuxProcessGeneration;
+    claim: 'lineage';
+    kind: 'interactive' | 'batch' | null;
+  }> = [];
+  const unboundRows: Array<{
+    pane: typeof gjcPanes[number];
+    issue?: ProviderConnectionIssue;
+  }> = [];
 
-  // Runtime-receipt lane (gjc 0.10.2: idle gjc holds no transcript fd — see the
-  // lane comment above pickPaneReceipt). Upgrade subtree-proven gjc panes, which
-  // would otherwise stay synthetic idle rows, to transcript-backed lineage rows
-  // via gjc's own session receipt in the pane cwd. lsof lineage always wins —
-  // this lane only binds ids no lsof claim reached.
-  const claimedIds = new Set(
-    named.flatMap((session) => (session.tmuxName !== null ? [session.id] : [])),
-  );
-  const upgradedRows: typeof named = [];
-  const remainingIdlePanes: typeof idlePanes = [];
-  for (const idle of idlePanes) {
-    if (idle.process === null) {
+  for (const gjcPane of gjcPanes) {
+    if (gjcPane.process === null) {
       // Without the active gjc generation, a receipt from an earlier run in the
       // same long-lived pane is indistinguishable. Keep the safe synthetic row.
-      remainingIdlePanes.push(idle);
+      unboundRows.push({ pane: gjcPane });
       continue;
     }
+
+    const contextIssue = await validateLocalAgentContext({
+      pid: gjcPane.agentPid,
+      startedAtMs: gjcPane.process.startedAtMs,
+      socketPath: gjcPane.tmux.socketPath,
+    });
+    if (contextIssue) {
+      unboundRows.push({ pane: gjcPane, issue: contextIssue });
+      continue;
+    }
+
     let bound = false;
-    for (const pane of panes.filter((candidate) => candidate.tmux.paneId === idle.tmux.paneId)) {
-      const terminalAttempt = await readPaneTerminalReceipt(pane.pid);
+    for (const pane of panes.filter(
+      (candidate) => tmuxPaneIdentityKey(candidate.tmux) === tmuxPaneIdentityKey(gjcPane.tmux),
+    )) {
+      const duplicatePaneId = (paneIdCounts.get(pane.tmux.paneId) ?? 0) > 1;
+      const terminalAttempt: RuntimeReceiptAttempt = duplicatePaneId
+        ? {
+            receipt: null,
+            attempts: 0,
+            attemptedEntry: null,
+            issue: 'tmux_pane_ambiguous',
+          }
+        : await readPaneTerminalReceipt(pane.tmux.paneId);
       const terminal = terminalAttempt.receipt ? pickPaneReceipt({
         paneCwd: pane.cwd,
-        agentStartMs: idle.process.startedAtMs,
+        agentStartMs: gjcPane.process.startedAtMs,
         receipts: [terminalAttempt.receipt],
       }) : null;
-      const exactAttempt = terminal ? {
+      const exactAttempt: RuntimeReceiptAttempt = terminal ? {
         receipt: null,
-        attempts: 0 as const,
+        attempts: 0,
         attemptedEntry: null,
       } : await readExactResumeReceipt(
         pane.cwd,
-        idle.agentPid,
-        idle.process.startedAtMs,
+        gjcPane.agentPid,
+        gjcPane.process.startedAtMs,
       );
+      const openAttempt: RuntimeReceiptAttempt = terminal || exactAttempt.receipt
+        ? { receipt: null, attempts: 0, attemptedEntry: null }
+        : await readOpenGjcTranscript(gjcPane.agentPid);
       const fallbackLimit = runtimeReceiptFallbackBudget(
         terminalAttempt.attempts + exactAttempt.attempts,
       );
       const excludedEntries = new Set(
         exactAttempt.attemptedEntry ? [exactAttempt.attemptedEntry] : [],
       );
-      const fallback = terminal || exactAttempt.receipt || fallbackLimit === 0
-        || idlePaneCwdCounts.get(pane.cwd) !== 1
+      const heuristic = terminal || exactAttempt.receipt || openAttempt.receipt
+        || fallbackLimit === 0
+        || paneCwdCounts.get(pane.cwd) !== 1
         ? null
         : pickPaneReceipt({
             paneCwd: pane.cwd,
-            agentStartMs: idle.process.startedAtMs,
+            agentStartMs: gjcPane.process.startedAtMs,
             receipts: await readPaneRuntimeReceipts(pane.cwd, fallbackLimit, excludedEntries),
           });
-      const receipt = selectAuthoritativePaneReceipt(terminal, exactAttempt.receipt, fallback);
-      if (!receipt || claimedIds.has(receipt.sessionId)) {
+      const receipt = terminal ?? exactAttempt.receipt ?? openAttempt.receipt ?? heuristic;
+      if (!receipt) {
+        unboundRows.push({
+          pane: gjcPane,
+          issue: exactAttempt.issue ?? terminalAttempt.issue ?? openAttempt.issue,
+        });
+        continue;
+      }
+      if (await processStartMs(gjcPane.agentPid) !== gjcPane.process.startedAtMs) {
+        unboundRows.push({ pane: gjcPane });
+        continue;
+      }
+      if (claimedIds.has(receipt.sessionId)) {
+        unboundRows.push({ pane: gjcPane, issue: 'transcript_ambiguous' });
         continue;
       }
       claimedIds.add(receipt.sessionId);
       // Subtree-proven pane + gjc-authored receipt = lineage-grade evidence
       // (identical rationale to the synthetic idle rows below).
-      upgradedRows.push({
+      boundRows.push({
         id: receipt.sessionId,
-        tmuxName: idle.name,
-        tmux: idle.tmux,
-        process: idle.process,
+        tmuxName: gjcPane.name,
+        tmux: gjcPane.tmux,
+        process: gjcPane.process,
         claim: 'lineage',
-        kind: idle.kind,
+        kind: gjcPane.kind,
       });
       if (receipt.sessionFile !== null) {
         sessionPaths.set(receipt.sessionId, receipt.sessionFile);
@@ -1630,49 +1733,44 @@ async function scanLiveGjcSessions(
       break;
     }
     if (!bound) {
-      remainingIdlePanes.push(idle);
+      const alreadyUnbound = unboundRows.some(
+        ({ pane }) => tmuxPaneIdentityKey(pane.tmux) === tmuxPaneIdentityKey(gjcPane.tmux),
+      );
+      if (!alreadyUnbound) unboundRows.push({ pane: gjcPane });
     }
   }
-  // An lsof row may exist claimless for the same id (holder seen, pane unresolved) —
-  // the upgraded row supersedes it.
-  const namedFinal = named.filter(
-    (session) => !(session.tmuxName === null && upgradedRows.some((upgraded) => upgraded.id === session.id)),
-  );
 
   // Enrich with the current model, reasoning effort, and turn activity from
   // each transcript.
   const enriched = await mapTranscriptEnrichments(
-    [...namedFinal, ...upgradedRows],
+    boundRows,
     async (session) => {
       const path = sessionPaths.get(session.id);
-      const preferences = path
-        ? await readLastSessionPreferencesFromFile(path)
-        : { model: null, effort: null };
-      const activity = path ? await readTurnActivityFromFile(path) : null;
+      const enrichment = path
+        ? await readLiveTranscriptEnrichment(session.id, path)
+        : { model: null, effort: null, running: null, error: null };
       return {
         ...session,
-        model: preferences.model,
-        effort: preferences.effort,
-        running: activity === null ? null : activity === 'running',
-        error: activity === null ? null : activity === 'error',
+        ...enrichment,
       };
     },
   );
   const allSessions = [
     ...enriched,
-    ...remainingIdlePanes.map(({ name, tmux, process: agentProcess, kind }) => ({
-      id: `${IDLE_GJC_ID_PREFIX}${name}:${tmux.paneId}`,
-      tmuxName: name,
-      tmux,
-      process: agentProcess,
+    ...unboundRows.map(({ pane, issue }) => ({
+      id: `${IDLE_GJC_ID_PREFIX}${pane.name}:${pane.tmux.paneId}`,
+      tmuxName: pane.name,
+      tmux: pane.tmux,
+      process: pane.process,
       // Subtree-proven: a gjc process runs INSIDE the pane — same evidence
       // as a lineage claim on transcript-backed rows.
       claim: 'lineage' as const,
-      kind,
+      kind: pane.kind,
       model: null,
       effort: null,
       running: null,
       error: null,
+      ...(issue ? { connectionIssue: issue } : {}),
     })),
   ];
   return {

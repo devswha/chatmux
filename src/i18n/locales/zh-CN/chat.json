@@ -56,7 +56,15 @@
     "waiting": "等待您在 CLI 中响应",
     "instruction": "请在 Claude 运行的终端中选择一个选项。",
     "selectedOption": "✓ Claude 选择了选项 {{number}}",
-    "instructionDetail": "在 CLI 中，您可以使用方向键或输入数字来交互式地选择此选项。"
+    "instructionDetail": "在 CLI 中，您可以使用方向键或输入数字来交互式地选择此选项。",
+    "directInput": "直接输入（其他）",
+    "numberInstruction": "在聊天中发送显示的编号。最后编号：直接输入 · 0：取消",
+    "numberInstructionWithCustomNumber": "在聊天中发送显示的编号 · {{number}}：直接输入 · 0：取消",
+    "numberInstructionNoCustom": "在聊天中发送显示的编号 · 0：取消",
+    "multiNumberInstruction": "发送一个或多个以逗号分隔的编号 · 0：取消",
+    "cancelChoice": "取消 (0)",
+    "multiTapInstruction": "点按选项进行切换后提交 · 0: 取消",
+    "submitChoices": "提交 ({{count}})"
   },
   "thinking": {
     "title": "思考中...",
@@ -152,6 +160,9 @@
       "showingLast": "显示最近 {{count}} 条消息（共 {{total}} 条）",
       "loadEarlier": "加载更早的消息",
       "loadAll": "加载全部消息",
+      "loadFullToolOutput": "加载完整输出",
+      "loadingFullToolOutput": "正在加载完整输出...",
+      "fullToolOutputFailed": "无法加载完整输出。",
       "loadingAll": "正在加载全部消息...",
       "allLoaded": "全部消息已加载",
       "perfWarning": "已加载全部消息 - 滚动可能变慢。点击「滚动到底部」恢复性能。"
@@ -228,7 +239,15 @@
     "delivered": "已送达",
     "queued": "已加入队列",
     "towerUnavailable": "控制塔未运行 — 无法发送",
-    "sendFailed": "发送失败"
+    "sendFailed": "发送失败",
+    "selectionNumberRequired": "请输入显示的编号 (0-{{max}})。",
+    "multiSelectionNumberRequired": "请输入一个或多个显示的编号，用逗号分隔。",
+    "customInputPlaceholder": "输入自定义回答…",
+    "customInputReady": "请输入自定义回答。",
+    "selectionDelivered": "已发送选择。",
+    "selectionPlaceholder": "输入选项编号 (0-{{max}})…",
+    "multiSelectionPlaceholder": "输入以逗号分隔的选项编号…",
+    "placeholderShort": "给 {{name}} 发消息…"
   },
   "transcript": {
     "conversationTab": "对话",

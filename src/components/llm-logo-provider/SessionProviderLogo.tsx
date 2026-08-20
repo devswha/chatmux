@@ -5,6 +5,7 @@ import CodexLogo from './CodexLogo';
 import CursorLogo from './CursorLogo';
 import OpenCodeLogo from './OpenCodeLogo';
 import GjcLogo from './GjcLogo';
+import OmoLogo from './OmoLogo';
 import OmpLogo from './OmpLogo';
 
 type SessionProviderLogoProps = {
@@ -34,6 +35,10 @@ export default function SessionProviderLogo({
 
   if (provider === 'omp') {
     return <OmpLogo className={className} />;
+  }
+
+  if (provider === 'omo') {
+    return <OmoLogo className={className} />;
   }
 
   return <ClaudeLogo className={className} />;

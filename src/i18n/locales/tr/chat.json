@@ -56,7 +56,15 @@
     "waiting": "CLI'da yanıtın bekleniyor",
     "instruction": "Lütfen Claude'un çalıştığı terminalde bir seçenek seç.",
     "selectedOption": "✓ Claude {{number}} numaralı seçeneği seçti",
-    "instructionDetail": "CLI'da bu seçeneği ok tuşları veya numara girerek interaktif olarak seçebilirsin."
+    "instructionDetail": "CLI'da bu seçeneği ok tuşları veya numara girerek interaktif olarak seçebilirsin.",
+    "directInput": "Doğrudan giriş (Diğer)",
+    "numberInstruction": "Görüntülenen numarayı sohbette gönderin. Son numara: doğrudan giriş · 0: iptal",
+    "numberInstructionWithCustomNumber": "Görüntülenen numarayı sohbette gönderin · {{number}}: doğrudan giriş · 0: iptal",
+    "numberInstructionNoCustom": "Görüntülenen numarayı sohbette gönderin · 0: iptal",
+    "multiNumberInstruction": "Virgülle ayrılmış bir veya daha fazla numara gönderin · 0: iptal",
+    "cancelChoice": "İptal (0)",
+    "multiTapInstruction": "Seçenekleri dokunarak değiştirin, sonra gönderin · 0: iptal",
+    "submitChoices": "Gönder ({{count}})"
   },
   "thinking": {
     "title": "Düşünüyor...",
@@ -151,6 +159,9 @@
       "scrollToLoad": "Daha fazlasını yüklemek için yukarı kaydır",
       "showingLast": "Son {{count}} mesaj gösteriliyor ({{total}} toplam)",
       "loadEarlier": "Önceki mesajları yükle",
+      "loadFullToolOutput": "Tam çıktıyı yükle",
+      "loadingFullToolOutput": "Tam çıktı yükleniyor...",
+      "fullToolOutputFailed": "Tam çıktı yüklenemedi.",
       "loadAll": "Tüm mesajları yükle",
       "loadingAll": "Tüm mesajlar yükleniyor...",
       "allLoaded": "Tüm mesajlar yüklendi",
@@ -228,7 +239,15 @@
     "delivered": "İletildi",
     "queued": "Kuyruğa alındı",
     "towerUnavailable": "Kontrol kulesi çalışmıyor — gönderilemiyor",
-    "sendFailed": "Gönderilemedi"
+    "sendFailed": "Gönderilemedi",
+    "selectionNumberRequired": "Görüntülenen bir numara girin (0-{{max}}).",
+    "multiSelectionNumberRequired": "Virgülle ayrılmış bir veya daha fazla görüntülenen numara girin.",
+    "customInputPlaceholder": "Özel yanıtı yazın…",
+    "customInputReady": "Özel yanıtı yazın.",
+    "selectionDelivered": "Seçim iletildi.",
+    "selectionPlaceholder": "Seçim numarası girin (0-{{max}})…",
+    "multiSelectionPlaceholder": "Virgülle ayrılmış seçim numaralarını girin…",
+    "placeholderShort": "{{name}} için mesaj…"
   },
   "transcript": {
     "conversationTab": "Sohbet",

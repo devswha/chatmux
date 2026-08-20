@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 
 import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 function loadManagedEnvironment(configPath) {
   if (!configPath) return;
@@ -26,13 +28,44 @@ function loadManagedEnvironment(configPath) {
   }
 }
 
-loadManagedEnvironment(process.env.CHATMUX_ENV_FILE);
+export async function runChatmuxRuntime({
+  platform = process.platform,
+  arch = process.arch,
+  nodeVersion = process.versions.node,
+  cliArgs = process.argv.slice(2),
+  configPath = process.env.CHATMUX_ENV_FILE,
+  importCli = () => import('../dist-server/server/cli.js'),
+} = {}) {
+  loadManagedEnvironment(configPath);
 
-if (process.platform !== 'linux' || process.arch !== 'x64' || process.versions.node.split('.')[0] !== '22') {
-  console.error(
-    `ChatMux server requires Linux x64 with Node.js 22; received ${process.platform} ${process.arch} Node.js ${process.versions.node}.`,
-  );
-  process.exit(1);
+  if (platform !== 'linux' || arch !== 'x64' || nodeVersion.split('.')[0] !== '22') {
+    throw new Error(
+      `ChatMux server requires Linux x64 with Node.js 22; received ${platform} ${arch} Node.js ${nodeVersion}.`,
+    );
+  }
+
+  const cli = await importCli();
+  if (typeof cli.runChatmuxCli !== 'function') {
+    throw new Error('ChatMux CLI entrypoint is unavailable.');
+  }
+  await cli.runChatmuxCli(cliArgs);
 }
 
-await import('../dist-server/server/cli.js');
+function isMainEntry(argvPath) {
+  if (!argvPath) return false;
+  const resolvedArgv = path.resolve(argvPath);
+  const modulePath = fileURLToPath(import.meta.url);
+  if (resolvedArgv === modulePath) return true;
+  try {
+    return fs.realpathSync(resolvedArgv) === fs.realpathSync(modulePath);
+  } catch {
+    return false;
+  }
+}
+
+if (isMainEntry(process.argv[1])) {
+  runChatmuxRuntime().catch((error) => {
+    console.error(error.message);
+    process.exit(1);
+  });
+}

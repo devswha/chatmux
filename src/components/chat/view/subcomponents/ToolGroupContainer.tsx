@@ -24,9 +24,12 @@ interface ToolGroupContainerProps {
   onGrantToolPermission?: (suggestion: ClaudePermissionSuggestion) => PermissionGrantResult | null | undefined;
   showRawParameters?: boolean;
   showThinking?: boolean;
+  showImagePreviews?: boolean;
   selectedProject?: Project | null;
   provider: Provider | string;
-  transcriptView?: boolean;
+  pendingAskToolId?: string | null;
+  suppressedAskToolId?: string | null;
+  onAskChoiceSelect?: (choiceNumber: number) => void;
 }
 
 function parseToolInput(toolInput: unknown): unknown {
@@ -68,11 +71,14 @@ export default function ToolGroupContainer({
   onGrantToolPermission,
   showRawParameters,
   showThinking,
+  showImagePreviews = true,
   selectedProject,
   provider,
-  transcriptView = false,
+  pendingAskToolId = null,
+  suppressedAskToolId = null,
+  onAskChoiceSelect,
 }: ToolGroupContainerProps) {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(group.toolName === 'todo');
   const config = getToolConfig(group.toolName).input;
   const label = config.label || group.toolName;
   const borderClass = config.colorScheme?.border || 'border-border';
@@ -135,9 +141,12 @@ export default function ToolGroupContainer({
               onGrantToolPermission={onGrantToolPermission}
               showRawParameters={showRawParameters}
               showThinking={showThinking}
+              showImagePreviews={showImagePreviews}
               selectedProject={selectedProject}
               provider={provider}
-              transcriptView={transcriptView}
+              pendingAskToolId={pendingAskToolId}
+              suppressedAskToolId={suppressedAskToolId}
+              onAskChoiceSelect={onAskChoiceSelect}
             />
           ))}
         </div>

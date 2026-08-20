@@ -1,6 +1,7 @@
 import fsSync from 'node:fs';
 
 import { sessionsDb } from '@/modules/database/index.js';
+import type { PiTranscriptProvider } from '@/modules/providers/list/gjc/gjc-session-synchronizer.provider.js';
 import type { IProviderSessions } from '@/shared/interfaces.js';
 import type { AnyRecord, FetchHistoryOptions, FetchHistoryResult, NormalizedMessage } from '@/shared/types.js';
 import { createNormalizedMessage, generateMessageId, readObjectRecord, sliceTailPage } from '@/shared/utils.js';
@@ -62,6 +63,13 @@ class NormalizedMessageRingBuffer {
       this.entries = this.entries.slice(this.startIndex);
       this.startIndex = 0;
     }
+  }
+
+  reset(): void {
+    this.entries = [];
+    this.startIndex = 0;
+    this.bufferedBytes = 0;
+    this.truncated = false;
   }
 
   get messages(): NormalizedMessage[] {
@@ -152,6 +160,33 @@ function extractGjcPartText(part: AnyRecord): string {
   return '';
 }
 
+function normalizeGjcToolName(value: unknown): string {
+  if (typeof value !== 'string' || !value.trim()) {
+    return 'Unknown';
+  }
+  return value.toLowerCase() === 'ask' ? 'AskUserQuestion' : value;
+}
+
+function normalizeGjcToolInput(toolName: string, value: unknown): unknown {
+  if (toolName !== 'AskUserQuestion') {
+    return value;
+  }
+  const input = readObjectRecord(value);
+  if (!input || !Array.isArray(input.questions)) {
+    return value;
+  }
+  return {
+    ...input,
+    questions: input.questions.map((question) => {
+      const record = readObjectRecord(question);
+      if (!record || typeof record.multiSelect === 'boolean' || typeof record.multi !== 'boolean') {
+        return question;
+      }
+      return { ...record, multiSelect: record.multi };
+    }),
+  };
+}
+
 /**
  * Streams a Pi-agent JSONL transcript and flattens `type:"message"` lines into
  * the compact intermediate shape consumed by `normalizeHistoryEntry`.
@@ -161,9 +196,10 @@ function extractGjcPartText(part: AnyRecord): string {
  * its own intermediate record with a unique id so multi-part turns never collide.
  */
 async function streamPiSessionMessages(
-  provider: 'gjc' | 'omp',
+  provider: PiTranscriptProvider,
   sessionId: string,
   onMessage: (message: AnyRecord) => void,
+  onHistoryReset: (historyEpoch: string) => void,
 ): Promise<void> {
   try {
     const sessionFilePath = sessionsDb.getSessionById(sessionId)?.jsonl_path;
@@ -173,13 +209,24 @@ async function streamPiSessionMessages(
       return;
     }
 
+    let lineNumber = 0;
     for await (const line of readBoundedJsonlLines(sessionFilePath)) {
+      lineNumber += 1;
       if (!line.trim()) {
         continue;
       }
 
       try {
         const entry = JSON.parse(line) as AnyRecord;
+        if (entry.type === 'custom' && entry.customType === 'context_clear') {
+          const boundaryId = typeof entry.id === 'string' && entry.id
+            ? entry.id
+            : (typeof entry.timestamp === 'string' && entry.timestamp
+              ? entry.timestamp
+              : String(lineNumber));
+          onHistoryReset(`${provider}:${boundaryId}`);
+          continue;
+        }
         if (entry.type !== 'message') {
           continue;
         }
@@ -271,12 +318,16 @@ async function streamPiSessionMessages(
               break;
             }
             case 'toolCall': {
+              const toolName = normalizeGjcToolName(part.toolName ?? part.name);
               onMessage({
                 uuid: `${partId}:toolcall`,
                 type: 'tool_use',
                 timestamp,
-                toolName: part.toolName ?? part.name ?? 'Unknown',
-                toolInput: part.toolInput ?? part.input ?? part.arguments,
+                toolName,
+                toolInput: normalizeGjcToolInput(
+                  toolName,
+                  part.toolInput ?? part.input ?? part.arguments,
+                ),
                 toolCallId: part.toolCallId ?? part.id ?? part.callId,
               });
               break;
@@ -306,7 +357,7 @@ async function streamPiSessionMessages(
 }
 
 export class GjcSessionsProvider implements IProviderSessions {
-  constructor(private readonly provider: 'gjc' | 'omp' = 'gjc') {}
+  constructor(private readonly provider: PiTranscriptProvider = 'gjc') {}
   /**
    * Normalizes one flattened gjc content-part record into the shared envelope.
    */
@@ -364,14 +415,15 @@ export class GjcSessionsProvider implements IProviderSessions {
     }
 
     if (raw.type === 'tool_use' || raw.toolName) {
+      const toolName = normalizeGjcToolName(raw.toolName);
       return [createNormalizedMessage({
         id: baseId,
         sessionId,
         timestamp: ts,
         provider: this.provider,
         kind: 'tool_use',
-        toolName: raw.toolName || 'Unknown',
-        toolInput: raw.toolInput,
+        toolName,
+        toolInput: normalizeGjcToolInput(toolName, raw.toolInput),
         toolId: raw.toolCallId || baseId,
       })];
     }
@@ -424,12 +476,16 @@ export class GjcSessionsProvider implements IProviderSessions {
       getHistoryBufferRecordLimit(normalizedLimit, normalizedOffset),
       MAX_BUFFERED_HISTORY_BYTES,
     );
+    let historyEpoch: string | null = null;
 
     try {
       await streamPiSessionMessages(this.provider, sessionId, (rawMessage) => {
         for (const message of this.normalizeHistoryEntry(rawMessage, sessionId)) {
           messageBuffer.push(message);
         }
+      }, (nextHistoryEpoch) => {
+        messageBuffer.reset();
+        historyEpoch = nextHistoryEpoch;
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -478,6 +534,7 @@ export class GjcSessionsProvider implements IProviderSessions {
       hasMore: pageHasMore || messageBuffer.truncated,
       offset: normalizedOffset,
       limit: normalizedLimit,
+      historyEpoch,
       tokenUsage: null,
     };
   }

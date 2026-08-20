@@ -88,7 +88,10 @@ to reach the server from anywhere, forward the backend TCP port on the
 router and put a TLS proxy in front first (see the
 [Nginx template](nginx-subpath-template.conf)) — credentials must never
 cross the public internet as plain HTTP, and PWA install plus push
-notifications need HTTPS anyway.
+notifications need HTTPS anyway. If you own a domain and cannot port
+forward (CGNAT), a named tunnel — or a reverse proxy on a public VPS —
+in front of password mode is the no-app alternative; see
+[REMOTE-ACCESS.md §4.3](REMOTE-ACCESS.md#43-사용자가-가진-것에-따른-경로).
 
 Tailscale mode reuses an existing ChatMux root front or selects a free HTTPS
 port from `8443` through `8499`. It does not enable Funnel or reset unrelated

@@ -22,6 +22,7 @@ import {
   createSystemRouter,
   exactUpdateRequestGuard,
   mapSystemctlIsActiveResult,
+  releaseNotesFromLatest,
 } from './self-update.js';
 import { ReleaseUpdateStateStore } from './release-update-state.js';
 import type { ImmutableUpdateJobDescriptor } from './release-update-contract.js';
@@ -419,7 +420,7 @@ test('mounted update boundary rejects malformed POSTs before router effects and 
   app.use(createSystemRouter({
     appRoot: tempRoot(), home: tempRoot(), serverPort: 3000, bootId: 'boot', mode: 'source',
     launch: async () => { launches += 1; },
-    discoverRelease: async () => { discoveries += 1; return { release: releaseJob(9).release, compatibility: releaseJob(9).compatibility }; },
+    discoverRelease: async () => { discoveries += 1; return { release: releaseJob(9).release, compatibility: releaseJob(9).compatibility, notes: { body: null, url: null } }; },
     discoverSource: async () => { sourceDiscoveries += 1; return sourceTarget; },
     prepareSourceUpdate: async () => sourceTarget,
     inspectSourceClean: async () => {},
@@ -697,7 +698,7 @@ test('mounted release update exposes only sanitized job state and fixed launcher
   app.use(exactUpdateRequestGuard);
   app.use(createSystemRouter({
     appRoot: home, home, serverPort: 3000, bootId: 'boot', runningVersion: '1.0.0', mode: 'release', authMode: 'password', state, now: () => 1,
-    discoverRelease: async () => ({ release: releaseJob(9).release, compatibility: releaseJob(9).compatibility }),
+    discoverRelease: async () => ({ release: releaseJob(9).release, compatibility: releaseJob(9).compatibility, notes: { body: null, url: null } }),
     launchRelease: async (unit, receivedWorkerPath, id) => { launches.push([unit, receivedWorkerPath, id]); },
   }));
   const server = createServer(app);
@@ -745,7 +746,7 @@ test('release updates fail closed without a strict installed version before stat
   app.use(exactUpdateRequestGuard);
   app.use(createSystemRouter({
     appRoot: tempRoot(), home: tempRoot(), serverPort: 3000, bootId: 'boot', mode: 'release', state,
-    discoverRelease: async () => { discoveries += 1; return { release: releaseJob(9).release, compatibility: releaseJob(9).compatibility }; },
+    discoverRelease: async () => { discoveries += 1; return { release: releaseJob(9).release, compatibility: releaseJob(9).compatibility, notes: { body: null, url: null } }; },
     launchRelease: async () => { launches += 1; },
   }));
   const server = createServer(app);
@@ -886,4 +887,21 @@ test('release router restart preserves active workers and fails only proven inac
   uncertainState.createIfNoActive(uncertain);
   createSystemRouter({ appRoot: uncertainHome, home: uncertainHome, serverPort: 3000, bootId: 'boot', runningVersion: '1.0.0', mode: 'release', state: uncertainState, isReleaseUpdateUnitLive: () => { throw new Error('systemctl unavailable'); } });
   assert.equal(uncertainState.publicActiveStatus()?.id, uncertain.id);
+});
+
+test('release notes are captured, bounded, and only trust the canonical release URL', () => {
+  const tag = 'v1.2.3';
+  const full = releaseNotesFromLatest({
+    body: '  ## What\u2019s Changed\n* fix: example\n  ',
+    html_url: `https://github.com/devswha/chatmux/releases/tag/${tag}`,
+  }, tag);
+  assert.equal(full.body, '## What\u2019s Changed\n* fix: example');
+  assert.equal(full.url, `https://github.com/devswha/chatmux/releases/tag/${tag}`);
+
+  const oversized = releaseNotesFromLatest({ body: 'x'.repeat(20_000), html_url: 42 }, tag);
+  assert.equal(oversized.body?.length, 8_000);
+  assert.equal(oversized.url, null);
+
+  assert.deepEqual(releaseNotesFromLatest({}, tag), { body: null, url: null });
+  assert.deepEqual(releaseNotesFromLatest({ body: '   ', html_url: 'https://attacker.example/notes' }, tag), { body: null, url: null });
 });

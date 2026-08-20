@@ -24,6 +24,33 @@ const createGjcSynchronizer = (
   additionalSessionDirs,
 });
 
+test('GJC and OMP ask tools use the shared single-select question shape', () => {
+  const [message] = new GjcSessionsProvider('omp').normalizeMessage({
+    uuid: 'ask-1',
+    type: 'tool_use',
+    timestamp: '2026-07-31T00:00:00.000Z',
+    toolName: 'ask',
+    toolCallId: 'call-ask',
+    toolInput: {
+      questions: [{
+        question: 'Choose',
+        options: [{ label: 'Allow' }, { label: 'Reject' }],
+        multi: false,
+      }],
+    },
+  }, 'omp-ask');
+
+  assert.equal(message?.toolName, 'AskUserQuestion');
+  assert.deepEqual(message?.toolInput, {
+    questions: [{
+      question: 'Choose',
+      options: [{ label: 'Allow' }, { label: 'Reject' }],
+      multi: false,
+      multiSelect: false,
+    }],
+  });
+});
+
 
 async function withIsolatedDatabase(runTest: () => void | Promise<void>): Promise<void> {
   const previousDatabasePath = process.env.DATABASE_PATH;
@@ -336,6 +363,69 @@ test('gjc sessions provider excludes hidden and internal-role messages from hist
     });
   } finally {
     restoreHomeDir();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('gjc history starts after the latest context_clear boundary', { concurrency: false }, async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'gjc-session-clear-history-'));
+  const workspacePath = path.join(tempRoot, 'workspace');
+  const sessionsDir = path.join(tempRoot, '.gjc', 'agent', 'sessions', '-workspace');
+  await Promise.all([
+    mkdir(workspacePath, { recursive: true }),
+    mkdir(sessionsDir, { recursive: true }),
+  ]);
+
+  try {
+    const transcriptPath = path.join(sessionsDir, '2026-07-09T00-00-00_gjc-clear-history.jsonl');
+    const lines = [
+      { type: 'session', version: 3, id: 'gjc-clear-history', timestamp: '2026-07-09T00:00:00.000Z', cwd: workspacePath },
+      { type: 'message', id: 'old-user', timestamp: '2026-07-09T00:00:01.000Z', message: { role: 'user', content: [{ type: 'text', text: 'Old question' }] } },
+      { type: 'custom', customType: 'context_clear', id: 'clear-one', timestamp: '2026-07-09T00:00:02.000Z', data: { sessionId: 'gjc-clear-history' } },
+      { type: 'message', id: 'middle-user', timestamp: '2026-07-09T00:00:03.000Z', message: { role: 'user', content: [{ type: 'text', text: 'Middle question' }] } },
+      { type: 'custom', customType: 'context_clear', id: 'clear-two', timestamp: '2026-07-09T00:00:04.000Z', data: { sessionId: 'gjc-clear-history' } },
+      { type: 'message', id: 'new-user', timestamp: '2026-07-09T00:00:05.000Z', message: { role: 'user', content: [{ type: 'text', text: 'Explain /clear without running it' }] } },
+      { type: 'message', id: 'new-assistant', timestamp: '2026-07-09T00:00:06.000Z', message: { role: 'assistant', content: [{ type: 'text', text: 'New answer' }] } },
+    ];
+    await writeFile(transcriptPath, `${lines.map(line => JSON.stringify(line)).join('\n')}\n`, 'utf8');
+
+    await withIsolatedDatabase(async () => {
+      sessionsDb.createSession(
+        'gjc-clear-history',
+        'gjc',
+        workspacePath,
+        undefined,
+        undefined,
+        undefined,
+        transcriptPath,
+      );
+      const provider = new GjcSessionsProvider();
+
+      const newest = await provider.fetchHistory('gjc-clear-history', { limit: 1 });
+      assert.equal(newest.historyEpoch, 'gjc:clear-two');
+      assert.equal(newest.total, 2);
+      assert.equal(newest.hasMore, true);
+      assert.deepEqual(newest.messages.map(message => message.content), ['New answer']);
+
+      const older = await provider.fetchHistory('gjc-clear-history', { limit: 1, offset: 1 });
+      assert.equal(older.historyEpoch, 'gjc:clear-two');
+      assert.equal(older.hasMore, false);
+      assert.deepEqual(older.messages.map(message => message.content), ['Explain /clear without running it']);
+
+      await appendFile(transcriptPath, `${JSON.stringify({
+        type: 'custom',
+        customType: 'context_clear',
+        id: 'clear-three',
+        timestamp: '2026-07-09T00:00:07.000Z',
+        data: { sessionId: 'gjc-clear-history' },
+      })}\n`, 'utf8');
+      const empty = await provider.fetchHistory('gjc-clear-history');
+      assert.equal(empty.historyEpoch, 'gjc:clear-three');
+      assert.equal(empty.total, 0);
+      assert.equal(empty.hasMore, false);
+      assert.deepEqual(empty.messages, []);
+    });
+  } finally {
     await rm(tempRoot, { recursive: true, force: true });
   }
 });
