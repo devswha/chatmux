@@ -27,7 +27,7 @@ export default function AgentsSettingsTab({
   }, [selectedAgent]);
 
   const visibleAgents = useMemo<AgentProvider[]>(() => {
-    return ['claude', 'cursor', 'codex', 'opencode', 'omp', 'omo'];
+    return ['omo', 'claude', 'cursor', 'codex', 'opencode', 'omp'];
   }, []);
 
   const agentContextById = useMemo<Record<AgentProvider, AgentContext>>(() => ({

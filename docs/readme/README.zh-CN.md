@@ -1,10 +1,10 @@
 <p align="center">
-  <img src="../assets/readme-hero.svg" alt="ChatMux — 所有编码代理，一个指挥台：Codex、Claude、Gajae Code、Cursor、OpenCode、Oh My Pi 和 Oh My OpenAgent 会话多路复用到一个自托管界面" width="900">
+  <img src="../assets/readme-hero.svg" alt="ChatMux — 所有编码代理，一个指挥台：Oh My OpenAgent、Codex、Claude、Gajae Code、Cursor、OpenCode 和 Oh My Pi 会话多路复用到一个自托管界面" width="900">
 </p>
 
 <p align="center"><sub><a href="../../README.md">English</a> · <a href="README.ko.md">한국어</a> · <a href="README.ja.md">日本語</a> · <b>简体中文</b></sub></p>
 
-<p align="center">One interface for Claude Code, Codex, Cursor, OpenCode, Gajae Code, Oh My Pi, and Oh My OpenAgent —<br>the agents already running in your tmux.</p>
+<p align="center">One interface for Oh My OpenAgent, Claude Code, Codex, Cursor, OpenCode, Gajae Code, and Oh My Pi —<br>the agents already running in your tmux.</p>
 
 <p align="center">
   <a href="https://github.com/devswha/chatmux/releases"><img src="https://img.shields.io/github/v/release/devswha/chatmux?display_name=tag&label=release&style=flat-square&color=6366f1" alt="GitHub 发布"></a>
@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/runtime-tmux-ff6b4a?style=flat-square" alt="tmux 运行时">
 </p>
 
-你照常在 tmux 中运行编码代理 — Gajae Code、Claude Code、Codex、Cursor CLI、OpenCode、Oh My Pi、Oh My OpenAgent。ChatMux 会自动发现它们，并把所有会话显示在一个浏览器页面中，无论你使用桌面还是手机。
+你照常在 tmux 中运行编码代理 — Oh My OpenAgent、Gajae Code、Claude Code、Codex、Cursor CLI、OpenCode、Oh My Pi。ChatMux 会自动发现它们，并把所有会话显示在一个浏览器页面中，无论你使用桌面还是手机。
 
 - **无需注册：** 已在 tmux 中运行的代理会直接出现在侧边栏。不用包装、接线或重启。
 - **多提供方：** 所有提供方都在一个可拖拽排序的列表中，实时显示 `RUN`、`READY` 和 `ERROR` 徽章。
@@ -80,13 +80,13 @@ curl -fsSL https://github.com/devswha/chatmux/releases/latest/download/install.s
 
 | 代理 | 自动发现 | 聊天视图 | 发送输入 | 新建会话 |
 |---|:---:|---|---|:---:|
+| **Oh My OpenAgent** (`omo`) | 是 | 历史索引后 | 提示词与 `/skill:` 技能 | 是 |
 | **Gajae Code (GJC)** | 是 | 是 | 提示词与 `/` 命令 | 是 |
 | **Codex CLI** | 是 | 历史索引后 | 提示词与 `$` 技能 | 是 |
 | **Claude Code** | 是 | 历史索引后 | 提示词与 `/` 技能 | 是 |
 | **Cursor CLI** | 是 | 历史索引后 | 提示词与 `/` 技能 | 是 |
 | **OpenCode** | 是 | 历史索引后 | 提示词与 `/` 技能 | 是 |
 | **Oh My Pi** | 是 | 历史索引后 | 提示词与 `/skill:` 技能 | 是 |
-| **Oh My OpenAgent** (`omo`) | 是 | 历史索引后 | 提示词与 `/skill:` 技能 | 是 |
 | **SSH tmux** | 是 | 否 — 仅终端 | 终端按键 | 否 |
 | **Local shell** | 是 | 否 — 仅终端 | 终端按键 | 否 |
 
