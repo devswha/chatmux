@@ -14,13 +14,13 @@ type SpawnStatus =
   | { kind: 'error'; text: string };
 
 const PROVIDERS: { id: SpawnProvider; label: string }[] = [
+  { id: 'omo', label: 'Oh My OpenAgent' },
   { id: 'gjc', label: 'GJC' },
   { id: 'codex', label: 'Codex' },
   { id: 'claude', label: 'Claude' },
   { id: 'cursor', label: 'Cursor' },
   { id: 'opencode', label: 'OpenCode' },
   { id: 'omp', label: 'Oh My Pi' },
-  { id: 'omo', label: 'Oh My OpenAgent' },
 ];
 
 // Working directories of successful spawns, most recent first. Typing an
