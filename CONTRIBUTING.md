@@ -10,9 +10,12 @@ Thanks for your interest in contributing to ChatMux! Before you start, please ta
 
 ## Prerequisites
 
-- [Node.js](https://nodejs.org/) 22 or later
-- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) installed and configured
+- [Node.js](https://nodejs.org/) `22.22.2+` on the 22.x line or `24.15.0+` on the 24.x line
+- npm
 - Git
+- tmux
+- Rust `1.85+`
+- At least one supported coding-agent CLI installed and configured
 
 ## Getting Started
 
@@ -24,7 +27,7 @@ Thanks for your interest in contributing to ChatMux! Before you start, please ta
    ```
 3. Install dependencies:
    ```bash
-   npm install
+   npm ci
    ```
 4. Start the development server:
    ```bash
