@@ -129,7 +129,7 @@ npm ci
 npm run dev
 ```
 
-Open <http://127.0.0.1:5173>. Development requires Node.js `22.22.2+` on the 22.x line or `24.15.0+` on the 24.x line, npm, Git, tmux, and Rust `1.85.1`. `npm run verify` runs the full release gate: audit, typecheck, Rust checks, tests, lint, identity checks, and a production build.
+Open <http://127.0.0.1:5173>. Development requires Node.js `22.22.2+` on the 22.x line or `24.15.0+` on the 24.x line, npm, Git, tmux, and Rust `1.85+`. `npm run verify` runs the full release gate: audit, typecheck, Rust checks, tests, lint, identity checks, and a production build.
 
 ## Documentation
 
