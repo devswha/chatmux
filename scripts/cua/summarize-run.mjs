@@ -106,6 +106,9 @@ const requiredArtifacts = await Promise.all([
   'desktop-interactions.png',
   'desktop-session-switch.png',
   'screenshot-0.png',
+  'native-chat-roundtrip-clean.png',
+  'pwa-installed.png',
+  'os-notification-delivered.png',
   'pane-cua-03-codex.txt',
   'os-preflight.json',
   'tailscale-https.json',
@@ -197,8 +200,20 @@ const requirements = [
   ),
   requirement(
     'unlocked-desktop-cua-capture',
-    desktopLocked ? 'blocked' : 'not_run',
+    desktopLocked
+      ? 'blocked'
+      : (
+        screenshot?.images?.length > 0
+        && readiness?.can_query_windows
+        && readiness?.can_focus_windows
+      ) ? 'passed' : mcp ? 'failed' : 'not_run',
     'screenshot-0.png and operator observation',
+    {
+      desktopLocked,
+      screenshotCaptured: (screenshot?.images?.length ?? 0) > 0,
+      canQueryWindows: readiness?.can_query_windows ?? false,
+      canFocusWindows: readiness?.can_focus_windows ?? false,
+    },
   ),
   requirement(
     'tailscale-https-auth',
@@ -217,6 +232,8 @@ const requirements = [
       installable: pwa.installable,
       pwaInstalled: pwa.checks?.pwa_installed ?? false,
       notificationPermission: pwa.notifications?.permission ?? null,
+      osNotificationDelivered: pwa.checks?.os_notification_delivered ?? false,
+      osNotificationArtifact: pwa.osNotification?.artifact ?? null,
       blocker: pwa.blocker ?? null,
     } : null,
   ),

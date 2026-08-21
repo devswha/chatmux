@@ -9,6 +9,18 @@ const outputRoot = path.resolve(
   process.env.CUA_EVIDENCE_DIR
     ?? path.join(repositoryRoot, '.omo', 'cua', 'pwa'),
 );
+const chromeUserDataDir = path.resolve(
+  process.env.CUA_CHROME_USER_DATA_DIR
+    ?? path.join(os.homedir(), '.config', 'google-chrome'),
+);
+const chromeProfile = process.env.CUA_CHROME_PROFILE ?? 'Default';
+
+function isLoopbackHostname(hostname) {
+  return hostname === 'localhost'
+    || hostname === '127.0.0.1'
+    || hostname === '::1'
+    || hostname.endsWith('.localhost');
+}
 
 async function readJson(filePath) {
   try {
@@ -68,21 +80,15 @@ async function matchingDesktopEntries(hostname) {
 }
 
 async function notificationPermission(hostname) {
-  const preferencesPath = path.join(
-    os.homedir(),
-    '.config',
-    'google-chrome',
-    'Default',
-    'Preferences',
-  );
+  const preferencesPath = path.join(chromeUserDataDir, chromeProfile, 'Preferences');
   const preferences = await readJson(preferencesPath);
   const exceptions = preferences?.profile?.content_settings?.exceptions?.notifications ?? {};
   const match = Object.entries(exceptions).find(([pattern]) => pattern.includes(hostname));
-  if (!match) return { profile: preferences ? 'Default' : null, permission: 'default' };
+  if (!match) return { profile: preferences ? chromeProfile : null, permission: 'default' };
   const [pattern, value] = match;
   const setting = value?.setting;
   return {
-    profile: 'Default',
+    profile: chromeProfile,
     originPattern: pattern,
     permission: setting === 1 ? 'granted' : setting === 2 ? 'denied' : 'default',
   };
@@ -91,7 +97,12 @@ async function notificationPermission(hostname) {
 const tailscale = await readJson(path.join(outputRoot, 'tailscale-https.json'));
 const baseUrl = process.env.CUA_PWA_BASE_URL ?? tailscale?.baseUrl ?? null;
 if (!baseUrl) throw new Error('No PWA base URL. Run cua:tailscale:evidence or set CUA_PWA_BASE_URL.');
-const hostname = new URL(baseUrl).hostname;
+const parsedBaseUrl = new URL(baseUrl);
+const hostname = parsedBaseUrl.hostname;
+const loopback = isLoopbackHostname(hostname);
+const secureContext = parsedBaseUrl.protocol === 'https:'
+  || (parsedBaseUrl.protocol === 'http:' && loopback);
+const osNotificationDelivered = process.env.CUA_OS_NOTIFICATION_DELIVERED === '1';
 const documentResponse = await fetchSummary(baseUrl, '/');
 const manifestPath = documentResponse.body.match(
   /<link[^>]+rel=["'][^"']*manifest[^"']*["'][^>]+href=["']([^"']+)["']/i,
@@ -117,7 +128,7 @@ const [desktopEntries, notifications] = await Promise.all([
   notificationPermission(hostname),
 ]);
 const checks = {
-  secure_https: new URL(baseUrl).protocol === 'https:',
+  secure_context: secureContext,
   document_served: documentResponse.ok && documentResponse.contentType?.includes('text/html'),
   manifest_linked: Boolean(manifestPath),
   manifest_valid: Boolean(
@@ -134,19 +145,35 @@ const checks = {
   install_icon_served: iconResponse.ok,
   pwa_installed: desktopEntries.some(({ hasAppLaunchCommand }) => hasAppLaunchCommand),
   notification_permission_granted: notifications.permission === 'granted',
+  os_notification_delivered: osNotificationDelivered,
 };
 const installable = Object.entries(checks)
-  .filter(([name]) => !['pwa_installed', 'notification_permission_granted'].includes(name))
+  .filter(([name]) => ![
+    'pwa_installed',
+    'notification_permission_granted',
+    'os_notification_delivered',
+  ].includes(name))
   .every(([, ok]) => ok);
-const actualEnvironmentOk = checks.pwa_installed && checks.notification_permission_granted;
+const actualEnvironmentOk = checks.pwa_installed
+  && checks.notification_permission_granted
+  && checks.os_notification_delivered;
 const evidence = {
   capturedAt: new Date().toISOString(),
   baseUrl,
   checks,
   installable,
   actualEnvironmentOk,
+  transport: {
+    protocol: parsedBaseUrl.protocol,
+    loopback,
+    secureContext,
+  },
   desktopEntries,
   notifications,
+  osNotification: {
+    delivered: osNotificationDelivered,
+    artifact: osNotificationDelivered ? 'os-notification-delivered.png' : null,
+  },
   resources: [documentResponse, manifestResponse, serviceWorkerResponse, iconResponse].map((entry) => ({
     pathname: entry.pathname,
     ok: entry.ok,
@@ -156,7 +183,7 @@ const evidence = {
   })),
   blocker: actualEnvironmentOk
     ? null
-    : 'Install the ChatMux PWA and grant notification permission in an unlocked desktop browser.',
+    : 'Install the ChatMux PWA, grant notification permission, and capture delivered OS notification evidence in an unlocked desktop browser.',
 };
 const outputPath = path.join(outputRoot, 'pwa-environment.json');
 await writeFile(outputPath, `${JSON.stringify(evidence, null, 2)}\n`, 'utf8');
