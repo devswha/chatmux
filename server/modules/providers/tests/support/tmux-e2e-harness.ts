@@ -6,7 +6,10 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
-import type { ExternalCliSession } from '@/modules/providers/services/external-cli-sessions.service.js';
+import type {
+  ExternalCliSession,
+  ExternalLocalCliKind,
+} from '@/modules/providers/services/external-cli-sessions.service.js';
 
 const execFileAsync = promisify(execFile);
 const REPOSITORY_ROOT = path.resolve(fileURLToPath(new URL('../../../../../', import.meta.url)));
@@ -53,8 +56,18 @@ export type TmuxE2EHarness = {
   hasSession: (sessionName: string) => Promise<boolean>;
   capturePane: (paneId: string) => Promise<string>;
   killSession: (sessionName: string) => Promise<void>;
+  startFakeExternal: (
+    kind: ExternalLocalCliKind,
+    sessionName: string,
+    cwd?: string,
+  ) => Promise<FakeTmuxAgent>;
   respawnFakeCodexPane: (sessionName: string, paneId: string, cwd?: string) => Promise<FakeTmuxAgent>;
   startFakeCodex: (sessionName: string, cwd?: string) => Promise<FakeTmuxAgent>;
+  startFakeCodexWithTranscript: (
+    sessionName: string,
+    sessionId: string,
+    cwd?: string,
+  ) => Promise<FakeTranscriptTmuxAgent>;
   startFakeCodexPane: (sessionName: string, cwd?: string) => Promise<FakeTmuxAgent>;
   startFakeGjc: (sessionName: string, cwd?: string) => Promise<FakeTmuxAgent>;
   startFakeGjcWithTranscript: (
@@ -124,25 +137,73 @@ async function readEvents(logPath: string): Promise<FakeAgentEvent[]> {
 async function writeFakeAgent(executablePath: string): Promise<void> {
   await writeFile(executablePath, `#!/usr/bin/env node
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const readline = require('node:readline');
-const logPath = process.argv[2];
+const logPath = process.argv[2] || path.join(
+  process.env.HOME || os.tmpdir(),
+  '.chatmux-cua-spawned',
+  path.basename(process.argv[1]) + '-' + process.pid + '.ndjson',
+);
 const transcriptPath = process.argv[3];
 const sessionId = process.argv[4];
 const cwd = process.argv[5];
+fs.mkdirSync(path.dirname(logPath), { recursive: true });
 const emit = (event) => fs.appendFileSync(logPath, JSON.stringify(event) + '\\n');
 let transcriptFd;
 let turn = 0;
 let runningTurn;
+const agentName = path.basename(process.argv[1]);
 const appendRecord = (record) => fs.appendFileSync(transcriptFd, JSON.stringify(record) + '\\n');
+const isCodex = agentName === 'codex';
+const ensureTranscript = () => {
+  if (!transcriptPath || !sessionId || !cwd) return false;
+  if (transcriptFd === undefined) {
+    fs.mkdirSync(path.dirname(transcriptPath), { recursive: true });
+    transcriptFd = fs.openSync(transcriptPath, 'a');
+    appendRecord(isCodex
+      ? { type: 'session_meta', timestamp: new Date().toISOString(), payload: { id: sessionId, cwd } }
+      : { type: 'session', version: 3, id: sessionId, timestamp: new Date().toISOString(), cwd });
+  }
+  return true;
+};
+const appendUserMessage = (text) => appendRecord(isCodex
+  ? { type: 'event_msg', timestamp: new Date().toISOString(), payload: { type: 'user_message', message: text } }
+  : {
+      type: 'message',
+      id: 'user-' + turn,
+      timestamp: new Date().toISOString(),
+      message: { role: 'user', content: [{ type: 'text', text }] },
+    });
+const appendAssistantMessage = (text) => appendRecord(isCodex
+  ? {
+      type: 'response_item',
+      timestamp: new Date().toISOString(),
+      payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text }] },
+    }
+  : {
+      type: 'message',
+      id: 'assistant-' + turn,
+      timestamp: new Date().toISOString(),
+      message: { role: 'assistant', stopReason: 'stop', content: [{ type: 'text', text }] },
+    });
+const finishLongRunningTurn = (text) => {
+  if (transcriptFd !== undefined) {
+    appendAssistantMessage(text);
+    fs.fsyncSync(transcriptFd);
+    emit({ type: 'transcript', path: transcriptPath, sessionId });
+  }
+};
 const startLongRunningTurn = () => {
   emit({ type: 'turn_started' });
   runningTurn = setTimeout(() => {
     runningTurn = undefined;
     emit({ type: 'turn_completed' });
-  }, 1_000);
+    finishLongRunningTurn('long-running fake reply');
+  }, 10_000);
 };
 emit({ type: 'ready', pid: process.pid });
+process.stdout.write('ChatMux CUA fixture ready: ' + agentName + '\\n');
 process.stdin.setRawMode?.(true);
 process.stdin.resume();
 const input = readline.createInterface({ input: process.stdin, crlfDelay: Infinity, terminal: false });
@@ -152,6 +213,7 @@ const interruptTurn = () => {
     clearTimeout(runningTurn);
     runningTurn = undefined;
     emit({ type: 'turn_interrupted' });
+    finishLongRunningTurn('interrupted');
   }
 };
 process.on('SIGINT', interruptTurn);
@@ -160,29 +222,22 @@ process.stdin.on('data', (chunk) => {
 });
 input.on('line', (value) => {
   emit({ type: 'input', value });
+  process.stdout.write('User: ' + value + '\\n');
   if (value === '__fake_long_running_turn__') {
+    turn += 1;
+    if (ensureTranscript()) {
+      appendUserMessage(value);
+      fs.fsyncSync(transcriptFd);
+      emit({ type: 'transcript', path: transcriptPath, sessionId });
+    }
     startLongRunningTurn();
     return;
   }
-  if (!transcriptPath || !sessionId || !cwd) return;
-  if (transcriptFd === undefined) {
-    fs.mkdirSync(path.dirname(transcriptPath), { recursive: true });
-    transcriptFd = fs.openSync(transcriptPath, 'a');
-    appendRecord({ type: 'session', version: 3, id: sessionId, timestamp: new Date().toISOString(), cwd });
-  }
   turn += 1;
-  appendRecord({
-    type: 'message',
-    id: 'user-' + turn,
-    timestamp: new Date().toISOString(),
-    message: { role: 'user', content: [{ type: 'text', text: value }] },
-  });
-  appendRecord({
-    type: 'message',
-    id: 'assistant-' + turn,
-    timestamp: new Date().toISOString(),
-    message: { role: 'assistant', content: [{ type: 'text', text: 'fake reply ' + turn }] },
-  });
+  process.stdout.write('Assistant: fake reply ' + turn + '\\n');
+  if (!ensureTranscript()) return;
+  appendUserMessage(value);
+  appendAssistantMessage('fake reply ' + turn);
   fs.fsyncSync(transcriptFd);
   emit({ type: 'transcript', path: transcriptPath, sessionId });
 });
@@ -202,8 +257,18 @@ export async function createTmuxE2EHarness(): Promise<TmuxE2EHarness> {
   const home = path.join(root, 'home');
   const socketRoot = path.join(root, 'sockets');
   const workspace = path.join(root, 'workspace');
-  const fakeCodexPath = path.join(root, 'codex');
-  const fakeGjcPath = path.join(root, 'gjc');
+  const fakeAgentDirectory = path.join(home, '.local', 'bin');
+  const fakeAgentPaths: Record<ExternalLocalCliKind | 'gjc', string> = {
+    claude: path.join(fakeAgentDirectory, 'claude'),
+    codex: path.join(fakeAgentDirectory, 'codex'),
+    cursor: path.join(fakeAgentDirectory, 'cursor-agent'),
+    opencode: path.join(fakeAgentDirectory, 'opencode'),
+    omp: path.join(fakeAgentDirectory, 'omp'),
+    omo: path.join(fakeAgentDirectory, 'omo'),
+    gjc: path.join(fakeAgentDirectory, 'gjc'),
+  };
+  const fakeCodexPath = fakeAgentPaths.codex;
+  const fakeGjcPath = fakeAgentPaths.gjc;
   const npmBinDirectory = path.join(workspace, 'node_modules', '.bin');
   const npmPackageDirectory = path.join(
     workspace,
@@ -219,12 +284,12 @@ export async function createTmuxE2EHarness(): Promise<TmuxE2EHarness> {
     mkdir(home, { recursive: true }),
     mkdir(socketRoot, { recursive: true }),
     mkdir(workspace, { recursive: true }),
+    mkdir(fakeAgentDirectory, { recursive: true }),
     mkdir(npmBinDirectory, { recursive: true }),
     mkdir(npmPackageDirectory, { recursive: true }),
   ]);
   await Promise.all([
-    writeFakeAgent(fakeCodexPath),
-    writeFakeAgent(fakeGjcPath),
+    ...Object.values(fakeAgentPaths).map((agentPath) => writeFakeAgent(agentPath)),
     writeFakeAgent(npmGjcPath),
     writeNpmBinShim(npmGjcShimPath, npmGjcPath),
     writeFile(path.join(workspace, 'package.json'), '{"private":true}\n', 'utf8'),
@@ -303,6 +368,8 @@ export async function createTmuxE2EHarness(): Promise<TmuxE2EHarness> {
     cwd = workspace,
     commandSuffix: string[] = [],
     splitExistingSession = false,
+    taggedKind?: ExternalLocalCliKind,
+    taggedSessionId?: string,
   ): Promise<FakeTmuxAgent> => {
     assertSafeSessionName(sessionName);
     await mkdir(cwd, { recursive: true });
@@ -312,6 +379,15 @@ export async function createTmuxE2EHarness(): Promise<TmuxE2EHarness> {
     await runTmux(splitExistingSession
       ? ['split-window', '-d', '-t', `=${sessionName}:`, '-c', cwd, command]
       : ['new-session', '-d', '-s', sessionName, '-c', cwd, command]);
+    if (taggedKind) {
+      await runTmux(['set-option', '-t', sessionName, '@chatmux_cli_kind', taggedKind]);
+    }
+    if (taggedSessionId) {
+      await runTmux([
+        'set-option', '-p', '-t', `=${sessionName}:`,
+        '@chatmux_provider_session_id', taggedSessionId,
+      ]);
+    }
 
     const events = (): Promise<FakeAgentEvent[]> => readEvents(logPath);
     return {
@@ -376,6 +452,45 @@ export async function createTmuxE2EHarness(): Promise<TmuxE2EHarness> {
     };
   };
 
+  const startFakeCodexWithTranscript = async (
+    sessionName: string,
+    sessionId: string,
+    cwd = workspace,
+  ): Promise<FakeTranscriptTmuxAgent> => {
+    if (!SESSION_ID_RE.test(sessionId)) {
+      throw new Error(`Invalid fake transcript session id: ${sessionId}`);
+    }
+    const transcriptPath = path.join(
+      home,
+      '.codex',
+      'sessions',
+      '2026',
+      '08',
+      '21',
+      `rollout-2026-08-21T00-00-00-${sessionId}.jsonl`,
+    );
+    const agent = await startFakeAgentCommand(
+      sessionName,
+      [process.execPath, fakeCodexPath],
+      cwd,
+      [transcriptPath, sessionId, cwd],
+      false,
+      'codex',
+      sessionId,
+    );
+    return {
+      ...agent,
+      sessionId,
+      transcriptPath,
+      waitForTranscript: () => waitFor(
+        async () => (await agent.events()).some(
+          (event) => event.type === 'transcript' && event.sessionId === sessionId,
+        ),
+        `${sessionName} transcript creation`,
+      ),
+    };
+  };
+
   const discoverFromFreshProcess = async (): Promise<ExternalCliSession[]> => {
     const tsx = path.join(REPOSITORY_ROOT, 'node_modules', '.bin', 'tsx');
     const probe = path.join(
@@ -411,6 +526,16 @@ export async function createTmuxE2EHarness(): Promise<TmuxE2EHarness> {
     hasSession,
     getSessionId,
     killSession,
+    startFakeExternal: (kind, sessionName, cwd) => (
+      startFakeAgentCommand(
+        sessionName,
+        [process.execPath, fakeAgentPaths[kind]],
+        cwd,
+        [],
+        false,
+        kind,
+      )
+    ),
     respawnFakeCodexPane: async (sessionName, paneId, cwd = workspace) => {
       assertSafeSessionName(sessionName);
       await mkdir(cwd, { recursive: true });
@@ -448,6 +573,7 @@ export async function createTmuxE2EHarness(): Promise<TmuxE2EHarness> {
     startFakeCodex: (sessionName, cwd) => (
       startFakeAgentCommand(sessionName, [process.execPath, fakeCodexPath], cwd)
     ),
+    startFakeCodexWithTranscript,
     startFakeCodexPane: (sessionName, cwd) => (
       startFakeAgentCommand(sessionName, [process.execPath, fakeCodexPath], cwd, [], true)
     ),

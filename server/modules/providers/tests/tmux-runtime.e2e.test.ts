@@ -13,6 +13,8 @@ import {
   sessionsDb,
 } from '@/modules/database/index.js';
 import { createExternalTurnMonitor } from '@/modules/notifications/index.js';
+import { CodexSessionSynchronizer } from '@/modules/providers/list/codex/codex-session-synchronizer.provider.js';
+import { CodexSessionsProvider } from '@/modules/providers/list/codex/codex-sessions.provider.js';
 import { GjcSessionSynchronizer } from '@/modules/providers/list/gjc/gjc-session-synchronizer.provider.js';
 import { GjcSessionsProvider } from '@/modules/providers/list/gjc/gjc-sessions.provider.js';
 import {
@@ -351,6 +353,100 @@ test('real tmux preserves pre-existing agents across fresh discovery processes a
   assert.equal(await harness.hasSession('e2e-alpha'), true, 'a rejected target must not disturb a live session');
   assert.equal(await harness.hasSession('e2e-beta'), true, 'test completion must leave tmux ownership external to ChatMux');
 });
+
+test('real tmux CUA fixture exposes seven coding agents and isolates an English Codex turn', {
+  skip: tmuxE2ESkip,
+  timeout: 30_000,
+  concurrency: false,
+}, async (t) => {
+  const harness = await createTmuxE2EHarness();
+  t.after(async () => {
+    closeConnection();
+    await harness.dispose();
+  });
+  closeConnection();
+  await initializeDatabase();
+
+  const fixtures = [
+    ['omo', 'cua-01-omo'],
+    ['claude', 'cua-02-claude'],
+    ['codex', 'cua-03-codex'],
+    ['cursor', 'cua-04-cursor'],
+    ['opencode', 'cua-05-opencode'],
+    ['omp', 'cua-07-omp'],
+  ] as const;
+  const codexSessionId = '019f0000-0000-7000-8000-000000000103';
+  const externalAgents = [];
+  let codexTranscriptAgent: Awaited<ReturnType<typeof harness.startFakeCodexWithTranscript>> | null = null;
+  for (const [kind, name] of fixtures) {
+    if (kind === 'codex') {
+      codexTranscriptAgent = await harness.startFakeCodexWithTranscript(name, codexSessionId);
+      externalAgents.push(codexTranscriptAgent);
+      continue;
+    }
+    const agent = await harness.startFakeExternal(kind, name);
+    externalAgents.push(agent);
+  }
+  const gjcAgent = await harness.startFakeGjc('cua-06-gjc');
+  await Promise.all([
+    ...externalAgents.map((agent) => agent.waitUntilReady()),
+    gjcAgent.waitUntilReady(),
+  ]);
+
+  const external = await harness.discoverFromFreshProcess();
+  assert.deepEqual(
+    external.map(({ tmuxName, kind }) => ({ tmuxName, kind })),
+    fixtures.map(([kind, tmuxName]) => ({ tmuxName, kind })),
+  );
+  assert.ok(
+    external.every((session) => session.agentPid && session.startedAtMs),
+    'every external fixture must expose an actionable process generation',
+  );
+
+  const gjc = await waitForLiveGeneration('cua-06-gjc');
+  assert.equal(gjc.kind, 'interactive');
+  assert.equal(gjc.tmuxName, 'cua-06-gjc');
+
+  const codex = external.find((session) => session.kind === 'codex');
+  assert.ok(codex);
+  const codexAgent = externalAgents[2]!;
+  const prompt = 'Summarize the current implementation in three concise bullets.';
+  await sendToTmuxPane(
+    externalActionTarget(codex.tmux, codex.agentPid, codex.startedAtMs),
+    prompt,
+  );
+  await Promise.all([
+    codexAgent.waitForInput(prompt),
+    codexTranscriptAgent?.waitForTranscript(),
+  ]);
+  await delay(100);
+
+  for (const agent of [...externalAgents.filter((candidate) => candidate !== codexAgent), gjcAgent]) {
+    assert.equal(
+      (await agent.events()).some((event) => event.type === 'input'),
+      false,
+      'Codex input must not leak into another fixture agent',
+    );
+  }
+  const pane = await harness.capturePane(codex.tmux.paneId);
+  assert.match(pane, /User: Summarize the current implementation/);
+  assert.match(pane, /Assistant: fake reply 1/);
+
+  assert.ok(codexTranscriptAgent);
+  assert.equal(
+    await new CodexSessionSynchronizer().synchronizeFile(codexTranscriptAgent.transcriptPath),
+    codexSessionId,
+  );
+  const history = await new CodexSessionsProvider().fetchHistory(codexSessionId);
+  assert.deepEqual(
+    history.messages.map(({ role, content }) => ({ role, content })),
+    [
+      { role: 'user', content: prompt },
+      { role: 'assistant', content: 'fake reply 1' },
+    ],
+  );
+});
+
 test('real tmux interrupt cancels a running verified fake-agent turn and repeats on the same generation', {
   skip: tmuxE2ESkip,
   timeout: 30_000,
