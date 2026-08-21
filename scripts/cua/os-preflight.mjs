@@ -5,6 +5,11 @@ import { access, mkdir, readFile, statfs, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
+import {
+  DEFAULT_TARGET_UBUNTU_VERSION,
+  deriveUpgradeStatus,
+} from './os-preflight-status.mjs';
+
 const execFileAsync = promisify(execFile);
 const repositoryRoot = path.resolve(import.meta.dirname, '../..');
 const outputRoot = path.resolve(
@@ -73,6 +78,25 @@ const targetVersion = releaseCheck.stdout.match(/New release ['"]([^'"]+)['"]/)?
   ?? releaseCheck.stdout.match(/Ubuntu ([0-9.]+) LTS/)?.[1]
   ?? null;
 const freeBytes = filesystem.bavail * filesystem.bsize;
+const gates = {
+  freeBytes,
+  packageHolds: holds.stdout.split('\n').filter(Boolean).length,
+  dpkgAuditEntries: dpkgAudit.stdout.split('\n').filter(Boolean).length,
+  failedSystemUnits: failedUnits.stdout.split('\n').filter(Boolean).length,
+  rebootRequired,
+  gitChanges: gitStatus.stdout.split('\n').filter(Boolean).length,
+  tmuxSessions: tmuxSessions.ok
+    ? tmuxSessions.stdout.split('\n').filter(Boolean).length
+    : 0,
+  nonInteractiveSudo: sudoCheck.ok,
+};
+const upgradeStatus = deriveUpgradeStatus({
+  currentVersion: osRelease.VERSION_ID,
+  desiredVersion: process.env.CUA_TARGET_UBUNTU_VERSION
+    ?? DEFAULT_TARGET_UBUNTU_VERSION,
+  targetAvailable: releaseCheck.ok && Boolean(targetVersion),
+  gates,
+});
 const report = {
   capturedAt: new Date().toISOString(),
   current: {
@@ -83,32 +107,15 @@ const report = {
   target: {
     available: releaseCheck.ok && Boolean(targetVersion),
     version: targetVersion,
+    desiredVersion: upgradeStatus.desiredVersion,
+    reached: upgradeStatus.reachedTarget,
   },
-  gates: {
-    freeBytes,
-    packageHolds: holds.stdout.split('\n').filter(Boolean).length,
-    dpkgAuditEntries: dpkgAudit.stdout.split('\n').filter(Boolean).length,
-    failedSystemUnits: failedUnits.stdout.split('\n').filter(Boolean).length,
-    rebootRequired,
-    gitChanges: gitStatus.stdout.split('\n').filter(Boolean).length,
-    tmuxSessions: tmuxSessions.ok
-      ? tmuxSessions.stdout.split('\n').filter(Boolean).length
-      : 0,
-    nonInteractiveSudo: sudoCheck.ok,
-  },
+  gates,
 };
-report.readyForAuthorizedUpgrade = (
-  report.target.available
-  && freeBytes >= 20 * 1024 * 1024 * 1024
-  && report.gates.packageHolds === 0
-  && report.gates.dpkgAuditEntries === 0
-  && report.gates.failedSystemUnits === 0
-  && !rebootRequired
-);
-report.blocked = !sudoCheck.ok;
-report.blocker = report.blocked
-  ? 'An administrator must enter the sudo password and remain available for reboot prompts.'
-  : null;
+report.readyForAuthorizedUpgrade = upgradeStatus.readyForAuthorizedUpgrade;
+report.upgradeComplete = upgradeStatus.upgradeComplete;
+report.blocked = upgradeStatus.blocked;
+report.blocker = upgradeStatus.blocker;
 await mkdir(outputRoot, { recursive: true });
 const outputPath = path.join(outputRoot, 'os-preflight.json');
 await writeFile(outputPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
