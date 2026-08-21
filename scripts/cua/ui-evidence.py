@@ -119,6 +119,57 @@ def input_events(manifest: dict[str, Any]) -> dict[str, list[str]]:
     return result
 
 
+def expected_session_order(manifest: dict[str, Any]) -> list[str]:
+    sessions = [
+        *manifest["api"]["external"]["data"]["externalSessions"],
+        *manifest["api"]["live"]["data"]["liveSessions"],
+    ]
+    sessions_by_name = {session["tmuxName"]: session for session in sessions}
+    order: list[str] = []
+    for agent in manifest["agents"]:
+        tmux = sessions_by_name[agent["tmuxName"]]["tmux"]
+        order.append(
+            "tmux:"
+            + "\0".join([
+                tmux["socketPath"],
+                tmux["sessionId"],
+                tmux["windowId"],
+                tmux["paneId"],
+            ])
+        )
+    return order
+
+
+def sidebar_order_and_status(page: Page, manifest: dict[str, Any]) -> dict[str, Any]:
+    rows: list[dict[str, Any]] = []
+    for agent in manifest["agents"]:
+        label = page.get_by_text(agent["tmuxName"], exact=True).first
+        button = label.locator("xpath=ancestor::button[1]")
+        box = button.bounding_box()
+        text = button.inner_text()
+        status = "RUN" if "RUN" in text else "READY" if "READY" in text else None
+        rows.append({
+            "tmuxName": agent["tmuxName"],
+            "status": status,
+            "y": box["y"] if box else float("inf"),
+        })
+    rows.sort(key=lambda row: row["y"])
+    actual_order = [row["tmuxName"] for row in rows]
+    expected_order = [agent["tmuxName"] for agent in manifest["agents"]]
+    expected_statuses = {
+        agent["tmuxName"]: "RUN" if agent["kind"] == PRIMARY_AGENT_KIND else "READY"
+        for agent in manifest["agents"]
+    }
+    actual_statuses = {row["tmuxName"]: row["status"] for row in rows}
+    return {
+        "ok": actual_order == expected_order and actual_statuses == expected_statuses,
+        "expectedOrder": expected_order,
+        "actualOrder": actual_order,
+        "expectedStatuses": expected_statuses,
+        "actualStatuses": actual_statuses,
+    }
+
+
 def select_primary_session(page: Page, mobile: bool = False) -> None:
     page.locator("body").wait_for(timeout=15_000)
     row = page.get_by_text(PRIMARY_TMUX_NAME, exact=True).first
@@ -144,8 +195,9 @@ session_url = f"{manifest['baseUrl']}/session/{SESSION_ID}"
 results: dict[str, Any] = {
     "mode": "browser_cdp_fallback",
     "reason": (
-        "The in-app Browser runtime is unavailable in this Codex session and "
-        "GNOME 42 cannot provide verified CUA window targeting."
+        "Browser layout and interaction evidence is captured over CDP; native "
+        "desktop window-targeting evidence is recorded separately by the "
+        "Computer Use MCP harness."
     ),
     "baseUrl": manifest["baseUrl"],
     "sessionUrl": session_url,
@@ -159,6 +211,11 @@ with sync_playwright() as playwright:
     context = browser.contexts[0]
     page = context.pages[0] if context.pages else context.new_page()
     page.set_viewport_size({"width": 1600, "height": 1000})
+    page.goto(manifest["baseUrl"], wait_until="domcontentloaded")
+    page.evaluate(
+        "(order) => localStorage.setItem('chatmux.liveSessionOrder.v1', JSON.stringify(order))",
+        expected_session_order(manifest),
+    )
     page.goto(session_url, wait_until="domcontentloaded")
     select_primary_session(page)
     page.get_by_role("tab", name="Chat", exact=True).wait_for(timeout=15_000)
@@ -179,6 +236,10 @@ with sync_playwright() as playwright:
         "expected": AGENTS,
         "missing": missing_agents,
     }
+    results["checks"]["agent_order_and_status"] = sidebar_order_and_status(
+        page,
+        manifest,
+    )
 
     composer = page.locator("textarea")
     prompt_message = page.locator("div[dir='auto']").filter(has_text=PROMPT)

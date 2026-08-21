@@ -140,11 +140,31 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const readline = require('node:readline');
-const logPath = process.argv[2] || path.join(
-  process.env.HOME || os.tmpdir(),
-  '.chatmux-cua-spawned',
-  path.basename(process.argv[1]) + '-' + process.pid + '.ndjson',
-);
+const agentName = path.basename(process.argv[1]);
+const firstArgument = process.argv[2];
+if (
+  firstArgument === '--list-models'
+  || (firstArgument === 'models' && process.argv.includes('--verbose'))
+  || (firstArgument === 'models' && process.argv.includes('--json'))
+) {
+  if (agentName === 'omp' && firstArgument === 'models') {
+    process.stdout.write('{"models":[]}\\n');
+  } else if (agentName === 'omo' && firstArgument === '--list-models') {
+    process.stdout.write('Name  Provider  Model  Thinking\\n');
+  } else if (agentName === 'cursor-agent' && firstArgument === '--list-models') {
+    process.stdout.write('Available models\\n');
+  }
+  process.exit(0);
+}
+const logPath = (
+  firstArgument && path.isAbsolute(firstArgument) && firstArgument.endsWith('.ndjson')
+)
+  ? firstArgument
+  : path.join(
+      process.env.HOME || os.tmpdir(),
+      '.chatmux-cua-spawned',
+      agentName + '-' + process.pid + '.ndjson',
+    );
 const transcriptPath = process.argv[3];
 const sessionId = process.argv[4];
 const cwd = process.argv[5];
@@ -153,7 +173,6 @@ const emit = (event) => fs.appendFileSync(logPath, JSON.stringify(event) + '\\n'
 let transcriptFd;
 let turn = 0;
 let runningTurn;
-const agentName = path.basename(process.argv[1]);
 const appendRecord = (record) => fs.appendFileSync(transcriptFd, JSON.stringify(record) + '\\n');
 const isCodex = agentName === 'codex';
 const ensureTranscript = () => {
