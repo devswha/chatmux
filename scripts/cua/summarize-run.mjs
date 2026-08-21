@@ -77,7 +77,9 @@ const listWindows = call(mcp, 'list_windows')?.result?.structuredContent;
 const focusedWindow = call(mcp, 'focused_window')?.result?.structuredContent;
 const screenshot = call(mcp, 'screenshot');
 const setupWindowTargeting = call(setup, 'setup_window_targeting')?.result?.structuredContent;
-const gnomeVersion = doctor?.platform?.gnome_shell_version?.detail ?? null;
+const gnomeVersion = doctor?.platform?.gnome_shell_version?.detail
+  ?? osPreflight?.current?.gnome
+  ?? null;
 const gnomeMajor = Number.parseInt(gnomeVersion?.match(/\d+/)?.[0] ?? '', 10);
 const desktopLocked = process.env.CUA_DESKTOP_LOCKED === '1';
 const expectedAgents = [
@@ -172,7 +174,7 @@ const requirements = [
   requirement(
     'ubuntu-24.04-and-gnome-46',
     osRelease.VERSION_ID === '24.04' && gnomeMajor >= 46 ? 'passed' : 'blocked',
-    '/etc/os-release and computer-use-mcp.json',
+    '/etc/os-release, os-preflight.json, and computer-use-mcp.json',
     {
       os: osRelease.PRETTY_NAME,
       gnomeVersion,
