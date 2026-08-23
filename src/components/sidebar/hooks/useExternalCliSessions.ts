@@ -28,6 +28,23 @@ export type ExternalCliSession = {
   authority?: 'stream' | 'rest' | 'none';
   connectionIssue?: ProviderConnectionIssue;
 };
+
+function canReuseExternalMetadata(
+  row: DiscoveryRow,
+  metadata: ExternalCliSession | undefined,
+): metadata is ExternalCliSession {
+  if (!metadata || metadata.kind !== row.kind) return false;
+  if (row.kind === 'ssh' || row.kind === 'shell') return true;
+  if (!row.process || !metadata.process) return false;
+  if (
+    row.process.pid !== metadata.process.pid
+    || row.process.startedAtMs !== metadata.process.startedAtMs
+  ) return false;
+  return !row.providerSessionId
+    || !metadata.transcriptSessionId
+    || row.providerSessionId === metadata.transcriptSessionId;
+}
+
 export function mergeExternalDiscoveryRows(
   rows: DiscoveryRow[],
   restSessions: Map<string, ExternalCliSession>,
@@ -40,8 +57,15 @@ export function mergeExternalDiscoveryRows(
   return rows
     .filter((row) => row.lane === 'external' && ['claude', 'codex', 'cursor', 'opencode', 'omp', 'omo', 'ssh', 'shell'].includes(row.kind))
     .map((row) => {
-      const metadata = restSessions.get(tmuxPaneIdentityKey(row.tmux)) ?? previous.get(tmuxPaneIdentityKey(row.tmux));
-      const { connectionIssue: _staleConnectionIssue, ...stableMetadata } = metadata ?? {};
+      const paneKey = tmuxPaneIdentityKey(row.tmux);
+      const restMetadata = restSessions.get(paneKey);
+      const previousMetadata = previous.get(paneKey);
+      const reusableMetadata = canReuseExternalMetadata(row, restMetadata)
+        ? restMetadata
+        : canReuseExternalMetadata(row, previousMetadata)
+          ? previousMetadata
+          : undefined;
+      const { connectionIssue: _staleConnectionIssue, ...stableMetadata } = reusableMetadata ?? {};
       if (row.presence !== 'present') {
         return externalIdentityOnly({
           tmuxName: row.tmuxName,
@@ -59,7 +83,8 @@ export function mergeExternalDiscoveryRows(
         kind: row.kind as ExternalCliSession['kind'],
         activity: row.activity,
         ...(row.connectionIssue ? { connectionIssue: row.connectionIssue } : {}),
-        projectPath: row.cwd ?? metadata?.projectPath,
+        projectPath: row.cwd ?? reusableMetadata?.projectPath,
+        ...(row.providerSessionId ? { transcriptSessionId: row.providerSessionId } : {}),
         presence: 'present' as const,
         authority: 'stream' as const,
       };
