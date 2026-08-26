@@ -389,7 +389,44 @@ test('OMO rejects a Codex-only home (RED: foreign-source leakage)', { concurrenc
  */
 test('GJC includes bundled/discovered native inventory (RED: missing native union)', { concurrency: false }, async () => {
   const sandbox = await makeSandbox('gjc-native-inventory');
+  const originalPath = process.env.PATH;
   try {
+    const binDir = path.join(sandbox.homeDir, 'bin');
+    const shimPath = path.join(binDir, 'gjc');
+    await fs.mkdir(binDir, { recursive: true });
+    await fs.writeFile(
+      shimPath,
+      [
+        `#!${process.execPath}`,
+        "const argv = process.argv.slice(2).join(' ');",
+        "if (argv === 'skills list --json') {",
+        `process.stdout.write(${JSON.stringify(JSON.stringify({
+          skills: [
+            {
+              name: 'autoresearch',
+              description: 'Goal-directed research',
+              path: 'embedded:gjc/skills/autoresearch/SKILL.md',
+              source: 'bundled:default',
+            },
+          ],
+        }))});`,
+        'process.exit(0);',
+        '}',
+        "if (argv === 'skills discover --json') {",
+        `process.stdout.write(${JSON.stringify(JSON.stringify({
+          candidates: [],
+          diagnostics: [],
+        }))});`,
+        'process.exit(0);',
+        '}',
+        'process.exit(64);',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+    await fs.chmod(shimPath, 0o755);
+    process.env.PATH = binDir;
+
     // A discovered custom skill on disk - GJC already surfaces this today.
     await writeSkill(
       path.join(sandbox.workspacePath, '.gjc', 'skills'),
@@ -412,6 +449,11 @@ test('GJC includes bundled/discovered native inventory (RED: missing native unio
       'GJC must include bundled native inventory (gjc skills list --json)',
     );
   } finally {
+    if (originalPath === undefined) {
+      delete process.env.PATH;
+    } else {
+      process.env.PATH = originalPath;
+    }
     await sandbox.restore();
   }
 });
