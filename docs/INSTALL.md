@@ -33,7 +33,8 @@ QR and keep it connected while using ChatMux. Non-owner allowed users can use th
 app but cannot run `서버 업데이트`; the owner alone can do so.
 
 For the mobile flow from finding the PC link through browser use, Android/iOS PWA
-installation, notifications, and troubleshooting, see the [mobile usage guide](MOBILE.md).
+installation, notifications, and troubleshooting, see the [mobile usage guide](mobile_eng.md)
+or its [Korean translation](mobile_kr.md).
 
 ## Requirements
 

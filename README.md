@@ -57,7 +57,7 @@ The `CLI output` tab of the same session is the real TUI running inside tmux, re
 
 Turn on Tailscale on the phone, scan the QR code from the install output, and use the in-app **Install app** button to keep ChatMux as a PWA:
 
-For link discovery, browser-only use, Android/iOS installation, notifications, and troubleshooting, see the [mobile usage guide](docs/MOBILE.md).
+For link discovery, browser-only use, Android/iOS installation, notifications, and troubleshooting, see the [mobile usage guide](docs/mobile_eng.md) ([한국어](docs/mobile_kr.md)).
 
 <table align="center">
   <tr>
@@ -137,7 +137,7 @@ Open <http://127.0.0.1:5173>. Development requires Node.js `22.22.2+` on the 22.
 ## Documentation
 
 - [Production installation](docs/INSTALL.md)
-- [Mobile usage](docs/MOBILE.md)
+- [Mobile usage](docs/mobile_eng.md) ([한국어](docs/mobile_kr.md))
 - [Remote access](docs/REMOTE-ACCESS.md)
 - [Self-hosted operations](docs/SELF-HOST.md)
 - [Product scope and roadmap](docs/ROADMAP.md)
