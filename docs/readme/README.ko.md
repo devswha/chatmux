@@ -57,6 +57,8 @@ Linux x86_64(glibc 2.35+)와 tmux, 사용자 레벨 systemd, `curl`/`tar`/`sha25
 
 휴대폰에서 Tailscale을 켜고 설치 출력의 QR 코드를 스캔한 다음, 앱 안의 **Install app** 버튼으로 ChatMux를 PWA로 설치하세요:
 
+접속 링크 확인, 브라우저 사용, Android/iOS 설치, 알림과 문제 해결은 [모바일 사용 가이드](../MOBILE.md)를 참고하세요.
+
 <table align="center">
   <tr>
     <td align="center">
@@ -135,6 +137,7 @@ npm run dev
 ## 문서
 
 - [프로덕션 설치](../INSTALL.md)
+- [모바일 사용](../MOBILE.md)
 - [원격 접속](../REMOTE-ACCESS.md)
 - [셀프호스트 운영](../SELF-HOST.md)
 - [제품 범위와 로드맵](../ROADMAP.md)

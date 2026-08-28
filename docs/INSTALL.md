@@ -32,6 +32,8 @@ be explicitly allowed for ordinary access. Turn Tailscale on before scanning the
 QR and keep it connected while using ChatMux. Non-owner allowed users can use the
 app but cannot run `서버 업데이트`; the owner alone can do so.
 
+For the mobile flow from finding the PC link through browser use, Android/iOS PWA
+installation, notifications, and troubleshooting, see the [mobile usage guide](MOBILE.md).
 
 ## Requirements
 
