@@ -188,7 +188,7 @@ async function removeStaleStages(dataRoot: string): Promise<void> {
     const stagingPath = path.join(dataRoot, entry.name);
     const stats = await existingIdentityStats(stagingPath);
     if (!stats || !stats.isDirectory() || stats.isSymbolicLink() || (stats.mode & 0o777) !== 0o700) continue;
-    await rm(stagingPath, { recursive: true });
+    await rm(stagingPath, { recursive: true, force: true });
   }
 }
 

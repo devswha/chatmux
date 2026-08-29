@@ -46,10 +46,11 @@ export async function loadFleetPeerSigner(): Promise<FleetIdentitySigner> {
 
 export async function loadFleetSignedIdentity(): Promise<SignedInstallationIdentity> {
   const dataRoot = path.dirname(getDatabasePath());
-  const [identity, signer] = await Promise.all([
-    loadOrCreateInstallationIdentity(dataRoot),
-    loadFleetPeerSigner(),
-  ]);
+  // Sequential on purpose: loadFleetPeerSigner also loads the installation
+  // identity, and racing two creators against each other lets one side's
+  // stale-stage cleanup delete the other's in-flight staging directory.
+  const identity = await loadOrCreateInstallationIdentity(dataRoot);
+  const signer = await loadFleetPeerSigner();
   const handle = await open(
     path.join(dataRoot, 'installation-identity', PUBLIC_KEY_FILE),
     constants.O_RDONLY | (constants.O_NOFOLLOW || 0),
