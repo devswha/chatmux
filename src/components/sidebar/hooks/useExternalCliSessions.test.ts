@@ -39,6 +39,57 @@ test('hydrates external metadata onto a discovery row that arrived first', () =>
   }]);
 });
 
+test('rebinds a restarted process in the same pane to its new provider session', () => {
+  const restartedProcess = { pid: 84, startedAtMs: 200 };
+  const row: DiscoveryRow = {
+    key: 'external:1', lane: 'external', tmuxName: 'stream-name', tmux,
+    process: restartedProcess, kind: 'omo', providerSessionId: 'transcript-2',
+    activity: 'waiting_user', cwd: '/new-project', presence: 'present',
+  };
+  const staleSession: ExternalCliSession = {
+    tmuxName: 'rest-name', tmux, process, kind: 'omo', transcriptSessionId: 'transcript-1',
+    sessionName: 'Previous session', model: 'old-model', effort: 'high',
+    transcriptEnded: true, projectPath: '/old-project',
+  };
+
+  const sessions = mergeExternalDiscoveryRows(
+    [row],
+    new Map([[tmuxPaneIdentityKey(tmux), staleSession]]),
+    [staleSession],
+  );
+
+  assert.deepEqual(sessions, [{
+    tmuxName: 'stream-name',
+    tmux,
+    process: restartedProcess,
+    kind: 'omo',
+    activity: 'waiting_user',
+    projectPath: '/new-project',
+    transcriptSessionId: 'transcript-2',
+    presence: 'present',
+    authority: 'stream',
+  }]);
+});
+
+test('rebinds a new provider session even when the process generation is unchanged', () => {
+  const row: DiscoveryRow = {
+    key: 'external:1', lane: 'external', tmuxName: 'stream-name', tmux, process,
+    kind: 'claude', providerSessionId: 'transcript-2', activity: 'waiting_user',
+    cwd: '/stream', presence: 'present',
+  };
+  const staleSession: ExternalCliSession = {
+    tmuxName: 'rest-name', tmux, process, kind: 'claude', transcriptSessionId: 'transcript-1',
+    sessionName: 'Previous session', model: 'old-model', effort: 'high',
+  };
+
+  const [session] = mergeExternalDiscoveryRows([row], new Map(), [staleSession]);
+
+  assert.equal(session.transcriptSessionId, 'transcript-2');
+  assert.equal(session.sessionName, undefined);
+  assert.equal(session.model, undefined);
+  assert.equal(session.effort, undefined);
+});
+
 test('stream loss clears mutable provider activity before REST fallback', () => {
   const sessions: ExternalCliSession[] = [
     { tmuxName: 'error', tmux, process, kind: 'claude', activity: 'error' },
