@@ -35,6 +35,7 @@ function armFile(directory: string, prefix: string): Promise<string> {
 function openRemoteShell(url: string): Readonly<{
   send: (frame: Frame) => Promise<void>;
   waitFor: (predicate: (frame: Frame) => boolean, label: string) => Promise<Frame>;
+  outputText: () => string;
   close: () => void;
 }> {
   const ws = new WebSocket(url);
@@ -57,7 +58,10 @@ function openRemoteShell(url: string): Readonly<{
     const existing = frames.find(predicate);
     if (existing !== undefined) return existing;
     return new Promise<Frame>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error(`remote-shell wait timed out: ${label}`)), 45_000);
+      const timeout = setTimeout(() => {
+        const observed = frames.slice(-12).map((frame) => `${String(frame.type)}:${String(frame.data ?? frame.reason ?? '').slice(0, 90)}`).join(' | ');
+        reject(new Error(`remote-shell wait timed out: ${label}; recent frames: ${observed || 'none'}`));
+      }, 45_000);
       waiters.push({ predicate, resolve: (frame) => { clearTimeout(timeout); resolve(frame); } });
     });
   };
@@ -67,6 +71,7 @@ function openRemoteShell(url: string): Readonly<{
       ws.send(JSON.stringify(frame));
     },
     waitFor,
+    outputText: () => frames.reduce((text, frame) => (frame.type === 'output' ? text + String(frame.data) : text), ''),
     close: () => ws.close(),
   };
 }
@@ -94,7 +99,9 @@ test('task-23 terminal, spawn, termination, and pane respawn stay on the address
     const shell = openRemoteShell(`${fleet.servers.hub.url.replace('http', 'ws')}/remote-shell`);
     t.after(() => shell.close());
     const attachReply = shell.waitFor((frame) => frame.type === 'replay_start' || frame.type === 'error', 'attach reply');
-    const output = shell.waitFor((frame) => frame.type === 'output' && String(frame.data).includes('ChatMux CUA fixture ready'), 'pane output');
+    // The initial redraw can split the marker across output frames on slow hosts,
+    // so match against the concatenated stream instead of a single frame.
+    const output = shell.waitFor((frame) => frame.type === 'output' && shell.outputText().includes('ChatMux CUA fixture ready'), 'pane output');
     await shell.send({
       type: 'init', shellProtocolVersion: 2, mode: 'remote-attach',
       target: { kind: 'pane', hostId: fleet.hostIds.a, ...targetA }, cols: 100, rows: 30, resume: null,
