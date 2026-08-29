@@ -1,6 +1,6 @@
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { createWriteStream } from 'node:fs';
-import { mkdir, rm } from 'node:fs/promises';
+import { mkdir, readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
@@ -35,18 +35,25 @@ export class FleetProcessError extends Error {
 }
 
 export function waitForOutput(child: ChildProcess, marker: RegExp, logPath: string): Promise<void> {
+  // The child's stdout is already piped into the log file by the caller. Poll the
+  // file instead of attaching another data listener: a second listener on an
+  // already-flowing piped stream can miss early chunks on loaded CI hosts and
+  // time out even though the marker reached the log.
   return new Promise<void>((resolve, reject) => {
-    let output = '';
+    let settled = false;
     const finish = (error?: Error): void => {
+      if (settled) return;
+      settled = true;
+      clearInterval(poll);
       clearTimeout(timeout);
-      child.stdout?.off('data', onData);
       child.off('exit', onExit);
       if (error) reject(error); else resolve();
     };
-    const onData = (chunk: Buffer): void => {
-      output += chunk.toString('utf8');
-      if (marker.test(output)) finish();
-    };
+    const poll = setInterval(() => {
+      void readFile(logPath, 'utf8').then((text) => {
+        if (!settled && marker.test(text)) finish();
+      }, () => undefined);
+    }, 200);
     const onExit = (code: number | null, signal: NodeJS.Signals | null): void => {
       finish(new FleetProcessError(`Process exited before readiness (${code ?? signal ?? 'unknown'})`, logPath));
     };
@@ -54,7 +61,6 @@ export function waitForOutput(child: ChildProcess, marker: RegExp, logPath: stri
       () => finish(new FleetProcessError('Process readiness timed out', logPath)),
       START_TIMEOUT_MS,
     );
-    child.stdout?.on('data', onData);
     child.once('exit', onExit);
   });
 }
@@ -104,7 +110,7 @@ export async function startFleetServer(
 ): Promise<FleetProcess> {
   const logPath = path.join(node.logRoot, 'chatmux-server.log');
   await mkdir(path.dirname(logPath), { recursive: true });
-  const log = createWriteStream(logPath, { flags: 'a' });
+  const log = createWriteStream(logPath, { flags: 'w' });
   const tsxCli = path.join(repositoryRoot, 'node_modules', 'tsx', 'dist', 'cli.mjs');
   const child = spawn(process.execPath, [tsxCli, '--tsconfig', 'server/tsconfig.json', 'server/index.js'], {
     cwd: repositoryRoot,

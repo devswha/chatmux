@@ -12,7 +12,7 @@ export async function startVite(
   logPath: string,
 ): Promise<ChildProcess> {
   await mkdir(path.dirname(logPath), { recursive: true });
-  const log = createWriteStream(logPath, { flags: 'a' });
+  const log = createWriteStream(logPath, { flags: 'w' });
   const viteCli = path.join(repositoryRoot, 'node_modules', 'vite', 'bin', 'vite.js');
   const child = spawn(process.execPath, [viteCli, '--host', '127.0.0.1', '--port', String(port), '--strictPort'], {
     cwd: repositoryRoot,
