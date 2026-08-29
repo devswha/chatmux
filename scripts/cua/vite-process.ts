@@ -3,7 +3,7 @@ import { createWriteStream } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 
-import { FleetProcessError, waitForOutput } from './fleet-process-lifecycle.js';
+import { FleetProcessError, stopProcessGroup, waitForOutput } from './fleet-process-lifecycle.js';
 
 export async function startVite(
   repositoryRoot: string,
@@ -24,8 +24,13 @@ export async function startVite(
   child.stderr?.pipe(log, { end: false });
   const pid = child.pid;
   if (pid === undefined) throw new FleetProcessError('Vite process has no PID', logPath);
-  await waitForOutput(child, /Local:/, logPath);
-  const response = await fetch(`http://127.0.0.1:${port}`, { signal: AbortSignal.timeout(5_000) });
-  if (!response.ok) throw new FleetProcessError(`Vite returned ${response.status}`, logPath);
+  try {
+    await waitForOutput(child, /Local:/, logPath, 90_000);
+    const response = await fetch(`http://127.0.0.1:${port}`, { signal: AbortSignal.timeout(15_000) });
+    if (!response.ok) throw new FleetProcessError(`Vite returned ${response.status}`, logPath);
+  } catch (error) {
+    await stopProcessGroup(child, 'SIGKILL');
+    throw error;
+  }
   return child;
 }

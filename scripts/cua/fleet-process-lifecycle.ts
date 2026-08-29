@@ -34,7 +34,7 @@ export class FleetProcessError extends Error {
   }
 }
 
-export function waitForOutput(child: ChildProcess, marker: RegExp, logPath: string): Promise<void> {
+export function waitForOutput(child: ChildProcess, marker: RegExp, logPath: string, timeoutMs: number = START_TIMEOUT_MS): Promise<void> {
   // The child's stdout is already piped into the log file by the caller. Poll the
   // file instead of attaching another data listener: a second listener on an
   // already-flowing piped stream can miss early chunks on loaded CI hosts and
@@ -59,7 +59,7 @@ export function waitForOutput(child: ChildProcess, marker: RegExp, logPath: stri
     };
     const timeout = setTimeout(
       () => finish(new FleetProcessError('Process readiness timed out', logPath)),
-      START_TIMEOUT_MS,
+      timeoutMs,
     );
     child.once('exit', onExit);
   });
