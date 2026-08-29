@@ -1,6 +1,6 @@
 # ChatMux 제품 범위와 로드맵
 
-기준일: 2026-08-27
+기준일: 2026-08-29
 
 이 문서는 ChatMux의 제품 범위와 작업 우선순위에 대한 단일 기준이다.
 ChatMux는 tmux에서 이미 실행 중인 코딩 에이전트를 발견하고, 읽고, 제어하는
@@ -103,43 +103,43 @@ mosh, et.rs)도 모두 Tailscale 또는 포트 개방으로 수렴한다.
 실행되는 fake Codex/GJC CLI를 사용한 end-to-end 테스트로 검증한다. CI와
 릴리스 검증 환경은 tmux와 Bun을 명시적으로 설치하고 같은 계약을 실행한다.
 
-### P1 — pane 단위 identity
+### P1 — pane 단위 identity (shipped)
 
 현재 session name 중심 모델을 tmux pane 중심 모델로 바꾼다.
 
-- `socket + session_id + window_id + pane_id`를 정규 identity로 사용
-- 한 tmux session 안의 여러 agent pane을 각각 표시
-- 입력과 terminal attach는 정확한 pane을 대상으로 실행
-- agent process 종료, `kill-pane`, `kill-session`을 서로 다른 작업으로 분리
-- 기본 종료 작업이 tmux session 전체를 제거하지 않도록 변경
-- pane 재사용 시 이전 프로세스 혈통과 generation을 무효화
+- [x] `socket + session_id + window_id + pane_id`를 정규 identity로 사용
+- [x] 한 tmux session 안의 여러 agent pane을 각각 표시
+- [x] 입력과 terminal attach는 정확한 pane을 대상으로 실행
+- [x] agent process 종료, `kill-pane`, `kill-session`을 서로 다른 작업으로 분리
+- [x] 기본 종료 작업이 tmux session 전체를 제거하지 않도록 변경
+- [x] pane 재사용 시 이전 프로세스 혈통과 generation을 무효화
 
-### P2 — 단일 discovery stream
+### P2 — 단일 discovery stream (shipped)
 
 브라우저마다 `tmux list-panes`와 `ps`를 반복하지 않도록 서버가 하나의
 권위 있는 discovery snapshot을 관리한다.
 
-- 서버에서 한 번 수집하고 모든 브라우저에 WebSocket delta 배포
-- 재접속 시 전체 snapshot 뒤 순서 있는 변경 이벤트 제공
-- 일시적인 scan 실패와 실제 pane 종료를 구분
-- 브라우저 수와 무관한 일정한 tmux/프로세스 조회 비용 보장
+- [x] 서버에서 한 번 수집하고 모든 브라우저에 WebSocket delta 배포
+- [x] 재접속 시 전체 snapshot 뒤 순서 있는 변경 이벤트 제공
+- [x] 일시적인 scan 실패와 실제 pane 종료를 구분
+- [x] 브라우저 수와 무관한 일정한 tmux/프로세스 조회 비용 보장
 
 ### P3 — tmux 확장성
 
-- 설정으로 추가할 수 있는 custom agent command/argv 감지
-- parser가 없는 agent의 terminal fallback
-- `tmux -L`과 `tmux -S`로 실행한 여러 tmux 서버 지원
-- socket, pane, 프로세스 혈통, transcript 연결 근거를 보여주는 진단 화면
+- [ ] 설정으로 추가할 수 있는 custom agent command/argv 감지
+- [x] parser가 없는 agent의 terminal fallback
+- [ ] `tmux -L`과 `tmux -S`로 실행한 여러 tmux 서버 지원
+- [ ] socket, pane, 프로세스 혈통, transcript 연결 근거를 보여주는 진단 화면
 
-### P4 — 모바일 웹 관제
+### P4 — 모바일 웹 관제 (shipped)
 
-- 질문, 완료, 실패 알림
-- 짧은 답변과 승인
-- interrupt와 안전한 종료
-- 네트워크 재연결 후 같은 pane 복구
-- 작은 화면의 terminal 입력과 읽기 개선
-- 원격 접근 안내: 설치 시 Tailscale 감지 힌트, 모드 전환 시 이전 주소 무효 고지,
-  `chatmux status`의 현재 모드·유효 주소 표시 ([REMOTE-ACCESS.md](REMOTE-ACCESS.md) 5절)
+- [x] 질문, 완료, 실패 알림
+- [x] 짧은 답변과 승인
+- [x] interrupt와 안전한 종료
+- [x] 네트워크 재연결 후 같은 pane 복구
+- [x] 작은 화면의 terminal 입력과 읽기 개선
+- [x] 원격 접근 안내: 설치 시 Tailscale 감지 힌트, 모드 전환 시 이전 주소 무효 고지,
+      `chatmux status`의 현재 모드·유효 주소 표시 ([REMOTE-ACCESS.md](REMOTE-ACCESS.md) 5절)
 
 네이티브 앱을 만들지 않고 반응형 웹과 PWA 범위에서 구현한다.
 
@@ -190,3 +190,4 @@ Fleet는 remote desktop/IDE, cloud sync, relay, 자동 failover, fleet updater�
 | 2026-07-27 | 설치를 단일 형태(password + 전체 인터페이스)로 고정하고 원격 모드는 명시적 명령으로 분리 |
 | 2026-07-27 | 릴레이 서버 운영과 자체 모바일 앱을 범위 밖으로 확정. 원격 도달성은 사용자 선택에 위임 ([REMOTE-ACCESS.md](REMOTE-ACCESS.md)) |
 | 2026-08-27 | one hub + nine full peers fleet를 현재 기능으로 기록. Tailscale WSS 기본, literal loopback SSH 예외, owner-only enrollment, direct-peer recovery와 hub-first update를 계약으로 확정 |
+| 2026-08-29 | P1·P2·P4를 현재 기능으로 기록. P3은 terminal fallback만 현재 기능이고 custom agent 감지, 여러 tmux 서버 discovery, 진단 화면은 열어 둔다 |
