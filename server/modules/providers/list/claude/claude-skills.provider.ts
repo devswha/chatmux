@@ -70,6 +70,21 @@ const readClaudePluginName = async (
   }
 };
 
+// `readJsonConfig` rethrows on invalid JSON so callers that must parse a
+// broken config still see the failure. Claude's plugin gate needs the safer
+// contract: a corrupt `settings.json` or `installed_plugins.json` must degrade
+// plugin discovery to "no plugin skills" without also erasing personal and
+// project sources emitted by the shared filesystem scanner.
+const readClaudeJsonConfigSafely = async (
+  filePath: string,
+): Promise<Record<string, unknown>> => {
+  try {
+    return await readJsonConfig(filePath);
+  } catch {
+    return {};
+  }
+};
+
 export class ClaudeSkillsProvider extends SkillsProvider {
   constructor() {
     super('claude');
@@ -108,13 +123,15 @@ export class ClaudeSkillsProvider extends SkillsProvider {
   }
 
   private async listPluginSkills(claudeHomePath: string): Promise<ProviderSkill[]> {
-    const settings = await readJsonConfig(path.join(claudeHomePath, 'settings.json'));
+    const settings = await readClaudeJsonConfigSafely(
+      path.join(claudeHomePath, 'settings.json'),
+    );
     const enabledPlugins = readObjectRecord(settings.enabledPlugins);
     if (!enabledPlugins) {
       return [];
     }
 
-    const installedConfig = await readJsonConfig(
+    const installedConfig = await readClaudeJsonConfigSafely(
       path.join(claudeHomePath, 'plugins', 'installed_plugins.json'),
     );
     const installedPlugins = readObjectRecord(installedConfig.plugins);
