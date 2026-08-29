@@ -16,11 +16,11 @@ if (!['isolated', 'active'].includes(desktopEvidenceMode)) {
   throw new Error('CUA_DESKTOP_EVIDENCE_MODE must be isolated or active.');
 }
 
-function outputSignal(child, stream, marker, description) {
+function outputSignal(child, stream, marker, description, timeoutMs = 90_000) {
   return new Promise((resolve, reject) => {
     let output = '';
     const source = child[stream];
-    const timeout = setTimeout(() => reject(new Error(`${description} timed out`)), 90_000);
+    const timeout = setTimeout(() => reject(new Error(`${description} timed out`)), timeoutMs);
     const inspect = (chunk) => {
       const text = chunk.toString();
       output += text;
@@ -106,7 +106,7 @@ try {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   fixture.stderr.pipe(process.stderr);
-  await outputSignal(fixture, 'stdout', /CUA_FIXTURE_READY=/, 'CUA fixture readiness');
+  await outputSignal(fixture, 'stdout', /CUA_FIXTURE_READY=/, 'CUA fixture readiness', 300_000);
   chrome = spawn(chromePath, [
     '--headless=new', '--no-sandbox', '--disable-gpu', '--force-renderer-accessibility',
     `--remote-debugging-port=${cdpPort}`, `--user-data-dir=${profile}`, '--window-size=1600,1000',
