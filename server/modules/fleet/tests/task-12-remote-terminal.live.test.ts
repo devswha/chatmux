@@ -60,15 +60,27 @@ test('real peer-owned PTY attaches peer A, accepts input and resize, and leaves 
       const pane = paneState(socketA, paneId);
       rejectMarker?.(new TypeError(`${reason}; lifecycle=${lifecycle}; target=${JSON.stringify(verified.tmux)}; pane=${JSON.stringify(pane)}; output=${JSON.stringify(output)}`));
     };
+    let resolveAttached: (() => void) | undefined;
+    const attached = new Promise<void>((resolve, reject) => {
+      if (output.includes('bash-')) { resolve(); return; }
+      resolveAttached = resolve;
+      const attachTimeout = setTimeout(() => reject(new TypeError('tmux attach screen was not replayed within 15 seconds')), 15_000);
+      attachTimeout.unref?.();
+    });
     terminal.onData((chunk) => {
       output += chunk;
+      if (resolveAttached !== undefined && output.includes('bash-')) { const ready = resolveAttached; resolveAttached = undefined; ready(); }
       if (!settled && output.includes('LIVE_A_MARKER') && output.includes('39 120')) { settled = true; resolveMarker?.(); }
     });
     terminal.onExit(() => { lifecycle = 'exited'; failure('terminal exited before peer A marker and final dimensions'); });
-    const timeout = setTimeout(() => failure('terminal output timed out'), 15_000);
+    const timeout = setTimeout(() => failure('terminal output timed out'), 30_000);
 
     // When
     terminal.resize(120, 40);
+    // Input written before the tmux client replays the pane is flushed by the
+    // client's terminal setup and never reaches the pane, so wait for the
+    // attach screen before writing (observed as lost input on slow CI hosts).
+    await attached;
     terminal.write("stty size; printf 'LIVE_A_MARKER\\n'\n");
     try { await marker; } finally { clearTimeout(timeout); }
 

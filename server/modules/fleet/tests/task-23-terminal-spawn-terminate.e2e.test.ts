@@ -57,7 +57,7 @@ function openRemoteShell(url: string): Readonly<{
     const existing = frames.find(predicate);
     if (existing !== undefined) return existing;
     return new Promise<Frame>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error(`remote-shell wait timed out: ${label}`)), 15_000);
+      const timeout = setTimeout(() => reject(new Error(`remote-shell wait timed out: ${label}`)), 45_000);
       waiters.push({ predicate, resolve: (frame) => { clearTimeout(timeout); resolve(frame); } });
     });
   };
@@ -131,7 +131,7 @@ test('task-23 terminal, spawn, termination, and pane respawn stay on the address
     assert.ok(projectId !== undefined);
     const spawnSignalName = `task23-spawn-${process.pid}`;
     await fleet.tmux(harness.peers.a, ['set-hook', '-g', 'after-new-session', `wait-for -S ${spawnSignalName}`]);
-    t.after(() => fleet.tmux(harness.peers.a, ['set-hook', '-gu', 'after-new-session']).then(() => undefined));
+    t.after(() => fleet.tmux(harness.peers.a, ['set-hook', '-gu', 'after-new-session']).then(() => undefined, () => undefined));
     const spawnedSignal = fleet.tmux(harness.peers.a, ['wait-for', spawnSignalName]);
     const agentReady = armFile(fleet.spawnedDir(harness.peers.a), 'gjc-');
     // When: a session is spawned on peer A through the hub.
