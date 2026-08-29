@@ -117,6 +117,10 @@ jobs:
 
   fleet-release:
     name: Fleet release evidence
+    # Release-grade browser/desktop QA runs after merge on main; per-PR runners
+    # starve the fixture startup budgets without proving anything the required
+    # Verify gates do not already cover.
+    if: github.event_name == 'push'
     needs: [verify, bundle]
     runs-on: ubuntu-22.04
     timeout-minutes: 60
