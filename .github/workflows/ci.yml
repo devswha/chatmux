@@ -75,6 +75,7 @@ jobs:
           name: verify-receipt-node-${{ matrix.node-version }}
           path: .ci-receipts
           if-no-files-found: error
+          include-hidden-files: true
           retention-days: 14
 
   bundle:
@@ -111,6 +112,7 @@ jobs:
           name: bundle-receipt-node-22
           path: .ci-receipts
           if-no-files-found: error
+          include-hidden-files: true
           retention-days: 14
 
   fleet-release:
@@ -167,4 +169,5 @@ jobs:
           name: fleet-release-evidence-node-24
           path: .cua-release-evidence
           if-no-files-found: error
+          include-hidden-files: true
           retention-days: 14
