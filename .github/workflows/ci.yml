@@ -13,6 +13,7 @@ on:
       - '**.md'
       - 'docs/**'
       - '.github/ISSUE_TEMPLATE/**'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -117,10 +118,11 @@ jobs:
 
   fleet-release:
     name: Fleet release evidence
-    # Release-grade browser/desktop QA runs after merge on main; per-PR runners
-    # starve the fixture startup budgets without proving anything the required
-    # Verify gates do not already cover.
-    if: github.event_name == 'push'
+    # Release-grade browser/desktop QA requires a warm dedicated host; CI runners
+    # starve the fixture startup budgets with high variance. Run it manually (the
+    # owner's verified local cua:release flow remains the release gate) and keep
+    # automatic CI on the verify and bundle contracts.
+    if: github.event_name == 'workflow_dispatch'
     needs: [verify, bundle]
     runs-on: ubuntu-22.04
     timeout-minutes: 60
