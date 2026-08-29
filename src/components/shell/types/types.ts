@@ -3,44 +3,58 @@ import type { FitAddon } from '@xterm/addon-fit';
 import type { Terminal } from '@xterm/xterm';
 
 import type { Project, ProjectSession } from '../../../types/app';
+import type { FleetPaneReference } from '../../../../shared/fleet';
 import type { TmuxPaneIdentity, TmuxProcessGeneration } from '../../../../shared/tmux';
 
-export type ShellAttachTarget = {
-  tmux: TmuxPaneIdentity;
-} & ({
-  targetClass: 'local-agent';
-  process: TmuxProcessGeneration;
-} | {
-  targetClass: 'attach-only';
-  capability: string;
-});
+export type RemoteTerminalResume = Readonly<{
+  readonly peerProcessEpoch: string;
+  readonly terminalSessionId: string;
+  readonly streamEpoch: string;
+  readonly lastSeq: number;
+}>;
 
-export type ShellInitMessage = {
-  type: 'init';
-  shellProtocolVersion: 2;
-  projectPath: string;
-  sessionId: string | null;
-  hasSession: boolean;
-  provider: string;
-  cols: number;
-  rows: number;
-  forceRestart?: boolean;
+export type ShellAttachTarget =
+  | Readonly<{ readonly targetClass: 'local-agent'; readonly tmux: TmuxPaneIdentity; readonly process: TmuxProcessGeneration }>
+  | Readonly<{ readonly targetClass: 'attach-only'; readonly tmux: TmuxPaneIdentity; readonly capability: string }>
+  | Readonly<{ readonly targetClass: 'remote-agent'; readonly target: FleetPaneReference }>;
+export type InteractiveShellAttachTarget = Exclude<ShellAttachTarget, { readonly targetClass: 'attach-only' }>;
+
+type LocalShellInitBase = Readonly<{
+  readonly type: 'init';
+  readonly shellProtocolVersion: 2;
+  readonly projectPath: string;
+  readonly sessionId: string | null;
+  readonly hasSession: boolean;
+  readonly provider: string;
+  readonly cols: number;
+  readonly rows: number;
+  readonly forceRestart?: boolean;
   /** Last output seq this client rendered — enables seamless server-side resume. */
-  lastSeq?: number;
-} & ({
-  mode: 'plain-shell';
-  initialCommand: string | null | undefined;
-  isPlainShell: boolean;
-} | ({
-  mode: 'typed-attach';
-  tmux: TmuxPaneIdentity;
-} & ({
-  targetClass: 'local-agent';
-  process: TmuxProcessGeneration;
-} | {
-  targetClass: 'attach-only';
-  capability: string;
-})));
+  readonly lastSeq?: number;
+}>;
+
+export type ShellInitMessage =
+  | (LocalShellInitBase & Readonly<{
+      readonly mode: 'plain-shell';
+      readonly initialCommand: string | null | undefined;
+      readonly isPlainShell: boolean;
+    }>)
+  | (LocalShellInitBase & Readonly<{
+      readonly mode: 'typed-attach';
+      readonly tmux: TmuxPaneIdentity;
+    }> & (
+      | Readonly<{ readonly targetClass: 'local-agent'; readonly process: TmuxProcessGeneration }>
+      | Readonly<{ readonly targetClass: 'attach-only'; readonly capability: string }>
+    ))
+  | Readonly<{
+      readonly type: 'init';
+      readonly shellProtocolVersion: 2;
+      readonly mode: 'remote-attach';
+      readonly target: FleetPaneReference;
+      readonly cols: number;
+      readonly rows: number;
+      readonly resume: RemoteTerminalResume | null;
+    }>;
 
 export type ShellResizeMessage = {
   type: 'resize';
@@ -57,7 +71,7 @@ export type ShellOutgoingMessage = ShellInitMessage | ShellResizeMessage | Shell
 
 export type ShellIncomingMessage =
   | { type: 'output'; data: string; seq?: number }
-  | { type: 'replay_start'; mode?: 'resume' | 'redraw' }
+  | { type: 'replay_start'; mode?: 'resume' | 'redraw'; resume?: unknown }
   | { type: 'auth_url'; url?: string; autoOpen?: boolean }
   | { type: 'url_open'; url?: string }
   | { type: 'error'; code?: string; reloadRequired?: boolean; message?: string }

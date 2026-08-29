@@ -1,6 +1,6 @@
 # ChatMux 제품 범위와 로드맵
 
-기준일: 2026-07-23
+기준일: 2026-08-29
 
 이 문서는 ChatMux의 제품 범위와 작업 우선순위에 대한 단일 기준이다.
 ChatMux는 tmux에서 이미 실행 중인 코딩 에이전트를 발견하고, 읽고, 제어하는
@@ -21,6 +21,8 @@ ChatMux가 제공하는 핵심 가치는 다음과 같다.
 3. 입력, 재개, 중단, 종료를 정확한 tmux 대상과 프로세스 혈통에만 전달한다.
 4. ChatMux가 재시작되거나 종료돼도 tmux 세션은 계속 실행된다.
 5. 같은 호스트의 여러 에이전트를 하나의 웹 관제면에서 확인한다.
+6. 한 hub에서 최대 아홉 개의 독립된 full peer 설치를 직접 연결해 표시한다
+   (총 열 대). 각 peer의 tmux, 데이터, 키, updater, 직접 UI는 peer가 계속 소유한다.
 
 ## 제품 불변식
 
@@ -33,6 +35,10 @@ ChatMux가 제공하는 핵심 가치는 다음과 같다.
   다른 대화를 연결하지 않는다.
 - ChatMux 프로세스나 브라우저 연결의 수명은 tmux 세션 수명과 분리한다.
 - 새 기능보다 기존 tmux 세션을 잘못 표시하거나 잘못 제어하지 않는 것이 우선이다.
+- fleet browser 작업은 owner-only다. hub는 peer를 직접 연결하고, peer는 모든 작업을
+  실행하기 전에 로컬 identity·lineage·generation을 다시 검증한다.
+- remote host가 `syncing`이면 fresh snapshot 전까지 쓰기를 중단하고, `offline`이면
+  다른 host로 우회하거나 mutation을 재생하지 않는다.
 
 ## 현재 기준선
 
@@ -43,9 +49,12 @@ ChatMux가 제공하는 핵심 가치는 다음과 같다.
 - transcript가 없거나 검증되지 않은 세션과 SSH 세션은 terminal로 연다.
 - 내장 relay 또는 선택적 control tower를 통해 tmux 입력과 생명주기 작업을
   수행한다.
-- 설치 기본값은 password 인증과 전체 인터페이스 바인딩이며, 같은 네트워크의
-  브라우저가 앱 설치 없이 접속한다. 원격은 `chatmux access enable`로
-  tailscale·vpn·password 중 하나를 명시적으로 선택한다.
+- 설치 시 로그인된 Tailscale이 있으면 loopback backend + Tailscale Serve HTTPS를
+  선택하고, 없으면 password/LAN으로 폴백한다. 현재 유효 주소는 `chatmux status`가
+  표시한다.
+- owner는 한 hub에 최대 아홉 full peer를 등록해 host별 session, transcript, verified
+  terminal/control surface를 사용할 수 있다. 기본 peer transport는 Tailscale
+  HTTPS/WSS다. 예외는 owner가 직접 만든 loopback SSH local forward뿐이다.
 
 ## 범위 밖
 
@@ -53,13 +62,16 @@ ChatMux가 제공하는 핵심 가치는 다음과 같다.
 
 - ChatMux가 에이전트 작업, durable job, worktree, checkpoint, commit을
   소유하는 실행 오케스트레이터
-- 프로젝트 clone, 코드 리뷰, diff, 파일 편집을 중심으로 한 범용 IDE
+- 프로젝트 clone, 코드 리뷰, diff, 파일 편집을 중심으로 한 범용 또는 remote IDE
+- remote desktop, cloud/database sync, fleet-wide updater, arbitrary remote command,
+  remote plain-shell 생성, 자동 failover·hub 승격
 - Electron 또는 Tauri 기반 데스크톱 앱 확장
 - 네이티브 모바일 앱
 - ChatMux가 운영하는 릴레이·터널·시그널링 서버 (원격 도달성은 사용자가
   선택한 VPN·터널·포트포워딩에 위임한다)
 - Live Activity, Apple Watch 같은 네이티브 알림 표면
 - provider가 제공하는 CLI, 인증, sandbox, 모델 실행 기능의 재구현
+- zero-config 원격 도달성, ChatMux가 관리하는 Tailscale/SSH 설정 또는 키
 
 Electron 셸, 데스크톱 패키징, 전용 알림 채널과 원격 target 확장 코드는
 2026-07-23 제거를 확정했다. 웹/PWA 외의 전달 표면은 유지하지 않는다.
@@ -91,45 +103,61 @@ mosh, et.rs)도 모두 Tailscale 또는 포트 개방으로 수렴한다.
 실행되는 fake Codex/GJC CLI를 사용한 end-to-end 테스트로 검증한다. CI와
 릴리스 검증 환경은 tmux와 Bun을 명시적으로 설치하고 같은 계약을 실행한다.
 
-### P1 — pane 단위 identity
+### P1 — pane 단위 identity (shipped)
 
 현재 session name 중심 모델을 tmux pane 중심 모델로 바꾼다.
 
-- `socket + session_id + window_id + pane_id`를 정규 identity로 사용
-- 한 tmux session 안의 여러 agent pane을 각각 표시
-- 입력과 terminal attach는 정확한 pane을 대상으로 실행
-- agent process 종료, `kill-pane`, `kill-session`을 서로 다른 작업으로 분리
-- 기본 종료 작업이 tmux session 전체를 제거하지 않도록 변경
-- pane 재사용 시 이전 프로세스 혈통과 generation을 무효화
+- [x] `socket + session_id + window_id + pane_id`를 정규 identity로 사용
+- [x] 한 tmux session 안의 여러 agent pane을 각각 표시
+- [x] 입력과 terminal attach는 정확한 pane을 대상으로 실행
+- [x] agent process 종료, `kill-pane`, `kill-session`을 서로 다른 작업으로 분리
+- [x] 기본 종료 작업이 tmux session 전체를 제거하지 않도록 변경
+- [x] pane 재사용 시 이전 프로세스 혈통과 generation을 무효화
 
-### P2 — 단일 discovery stream
+### P2 — 단일 discovery stream (shipped)
 
 브라우저마다 `tmux list-panes`와 `ps`를 반복하지 않도록 서버가 하나의
 권위 있는 discovery snapshot을 관리한다.
 
-- 서버에서 한 번 수집하고 모든 브라우저에 WebSocket delta 배포
-- 재접속 시 전체 snapshot 뒤 순서 있는 변경 이벤트 제공
-- 일시적인 scan 실패와 실제 pane 종료를 구분
-- 브라우저 수와 무관한 일정한 tmux/프로세스 조회 비용 보장
+- [x] 서버에서 한 번 수집하고 모든 브라우저에 WebSocket delta 배포
+- [x] 재접속 시 전체 snapshot 뒤 순서 있는 변경 이벤트 제공
+- [x] 일시적인 scan 실패와 실제 pane 종료를 구분
+- [x] 브라우저 수와 무관한 일정한 tmux/프로세스 조회 비용 보장
 
 ### P3 — tmux 확장성
 
-- 설정으로 추가할 수 있는 custom agent command/argv 감지
-- parser가 없는 agent의 terminal fallback
-- `tmux -L`과 `tmux -S`로 실행한 여러 tmux 서버 지원
-- socket, pane, 프로세스 혈통, transcript 연결 근거를 보여주는 진단 화면
+- [ ] 설정으로 추가할 수 있는 custom agent command/argv 감지
+- [x] parser가 없는 agent의 terminal fallback
+- [ ] `tmux -L`과 `tmux -S`로 실행한 여러 tmux 서버 지원
+- [ ] socket, pane, 프로세스 혈통, transcript 연결 근거를 보여주는 진단 화면
 
-### P4 — 모바일 웹 관제
+### P4 — 모바일 웹 관제 (shipped)
 
-- 질문, 완료, 실패 알림
-- 짧은 답변과 승인
-- interrupt와 안전한 종료
-- 네트워크 재연결 후 같은 pane 복구
-- 작은 화면의 terminal 입력과 읽기 개선
-- 원격 접근 안내: 설치 시 Tailscale 감지 힌트, 모드 전환 시 이전 주소 무효 고지,
-  `chatmux status`의 현재 모드·유효 주소 표시 ([REMOTE-ACCESS.md](REMOTE-ACCESS.md) 5절)
+- [x] 질문, 완료, 실패 알림
+- [x] 짧은 답변과 승인
+- [x] interrupt와 안전한 종료
+- [x] 네트워크 재연결 후 같은 pane 복구
+- [x] 작은 화면의 terminal 입력과 읽기 개선
+- [x] 원격 접근 안내: 설치 시 Tailscale 감지 힌트, 모드 전환 시 이전 주소 무효 고지,
+      `chatmux status`의 현재 모드·유효 주소 표시 ([REMOTE-ACCESS.md](REMOTE-ACCESS.md) 5절)
 
 네이티브 앱을 만들지 않고 반응형 웹과 PWA 범위에서 구현한다.
+
+### P5 — Multi-PC fleet (shipped)
+
+- [x] one hub + 최대 nine full peers (총 ten PCs), owner-only enrollment
+- [x] single-use 10-minute pairing code와 양방향 installation-key pinning
+- [x] Tailscale Serve HTTPS/WSS 기본 경로, plaintext downgrade 없음
+- [x] owner가 수동 생성한 SSH local forward에 한해 literal
+      `ws://127.0.0.1` 또는 `ws://[::1]` 허용
+- [x] host-qualified catalog/session/chat/verified terminal/completion routing
+- [x] `offline`·`syncing`·`revoked`·`incompatible` fail-closed 상태와 명시적 reconnect
+- [x] local-first revoke, peer 직접 UI 복구, installation-key loss revoke/re-pair
+- [x] hub-first, peer-by-peer update 운영 계약
+
+상세 설치·복구·범위 계약은
+[REMOTE-ACCESS.md §8](REMOTE-ACCESS.md#8-multi-pc-fleet-one-hub-and-full-peers)에 있다.
+Fleet는 remote desktop/IDE, cloud sync, relay, 자동 failover, fleet updater가 아니다.
 
 ## 우선순위 규칙
 
@@ -161,3 +189,5 @@ mosh, et.rs)도 모두 Tailscale 또는 포트 개방으로 수렴한다.
 | 2026-07-23 | Electron 셸과 데스크톱 전용 확장 코드 제거 확정 |
 | 2026-07-27 | 설치를 단일 형태(password + 전체 인터페이스)로 고정하고 원격 모드는 명시적 명령으로 분리 |
 | 2026-07-27 | 릴레이 서버 운영과 자체 모바일 앱을 범위 밖으로 확정. 원격 도달성은 사용자 선택에 위임 ([REMOTE-ACCESS.md](REMOTE-ACCESS.md)) |
+| 2026-08-27 | one hub + nine full peers fleet를 현재 기능으로 기록. Tailscale WSS 기본, literal loopback SSH 예외, owner-only enrollment, direct-peer recovery와 hub-first update를 계약으로 확정 |
+| 2026-08-29 | P1·P2·P4를 현재 기능으로 기록. P3은 terminal fallback만 현재 기능이고 custom agent 감지, 여러 tmux 서버 discovery, 진단 화면은 열어 둔다 |

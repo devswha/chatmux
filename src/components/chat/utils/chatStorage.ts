@@ -1,3 +1,12 @@
+import { activeSessionHostId, localHostId } from '../../../fleet/hostIdentity';
+import {
+  clearQueuedDraft,
+  LEGACY_QUEUED_MESSAGE_PREFIX,
+  type PersistedStateStorage,
+  QUEUED_DRAFT_PREFIX,
+  readQueuedDraft,
+  writeQueuedDraft,
+} from '../../../fleet/persistedHostState';
 import type { ClaudeSettings } from '../types/types';
 
 export const CLAUDE_SETTINGS_KEY = 'claude-settings';
@@ -11,7 +20,9 @@ export const safeLocalStorage = {
         console.warn('localStorage quota exceeded, clearing old data');
 
         const keys = Object.keys(localStorage);
-        const draftKeys = keys.filter((k) => k.startsWith('draft_input_') || k.startsWith('queued_message_'));
+        const draftKeys = keys.filter((k) => k.startsWith('draft_input_')
+          || k.startsWith(LEGACY_QUEUED_MESSAGE_PREFIX)
+          || k.startsWith(QUEUED_DRAFT_PREFIX));
         draftKeys.forEach((k) => {
           localStorage.removeItem(k);
         });
@@ -56,37 +67,51 @@ export type StoredQueuedMessage = {
   options?: QueuedSendOptions;
 };
 
-export const queuedMessageKey = (sessionId: string) => `queued_message_${sessionId}`;
+/**
+ * Quota-aware storage port for host-qualified draft records. Draft reads and
+ * writes must survive a full or unavailable `localStorage`, which is exactly what
+ * `safeLocalStorage` already handles for every other composer key.
+ */
+const draftStorage: PersistedStateStorage = {
+  keys: () => {
+    try {
+      return Object.keys(localStorage);
+    } catch {
+      return [];
+    }
+  },
+  getItem: (key) => safeLocalStorage.getItem(key),
+  setItem: (key, value) => safeLocalStorage.setItem(key, value),
+  removeItem: (key) => safeLocalStorage.removeItem(key),
+};
+
+export const queuedMessageKey = (sessionId: string) => `${LEGACY_QUEUED_MESSAGE_PREFIX}${sessionId}`;
 
 /**
- * Reads a session's queued message. Understands both the JSON
- * `{ content, options }` format and the legacy raw-text format.
+ * Host the composer's bare session id belongs to: the viewed session's host, or
+ * the local installation when no session route host applies. `null` means the
+ * server has not supplied an authoritative identity yet, and the legacy bare key
+ * layout is kept untouched until it does.
+ */
+function composerTarget(sessionId: string) {
+  return { hostId: activeSessionHostId() ?? localHostId(), localId: sessionId };
+}
+
+/**
+ * Reads a session's queued draft, host-qualified once the identity is known and
+ * from the legacy bare key before that. Understands the versioned record, the
+ * `{ content, options }` object, and the oldest raw-text format.
  */
 export function readQueuedMessage(sessionId: string): StoredQueuedMessage | null {
-  const raw = safeLocalStorage.getItem(queuedMessageKey(sessionId));
-  if (!raw) {
-    return null;
-  }
-
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (parsed && typeof parsed === 'object' && typeof (parsed as StoredQueuedMessage).content === 'string') {
-      const { content, options } = parsed as StoredQueuedMessage;
-      return content.trim() ? { content, options } : null;
-    }
-  } catch {
-    // Legacy format: the raw draft text itself.
-  }
-
-  return raw.trim() ? { content: raw } : null;
+  return readQueuedDraft(draftStorage, composerTarget(sessionId));
 }
 
 export function writeQueuedMessage(sessionId: string, message: StoredQueuedMessage): void {
-  safeLocalStorage.setItem(queuedMessageKey(sessionId), JSON.stringify(message));
+  writeQueuedDraft(draftStorage, composerTarget(sessionId), message);
 }
 
 export function clearQueuedMessage(sessionId: string): void {
-  safeLocalStorage.removeItem(queuedMessageKey(sessionId));
+  clearQueuedDraft(draftStorage, composerTarget(sessionId));
 }
 
 export function getClaudeSettings(): ClaudeSettings {

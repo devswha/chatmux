@@ -12,7 +12,7 @@ import type { Project, ProjectSession } from '../../../../types/app';
 import type { TmuxPaneTarget } from '../../../../../shared/tmux';
 import type { ExternalCliSession } from '../../hooks/useExternalCliSessions';
 import {
-  LIVE_SESSION_ORDER_STORAGE_KEY,
+  LIVE_SESSION_ORDER_KEY,
   createSessionOrderId,
 } from '../../utils/sessionOrder';
 import { CompletionNotificationsContext } from '../../context/CompletionNotificationsContext';
@@ -200,8 +200,12 @@ test('mounted unified list reorders mixed providers through DndContext and resto
     });
     const reorderedIds = [expectedIds[4]!, ...expectedIds.slice(0, 4)];
     assert.deepEqual(rowIds(renderer!), reorderedIds, 'DndContext onDragEnd moves shell ahead of GJC and local agents');
-    assert.deepEqual(JSON.parse(values.get(LIVE_SESSION_ORDER_STORAGE_KEY) ?? '[]'), reorderedIds);
-    assert.ok(writes.includes(LIVE_SESSION_ORDER_STORAGE_KEY), 'the mounted drag path persists the unified order');
+    assert.deepEqual(
+      JSON.parse(values.get(LIVE_SESSION_ORDER_KEY) ?? '{}'),
+      { version: 2, entries: reorderedIds },
+      'the persisted order carries its schema version',
+    );
+    assert.ok(writes.includes(LIVE_SESSION_ORDER_KEY), 'the mounted drag path persists the unified order');
     assert.deepEqual(dragLabels(renderer!), [initialLabels[4]!, ...initialLabels.slice(0, 4)]);
 
     await act(async () => { renderer!.unmount(); });

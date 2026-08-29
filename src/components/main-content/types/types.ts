@@ -1,15 +1,23 @@
 import type { Dispatch, SetStateAction } from 'react';
 
-import type { AppTab, ExternalTerminalTarget, Project, ProjectSession } from '../../../types/app';
 import type { TmuxPaneTarget } from '../../../../shared/tmux';
 import type {
   MarkSessionIdle,
   MarkSessionProcessing,
   SessionActivityMap,
 } from '../../../hooks/useSessionProtection';
-import type { SessionEstablishedContext, SessionNavigationOptions } from '../../chat/types/types';
+import type { AppTab, ExternalTerminalTarget, Project, ProjectSession } from '../../../types/app';
+import type {
+  SessionEstablishedContext,
+  SessionNavigationOptions,
+} from '../../chat/types/types';
 import type { SettingsMainTab } from '../../settings/types/types';
 
+export type LiveSessionActionTarget = TmuxPaneTarget & Readonly<{
+  readonly hostId?: string;
+  readonly localId?: string;
+  readonly lane?: 'external' | 'live';
+}>;
 
 export type PrdFile = {
   name: string;
@@ -22,7 +30,7 @@ export type MainContentProps = {
   selectedProject: Project | null;
   selectedSession: ProjectSession | null;
   isSessionReadOnly: boolean;
-  liveSessionTarget: TmuxPaneTarget | null;
+  liveSessionTarget: LiveSessionActionTarget | null;
   liveSessionModel: string | null;
   liveSessionEffort: string | null;
   liveSessionName: string | null;

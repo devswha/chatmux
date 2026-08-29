@@ -19,3 +19,9 @@ test('global install options before the command are retained', () => {
 test('options requiring values reject a following command', () => {
   assert.throws(() => parseArgs(['--port', 'install']), /--port requires a value/);
 });
+
+test('fleet commands preserve their local operator arguments', () => {
+  const parsed = parseArgs(['fleet', 'revoke', '10000000-0000-4000-8000-000000000001']);
+  assert.equal(parsed.command, 'fleet');
+  assert.deepEqual(parsed.remainingArgs, ['revoke', '10000000-0000-4000-8000-000000000001']);
+});

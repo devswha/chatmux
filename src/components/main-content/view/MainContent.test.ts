@@ -25,7 +25,7 @@ test('applies attached and output frames for the shared pane subscription key', 
   });
 });
 test('keeps an attached pane on stream output without repeated REST fallback reads', async () => {
-  const source = await readFile(new URL('./MainContent.tsx', import.meta.url), 'utf8');
+  const source = await readFile(new URL('../hooks/useExternalPaneOutput.ts', import.meta.url), 'utf8');
   const intervalSource = source.match(/const fallbackTimer = window\.setInterval\(\(\) => \{[\s\S]*?\n {4}\}, 5_000\);/);
   assert.ok(intervalSource, 'MainContent must retain the bounded 5-second pane fallback timer');
 
@@ -114,7 +114,9 @@ test('M5b B8: forced attach resolves to the exact pane 4-tuple as a local-agent 
 
   const otherPane = { ...target, tmux: { ...tmux, paneId: '%9' } };
   const otherAttachTarget = buildExternalAttachTarget(otherPane);
-  assert.notDeepEqual(otherAttachTarget?.tmux, attachTarget?.tmux);
+  if (otherAttachTarget && attachTarget && 'tmux' in otherAttachTarget && 'tmux' in attachTarget) {
+    assert.notDeepEqual(otherAttachTarget.tmux, attachTarget.tmux);
+  }
 });
 
 test('M5b B8 AC3: a ssh/shell row without an issued attachCapability never attaches, regardless of forceAttach', () => {
@@ -154,12 +156,13 @@ test('CLI output tab upgrades to an exact-4-tuple interactive attach only with a
 
 test('pending CLI output hides the duplicate chat composer while terminal input is active', async () => {
   const source = await readFile(new URL('./MainContent.tsx', import.meta.url), 'utf8');
+  const pendingView = await readFile(new URL('./subcomponents/PendingRelayView.tsx', import.meta.url), 'utf8');
   const branchStart = source.indexOf('&& shouldShowPendingRelay(externalTerminal)');
   const branchEnd = source.indexOf('// Targets without a locally observable process remain terminal-only.');
   assert.notEqual(branchStart, -1);
   assert.ok(branchEnd > branchStart);
 
-  const pendingBranch = source.slice(branchStart, branchEnd);
+  const pendingBranch = source.slice(branchStart, branchEnd) + pendingView;
   assert.match(
     pendingBranch,
     /\{externalTranscriptView === 'conversation' && \(\s*<LiveRelayComposer/,
@@ -168,5 +171,15 @@ test('pending CLI output hides the duplicate chat composer while terminal input 
     pendingBranch,
     /projectPath=\{'projectPath' in externalTerminal \? externalTerminal\.projectPath : undefined\}/,
     'the pending CLI shell wiring forwards the external-only workspace path',
+  );
+  assert.match(
+    pendingBranch,
+    /buildTranscriptCliAttachTarget\(externalTerminal\)/,
+    'a remote pending pane must preserve host, local pane, lane, and generation identity',
+  );
+  assert.match(
+    pendingBranch,
+    /disabled=\{targetState\.remote && !targetState\.ready\}/,
+    'an unavailable remote host must natively disable every pending relay control',
   );
 });

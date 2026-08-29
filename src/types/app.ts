@@ -37,11 +37,16 @@ export type AppTab = 'chat';
  * attach-only.
  */
 export type ExternalTerminalTarget = {
+  /** Owning peer for a remote pane; absent for the local installation. */
+  hostId?: string;
+  hostLabel?: string;
+  lane?: 'external' | 'live';
+  localId?: string;
   tmuxName: string;
   tmux: TmuxPaneIdentity;
   process: TmuxProcessGeneration | null;
   kind: string;
-  cliKind: 'claude' | 'codex' | 'cursor' | 'opencode' | 'omp' | 'omo' | 'ssh' | 'shell';
+  cliKind: 'claude' | 'codex' | 'cursor' | 'opencode' | 'gjc' | 'omp' | 'omo' | 'ssh' | 'shell';
   project: Project | null;
   projectPath?: string;
   /** Opens the structured transcript instead of attaching a terminal. */
@@ -58,6 +63,10 @@ export type ExternalTerminalTarget = {
   forceAttach?: boolean;
 } | {
   /** A freshly opened GJC pane has no transcript id until its first message. */
+  hostId?: string;
+  hostLabel?: string;
+  lane?: 'external' | 'live';
+  localId?: string;
   tmuxName: string;
   tmux: TmuxPaneIdentity;
   process: TmuxProcessGeneration | null;
@@ -98,6 +107,8 @@ export interface ProjectSessionMeta {
 // DB-assigned `projectId` (primary key in the `projects` table), and the UI
 // uses the same identifier for routing, state keys and API calls.
 export interface Project {
+  /** Installation that owns the project; absent for legacy local-only rows. */
+  hostId?: string;
   projectId: string;
   displayName: string;
   fullPath: string;

@@ -9,13 +9,13 @@ import type { PendingPermissionRequest } from '../types/types';
 import type { ProjectSession, LLMProvider } from '../../../types/app';
 import type { SessionStore, NormalizedMessage } from '../../../stores/useSessionStore';
 
-const isActionablePermissionRequest = (request: { toolName?: unknown } | null | undefined): boolean => {
-  return request?.toolName !== 'ExitPlanMode' && request?.toolName !== 'exit_plan_mode';
-};
-
-const hasActionablePermissionRequests = (requests: Array<{ toolName?: unknown }> | null | undefined): boolean => {
-  return Array.isArray(requests) && requests.some((request) => isActionablePermissionRequest(request));
-};
+import {
+  appendPendingPermission,
+  dropPendingPermission,
+  isActionablePermissionRequest,
+  reconcilePendingPermissions,
+} from './chatPermissionRequests';
+import { bufferStreamDelta, flushStreamBuffer } from './chatStreamBuffer';
 
 interface UseChatRealtimeHandlersArgs {
   subscribe: (listener: (event: ServerEvent) => void) => () => void;
@@ -127,14 +127,14 @@ export function useChatRealtimeHandlers({
 
           const isViewedSession = sid === activeViewSessionId;
           if (isViewedSession && Array.isArray(msg.pendingPermissions)) {
-            const nextPendingPermissionRequests = msg.pendingPermissions as PendingPermissionRequest[];
-            const hadActionablePermissionRequests = hasActionablePermissionRequests(pendingPermissionRequestsRef.current);
-            const hasPendingActionablePermissionRequests = hasActionablePermissionRequests(nextPendingPermissionRequests);
+            const transition = reconcilePendingPermissions(
+              pendingPermissionRequestsRef.current,
+              msg.pendingPermissions as PendingPermissionRequest[],
+            );
+            pendingPermissionRequestsRef.current = transition.requests;
+            setPendingPermissionRequests(transition.requests);
 
-            pendingPermissionRequestsRef.current = nextPendingPermissionRequests;
-            setPendingPermissionRequests(nextPendingPermissionRequests);
-
-            if (hasPendingActionablePermissionRequests && !hadActionablePermissionRequests) {
+            if (transition.notify) {
               void playNotificationSound();
             }
           }
@@ -186,15 +186,7 @@ export function useChatRealtimeHandlers({
       if (msg.kind === 'stream_delta') {
         const text = (msg.content as string) || '';
         if (!text) return;
-        accumulatedStreamRef.current += text;
-        if (!streamTimerRef.current) {
-          streamTimerRef.current = window.setTimeout(() => {
-            streamTimerRef.current = null;
-            if (sid) {
-              sessionStore.updateStreaming(sid, accumulatedStreamRef.current, provider);
-            }
-          }, 100);
-        }
+        bufferStreamDelta({ streamTimerRef, accumulatedStreamRef }, sessionStore, sid, provider, text);
         // Also route to store for non-active sessions
         if (sid && sid !== activeViewSessionId) {
           sessionStore.appendRealtime(sid, msg as unknown as NormalizedMessage);
@@ -203,17 +195,7 @@ export function useChatRealtimeHandlers({
       }
 
       if (msg.kind === 'stream_end') {
-        if (streamTimerRef.current) {
-          clearTimeout(streamTimerRef.current);
-          streamTimerRef.current = null;
-        }
-        if (sid) {
-          if (accumulatedStreamRef.current) {
-            sessionStore.updateStreaming(sid, accumulatedStreamRef.current, provider);
-          }
-          sessionStore.finalizeStreaming(sid);
-        }
-        accumulatedStreamRef.current = '';
+        flushStreamBuffer({ streamTimerRef, accumulatedStreamRef }, sessionStore, sid, provider, 'always');
         return;
       }
 
@@ -237,15 +219,7 @@ export function useChatRealtimeHandlers({
       switch (msg.kind) {
         case 'complete': {
           // Flush any remaining streaming state
-          if (streamTimerRef.current) {
-            clearTimeout(streamTimerRef.current);
-            streamTimerRef.current = null;
-          }
-          if (sid && accumulatedStreamRef.current) {
-            sessionStore.updateStreaming(sid, accumulatedStreamRef.current, provider);
-            sessionStore.finalizeStreaming(sid);
-          }
-          accumulatedStreamRef.current = '';
+          flushStreamBuffer({ streamTimerRef, accumulatedStreamRef }, sessionStore, sid, provider, 'when-buffered');
 
           // `complete` is the unified terminal event — every provider run ends
           // with exactly one, regardless of success, failure, or abort. The
@@ -290,20 +264,16 @@ export function useChatRealtimeHandlers({
           }
 
           if (sid === activeViewSessionId) {
-            const previousPendingPermissionRequests = pendingPermissionRequestsRef.current;
-            if (!previousPendingPermissionRequests.some((request) => request.requestId === msg.requestId)) {
-              const nextPendingPermissionRequests = [...previousPendingPermissionRequests, {
-                requestId: msg.requestId as string,
-                toolName: (msg.toolName as string) || 'UnknownTool',
-                input: msg.input,
-                context: msg.context,
-                sessionId: sid || null,
-                receivedAt: new Date(),
-              }];
-
-              pendingPermissionRequestsRef.current = nextPendingPermissionRequests;
-              setPendingPermissionRequests(nextPendingPermissionRequests);
-            }
+            const transition = appendPendingPermission(pendingPermissionRequestsRef.current, {
+              requestId: msg.requestId as string,
+              toolName: (msg.toolName as string) || 'UnknownTool',
+              input: msg.input,
+              context: msg.context,
+              sessionId: sid || null,
+              receivedAt: new Date(),
+            });
+            pendingPermissionRequestsRef.current = transition.requests;
+            setPendingPermissionRequests(transition.requests);
           }
           if (sid) {
             onSessionProcessing?.(sid);
@@ -313,12 +283,9 @@ export function useChatRealtimeHandlers({
 
         case 'permission_cancelled': {
           if (msg.requestId && sid === activeViewSessionId) {
-            const nextPendingPermissionRequests = pendingPermissionRequestsRef.current.filter(
-              (request: PendingPermissionRequest) => request.requestId !== msg.requestId,
-            );
-
-            pendingPermissionRequestsRef.current = nextPendingPermissionRequests;
-            setPendingPermissionRequests(nextPendingPermissionRequests);
+            const transition = dropPendingPermission(pendingPermissionRequestsRef.current, msg.requestId);
+            pendingPermissionRequestsRef.current = transition.requests;
+            setPendingPermissionRequests(transition.requests);
           }
           break;
         }

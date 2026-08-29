@@ -207,5 +207,13 @@
       "updateAvailable": "Update available",
       "closeSidebar": "Close sidebar"
     }
+  },
+  "fleet": {
+    "hostNotFound": {
+      "title": "This host is not available",
+      "description": "The session link points at an installation this hub cannot resolve. Sessions are only opened on the machine that owns them, so nothing is loaded here.",
+      "requestedHost": "Requested host",
+      "backToSessions": "Back to sessions"
+    }
   }
 }

@@ -7,6 +7,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 
 import { ThemeProvider } from '../contexts/ThemeContext';
 
+import { AuthProvider } from './auth';
 import SidebarHeader from './sidebar/view/subcomponents/SidebarHeader';
 import Settings from './settings/view/Settings';
 
@@ -33,10 +34,10 @@ test('settings surface exposes a labelled modal dialog', () => {
   });
 
   const settingsHtml = renderToStaticMarkup(
-    createElement(ThemeProvider, null, createElement(Settings, {
+    createElement(ThemeProvider, null, createElement(AuthProvider, null, createElement(Settings, {
       isOpen: true,
       onClose: noop,
-    })),
+    }))),
   );
   assert.match(settingsHtml, /role="dialog"/);
   assert.match(settingsHtml, /aria-modal="true"/);

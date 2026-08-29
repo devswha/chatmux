@@ -17,7 +17,7 @@ export default function SettingsSection({ title, description, children, classNam
           {title}
         </h3>
         {description && (
-          <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+          <p className="mt-1 break-keep text-sm text-muted-foreground [overflow-wrap:anywhere]">{description}</p>
         )}
       </div>
       {children}

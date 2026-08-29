@@ -1,5 +1,6 @@
 import { getConnection } from "@/modules/database/connection.js";
 import { runMigrations } from "@/modules/database/migrations.js";
+import { assertFleetRoleIntegrity } from "@/modules/database/repositories/fleet-installation-role.js";
 import {
     COMPLETION_NOTIFICATION_GENERATION_STATE_STALE_INDEX_SQL,
     INIT_SCHEMA_SQL,
@@ -12,6 +13,7 @@ export const initializeDatabase = async () => {
         db.exec(INIT_SCHEMA_SQL);
         console.log('Database schema applied');
         runMigrations(db);
+        assertFleetRoleIntegrity(db);
         db.exec(COMPLETION_NOTIFICATION_GENERATION_STATE_STALE_INDEX_SQL);
     } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

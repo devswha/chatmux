@@ -15,6 +15,18 @@ export type TmuxPaneTarget = {
   process: TmuxProcessGeneration;
 };
 
+/** A pane identity qualified by the installation that owns its local tmux server. */
+export type HostTmuxPaneIdentity = Readonly<{
+  hostId: string;
+  lane: string;
+  tmux: TmuxPaneIdentity;
+}>;
+
+/** A host-qualified exact process generation; authority remains with the owning host. */
+export type HostTmuxPaneTarget = HostTmuxPaneIdentity & Readonly<{
+  process: TmuxProcessGeneration;
+}>;
+
 export function tmuxPaneIdentityKey(identity: TmuxPaneIdentity): string {
   return `${identity.socketPath}\u0000${identity.sessionId}\u0000${identity.windowId}\u0000${identity.paneId}`;
 }

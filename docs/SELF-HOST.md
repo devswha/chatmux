@@ -34,6 +34,7 @@ test "$(uname -s)" = Linux
 test "$(uname -m)" = x86_64
 getconf GNU_LIBC_VERSION    # requires glibc 2.35 or newer
 node --version              # manual runtime requires v22.22.2 or newer
+```
 
 Use the release-install procedure in [INSTALL.md](INSTALL.md) to verify the
 checksum, unpack a versioned release, install `chatmux.service`, and activate
@@ -156,6 +157,90 @@ An SSH tunnel remains the local-only fallback when Tailscale is unavailable:
 ```sh
 ssh -N -L 3001:127.0.0.1:3001 user@server
 ```
+
+## Multi-PC operations
+
+A fleet has one hub and at most nine full peer installations. There is no separate
+peer binary or daemon: every PC uses the same artifact and keeps its own service,
+data, tmux/provider processes, installation identity, updater, and direct UI. The
+hub dials peers directly; ChatMux provides no relay, database replication, cloud
+sync, failover, or fleet updater.
+
+Use Tailscale Serve HTTPS/WSS by default. The saved peer URL is the peer's actual
+Serve host and port with `/fleet-ws`, for example
+`wss://peer.example.ts.net:8443/fleet-ws`. Plain `ws://` is rejected except when the
+owner has manually created a local SSH forward on the hub:
+
+```sh
+ssh -N -o ExitOnForwardFailure=yes \
+  -L 127.0.0.1:8022:127.0.0.1:<peer-backend-port> user@peer
+```
+
+That mode accepts only `ws://127.0.0.1:8022/fleet-ws` or an explicitly bound
+`ws://[::1]:<port>/fleet-ws`; there is no automatic downgrade or SSH process/key
+management.
+
+Operational rules:
+
+1. Enroll only from the hub owner's **Settings → Hosts** surface, using a single-use
+   ten-minute token created on the peer.
+2. Treat **Syncing** as read-only recovery and wait for **Online** before issuing a
+   mutation. Treat **Offline** as a direct-path failure; repair reachability and use
+   **Reconnect**. Never retry an uncertain mutation automatically.
+3. For updates, update the hub first and verify its direct UI. Then update one peer
+   at a time from that peer's own owner UI, waiting for Online after Syncing before
+   continuing. There is no fleet-wide update action or protocol downgrade.
+4. If the hub is unavailable, open each peer's own address from its local
+   `chatmux status`. Local sessions and recovery remain usable without the hub.
+5. Back up each PC's complete `~/.chatmux/data` independently. Fleet enrollment does
+   not back up or synchronize peer data.
+
+Revocation is local-first. The hub's **Revoke grant** blocks that peer locally before
+attempting remote revocation; an unreachable peer is reported separately and remains
+revoked on the hub. Inspect public grant state locally with:
+
+```sh
+chatmux fleet identity
+chatmux fleet grants
+chatmux fleet diagnose
+chatmux fleet revoke <installation-id>
+```
+
+If an installation key is lost and no complete data backup can restore it, revoke
+its old installation ID on every counterpart before rebuilding and pairing the new
+identity. A lost peer key is revoked from the hub. A lost hub key is revoked locally
+on every peer with `chatmux fleet revoke <old-hub-installation-id>`. Access those
+peers through their direct UI/terminal; old trust is never transferred to the new
+key.
+
+### Installation-key replacement
+
+Use this only after counterpart revocation and after confirming that no complete data
+backup can restore the old identity. For a managed install, stop the service and move
+the broken identity directory aside; never delete it or copy individual key files:
+
+```sh
+systemctl --user stop chatmux.service
+QUARANTINE="$HOME/.chatmux/data/installation-identity.lost.$(date +%Y%m%dT%H%M%S)"
+mv "$HOME/.chatmux/data/installation-identity" "$QUARANTINE"
+systemctl --user start chatmux.service
+chatmux fleet identity
+```
+
+The restart creates a new installation ID and key pair beside the database. Keep the
+quarantine through incident review and backup retention. The existing database may
+still contain revoked historical rows, but no old grant authorizes the new identity.
+Generate a new token, enroll from the hub again, and compare the new public fingerprint
+on both direct surfaces. Custom `DATABASE_PATH` deployments keep
+`installation-identity` beside that database rather than at the managed path above.
+
+See [REMOTE-ACCESS.md §8](REMOTE-ACCESS.md#8-multi-pc-fleet-one-hub-and-full-peers)
+for the complete enrollment and recovery contract.
+
+Remote desktop, remote IDE/file/Git/project mutation, cloud sync, arbitrary command
+RPC, remote plain-shell creation, managed VPN/SSH, automatic failover, and
+zero-configuration reachability are outside fleet scope.
+
 ## Manual recovery cutover
 
 Use this terminal procedure only after a bootstrap/recovery decision or a durable

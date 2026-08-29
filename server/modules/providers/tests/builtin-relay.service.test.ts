@@ -42,7 +42,8 @@ test('builtinSpawn: validated cwd, duplicate → conflict, then new-session + gj
   assert.equal(created.ok, true);
   assert.deepEqual(fresh.calls[1].args.slice(0, 5), ['new-session', '-d', '-s', 'newone', '-c']);
   assert.ok(fresh.calls[1].args[5].endsWith(`${path.sep}workspace${path.sep}proj`));
-  assert.deepEqual(fresh.calls[2].args, ['send-keys', '-t', '=newone:', 'gjc', 'Enter']);
+  assert.equal(fresh.calls[1].args[6], 'gjc');
+  assert.equal(fresh.calls.length, 2, 'agent boot is atomic with session creation');
 });
 
 test('builtinSpawn: company* reserved and non-home cwd fail closed', async () => {

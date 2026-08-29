@@ -3,270 +3,71 @@
 import { readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-const repositoryRoot = path.resolve(import.meta.dirname, '../..');
-const evidenceRoot = path.resolve(
-  process.env.CUA_EVIDENCE_DIR
-    ?? path.join(repositoryRoot, '.omo', 'cua', 'latest'),
-);
-
-async function readJson(relativePath) {
-  try {
-    return JSON.parse(await readFile(path.join(evidenceRoot, relativePath), 'utf8'));
-  } catch (error) {
+const root = path.resolve(process.env.CUA_EVIDENCE_DIR ?? path.join(import.meta.dirname, '../..', '.cua-release-evidence'));
+async function json(name) {
+  try { return JSON.parse(await readFile(path.join(root, name), 'utf8')); } catch (error) {
     if (error?.code === 'ENOENT') return null;
     throw error;
   }
 }
-
-function call(evidence, name) {
-  return evidence?.calls?.find((entry) => entry.name === name) ?? null;
-}
-
-function requirement(id, status, evidence, detail = null) {
-  return { id, status, evidence, ...(detail ? { detail } : {}) };
-}
-
-async function artifact(relativePath) {
-  try {
-    const details = await stat(path.join(evidenceRoot, relativePath));
-    return { path: relativePath, exists: details.isFile(), bytes: details.size };
-  } catch (error) {
-    if (error?.code === 'ENOENT') return { path: relativePath, exists: false, bytes: 0 };
+async function artifact(name) {
+  try { const value = await stat(path.join(root, name)); return { name, exists: value.isFile(), bytes: value.size }; } catch (error) {
+    if (error?.code === 'ENOENT') return { name, exists: false, bytes: 0 };
     throw error;
   }
 }
+function requirement(id, ok, present, evidence, detail = null) {
+  return { id, status: ok ? 'passed' : present ? 'failed' : 'not_run', evidence, ...(detail ? { detail } : {}) };
+}
+function call(report, name) { return report?.calls?.find((entry) => entry.name === name) ?? null; }
 
-const [
-  fixture,
-  ui,
-  interactions,
-  mcp,
-  setup,
-  regressions,
-  tailscale,
-  pwa,
-  osPreflight,
-  stopped,
-] = await Promise.all([
-  readJson('fixture.json'),
-  readJson('ui-scenarios.json'),
-  readJson('ui-interactions.json'),
-  readJson('computer-use-mcp.json'),
-  readJson('window-targeting-setup/computer-use-mcp.json'),
-  readJson('regressions.json'),
-  readJson('tailscale-https.json'),
-  readJson('pwa-environment.json'),
-  readJson('os-preflight.json'),
-  readJson('stopped.json'),
+const [fixture, ui, fleet, interactions, release, regressions, mcp, pwa, desktop, gates, stopped] = await Promise.all([
+  json('fixture.json'), json('ui-scenarios.json'), json('fleet-ui-scenarios.json'),
+  json('ui-interactions.json'), json('release-summary.json'), json('regressions.json'),
+  json('computer-use-mcp.json'), json('pwa-environment.json'), json('isolated-desktop.json'),
+  json('release-gates.json'), json('stopped.json'),
 ]);
-const osRelease = Object.fromEntries(
-  (await readFile('/etc/os-release', 'utf8'))
-    .split('\n')
-    .filter((line) => line.includes('='))
-    .map((line) => {
-      const separator = line.indexOf('=');
-      return [
-        line.slice(0, separator),
-        line.slice(separator + 1).replace(/^"|"$/g, ''),
-      ];
-    }),
-);
+const requiredNames = [
+  'fixture.json', 'ui-scenarios.json', 'fleet-ui-scenarios.json', 'ui-interactions.json',
+  'release-summary.json', 'desktop-chat.png', 'desktop-cli.png', 'mobile-chat.png', 'mobile-agents.png',
+  'desktop-interactions.png', 'desktop-session-switch.png', 'fleet-desktop-host-groups.png',
+  'fleet-desktop-ax.json', 'fleet-mobile-host-groups.png', 'fleet-mobile-ax.json',
+  'fleet-remote-terminal.png', 'regressions.json', 'computer-use-provision.json',
+  'computer-use-mcp.json', 'screenshot-0.png', 'isolated-desktop.json',
+  'pwa-notification-browser.json', 'pwa-environment.json', 'os-notification-delivered.png',
+  'ci/verify-node22.json', 'ci/verify-node24.json', 'ci/bundle-node22.json',
+  'focused-terminal.json', 'release-gates.json', 'stopped.json',
+];
+const artifacts = await Promise.all(requiredNames.map(artifact));
+const artifactsOk = artifacts.every(({ exists, bytes }) => exists && bytes > 0);
 const doctor = call(mcp, 'doctor')?.result?.structuredContent;
-const getAppState = call(mcp, 'get_app_state')?.result?.structuredContent;
-const listWindows = call(mcp, 'list_windows')?.result?.structuredContent;
-const focusedWindow = call(mcp, 'focused_window')?.result?.structuredContent;
+const appState = call(mcp, 'get_app_state')?.result?.structuredContent;
+const windows = call(mcp, 'list_windows')?.result?.structuredContent;
+const focused = call(mcp, 'focused_window')?.result?.structuredContent;
 const screenshot = call(mcp, 'screenshot');
-const setupWindowTargeting = call(setup, 'setup_window_targeting')?.result?.structuredContent;
-const gnomeVersion = doctor?.platform?.gnome_shell_version?.detail
-  ?? osPreflight?.current?.gnome
-  ?? null;
-const gnomeMajor = Number.parseInt(gnomeVersion?.match(/\d+/)?.[0] ?? '', 10);
-const desktopLocked = process.env.CUA_DESKTOP_LOCKED === '1';
-const expectedAgents = [
-  'Oh My OpenAgent',
-  'Claude Code',
-  'Codex',
-  'Cursor',
-  'OpenCode',
-  'Gajae Code',
-  'Oh My Pi',
-];
-const actualAgents = fixture?.agents?.map((agent) => agent.displayName) ?? [];
-const readiness = doctor?.readiness;
-const requiredArtifacts = await Promise.all([
-  'fixture.json',
-  'ui-scenarios.json',
-  'ui-interactions.json',
-  'computer-use-mcp.json',
-  'window-targeting-setup/computer-use-mcp.json',
-  'desktop-chat.png',
-  'desktop-cli.png',
-  'mobile-chat.png',
-  'mobile-agents.png',
-  'desktop-interactions.png',
-  'desktop-session-switch.png',
-  'screenshot-0.png',
-  'native-chat-roundtrip-clean.png',
-  'pwa-installed.png',
-  'os-notification-delivered.png',
-  'pane-cua-03-codex.txt',
-  'os-preflight.json',
-  'tailscale-https.json',
-  'pwa-environment.json',
-  'regressions.json',
-  'stopped.json',
-].map(artifact));
-const artifactsComplete = requiredArtifacts.every(({ exists, bytes }) => exists && bytes > 0);
 const requirements = [
-  requirement(
-    'isolated-seven-agent-fixture',
-    JSON.stringify(actualAgents) === JSON.stringify(expectedAgents) ? 'passed' : 'failed',
-    'fixture.json',
-    { expectedAgents, actualAgents },
-  ),
-  requirement(
-    'desktop-mobile-agent-and-layout-validation',
-    ui?.ok ? 'passed' : ui ? 'failed' : 'not_run',
-    'ui-scenarios.json',
-  ),
-  requirement(
-    'single-pane-input-isolation',
-    ui?.checks?.pane_input_isolation?.ok ? 'passed' : ui ? 'failed' : 'not_run',
-    'ui-scenarios.json',
-    ui?.checks?.pane_input_isolation ?? null,
-  ),
-  requirement(
-    'chat-cli-equivalence',
-    ui?.checks?.chat_cli_equivalence?.ok ? 'passed' : ui ? 'failed' : 'not_run',
-    'ui-scenarios.json',
-  ),
-  requirement(
-    'create-switch-reorder-interrupt-error',
-    interactions?.ok ? 'passed' : interactions ? 'failed' : 'not_run',
-    'ui-interactions.json',
-    interactions?.checks ?? null,
-  ),
-  requirement(
-    'full-regressions-and-build',
-    regressions?.ok ? 'passed' : regressions ? 'failed' : 'not_run',
-    'regressions.json',
-    regressions?.results?.map(({ id, ok, exitCode }) => ({ id, ok, exitCode })) ?? null,
-  ),
-  requirement(
-    'cua-mcp-atspi-and-screenshot',
-    (
-      mcp?.initialize?.serverInfo
-      && getAppState?.backend === 'linux-atspi'
-      && getAppState?.accessibility_tree_raw_count > 0
-      && screenshot?.images?.length > 0
-    ) ? 'passed' : mcp ? 'failed' : 'not_run',
-    'computer-use-mcp.json',
-    {
-      server: mcp?.initialize?.serverInfo ?? null,
-      toolCount: mcp?.tools?.length ?? 0,
-      accessibilityNodes: getAppState?.accessibility_tree_raw_count ?? 0,
-      screenshot: screenshot?.images?.[0] ?? null,
-    },
-  ),
-  requirement(
-    'evidence-artifact-integrity',
-    artifactsComplete ? 'passed' : 'failed',
-    'required run artifacts',
-    requiredArtifacts,
-  ),
-  requirement(
-    'ubuntu-24.04-and-gnome-46',
-    osRelease.VERSION_ID === '24.04' && gnomeMajor >= 46 ? 'passed' : 'blocked',
-    '/etc/os-release, os-preflight.json, and computer-use-mcp.json',
-    {
-      os: osRelease.PRETTY_NAME,
-      gnomeVersion,
-      target: osPreflight?.target ?? null,
-      preflightReady: osPreflight?.readyForAuthorizedUpgrade ?? null,
-      nonInteractiveSudo: osPreflight?.gates?.nonInteractiveSudo ?? null,
-    },
-  ),
-  requirement(
-    'cua-window-query-and-focus',
-    readiness?.can_query_windows && readiness?.can_focus_windows ? 'passed' : 'blocked',
-    'computer-use-mcp.json',
-    {
-      canQueryWindows: readiness?.can_query_windows ?? false,
-      canFocusWindows: readiness?.can_focus_windows ?? false,
-      windowCount: listWindows?.windows?.length ?? 0,
-      focusedWindow: focusedWindow?.focused_window ?? null,
-      setupRequiresShellReload: setupWindowTargeting?.requires_shell_reload ?? null,
-    },
-  ),
-  requirement(
-    'unlocked-desktop-cua-capture',
-    desktopLocked
-      ? 'blocked'
-      : (
-        screenshot?.images?.length > 0
-        && readiness?.can_query_windows
-        && readiness?.can_focus_windows
-      ) ? 'passed' : mcp ? 'failed' : 'not_run',
-    'screenshot-0.png and operator observation',
-    {
-      desktopLocked,
-      screenshotCaptured: (screenshot?.images?.length ?? 0) > 0,
-      canQueryWindows: readiness?.can_query_windows ?? false,
-      canFocusWindows: readiness?.can_focus_windows ?? false,
-    },
-  ),
-  requirement(
-    'tailscale-https-auth',
-    tailscale?.ok ? 'passed' : tailscale ? 'failed' : 'not_run',
-    'tailscale-https.json',
-    tailscale ? {
-      baseUrl: tailscale.baseUrl,
-      endpoints: tailscale.endpoints?.map(({ endpoint, ok, status }) => ({ endpoint, ok, status })),
-    } : null,
-  ),
-  requirement(
-    'installed-pwa-and-os-notifications',
-    pwa?.actualEnvironmentOk ? 'passed' : pwa?.installable ? 'blocked' : pwa ? 'failed' : 'not_run',
-    'pwa-environment.json',
-    pwa ? {
-      installable: pwa.installable,
-      pwaInstalled: pwa.checks?.pwa_installed ?? false,
-      notificationPermission: pwa.notifications?.permission ?? null,
-      osNotificationDelivered: pwa.checks?.os_notification_delivered ?? false,
-      osNotificationArtifact: pwa.osNotification?.artifact ?? null,
-      blocker: pwa.blocker ?? null,
-    } : null,
-  ),
+  requirement('browser-release-scenarios', release?.ok === true, release !== null, 'release-summary.json', release?.requirements),
+  requirement('fleet-enrollment-host-groups-collisions', fleet?.checks?.enrollment_and_host_disambiguation?.ok === true, fleet !== null, 'fleet-ui-scenarios.json'),
+  requirement('local-remote-chat-terminal-actions-states-deep-links', fleet?.ok === true && ui?.ok === true, fleet !== null && ui !== null, 'ui-scenarios.json and fleet-ui-scenarios.json'),
+  requirement('create-switch-reorder-interrupt-error-command-menus', interactions?.ok === true, interactions !== null, 'ui-interactions.json', interactions?.checks),
+  requirement('desktop-mobile-visual-accessibility', ui?.checks?.desktop_layout?.ok === true && ui?.checks?.mobile_layout?.ok === true && fleet?.checks?.mobile_layout_and_ax?.ok === true, ui !== null && fleet !== null, 'browser screenshots and accessibility trees'),
+  requirement('full-regressions-and-build', regressions?.ok === true, regressions !== null, 'regressions.json'),
+  requirement('official-computer-use-task-owned-window-focus', desktop?.ok === true && doctor?.readiness?.can_query_windows === true && doctor?.readiness?.can_focus_windows === true && appState?.accessibility_tree_raw_count > 0 && windows?.windows?.length > 0 && focused?.focused_window && screenshot?.images?.length > 0, desktop !== null && mcp !== null, 'computer-use-provision.json, isolated-desktop.json, computer-use-mcp.json'),
+  requirement('installed-pwa-service-worker-deep-link-notification', pwa?.actualEnvironmentOk === true, pwa !== null, 'pwa-environment.json and pwa-notification-browser.json', pwa?.checks),
+  requirement('node-parity-bundle-focused-integrity-cleanup', gates?.ok === true, gates !== null, 'release-gates.json', gates?.checks),
+  requirement('artifact-integrity', artifactsOk, true, 'required artifacts', artifacts),
+  requirement('owned-resources-stopped', stopped?.cleanupError === null && gates?.checks?.cleanup === true, stopped !== null && gates !== null, 'stopped.json and release-gates.json'),
 ];
-const blocking = requirements.filter(({ status }) => status !== 'passed');
-const functionalRequirementIds = new Set([
-  'isolated-seven-agent-fixture',
-  'desktop-mobile-agent-and-layout-validation',
-  'single-pane-input-isolation',
-  'chat-cli-equivalence',
-  'create-switch-reorder-interrupt-error',
-  'full-regressions-and-build',
-  'cua-mcp-atspi-and-screenshot',
-  'evidence-artifact-integrity',
-  'tailscale-https-auth',
-]);
+const blockers = requirements.filter(({ status }) => status !== 'passed').map(({ id, status }) => ({ id, status }));
 const summary = {
   generatedAt: new Date().toISOString(),
-  runId: fixture?.runId ?? path.basename(evidenceRoot),
-  evidenceRoot,
-  functionalValidationOk: requirements
-    .filter(({ id }) => functionalRequirementIds.has(id))
-    .every(({ status }) => status === 'passed'),
-  complete: blocking.length === 0,
-  stopped: stopped ?? null,
+  runId: fixture?.runId ?? path.basename(root),
+  evidenceRoot: root,
+  functionalValidationOk: requirements.every(({ status }) => status === 'passed'),
+  complete: blockers.length === 0,
   requirements,
-  blockers: blocking.map(({ id, status }) => ({ id, status })),
+  blockers,
 };
-const outputPath = path.join(evidenceRoot, 'summary.json');
-await writeFile(outputPath, `${JSON.stringify(summary, null, 2)}\n`, 'utf8');
-process.stdout.write(`${JSON.stringify({
-  outputPath,
-  functionalValidationOk: summary.functionalValidationOk,
-  complete: summary.complete,
-  blockers: summary.blockers,
-}, null, 2)}\n`);
+await writeFile(path.join(root, 'summary.json'), `${JSON.stringify(summary, null, 2)}\n`);
+process.stdout.write(`${JSON.stringify({ complete: summary.complete, functionalValidationOk: summary.functionalValidationOk, blockers }, null, 2)}\n`);
+if (!summary.complete || !summary.functionalValidationOk || blockers.length > 0) process.exitCode = 1;

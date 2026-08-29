@@ -1,6 +1,6 @@
 import type { Server as HttpServer } from 'node:http';
 
-import { WebSocketServer, type VerifyClientCallbackSync, type WebSocket } from 'ws';
+import { WebSocketServer, type RawData, type VerifyClientCallbackSync, type WebSocket } from 'ws';
 
 import { handleChatConnection } from '@/modules/websocket/services/chat-websocket.service.js';
 import { verifyWebSocketClient } from '@/modules/websocket/services/websocket-auth.service.js';
@@ -9,6 +9,12 @@ import { createDiscoveryStream } from '@/modules/websocket/services/discovery-st
 import type { DiscoveryCollector } from '@/modules/providers/index.js';
 import { createPaneOutputStream } from '@/modules/providers/index.js';
 import type { AuthenticatedWebSocketRequest } from '@/shared/types.js';
+import {
+  authorizeFleetBrowserRequest,
+  fleetBrowserDiscoveryGateway,
+  handleHostQualifiedChatConnection,
+  remoteTerminalShellGateway,
+} from '@/modules/fleet/index.js';
 
 type WebSocketServerDependencies = {
   verifyClient: Parameters<typeof verifyWebSocketClient>[1];
@@ -16,6 +22,7 @@ type WebSocketServerDependencies = {
   shell: Parameters<typeof handleShellConnection>[1];
   discovery?: DiscoveryCollector;
   panes?: ReturnType<typeof createPaneOutputStream>;
+  fleet?: Readonly<{ readonly authMode: 'none' | 'password' | 'tailscale' }>;
   /** Identity announced to every chat client so stale bundles can self-refresh. */
   serverInfo?: { version: string | null; bootId: string };
 };
@@ -78,8 +85,26 @@ export function createWebSocketServer(
     ws.on('error', stopHeartbeat);
 
     const incomingRequest = request as AuthenticatedWebSocketRequest;
+    const fleetSocket = {
+      send: (payload: string, callback: (error?: Error) => void) => ws.send(
+        payload,
+        (error) => callback(error ?? undefined),
+      ),
+      close: (code: number, reason: string) => ws.close(code, reason),
+    };
     const url = incomingRequest.url ?? '/';
     const pathname = new URL(url, 'http://localhost').pathname;
+
+    if (pathname === '/remote-shell') {
+      const id = incomingRequest.user?.id ?? incomingRequest.user?.userId ?? incomingRequest.user?.username;
+      const role = incomingRequest.user?.tailscaleRole;
+      remoteTerminalShellGateway.handle({
+        get bufferedAmount() { return ws.bufferedAmount; }, get open() { return ws.readyState === ws.OPEN; },
+        send: (payload) => ws.send(payload), close: () => ws.close(),
+        onMessage: (listener) => { ws.on('message', listener); }, onClose: (listener) => { ws.on('close', listener); },
+      }, { id: id === undefined ? '' : String(id), owner: role === undefined || role === 'owner' || role === 'local' });
+      return;
+    }
 
     if (pathname === '/shell') {
       const principal = incomingRequest.user?.id ?? incomingRequest.user?.userId ?? incomingRequest.user?.username;
@@ -87,7 +112,7 @@ export function createWebSocketServer(
       return;
     }
 
-    if (pathname === '/ws') {
+    const startLocalChat = (initialMessage?: RawData): void => {
       // First frame on the app socket: lets a client that survived a server
       // update detect the version skew immediately on (re)connect instead of
       // waiting for the next /health poll.
@@ -102,6 +127,12 @@ export function createWebSocketServer(
       handleChatConnection(ws, incomingRequest, {
         ...dependencies.chat,
         handleDiscovery: (socket, data) => {
+          const fleet = fleetBrowserDiscoveryGateway.current();
+          if (fleet !== undefined && dependencies.fleet !== undefined && fleet.handle(
+            fleetSocket,
+            data,
+            authorizeFleetBrowserRequest(incomingRequest, dependencies.fleet.authMode),
+          )) return true;
           if (discovery?.handle(socket, data)) return true;
           if (data.type === 'pane.subscribe') {
             try {
@@ -122,9 +153,20 @@ export function createWebSocketServer(
         },
       });
       ws.on('close', () => {
+        fleetBrowserDiscoveryGateway.current()?.close(fleetSocket);
         discovery?.close(ws);
         panes.close(ws);
       });
+      if (initialMessage !== undefined) ws.emit('message', initialMessage);
+    };
+
+    if (pathname === '/remote-chat') {
+      handleHostQualifiedChatConnection(ws, incomingRequest, startLocalChat);
+      return;
+    }
+
+    if (pathname === '/ws') {
+      startLocalChat();
       return;
     }
 

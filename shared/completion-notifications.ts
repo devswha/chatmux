@@ -128,8 +128,10 @@ export type CompletionNotificationMutationResult =
   };
 
 export type CompletionNotificationNavigation = {
-  href: string;
-  title: string;
+  readonly href: string;
+  readonly title: string;
+  readonly hostId?: string | null;
+  readonly sessionId?: string | null;
 };
 
 export type CompletionNotificationPayload = {

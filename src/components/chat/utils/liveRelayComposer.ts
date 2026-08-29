@@ -21,7 +21,7 @@ export const getActiveMentionToken = (text: string, caret: number): { start: num
   return getActiveSlashToken(text, caret, '@');
 };
 
-export const filterMentionableFiles = (files: MentionableFile[], query: string): MentionableFile[] => {
+export const filterMentionableFiles = (files: readonly MentionableFile[], query: string): MentionableFile[] => {
   const normalized = query.toLowerCase();
   return files
     .filter((file) => file.name.toLowerCase().includes(normalized) || file.path.toLowerCase().includes(normalized))
@@ -101,10 +101,10 @@ export const getActiveSlashToken = (text: string, caret: number, trigger: string
   return null;
 };
 
-export const filterCommands = (commands: LiveGjcCommand[], query: string, trigger: string): LiveGjcCommand[] => {
+export const filterCommands = (commands: readonly LiveGjcCommand[], query: string, trigger: string): LiveGjcCommand[] => {
   const normalized = query.trim().toLowerCase();
   if (!normalized || normalized === trigger) {
-    return commands;
+    return [...commands];
   }
   const prefix = normalized.startsWith(trigger) ? normalized : `${trigger}${normalized}`;
   const bare = prefix.slice(1);

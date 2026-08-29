@@ -116,20 +116,36 @@ function navigationHref(navigation) {
   }
 }
 
-function sessionIdFromNavigationHref(href) {
+const HOST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+// A session deep link is either the legacy local route or a host-qualified one.
+// A host segment that is not a canonical host id yields no session at all: the
+// same local id exists on other installations, so guessing would open the wrong
+// machine's conversation.
+function sessionTargetFromNavigationHref(href) {
   try {
     const url = new URL(href, self.location.origin);
-    const match = url.pathname.match(/^\/session\/([^/]+)$/);
-    return match ? decodeURIComponent(match[1]) : null;
+    const local = url.pathname.match(/^\/session\/([^/]+)$/);
+    if (local) {
+      return { sessionId: decodeURIComponent(local[1]), hostId: null };
+    }
+    const qualified = url.pathname.match(/^\/hosts\/([^/]+)\/session\/([^/]+)$/);
+    if (!qualified) {
+      return { sessionId: null, hostId: null };
+    }
+    const hostId = decodeURIComponent(qualified[1]);
+    return HOST_ID.test(hostId)
+      ? { sessionId: decodeURIComponent(qualified[2]), hostId }
+      : { sessionId: null, hostId: null };
   } catch {
-    return null;
+    return { sessionId: null, hostId: null };
   }
 }
 
 function completionNavigation(navigation) {
   const href = navigationHref(navigation) || '/';
-  const sessionId = sessionIdFromNavigationHref(href);
-  return { href, sessionId };
+  const target = sessionTargetFromNavigationHref(href);
+  return { href, sessionId: target.sessionId, hostId: target.hostId };
 }
 function isSameOriginClient(client) {
   try {
@@ -195,15 +211,21 @@ self.addEventListener('notificationclick', event => {
     // Recover the id from the already same-origin-validated route so the
     // focused-client fallback still opens the right chat when navigate()
     // rejects (notably on iOS standalone PWAs).
+    const storedTarget = sessionTargetFromNavigationHref(navigation);
     const storedSessionId = event.notification.data?.navigation?.sessionId;
     const sessionId = typeof storedSessionId === 'string' && storedSessionId
       ? storedSessionId
-      : sessionIdFromNavigationHref(navigation);
+      : storedTarget.sessionId;
+    const storedHostId = event.notification.data?.navigation?.hostId;
+    const hostId = typeof storedHostId === 'string' && HOST_ID.test(storedHostId)
+      ? storedHostId
+      : storedTarget.hostId;
     event.waitUntil(
       focusClientOrOpen(navigation, client => {
         client.postMessage({
           type: 'notification:navigate',
           sessionId,
+          hostId,
           provider: null,
           urlPath: navigation
         });
@@ -219,6 +241,7 @@ self.addEventListener('notificationclick', event => {
 
   const sessionId = event.notification.data?.sessionId;
   const provider = event.notification.data?.provider || null;
+  // Legacy payloads carry no installation id and stay local-only.
   const urlPath = sessionId ? `/session/${sessionId}` : '/';
 
   event.waitUntil(
@@ -226,6 +249,7 @@ self.addEventListener('notificationclick', event => {
       client.postMessage({
         type: 'notification:navigate',
         sessionId: sessionId || null,
+        hostId: null,
         provider,
         urlPath
       });

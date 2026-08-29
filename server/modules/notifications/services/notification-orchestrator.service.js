@@ -1,15 +1,17 @@
 import webPush from 'web-push';
 
 import {
-  completionAppAlias,
-  completionAppIdentityKey,
-  completionNotificationOutboxDb,
   notificationPreferencesDb,
   pushSubscriptionsDb,
   sessionsDb,
 } from '@/modules/database/index.js';
 
-import { wakeCompletionOutboxDispatcher } from './completion-outbox-dispatcher.service.js';
+import {
+  buildCompletionPayload,
+  createCompletionDecision,
+  notifyLiveTurnEnded,
+  notifyRunStopped,
+} from './host-safe-completion.service.js';
 
 const KIND_TO_PREF_KEY = {
   action_required: 'actionRequired',
@@ -213,19 +215,6 @@ function buildNotificationPayload(event) {
     }
   };
 }
-function buildCompletionPayload({ provider, sessionId, sessionName = null }) {
-  const title = normalizeSessionName(sessionName) || 'ChatMux';
-  const providerLabel = PROVIDER_LABELS[provider] || 'Assistant';
-  return Object.freeze({
-    title,
-    body: `${providerLabel}: Reply ready`,
-    navigation: Object.freeze({
-      href: `/session/${encodeURIComponent(sessionId)}`,
-      title,
-    }),
-  });
-}
-
 function sendWebPushPayload(userId, payload) {
   const subscriptions = pushSubscriptionsDb.getSubscriptions(userId);
   if (!subscriptions.length) return Promise.resolve();
@@ -283,81 +272,6 @@ function notifyUserIfEnabled({ userId, event }) {
 }
 
 /**
- * Records, but never directly sends, a durable reply-ready completion decision.
- * Callers must provide the producer's stable occurrence key; this API never
- * derives one from mutable session state.
- *
- * @param {{ userId: number, target: { provider: string, sessionId: string }, event: { code: 'reply_ready', occurrenceKey: string, preferenceClass: 'stop' | 'liveStop', sessionName?: string | null, stopReason?: 'completed' } }} args
- * @returns {number[]} immutable outbox decision ids
- */
-function validateCompletionDecision({ userId, target, event }) {
-  if (!Number.isInteger(userId) || userId < 1
-    || !target || typeof target.provider !== 'string' || !target.provider
-    || typeof target.sessionId !== 'string' || !target.sessionId
-    || !event || event.code !== 'reply_ready'
-    || (event.preferenceClass !== 'stop' && event.preferenceClass !== 'liveStop')
-    || typeof event.occurrenceKey !== 'string' || !event.occurrenceKey.trim()
-    || (event.stopReason !== undefined && event.stopReason !== 'completed')) {
-    throw new TypeError('completion decision requires an owner, preference class, reply_ready, a normal completion, and a stable occurrence key');
-  }
-}
-
-function createCompletionDecision({ userId, target, event }) {
-  validateCompletionDecision({ userId, target, event });
-
-  const normalizedTarget = normalizeNotificationSession({
-    provider: target.provider,
-    sessionId: target.sessionId,
-  });
-  const identity = { provider: target.provider, sessionId: normalizedTarget.sessionId };
-
-  const decisions = completionNotificationOutboxDb.createApplicationDecision({
-    userId,
-    preferenceClass: event.preferenceClass,
-    targetIdentityKey: completionAppIdentityKey(identity),
-    provider: target.provider,
-    sessionId: normalizedTarget.sessionId,
-    eventOccurrenceKey: event.occurrenceKey,
-    eventCode: 'reply_ready',
-    targetAliasSnapshot: completionAppAlias(identity),
-    payload: buildCompletionPayload({
-      provider: target.provider,
-      sessionId: normalizedTarget.sessionId,
-      sessionName: event.sessionName,
-    }),
-    now: Date.now(),
-  });
-
-  // Wake only after the immutable decision commits; durable uniqueness handles replay.
-  if (decisions.length > 0) {
-    wakeCompletionOutboxDispatcher();
-  }
-  return decisions;
-}
-
-function notifyRunStopped({
-  userId,
-  provider,
-  sessionId = null,
-  stopReason = 'completed',
-  sessionName = null,
-  completionKey = null,
-}) {
-  if (stopReason !== 'completed') return;
-  createCompletionDecision({
-    userId,
-    target: { provider, sessionId },
-    event: {
-      code: 'reply_ready',
-      preferenceClass: 'stop',
-      occurrenceKey: completionKey,
-      sessionName,
-      stopReason,
-    },
-  });
-}
-
-/**
  * @param {{ userId: number, provider: string, sessionId?: string | null, error: unknown, sessionName?: string | null }} args
  */
 function notifyRunFailed({ userId, provider, sessionId = null, error, sessionName = null }) {
@@ -405,38 +319,6 @@ function notifyInputRequired({
       inputOccurrenceKey: occurrenceKey,
     }),
   });
-}
-
-/**
- * Turn completion of a tmux-driven session. The monitor must provide its
- * durable generation occurrence key; no session-based fallback is permitted.
- *
- * @param {{ userId: number, provider?: 'gjc', sessionId: string | null, tmuxName?: string | null, stopReason?: string, completionKey?: string | null }} args
- */
-function notifyLiveTurnEnded({
-  userId,
-  provider = 'gjc',
-  sessionId,
-  tmuxName = null,
-  stopReason = 'completed',
-  completionKey = null
-}) {
-  if (stopReason !== 'completed') return;
-  const decision = {
-    userId,
-    target: { provider, sessionId },
-    event: {
-      code: 'reply_ready',
-      preferenceClass: 'liveStop',
-      occurrenceKey: completionKey,
-      sessionName: tmuxName,
-      stopReason,
-    },
-  };
-  if (provider !== 'gjc') {
-    throw new RangeError('live turn completion decisions are only supported for GJC');
-  }
-  createCompletionDecision(decision);
 }
 
 export {

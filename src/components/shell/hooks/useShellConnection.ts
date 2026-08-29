@@ -4,9 +4,14 @@ import type { FitAddon } from '@xterm/addon-fit';
 import type { Terminal } from '@xterm/xterm';
 
 import type { Project, ProjectSession } from '../../../types/app';
-import type { ShellAttachTarget, ShellInitMessage } from '../types/types';
+import type { RemoteTerminalResume, ShellAttachTarget } from '../types/types';
 import { TERMINAL_INIT_DELAY_MS } from '../constants/constants';
-import { getShellWebSocketUrl, parseShellMessage, sendSocketMessage } from '../utils/socket';
+import { getShellWebSocketUrl, sendSocketMessage } from '../utils/socket';
+
+import { buildShellInitMessage } from './shellInitMessage';
+import { handleShellSocketPayload } from './shellMessageHandler';
+
+export { buildShellInitMessage } from './shellInitMessage';
 
 const ANSI_ESCAPE_REGEX =
   /(?:\u001B\[[0-?]*[ -/]*[@-~]|\u009B[0-?]*[ -/]*[@-~]|\u001B\][^\u0007\u001B]*(?:\u0007|\u001B\\)|\u009D[^\u0007\u009C]*(?:\u0007|\u009C)|\u001B[PX^_][^\u001B]*\u001B\\|[\u0090\u0098\u009E\u009F][^\u009C]*\u009C|\u001B[@-Z\\-_])/g;
@@ -29,75 +34,6 @@ type UseShellConnectionOptions = {
   clearTerminalScreen: () => void;
   onOutputRef?: MutableRefObject<(() => void) | null>;
 };
-
-export type ShellInitMessageParams = {
-  projectPath: string;
-  sessionId: string | null;
-  hasSession: boolean;
-  provider: string;
-  cols: number;
-  rows: number;
-  initialCommand: string | null | undefined;
-  isPlainShell: boolean;
-  forceRestart: boolean;
-  attachTarget: ShellAttachTarget | null | undefined;
-  /** Last output seq already rendered; lets the server resume seamlessly. */
-  lastSeq?: number | null;
-};
-
-export function buildShellInitMessage({
-  projectPath,
-  sessionId,
-  hasSession,
-  provider,
-  cols,
-  rows,
-  initialCommand,
-  isPlainShell,
-  forceRestart,
-  attachTarget,
-  lastSeq,
-}: ShellInitMessageParams): ShellInitMessage {
-  const base = {
-    ...(typeof lastSeq === 'number' ? { lastSeq } : {}),
-    type: 'init' as const,
-    shellProtocolVersion: 2 as const,
-    projectPath,
-    sessionId,
-    hasSession,
-    provider,
-    cols,
-    rows,
-    forceRestart,
-  };
-
-  if (attachTarget?.targetClass === 'local-agent') {
-    return {
-      ...base,
-      mode: 'typed-attach',
-      targetClass: 'local-agent',
-      tmux: attachTarget.tmux,
-      process: attachTarget.process,
-    };
-  }
-
-  if (attachTarget) {
-    return {
-      ...base,
-      mode: 'typed-attach',
-      targetClass: 'attach-only',
-      tmux: attachTarget.tmux,
-      capability: attachTarget.capability,
-    };
-  }
-
-  return {
-    ...base,
-    mode: 'plain-shell',
-    initialCommand,
-    isPlainShell,
-  };
-}
 
 type UseShellConnectionResult = {
   isConnected: boolean;
@@ -136,6 +72,7 @@ export function useShellConnection({
   // a reconnect can ask the server to replay only what we missed, and reset it
   // whenever the connection targets a different shell identity.
   const lastSeqRef = useRef<number | null>(null);
+  const remoteResumeRef = useRef<RemoteTerminalResume | null>(null);
   const replayIdentityRef = useRef<string | null>(null);
 
   const handleProcessCompletion = useCallback(
@@ -164,55 +101,19 @@ export function useShellConnection({
     [isPlainShellRef, onProcessCompleteRef],
   );
 
-  const handleSocketMessage = useCallback(
-    (rawPayload: string) => {
-      const message = parseShellMessage(rawPayload);
-      if (!message) {
-        console.error('[Shell] Error handling WebSocket message:', rawPayload);
-        return;
-      }
-
-      if (message.type === 'output') {
-        const output = typeof message.data === 'string' ? message.data : '';
-        if (typeof message.seq === 'number') {
-          lastSeqRef.current = message.seq;
-        }
-        handleProcessCompletion(output);
-        terminalRef.current?.write(output);
-        onOutputRef?.current?.();
-        return;
-      }
-
-      // Socket events cannot satisfy browser user-activation requirements, so
-      // render auth URLs in the terminal instead of attempting a popup.
-      if (message.type === 'auth_url' && typeof message.url === 'string' && message.url) {
-        terminalRef.current?.write(`\r\n[Authentication required] Open this URL in your browser:\r\n${message.url}\r\n`);
-        onOutputRef?.current?.();
-        return;
-      }
-
-      if (message.type === 'replay_start') {
-        // 'resume' continues the existing screen; 'redraw' means the server is
-        // about to repaint from scratch (fresh PTY, legacy path, or a replay
-        // gap), so stale content must not stack under the replay.
-        if (message.mode !== 'resume') {
-          clearTerminalScreen();
-        }
-        return;
-      }
-
-      if (
-        message.type === 'error' &&
-        message.code === 'SHELL_PROTOCOL_OUTDATED' &&
-        message.reloadRequired === true
-      ) {
-        protocolOutdatedRef.current = true;
-        suppressAutoConnectRef.current = true;
-        setIsProtocolOutdated(true);
-      }
-    },
-    [clearTerminalScreen, handleProcessCompletion, onOutputRef, terminalRef],
-  );
+  const handleSocketMessage = useCallback((rawPayload: string) => {
+    handleShellSocketPayload(rawPayload, {
+      terminalRef,
+      lastSeqRef,
+      remoteResumeRef,
+      protocolOutdatedRef,
+      suppressAutoConnectRef,
+      clearTerminalScreen,
+      handleProcessCompletion,
+      notifyOutput: onOutputRef?.current ?? undefined,
+      setProtocolOutdated: setIsProtocolOutdated,
+    });
+  }, [clearTerminalScreen, handleProcessCompletion, onOutputRef, terminalRef]);
 
   const connectWebSocket = useCallback(
     (isConnectionLocked = false) => {
@@ -221,7 +122,7 @@ export function useShellConnection({
       }
 
       try {
-        const wsUrl = getShellWebSocketUrl();
+        const wsUrl = getShellWebSocketUrl(attachTargetRef.current?.targetClass);
 
         connectingRef.current = true;
 
@@ -261,6 +162,7 @@ export function useShellConnection({
             if (forceRestart || identity !== replayIdentityRef.current) {
               replayIdentityRef.current = identity;
               lastSeqRef.current = null;
+              remoteResumeRef.current = null;
             }
 
             sendSocketMessage(socket, buildShellInitMessage({
@@ -283,6 +185,7 @@ export function useShellConnection({
               forceRestart,
               attachTarget: currentAttachTarget,
               lastSeq: lastSeqRef.current,
+              remoteResume: remoteResumeRef.current,
             }));
           }, TERMINAL_INIT_DELAY_MS);
         };
@@ -377,12 +280,5 @@ export function useShellConnection({
     connectToShell({ automatic: true });
   }, [autoConnect, connectToShell, isConnected, isConnecting, isInitialized]);
 
-  return {
-    isConnected,
-    isConnecting,
-    isProtocolOutdated,
-    closeSocket,
-    connectToShell,
-    disconnectFromShell,
-  };
+  return { isConnected, isConnecting, isProtocolOutdated, closeSocket, connectToShell, disconnectFromShell };
 }

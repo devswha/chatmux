@@ -113,12 +113,21 @@ test('plain shell init keeps its existing fields and adds the protocol version',
 });
 
 test('shell consumers retain their command props and no client tmux command builder remains', () => {
-  const mainContent = readFileSync(new URL('../main-content/view/MainContent.tsx', import.meta.url), 'utf8');
+  const shellViews = [
+    readFileSync(new URL('../main-content/view/subcomponents/ExternalTerminalShellView.tsx', import.meta.url), 'utf8'),
+    readFileSync(new URL('../main-content/view/subcomponents/TranscriptCliTab.tsx', import.meta.url), 'utf8'),
+    readFileSync(new URL('../main-content/view/subcomponents/PendingRelayView.tsx', import.meta.url), 'utf8'),
+  ];
   const providerLogin = readFileSync(new URL('../provider-auth/view/ProviderLoginModal.tsx', import.meta.url), 'utf8');
   const standalone = readFileSync(new URL('../standalone-shell/view/StandaloneShell.tsx', import.meta.url), 'utf8');
   const removedBuilder = ['buildExact', 'TmuxAttachCommand'].join('');
-  assert.equal(mainContent.includes(removedBuilder), false);
-  assert.match(mainContent, /attachTarget=\{attachTarget\}/);
+  for (const shellView of shellViews) {
+    assert.equal(shellView.includes(removedBuilder), false);
+  }
+  assert.ok(
+    shellViews.some((shellView) => /attachTarget=\{attachTarget\}/.test(shellView)),
+    'the shell views keep forwarding the exact attach target',
+  );
   assert.match(providerLogin, /StandaloneShell project=\{DEFAULT_PROJECT_FOR_EMPTY_SHELL\} command=\{command\}/);
   assert.match(standalone, /initialCommand=\{command\}/);
 });
@@ -135,7 +144,8 @@ test('shell view permits only typed attach without a Project', () => {
   assert.match(connection, /sessionId: typedAttach \|\| isPlainShellRef\.current/);
 });
 test('external terminal targets do not attach without a server-issued capability', () => {
-  const mainContent = readFileSync(new URL('../main-content/view/MainContent.tsx', import.meta.url), 'utf8');
+  const mainContent = readFileSync(new URL('../main-content/view/externalAttachTargets.ts', import.meta.url), 'utf8');
+  const shellView = readFileSync(new URL('../main-content/view/subcomponents/ExternalTerminalShellView.tsx', import.meta.url), 'utf8');
 
   // The builder is the only path to an attach target, so lock its contract
   // rather than its spelling: attach-only rows must carry a server-issued
@@ -148,32 +158,33 @@ test('external terminal targets do not attach without a server-issued capability
   assert.match(builder, /typeof attachCapability === 'string' && attachCapability/);
   assert.match(builder, /targetClass: 'attach-only'[\s\S]*capability: attachCapability/);
   assert.match(builder, /:\s*null;/);
-  assert.match(mainContent, /\{attachTarget \? \(/);
-  assert.match(mainContent, /t\('shell\.attachCapabilityUnavailable'\)/);
+  assert.match(shellView, /\{attachTarget \? \(/);
+  assert.match(shellView, /t\('shell\.attachCapabilityUnavailable'\)/);
 });
 
 test('protocol outdated errors remain terminal after socket close and suppress auto-connect', () => {
   const connection = readFileSync(new URL('./hooks/useShellConnection.ts', import.meta.url), 'utf8');
+  const handler = readFileSync(new URL('./hooks/shellMessageHandler.ts', import.meta.url), 'utf8');
 
-  assert.match(connection, /protocolOutdatedRef\.current = true/);
-  assert.match(connection, /suppressAutoConnectRef\.current = true/);
+  assert.match(handler, /protocolOutdatedRef\.current = true/);
+  assert.match(handler, /suppressAutoConnectRef\.current = true/);
   assert.match(connection, /protocolOutdatedRef\.current \|\|/);
   assert.match(connection, /connectToShell\(\{ automatic: true \}\)/);
 });
 
 test('auth_url messages surface the provider login URL in the terminal', () => {
-  const connection = readFileSync(new URL('./hooks/useShellConnection.ts', import.meta.url), 'utf8');
+  const handler = readFileSync(new URL('./hooks/shellMessageHandler.ts', import.meta.url), 'utf8');
   const types = readFileSync(new URL('./types/types.ts', import.meta.url), 'utf8');
-  const authUrlHandler = connection.slice(
-    connection.indexOf("message.type === 'auth_url'"),
-    connection.indexOf("message.type === 'replay_start'"),
+  const authUrlHandler = handler.slice(
+    handler.indexOf("message.type === 'auth_url'"),
+    handler.indexOf("message.type === 'replay_start'"),
   );
 
   assert.match(types, /\{ type: 'auth_url'; url\?: string; autoOpen\?: boolean \}/);
-  assert.match(authUrlHandler, /terminalRef\.current\?\.write/);
+  assert.match(authUrlHandler, /context\.terminalRef\.current\?\.write/);
   assert.match(authUrlHandler, /Authentication required/);
   assert.match(authUrlHandler, /message\.url/);
-  assert.match(authUrlHandler, /onOutputRef\?\.current\?\.\(\)/);
+  assert.match(authUrlHandler, /context\.notifyOutput\?\.\(\)/);
   assert.equal(authUrlHandler.includes('window.open'), false);
 });
 test('init carries the acknowledged output seq only when one exists', () => {
@@ -186,6 +197,7 @@ test('init carries the acknowledged output seq only when one exists', () => {
 
 test('reconnects keep the screen and only a redraw replay clears it', () => {
   const connection = readFileSync(new URL('./hooks/useShellConnection.ts', import.meta.url), 'utf8');
+  const handler = readFileSync(new URL('./hooks/shellMessageHandler.ts', import.meta.url), 'utf8');
 
   // onclose must not clear: the server decides between seamless resume
   // (replay only what was missed) and a full redraw via replay_start.
@@ -194,8 +206,8 @@ test('reconnects keep the screen and only a redraw replay clears it', () => {
     connection.indexOf('socket.onerror'),
   );
   assert.equal(oncloseBody.includes('clearTerminalScreen()'), false);
-  assert.match(connection, /message\.type === 'replay_start'/);
-  assert.match(connection, /mode !== 'resume'/);
-  assert.match(connection, /lastSeqRef\.current = message\.seq/);
+  assert.match(handler, /message\.type === 'replay_start'/);
+  assert.match(handler, /mode !== 'resume'/);
+  assert.match(handler, /lastSeqRef\.current = message\.seq/);
   assert.match(connection, /lastSeq: lastSeqRef\.current/);
 });

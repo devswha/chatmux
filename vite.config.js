@@ -60,6 +60,14 @@ export default defineConfig(({ mode }) => {
         '/shell': {
           target: `ws://${proxyHost}:${serverPort}`,
           ws: true
+        },
+        '/remote-chat': {
+          target: `ws://${proxyHost}:${serverPort}`,
+          ws: true
+        },
+        '/remote-shell': {
+          target: `ws://${proxyHost}:${serverPort}`,
+          ws: true
         }
       }
     },

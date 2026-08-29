@@ -8,12 +8,18 @@ import SettingsSidebar from '../view/SettingsSidebar';
 import AgentsSettingsTab from '../view/tabs/agents-settings/AgentsSettingsTab';
 import AppearanceSettingsTab from '../view/tabs/AppearanceSettingsTab';
 import AccessSettingsTab from '../view/tabs/AccessSettingsTab';
+import { FleetSettingsTab } from '../view/tabs/FleetSettingsTab';
+import { useAuth } from '../../auth';
+import { isFleetOwner } from '../fleet/fleetOwner';
 import { useSettingsController } from '../hooks/useSettingsController';
 import type { SettingsProps } from '../types/types';
 
 function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }: SettingsProps) {
   const { t } = useTranslation('settings');
+  const { authMode, user } = useAuth();
+  const fleetOwner = isFleetOwner(authMode, user);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const initialFleetAppliedRef = useRef(false);
   const triggerRef = useRef<HTMLElement | null>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
@@ -58,6 +64,21 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }: Set
       triggerRef.current = null;
     };
   }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      initialFleetAppliedRef.current = false;
+      return;
+    }
+    if (fleetOwner && initialTab === 'fleet' && !initialFleetAppliedRef.current) {
+      initialFleetAppliedRef.current = true;
+      setActiveTab('fleet');
+    }
+  }, [fleetOwner, initialTab, isOpen, setActiveTab]);
+
+  useEffect(() => {
+    if (!fleetOwner && activeTab === 'fleet') setActiveTab('appearance');
+  }, [activeTab, fleetOwner, setActiveTab]);
 
   useEffect(() => {
     if (!isOpen || showLoginModal) return;
@@ -109,7 +130,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }: Set
 
         {/* Body: sidebar + content */}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col md:flex-row">
-          <SettingsSidebar activeTab={activeTab} onChange={setActiveTab} />
+          <SettingsSidebar activeTab={activeTab} onChange={setActiveTab} fleetOwner={fleetOwner} />
 
           {/* Content */}
           <main className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden">
@@ -143,6 +164,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }: Set
               )}
 
               {activeTab === 'access' && <AccessSettingsTab />}
+              {activeTab === 'fleet' && fleetOwner && <FleetSettingsTab />}
             </div>
           </main>
         </div>

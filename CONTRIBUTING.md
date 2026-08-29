@@ -84,6 +84,7 @@ chatmux/
 - Documentation improvements are always welcome
 - Keep language clear and concise
 - Keep installation and self-hosting instructions aligned with [the self-hosting guide](docs/SELF-HOST.md)
+- Multi-PC documentation must preserve the shipped contract in [REMOTE-ACCESS.md §8](docs/REMOTE-ACCESS.md#8-multi-pc-fleet-one-hub-and-full-peers): one hub plus at most nine full peers, owner-only enrollment, Tailscale HTTPS/WSS by default, and only literal loopback `ws://` behind an owner-created SSH forward. Do not describe a relay, downgrade, automatic failover, fleet updater, cloud sync, remote desktop/IDE, arbitrary commands, or zero-configuration reachability.
 
 ## Commit Convention
 
@@ -150,6 +151,14 @@ ChatMux uses trunk-based development: `main` plus short-lived branches. There is
 5. **Branch protection enforces the gate**: `main` requires the `Verify Node 22` / `Verify Node 24` checks to pass before a PR can merge, and force-pushes/deletions are blocked. Admins may bypass only for the release bookkeeping commits above or to unblock a proven CI-infrastructure flake (prefer re-running the failed job).
 
 ## Releases
+
+Fleet-capable releases are rolled out **hub first**, then one full peer at a time.
+Verify the hub's direct UI and peer inventory after the hub update. After each peer
+update, wait for it to leave **Syncing** and return **Online** before continuing.
+**Incompatible** is a hard stop: use a supported version pairing or the documented
+manual recovery; never downgrade the transport or bulk-update the remaining peers.
+There is no fleet-wide update command, and every peer retains its own updater and
+direct recovery UI.
 
 Cutting a release (maintainers):
 

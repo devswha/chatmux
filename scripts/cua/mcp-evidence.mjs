@@ -2,8 +2,7 @@
 
 import { spawn } from 'node:child_process';
 import { constants } from 'node:fs';
-import { access, mkdir, readdir, writeFile } from 'node:fs/promises';
-import os from 'node:os';
+import { access, mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import readline from 'node:readline';
 
@@ -14,30 +13,12 @@ const outputRoot = path.resolve(
 );
 
 async function findDriver() {
-  if (process.env.CUA_DRIVER_PATH) return path.resolve(process.env.CUA_DRIVER_PATH);
-  const root = path.join(
-    os.homedir(),
-    '.codex',
-    'plugins',
-    'cache',
-    'openai-bundled',
-    'computer-use',
-  );
-  const versions = (await readdir(root, { withFileTypes: true }))
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => entry.name)
-    .sort()
-    .reverse();
-  for (const version of versions) {
-    const candidate = path.join(root, version, 'bin', 'codex-computer-use-linux');
-    try {
-      await access(candidate, constants.X_OK);
-      return candidate;
-    } catch {
-      // Try the next cached official bundle.
-    }
+  if (!process.env.CUA_DRIVER_PATH) {
+    throw new Error('CUA_DRIVER_PATH is required; provision the pinned upstream release with npm run cua:tool:provision.');
   }
-  throw new Error('No executable Linux Computer Use driver was found.');
+  const candidate = path.resolve(process.env.CUA_DRIVER_PATH);
+  await access(candidate, constants.X_OK);
+  return candidate;
 }
 
 function createClient(driverPath) {

@@ -10,6 +10,7 @@ import SidebarFooter from './SidebarFooter';
 import SidebarHeader from './SidebarHeader';
 import SidebarLiveSection from './SidebarLiveSection';
 import SidebarNewSession from './SidebarNewSession';
+import SidebarHostGroups from './fleet/SidebarHostGroups';
 
 type SidebarContentProps = {
   isPWA: boolean;
@@ -89,6 +90,50 @@ export default function SidebarContent({
     refreshDiscoveredSessions();
     onRefresh();
   };
+  // What this machine is already showing, so host groups can name it, count it
+  // and detect labels that are ambiguous across machines.
+  const localSummary = {
+    rowLabels: [...liveSessionNames.values(), ...externalSessions.map((session) => session.tmuxName)],
+    counts: {
+      projects: projects.length,
+      sessions: liveSessionIds.size,
+      panes: externalSessions.length,
+    },
+  };
+
+  const localSections = sessionCount > 0 ? (
+    <SidebarLiveSection
+      projects={projects}
+      liveSessionIds={liveSessionIds}
+      externalSessions={externalSessions}
+      selectedSession={selectedSession}
+      onProjectSelect={onProjectSelect}
+      onSessionSelect={onSessionSelect}
+      liveSessionNames={liveSessionNames}
+      liveSessionModels={liveSessionModels}
+      liveSessionEfforts={liveSessionEfforts}
+      liveSessionLineage={liveSessionLineage}
+      liveSessionPanes={liveSessionPanes}
+      liveSessionPresence={liveSessionPresence}
+      liveSessionTargets={liveSessionTargets}
+      liveSessionKinds={liveSessionKinds}
+      liveSessionRunning={liveSessionRunning}
+      liveSessionInput={liveSessionInput}
+      liveSessionErrors={liveSessionErrors}
+      liveSessionConnectionIssues={liveSessionConnectionIssues}
+      onExternalTerminalOpen={onExternalTerminalOpen}
+      onExternalSessionsChanged={refreshDiscoveredSessions}
+    />
+  ) : (!liveSessionsLoaded || externalLoading) ? (
+    <div className="flex items-center justify-center gap-2 px-4 py-8 text-sm text-muted-foreground" role="status" aria-live="polite">
+      <span className="h-4 w-4 animate-spin rounded-full border-2 border-muted-foreground/40 border-t-muted-foreground" aria-hidden />
+      {t('liveSessions.loading')}
+    </div>
+  ) : (
+    <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+      {t('liveSessions.empty')}
+    </div>
+  );
 
   return (
     <div className="flex h-full flex-col bg-background md:w-72 md:select-none">
@@ -103,39 +148,12 @@ export default function SidebarContent({
 
       <ScrollArea className="flex-1 overflow-y-auto overscroll-contain md:px-1.5 md:py-2">
         <SidebarNewSession onCreated={refreshDiscoveredSessions} />
-        {sessionCount > 0 ? (
-          <SidebarLiveSection
-            projects={projects}
-            liveSessionIds={liveSessionIds}
-            externalSessions={externalSessions}
-            selectedSession={selectedSession}
-            onProjectSelect={onProjectSelect}
-            onSessionSelect={onSessionSelect}
-            liveSessionNames={liveSessionNames}
-            liveSessionModels={liveSessionModels}
-            liveSessionEfforts={liveSessionEfforts}
-            liveSessionLineage={liveSessionLineage}
-            liveSessionPanes={liveSessionPanes}
-            liveSessionPresence={liveSessionPresence}
-            liveSessionTargets={liveSessionTargets}
-            liveSessionKinds={liveSessionKinds}
-            liveSessionRunning={liveSessionRunning}
-            liveSessionInput={liveSessionInput}
-            liveSessionErrors={liveSessionErrors}
-            liveSessionConnectionIssues={liveSessionConnectionIssues}
-            onExternalTerminalOpen={onExternalTerminalOpen}
-            onExternalSessionsChanged={refreshDiscoveredSessions}
-          />
-        ) : (!liveSessionsLoaded || externalLoading) ? (
-          <div className="flex items-center justify-center gap-2 px-4 py-8 text-sm text-muted-foreground" role="status" aria-live="polite">
-            <span className="h-4 w-4 animate-spin rounded-full border-2 border-muted-foreground/40 border-t-muted-foreground" aria-hidden />
-            {t('liveSessions.loading')}
-          </div>
-        ) : (
-          <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-            {t('liveSessions.empty')}
-          </div>
-        )}
+        <SidebarHostGroups
+          local={localSummary}
+          onRemotePaneOpen={onExternalTerminalOpen}
+        >
+          {localSections}
+        </SidebarHostGroups>
       </ScrollArea>
 
       <SidebarFooter

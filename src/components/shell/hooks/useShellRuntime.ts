@@ -47,13 +47,22 @@ export function useShellRuntime({
   }, [selectedProject, projectPath, selectedSession, initialCommand, isPlainShell, attachTarget, onProcessComplete]);
 
   const terminalIdentityKey = attachTarget
-    ? JSON.stringify([
-        attachTarget.targetClass,
-        tmuxPaneIdentityKey(attachTarget.tmux),
-        attachTarget.targetClass === 'local-agent'
-          ? [attachTarget.process.pid, attachTarget.process.startedAtMs]
-          : attachTarget.capability,
-      ])
+    ? attachTarget.targetClass === 'remote-agent'
+      ? JSON.stringify([
+          attachTarget.targetClass,
+          attachTarget.target.hostId,
+          attachTarget.target.localId,
+          tmuxPaneIdentityKey(attachTarget.target.tmux),
+          attachTarget.target.process.pid,
+          attachTarget.target.process.startedAtMs,
+        ])
+      : JSON.stringify([
+          attachTarget.targetClass,
+          tmuxPaneIdentityKey(attachTarget.tmux),
+          attachTarget.targetClass === 'local-agent'
+            ? [attachTarget.process.pid, attachTarget.process.startedAtMs]
+            : attachTarget.capability,
+        ])
     : selectedProject?.fullPath || selectedProject?.path || '';
 
   const closeSocket = useCallback(() => {

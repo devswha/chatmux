@@ -4,22 +4,37 @@ import test from 'node:test';
 import {
   applySessionOrder,
   createSessionOrderId,
-  LIVE_SESSION_ORDER_STORAGE_KEY,
+  LIVE_SESSION_ORDER_KEY,
   migrateSessionOrderAliases,
   mergeVisibleSessionOrder,
   moveSession,
-  parseStoredSessionOrder,
   persistSessionOrder,
   readStoredSessionOrder,
 } from './sessionOrder';
 
-test('parseStoredSessionOrder rejects malformed values and removes invalid duplicates', () => {
-  assert.deepEqual(parseStoredSessionOrder(null), []);
-  assert.deepEqual(parseStoredSessionOrder('{bad json'), []);
-  assert.deepEqual(parseStoredSessionOrder('{"id":"a"}'), []);
-  assert.deepEqual(
-    parseStoredSessionOrder('["second", "", 3, "first", "second"]'),
-    ['second', 'first'],
+const HOST_A = '11111111-1111-4111-8111-111111111111';
+const HOST_B = '22222222-2222-4222-8222-222222222222';
+
+test('createSessionOrderId keeps two hosts with one local id in separate positions', () => {
+  const tmux = {
+    socketPath: '/tmp/chatmux.sock',
+    sessionId: '$1',
+    windowId: '@2',
+    paneId: '%3',
+  };
+
+  assert.notEqual(
+    createSessionOrderId('app-session-id', undefined, HOST_A),
+    createSessionOrderId('app-session-id', undefined, HOST_B),
+  );
+  assert.notEqual(
+    createSessionOrderId('app-session-id', tmux, HOST_A),
+    createSessionOrderId('app-session-id', tmux, HOST_B),
+  );
+  assert.notEqual(
+    createSessionOrderId('app-session-id', tmux, HOST_A),
+    createSessionOrderId('app-session-id', undefined, HOST_A),
+    'a pane row and a transcript row are different positions',
   );
 });
 
@@ -73,8 +88,9 @@ test('persistSessionOrder restores the custom order across component mounts', ()
   try {
     persistSessionOrder(['third', 'first', 'second']);
     assert.equal(
-      storage.get(LIVE_SESSION_ORDER_STORAGE_KEY),
-      '["third","first","second"]',
+      storage.get(LIVE_SESSION_ORDER_KEY),
+      '{"version":2,"entries":["third","first","second"]}',
+      'the persisted payload carries its schema version',
     );
     assert.deepEqual(readStoredSessionOrder(), ['third', 'first', 'second']);
   } finally {
