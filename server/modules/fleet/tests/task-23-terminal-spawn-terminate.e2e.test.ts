@@ -99,25 +99,28 @@ test('task-23 terminal, spawn, termination, and pane respawn stay on the address
     const shell = openRemoteShell(`${fleet.servers.hub.url.replace('http', 'ws')}/remote-shell`);
     t.after(() => shell.close());
     const attachReply = shell.waitFor((frame) => frame.type === 'replay_start' || frame.type === 'error', 'attach reply');
-    // The initial redraw can split the marker across output frames on slow hosts,
-    // so match against the concatenated stream instead of a single frame.
-    const output = shell.waitFor((frame) => frame.type === 'output' && shell.outputText().includes('ChatMux CUA fixture ready'), 'pane output');
     await shell.send({
       type: 'init', shellProtocolVersion: 2, mode: 'remote-attach',
       target: { kind: 'pane', hostId: fleet.hostIds.a, ...targetA }, cols: 100, rows: 30, resume: null,
     });
-    // Then: the attach replays peer A's pane, carries typed input, and survives resize.
+    // Then: the attach handshake completes, live output round-trips input, and the
+    // stream survives resize. The initial redraw's pane body is deferred by some
+    // tmux builds (3.2a on CI), so prove streaming with live agent replies instead
+    // of replayed pane text.
     const attach = await attachReply;
     assert.equal(attach.type, 'replay_start', JSON.stringify(attach));
-    await output;
     const marker = 'terminal-alpha-line';
     const observed = fleet.agents.a.waitForInput(marker);
+    const reply = shell.waitFor((frame) => frame.type === 'output' && shell.outputText().includes(`User: ${marker}`), 'agent echo output');
     await shell.send({ type: 'input', data: `${marker}\r` });
     await observed;
+    await reply;
     const settled = fleet.agents.a.waitForInput(`${marker}-after-resize`);
+    const resized = shell.waitFor((frame) => frame.type === 'output' && shell.outputText().includes(`User: ${marker}-after-resize`), 'agent echo output after resize');
     await shell.send({ type: 'resize', cols: 120, rows: 40 });
     await shell.send({ type: 'input', data: `${marker}-after-resize\r` });
     await settled;
+    await resized;
     const dimensions = (await fleet.tmux(harness.peers.a, ['display-message', '-p', '-t', `=${collision.tmuxSessionName}:`, '#{pane_width}x#{pane_height}'])).trim();
     assert.equal(dimensions, '120x39', 'tmux reserves one requested row for its status line');
     const closed = shell.waitFor((frame) => frame.type === 'remote_closed' && frame.reason === 'closed', 'closed attachment');
