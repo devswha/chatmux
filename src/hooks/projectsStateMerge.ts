@@ -1,9 +1,12 @@
 import type { ServerEvent } from '../contexts/WebSocketContext';
+import { type HostQualifiedKey, parseHostId, projectSlotKey } from '../fleet/references';
 import type { LLMProvider, Project, ProjectSession } from '../types/app';
 
 export type SessionUpsertedEvent = ServerEvent & {
   sessionId: string;
   providerSessionId?: string | null;
+  /** Installation that owns the session; absent on legacy local-only events. */
+  hostId?: string | null;
   provider: LLMProvider;
   session: ProjectSession;
   project: {
@@ -14,6 +17,15 @@ export type SessionUpsertedEvent = ServerEvent & {
     isStarred: boolean;
   } | null;
 };
+
+/**
+ * Host-qualified merge key for a project. Two installations may expose the same
+ * `projectId`; merging them would splice one machine's sessions into the other's
+ * project row.
+ */
+export function projectMergeKey(project: Project): HostQualifiedKey {
+  return projectSlotKey(parseHostId(project.hostId), project.projectId);
+}
 
 
 const DEFAULT_PROVIDER: LLMProvider = 'claude';
@@ -84,10 +96,10 @@ export const mergeExpandedSessionPages = (previousProjects: Project[], incomingP
     return incomingProjects;
   }
 
-  const previousByProjectId = new Map(previousProjects.map((project) => [project.projectId, project]));
+  const previousByProjectKey = new Map(previousProjects.map((project) => [projectMergeKey(project), project]));
 
   return incomingProjects.map((incomingProject) => {
-    const previousProject = previousByProjectId.get(incomingProject.projectId);
+    const previousProject = previousByProjectKey.get(projectMergeKey(incomingProject));
     if (!previousProject) {
       return incomingProject;
     }
@@ -136,6 +148,13 @@ const getSessionAliasIds = (event: SessionUpsertedEvent): Set<string> => {
 };
 
 export const upsertSessionIntoProject = (project: Project, event: SessionUpsertedEvent): Project => {
+  // A session id only identifies a session within its own installation. An event
+  // from another host must never update this project's rows, even when the ids,
+  // project id and paths look identical.
+  if (parseHostId(event.hostId) !== parseHostId(project.hostId)) {
+    return project;
+  }
+
   const sessions = project.sessions ?? [];
   const aliasIds = getSessionAliasIds(event);
   const normalizedSession: ProjectSession = {
@@ -195,6 +214,7 @@ export const upsertSessionIntoProject = (project: Project, event: SessionUpserte
 
 export const projectFromRegistration = (project: Project): Project => ({
   projectId: project.projectId,
+  ...(parseHostId(project.hostId) === null ? {} : { hostId: project.hostId }),
   path: project.path || project.fullPath,
   fullPath: project.fullPath || project.path || '',
   displayName: project.displayName,

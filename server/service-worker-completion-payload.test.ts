@@ -1,65 +1,7 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
 import test from 'node:test';
-import { createContext, runInContext } from 'node:vm';
 
-type ServiceWorkerEvent = (event: any) => void;
-
-type NotificationRecord = {
-  title: unknown;
-  options: any;
-};
-
-async function serviceWorkerRuntime() {
-  const source = await readFile(new URL('../public/sw.js', import.meta.url), 'utf8');
-  const listeners = new Map<string, ServiceWorkerEvent>();
-  const notifications: NotificationRecord[] = [];
-  const clients: any[] = [];
-  const openWindows: string[] = [];
-  const self = {
-    addEventListener(type: string, listener: ServiceWorkerEvent) {
-      listeners.set(type, listener);
-    },
-    location: { origin: 'https://chatmux.test' },
-    registration: {
-      showNotification(title: unknown, options: any) {
-        notifications.push({ title, options });
-        return Promise.resolve();
-      },
-    },
-    clients: {
-      claim() {},
-      matchAll: async () => clients,
-      openWindow: async (target: string) => { openWindows.push(target); },
-    },
-    skipWaiting() {},
-  };
-
-  runInContext(source, createContext({ self, URL }));
-
-  async function push(payload: unknown) {
-    let completion: Promise<unknown> | undefined;
-    listeners.get('push')!({
-      data: { json: () => payload },
-      waitUntil(value: Promise<unknown>) { completion = Promise.resolve(value); },
-    });
-    await completion;
-  }
-
-  async function click(data: unknown) {
-    let completion: Promise<unknown> | undefined;
-    listeners.get('notificationclick')!({
-      notification: {
-        data,
-        close() {},
-      },
-      waitUntil(value: Promise<unknown>) { completion = Promise.resolve(value); },
-    });
-    await completion;
-  }
-
-  return { click, clients, notifications, openWindows, push };
-}
+import { serviceWorkerRuntime } from './tests/support/service-worker-runtime.js';
 
 test('service worker preserves distinct top-level completion tags', async () => {
   const runtime = await serviceWorkerRuntime();
@@ -137,6 +79,7 @@ test('completion notification clicks navigate a focused client or open the targe
   assert.deepEqual(messages.map((message) => JSON.parse(JSON.stringify(message))), [{
     type: 'notification:navigate',
     sessionId: 'focused',
+    hostId: null,
     provider: null,
     urlPath: '/session/focused',
   }]);
@@ -182,6 +125,7 @@ test('legacy completion clicks recover the session id from navigation href', asy
   assert.deepEqual(messages.map((message) => JSON.parse(JSON.stringify(message))), [{
     type: 'notification:navigate',
     sessionId: 'legacy completion',
+    hostId: null,
     provider: null,
     urlPath: '/session/legacy%20completion',
   }]);
@@ -202,8 +146,93 @@ test('legacy notification clicks focus an exact-origin client and post navigatio
   assert.deepEqual(messages.map((message) => JSON.parse(JSON.stringify(message))), [{
     type: 'notification:navigate',
     sessionId: 'legacy-session',
+    hostId: null,
     provider: 'claude',
     urlPath: '/session/legacy-session'
   }]);
   assert.deepEqual(runtime.openWindows, []);
+});
+
+const HOST_A = '11111111-1111-4111-8111-111111111111';
+
+test('Given a host-qualified completion link, when clicked, then the owning host travels with the session id', async () => {
+  // Given
+  const runtime = await serviceWorkerRuntime();
+  const messages: unknown[] = [];
+  runtime.clients.push({
+    url: 'https://chatmux.test/',
+    focus: async () => {},
+    navigate: async () => {},
+    postMessage: (message: unknown) => { messages.push(message); },
+  });
+
+  // When
+  await runtime.push({ title: 'Remote', tag: 'remote-one', navigation: { href: `/hosts/${HOST_A}/session/session-42` } });
+  await runtime.click(runtime.notifications[0].options.data);
+
+  // Then
+  assert.deepEqual(JSON.parse(JSON.stringify(runtime.notifications[0].options.data.navigation)), {
+    href: `/hosts/${HOST_A}/session/session-42`,
+    sessionId: 'session-42',
+    hostId: HOST_A,
+  });
+  assert.deepEqual(messages.map((message) => JSON.parse(JSON.stringify(message))), [{
+    type: 'notification:navigate',
+    sessionId: 'session-42',
+    hostId: HOST_A,
+    provider: null,
+    urlPath: `/hosts/${HOST_A}/session/session-42`,
+  }]);
+});
+
+test('Given a host-safe push payload, when clicked, then the service worker preserves its exact remote host route', async () => {
+  const runtime = await serviceWorkerRuntime();
+  const messages: unknown[] = [];
+  runtime.clients.push({
+    url: 'https://chatmux.test/', focus: async () => {}, navigate: async () => {},
+    postMessage: (message: unknown) => { messages.push(message); },
+  });
+  const href = `/hosts/${HOST_A}/session/same%20session`;
+
+  await runtime.push({
+    title: 'Agent', body: 'studio-a · Claude: Reply ready', tag: 'host-safe-tag',
+    navigation: { href, title: 'Agent', hostId: HOST_A, sessionId: 'same session' },
+  });
+  await runtime.click(runtime.notifications[0].options.data);
+
+  assert.equal(runtime.notifications[0].options.tag, 'host-safe-tag');
+  assert.deepEqual(messages.map((message) => JSON.parse(JSON.stringify(message))), [{
+    type: 'notification:navigate', sessionId: 'same session', hostId: HOST_A,
+    provider: null, urlPath: href,
+  }]);
+});
+
+test('Given a malformed host segment, when a completion link is stored, then no session target is derived', async () => {
+  // Given
+  const runtime = await serviceWorkerRuntime();
+
+  // When
+  await runtime.push({ tag: 'bad-host', navigation: { href: '/hosts/not-a-host/session/session-42' } });
+
+  // Then
+  assert.deepEqual(JSON.parse(JSON.stringify(runtime.notifications[0].options.data.navigation)), {
+    href: '/hosts/not-a-host/session/session-42',
+    sessionId: null,
+    hostId: null,
+  });
+});
+
+test('Given a legacy local completion link, when stored, then it carries no host and stays local', async () => {
+  // Given
+  const runtime = await serviceWorkerRuntime();
+
+  // When
+  await runtime.push({ tag: 'local-one', navigation: { href: '/session/session-42' } });
+
+  // Then
+  assert.deepEqual(JSON.parse(JSON.stringify(runtime.notifications[0].options.data.navigation)), {
+    href: '/session/session-42',
+    sessionId: 'session-42',
+    hostId: null,
+  });
 });

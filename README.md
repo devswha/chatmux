@@ -105,6 +105,14 @@ chatmux access enable tailscale     # switch modes after Tailscale is available
 
 User allowlists, longer sessions, VPN mode, SSH tunnels, and public TLS options are covered in the [remote access guide](docs/REMOTE-ACCESS.md).
 
+## Multiple PCs
+
+One ChatMux installation can be the **hub** for as many as nine other **full ChatMux installations** (ten PCs total). Open the hub in your browser to see the hub and enrolled peers together; each peer still owns its tmux sessions, database, keys, updater, and direct browser UI.
+
+Enrollment is owner-only in **Settings → Hosts**. Generate a single-use, 10-minute pairing code on the peer, then add it from the hub. Use the peer's Tailscale Serve endpoint as `wss://<peer-host>.ts.net:<serve-port>/fleet-ws` by default. ChatMux has no cloud relay and never falls back to plaintext. The only supported plaintext exception is an owner-created SSH local forward saved as `ws://127.0.0.1:<local-port>/fleet-ws` or `ws://[::1]:<local-port>/fleet-ws`.
+
+Remote hosts can show **Offline** or **Syncing**. Syncing suspends remote writes until a fresh snapshot completes; Offline never redirects an action to the hub or another peer. Open that PC's own ChatMux address for direct recovery. See [multi-PC setup and recovery](docs/REMOTE-ACCESS.md#8-multi-pc-fleet-one-hub-and-full-peers).
+
 ## CLI
 
 The `chatmux` command manages the installed service:
@@ -114,6 +122,8 @@ chatmux status                  # version, addresses, data locations
 chatmux access users            # allowed Tailscale accounts
 chatmux access allow user@example.com
 chatmux sandbox ~/my-project    # run inside a Docker sandbox
+chatmux fleet identity          # public installation ID and fingerprint
+chatmux fleet diagnose          # redacted peer reachability
 ```
 
 ## Security and data boundaries
@@ -121,7 +131,7 @@ chatmux sandbox ~/my-project    # run inside a Docker sandbox
 - ChatMux links tmux process ancestry to native transcript identifiers. A matching working directory alone is never enough to authorize a destructive action, and the tmux session identifier is rechecked before relay or termination.
 - The backend binds to loopback. Tailscale mode trusts Serve identity headers only from loopback on the expected HTTPS origin; the installer never enables Funnel or a public listener, and unapproved users fail closed.
 - Password mode uses `HttpOnly`, `SameSite=Strict` cookies with persistent logout revocation.
-- State and indexes live below `~/.chatmux`. Back up `~/.chatmux/data` before migration or upgrade.
+- State and indexes live below `~/.chatmux`. Back up `~/.chatmux/data` before migration or upgrade. Multi-PC federation does not replicate or cloud-sync that data.
 
 ## Development
 

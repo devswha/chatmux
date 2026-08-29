@@ -280,5 +280,22 @@
     "cliLoadFailed": "Failed to load CLI output. The tmux session may have ended.",
     "cliConnectionFailed": "Failed to load CLI output. Check the tmux session connection.",
     "cliLoading": "Loading live CLI output…"
+  },
+  "hostNotice": {
+    "blocked": {
+      "hostUnavailable": "This session’s machine cannot be reached right now, so nothing was sent.",
+      "hostSyncing": "This session’s machine is resynchronizing. Wait for it to finish before sending.",
+      "reconcileRequired": "The previous send has an unresolved outcome. Wait for the check to finish before sending again.",
+      "sessionMismatch": "That message did not belong to the session on screen, so it was not sent.",
+      "attachmentsUnsupported": "Image attachments are not supported for a session on another machine.",
+      "unsupportedFrame": "That action is not available for a session on another machine."
+    },
+    "uncertain": {
+      "checking": "The delivery outcome is unknown. Checking the transcript on the owning machine…",
+      "applied": "The request did reach the session. Nothing was sent twice.",
+      "notApplied": "The request never reached the session. Send it again if you still want to.",
+      "unknown": "The outcome could not be confirmed. Read the transcript before sending again."
+    },
+    "dismiss": "Dismiss"
   }
 }

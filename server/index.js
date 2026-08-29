@@ -12,7 +12,7 @@ import cors from 'cors';
 import compression from 'compression';
 import Database from 'better-sqlite3';
 
-import { AppError, getOpenCodeDatabasePath } from '@/shared/utils.js';
+import { getOpenCodeDatabasePath } from '@/shared/utils.js';
 import {
     assertFreshLocalAgentTmuxTarget,
     assertTmuxPaneIdentity,
@@ -29,6 +29,18 @@ import {
     runTmux,
 } from '@/modules/providers/index.js';
 import { createWebSocketServer } from '@/modules/websocket/index.js';
+import { createFleetHubLifecycle, createLocalFleetHubRuntime } from '@/modules/fleet/hub/connection/index.js';
+import { createFleetPeerLifecycle, createLocalFleetPeerRuntime } from '@/modules/fleet/peer/index.js';
+import { fleetRuntimeEnabled, stopFleetRuntimeServices } from '@/modules/fleet/runtime-lifecycle.js';
+import {
+    createFleetBrowserDiscoveryRouter,
+    createLocalFleetBrowserDiscovery,
+    fleetBrowserDiscoveryGateway,
+} from '@/modules/fleet/browser-discovery/index.js';
+import { fleetApplicationRouting } from '@/modules/fleet/routing/application-routing.js';
+import { createApiErrorMiddleware } from '@/modules/fleet/routing/api-error-middleware.js';
+import { createHostQualifiedRoutes } from '@/modules/fleet/routing/host-qualified.routes.js';
+import { createLocalFleetSettingsRouter } from '@/modules/fleet/settings/composition.js';
 
 import { getConnectableHost } from '../shared/networkHosts.js';
 
@@ -221,10 +233,43 @@ const wss = createWebSocketServer(server, {
         runTmux,
     },
     discovery: discoveryCollector,
+    fleet: { authMode: AUTH_MODE },
 });
 
 // Make WebSocket server available to routes
 app.locals.wss = wss;
+
+const fleetPeerLifecycle = createFleetPeerLifecycle({
+    enabled: fleetRuntimeEnabled(process.env.CHATMUX_FLEET_ENABLED),
+    server,
+    createRuntime: async () => createLocalFleetPeerRuntime({
+        server,
+        browserUpgradeListeners: server.listeners('upgrade'),
+        discovery: discoveryCollector,
+        processEpoch: SERVER_BOOT_ID,
+        transportMode: process.env.CHATMUX_FLEET_TRANSPORT_MODE === 'ssh-loopback'
+            ? 'ssh-loopback'
+            : 'direct-wss',
+    }),
+});
+
+const fleetHubLifecycle = createFleetHubLifecycle({
+    enabled: fleetRuntimeEnabled(process.env.CHATMUX_FLEET_ENABLED),
+    createRuntime: async () => {
+        const runtime = await createLocalFleetHubRuntime(SERVER_BOOT_ID);
+        const routing = fleetApplicationRouting.bind(runtime, discoveryCollector);
+        const browserDiscovery = createLocalFleetBrowserDiscovery(runtime);
+        fleetBrowserDiscoveryGateway.bind(browserDiscovery);
+        return {
+            start: runtime.start,
+            stop: () => {
+                fleetBrowserDiscoveryGateway.unbind(browserDiscovery);
+                fleetApplicationRouting.unbind(routing);
+                runtime.stop();
+            },
+        };
+    },
+});
 
 // The update mutation is rejected before CORS/body parsing, so malformed cross-site
 // requests cannot reach authentication, discovery, durable state, or launchers.
@@ -284,6 +329,22 @@ app.get('/health', (req, res) => {
 
 // Authentication routes (public)
 app.use('/api/auth', authRoutes);
+
+// Machine pairing carries signed installation identity instead of browser auth.
+// Every other fleet-management route must first resolve the browser owner.
+app.use('/api/fleet', (req, res, next) => (
+    req.path === '/pairing/redeem' || req.path === '/pairing/revoke'
+        ? next()
+        : authenticateToken(req, res, next)
+), createLocalFleetSettingsRouter(AUTH_MODE));
+
+// Owner-only browser fleet discovery is separate from host-qualified action
+// routing: it exposes display state, never authorization targets or transcripts.
+app.use('/api', authenticateToken, createFleetBrowserDiscoveryRouter(AUTH_MODE));
+
+// Host-qualified fleet routes are additive; legacy project/provider URLs below
+// remain authoritative local-only compatibility wrappers.
+app.use('/api', authenticateToken, createHostQualifiedRoutes());
 
 // Projects API Routes (protected)
 app.use('/api/projects', authenticateToken, projectModuleRoutes);
@@ -627,28 +688,7 @@ app.get('*', (req, res) => {
 });
 
 // global error middleware must be last
-app.use((err, req, res, next) => {
-  if (err instanceof AppError) {
-    return res.status(err.statusCode).json({
-      success: false,
-      error: {
-        code: err.code,
-        message: err.message,
-        details: err.details,
-      },
-    });
-  }
-
-  console.error(err);
-
-  return res.status(500).json({
-    success: false,
-    error: {
-      code: 'INTERNAL_ERROR',
-      message: 'Internal server error',
-    },
-  });
-});
+app.use(createApiErrorMiddleware());
 
 
 const SERVER_PORT = process.env.SERVER_PORT || 3001;
@@ -740,6 +780,9 @@ async function startServer() {
             console.warn(`${c.warn('[SECURITY]')} ${exposure.message}`);
         }
 
+        await fleetPeerLifecycle.start();
+        await fleetHubLifecycle.start();
+
         // Configure Web Push (VAPID keys)
         configureWebPush();
         // This drain is independent of discovery and monitors: committed
@@ -809,6 +852,10 @@ async function startServer() {
                 return;
             }
             shutdownStarted = true;
+            // The machine endpoint must stop accepting work while its DB and tmux
+            // authorization dependencies are still alive.
+            await stopFleetRuntimeServices({ hub: fleetHubLifecycle, peer: fleetPeerLifecycle });
+            await closeSessionsWatcher();
             stopTranscriptDiscoveryRefresh();
             tmuxOutputActivityMonitor.dispose();
             discoveryCollector.dispose();
@@ -841,6 +888,7 @@ async function startServer() {
         process.on('SIGTERM', () => void shutdownRuntimeServices());
         process.on('SIGINT', () => void shutdownRuntimeServices());
     } catch (error) {
+        await stopFleetRuntimeServices({ hub: fleetHubLifecycle, peer: fleetPeerLifecycle });
         console.error('[ERROR] Failed to start server:', error);
         process.exit(1);
     }

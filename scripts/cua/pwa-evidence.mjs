@@ -102,7 +102,25 @@ const hostname = parsedBaseUrl.hostname;
 const loopback = isLoopbackHostname(hostname);
 const secureContext = parsedBaseUrl.protocol === 'https:'
   || (parsedBaseUrl.protocol === 'http:' && loopback);
-const osNotificationDelivered = process.env.CUA_OS_NOTIFICATION_DELIVERED === '1';
+const browserNotification = await readJson(path.join(outputRoot, 'pwa-notification-browser.json'));
+let notificationArtifactPresent = false;
+try {
+  await readFile(path.join(outputRoot, 'os-notification-delivered.png'));
+  notificationArtifactPresent = true;
+} catch (error) {
+  if (error?.code !== 'ENOENT') throw error;
+}
+const browserNotificationMatches = browserNotification?.origin === parsedBaseUrl.origin;
+const serviceWorkerActive = browserNotificationMatches
+  && browserNotification?.serviceWorker?.active === true
+  && browserNotification?.serviceWorker?.scriptURL === `${parsedBaseUrl.origin}/sw.js`;
+const deepLinkQualified = browserNotificationMatches
+  && /^\/hosts\/[0-9a-f-]{36}\/session\//.test(browserNotification?.notification?.navigation?.href ?? '')
+  && browserNotification?.deepLink?.served === true;
+const osNotificationDelivered = browserNotificationMatches
+  && browserNotification?.notificationApiCreated === true
+  && browserNotification?.osNotifyDbusObserved === true
+  && notificationArtifactPresent;
 const documentResponse = await fetchSummary(baseUrl, '/');
 const manifestPath = documentResponse.body.match(
   /<link[^>]+rel=["'][^"']*manifest[^"']*["'][^>]+href=["']([^"']+)["']/i,
@@ -123,10 +141,13 @@ const requiredIcon = manifest?.icons?.find(({ sizes }) => sizes?.split(/\s+/).in
 const iconResponse = requiredIcon
   ? await fetchSummary(baseUrl, requiredIcon.src)
   : { pathname: null, ok: false, body: '' };
-const [desktopEntries, notifications] = await Promise.all([
+const [desktopEntries, storedNotifications] = await Promise.all([
   matchingDesktopEntries(hostname),
   notificationPermission(hostname),
 ]);
+const notifications = browserNotificationMatches && browserNotification?.permission === 'granted'
+  ? { ...storedNotifications, permission: 'granted', source: 'live-browser-cdp' }
+  : storedNotifications;
 const checks = {
   secure_context: secureContext,
   document_served: documentResponse.ok && documentResponse.contentType?.includes('text/html'),
@@ -145,6 +166,8 @@ const checks = {
   install_icon_served: iconResponse.ok,
   pwa_installed: desktopEntries.some(({ hasAppLaunchCommand }) => hasAppLaunchCommand),
   notification_permission_granted: notifications.permission === 'granted',
+  service_worker_active: serviceWorkerActive,
+  host_qualified_deep_link: deepLinkQualified,
   os_notification_delivered: osNotificationDelivered,
 };
 const installable = Object.entries(checks)
@@ -156,6 +179,8 @@ const installable = Object.entries(checks)
   .every(([, ok]) => ok);
 const actualEnvironmentOk = checks.pwa_installed
   && checks.notification_permission_granted
+  && checks.service_worker_active
+  && checks.host_qualified_deep_link
   && checks.os_notification_delivered;
 const evidence = {
   capturedAt: new Date().toISOString(),
@@ -173,6 +198,7 @@ const evidence = {
   osNotification: {
     delivered: osNotificationDelivered,
     artifact: osNotificationDelivered ? 'os-notification-delivered.png' : null,
+    browserEvidence: browserNotificationMatches ? 'pwa-notification-browser.json' : null,
   },
   resources: [documentResponse, manifestResponse, serviceWorkerResponse, iconResponse].map((entry) => ({
     pathname: entry.pathname,

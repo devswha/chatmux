@@ -5,6 +5,18 @@ import { spawnSync } from 'node:child_process';
 
 const TEST_FILE_PATTERN = /\.(?:test|spec)\.(?:js|ts|tsx)$/;
 const SKIPPED_DIRECTORIES = new Set(['dist', 'dist-server', 'node_modules']);
+export const REAL_RESOURCE_TESTS = Object.freeze([
+  'server/gjc-core-host.test.ts',
+  'server/modules/fleet/tests/task-12-remote-terminal.live.test.ts',
+  'server/modules/providers/tests/tmux-runtime.e2e.test.ts',
+  'server/modules/providers/tests/tmux-fleet.e2e.test.ts',
+  'server/modules/providers/tests/tmux-fleet-lifecycle.e2e.test.ts',
+  'server/modules/fleet/tests/task-23-chat-approval.e2e.test.ts',
+  'server/modules/fleet/tests/task-23-discovery-reads.e2e.test.ts',
+  'server/modules/fleet/tests/task-23-recovery-isolation.e2e.test.ts',
+  'server/modules/fleet/tests/task-23-terminal-spawn-terminate.e2e.test.ts',
+]);
+const REAL_RESOURCE_TEST_SET = new Set(REAL_RESOURCE_TESTS);
 
 function meetsMinimumNodeVersion() {
   const [nodeMajor, nodeMinor, nodePatch] = process.versions.node.split('.').map(Number);
@@ -36,15 +48,26 @@ export async function collectTests(root) {
   return files.sort();
 }
 
-export function runTests(label, files, { tsconfig } = {}) {
+export function partitionServerTests(files) {
+  if (new Set(files).size !== files.length) throw new Error('[test] duplicate server test files were discovered.');
+  const discovered = new Set(files);
+  const missing = REAL_RESOURCE_TESTS.filter((file) => !discovered.has(file));
+  if (missing.length > 0) throw new Error(`[test] real-resource files are missing: ${missing.join(', ')}`);
+  return {
+    regular: files.filter((file) => !REAL_RESOURCE_TEST_SET.has(file)),
+    realResources: REAL_RESOURCE_TESTS,
+  };
+}
+
+export function runTests(label, files, { tsconfig, testConcurrency } = {}) {
   if (files.length === 0) {
     throw new Error(`[test] ${label}: no test files were discovered.`);
   }
 
   console.log(`\n[test] ${label}: ${files.length} files`);
-  const args = tsconfig
-    ? ['--import', 'tsx', '--test', ...files]
-    : ['--test', ...files];
+  const runtime = tsconfig ? ['--import', 'tsx'] : [];
+  const concurrency = testConcurrency === undefined ? [] : [`--test-concurrency=${testConcurrency}`];
+  const args = [...runtime, '--test', ...concurrency, ...files];
   const result = spawnSync(process.execPath, args, {
     cwd: process.cwd(),
     env: tsconfig ? { ...process.env, TSX_TSCONFIG_PATH: tsconfig } : process.env,
@@ -77,7 +100,9 @@ async function main() {
   }
 
   const { serverTests, clientTests } = await discoverTests();
-  runTests('server', serverTests, { tsconfig: 'server/tsconfig.json' });
+  const server = partitionServerTests(serverTests);
+  runTests('server', server.regular, { tsconfig: 'server/tsconfig.json' });
+  runTests('server real tmux/PTY', server.realResources, { tsconfig: 'server/tsconfig.json', testConcurrency: 1 });
   runTests('client', clientTests, { tsconfig: 'tsconfig.json' });
 }
 

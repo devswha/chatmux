@@ -1,43 +1,39 @@
+import { localHostId } from '../../../fleet/hostIdentity';
+import {
+  browserPersistedStateStorage,
+  LIVE_SESSION_ORDER_KEY,
+  paneIdentityOrderKey,
+  readPersistedSessionOrder,
+  writePersistedSessionOrder,
+} from '../../../fleet/persistedHostState';
+import { sessionSlotKey } from '../../../fleet/references';
 import type { TmuxPaneIdentity } from '../../../../shared/tmux';
 
-export const LIVE_SESSION_ORDER_STORAGE_KEY = 'chatmux.liveSessionOrder.v1';
+export { LIVE_SESSION_ORDER_KEY };
 
 const MAX_STORED_SESSION_IDS = 200;
 
+/**
+ * Stable identity of a sidebar row for ordering purposes, qualified by the host
+ * that owns the row. A pane row is keyed by its tmux identity so a promoted
+ * synthetic session id keeps its place; a transcript-only row is keyed by its
+ * session. Two installations with the same local session id therefore hold two
+ * independent positions instead of fighting over one.
+ */
 export function createSessionOrderId(
   sessionId: string,
   tmux?: TmuxPaneIdentity,
+  hostId: string | null = localHostId(),
 ): string {
   return tmux
-    ? `tmux:${tmux.socketPath}\u0000${tmux.sessionId}\u0000${tmux.windowId}\u0000${tmux.paneId}`
-    : `session:${sessionId}`;
-}
-
-export function parseStoredSessionOrder(value: string | null): string[] {
-  if (!value) return [];
-
-  try {
-    const parsed: unknown = JSON.parse(value);
-    if (!Array.isArray(parsed)) return [];
-
-    const seen = new Set<string>();
-    const order: string[] = [];
-    for (const entry of parsed) {
-      if (typeof entry !== 'string' || entry.length === 0 || seen.has(entry)) continue;
-      seen.add(entry);
-      order.push(entry);
-      if (order.length === MAX_STORED_SESSION_IDS) break;
-    }
-    return order;
-  } catch {
-    return [];
-  }
+    ? paneIdentityOrderKey(hostId, [tmux.socketPath, tmux.sessionId, tmux.windowId, tmux.paneId])
+    : sessionSlotKey(hostId, sessionId);
 }
 
 export function readStoredSessionOrder(): string[] {
   try {
-    if (typeof localStorage === 'undefined') return [];
-    return parseStoredSessionOrder(localStorage.getItem(LIVE_SESSION_ORDER_STORAGE_KEY));
+    const storage = browserPersistedStateStorage();
+    return storage === null ? [] : readPersistedSessionOrder(storage);
   } catch {
     return [];
   }
@@ -45,11 +41,9 @@ export function readStoredSessionOrder(): string[] {
 
 export function persistSessionOrder(order: readonly string[]): void {
   try {
-    if (typeof localStorage === 'undefined') return;
-    localStorage.setItem(
-      LIVE_SESSION_ORDER_STORAGE_KEY,
-      JSON.stringify(order.slice(0, MAX_STORED_SESSION_IDS)),
-    );
+    const storage = browserPersistedStateStorage();
+    if (storage === null) return;
+    writePersistedSessionOrder(storage, order.slice(0, MAX_STORED_SESSION_IDS));
   } catch {
     // Reordering still works for this page when storage is unavailable.
   }

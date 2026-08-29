@@ -34,8 +34,15 @@
     "errors": {
       "towerUnavailable": "Control tower is not running — cannot create session",
       "nameConflict": "A session with this name already exists",
-      "createFailed": "Failed to create session"
-    }
+      "createFailed": "Failed to create session",
+      "outcomeUnknown": "The request was sent but its outcome is unknown. Re-check that machine before trying again."
+    },
+    "thisMachine": "This machine",
+    "hostLabel": "Create on",
+    "hostProjectLabel": "Project on that machine",
+    "hostProjectPlaceholder": "Choose a project…",
+    "hostWorkingDirectoryPlaceholder": "Folder on that machine, relative to its home (e.g. workspace/my-proj)",
+    "recheckHost": "Re-check that machine"
   },
   "externalSessions": {
     "viewInTerminal": "View tmux session '{{name}}' in terminal",
@@ -105,5 +112,40 @@
     "enable": "Enable notifications when the assistant has a reply ready for this session",
     "timeout": "Notifications when the assistant has a reply ready timed out. Try again.",
     "conflict": "Assistant reply notification settings changed. Try again."
+  },
+  "hostGroups": {
+    "localLabel": "This machine",
+    "localChip": "This machine",
+    "regionLabel": "{{host}} — {{status}}",
+    "filterLabel": "Filter sessions by machine",
+    "filterAll": "All machines",
+    "filterHost": "Show {{host}} only",
+    "hostLabelDisambiguated": "{{label}} · {{suffix}}",
+    "counts": "{{panes}} live · {{sessions}} sessions · {{projects}} projects",
+    "empty": "No sessions on {{host}}",
+    "unavailable": "{{host}} cannot report its sessions right now",
+    "truncated": "{{host}} sent more rows than this view keeps — refresh to see the rest",
+    "stale": "Stale",
+    "openRow": "Open '{{name}}' on {{host}}",
+    "disabledRow": "'{{name}}' on {{host}} is unavailable — {{status}}",
+    "hostChip": "on {{host}}",
+    "status": {
+      "connecting": "Connecting",
+      "syncing": "Syncing",
+      "online": "Online",
+      "degraded": "Degraded",
+      "offline": "Offline",
+      "revoked": "Revoked",
+      "incompatible": "Incompatible"
+    },
+    "statusDetail": {
+      "connecting": "Establishing the encrypted link to this machine",
+      "syncing": "Waiting for a complete snapshot — actions stay disabled until it lands",
+      "online": "Connected and synchronised",
+      "degraded": "The link is unhealthy — the rows below may be out of date",
+      "offline": "Not reachable — the rows below are the last known state",
+      "revoked": "This machine's access was revoked",
+      "incompatible": "This machine runs an incompatible fleet protocol version"
+    }
   }
 }

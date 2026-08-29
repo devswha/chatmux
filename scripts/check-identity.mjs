@@ -19,7 +19,9 @@ const MAX_FILE_BYTES = 64 * 1024 * 1024;
 const MAX_ARCHIVE_BYTES = 512 * 1024 * 1024;
 const MAX_REPORTED_ERRORS = 100;
 const GENERATED_DIRECTORIES = ['dist', 'dist-server', 'release'];
-const SKIPPED_DIRECTORIES = new Set(['.codegraph', '.git', '.gjc', 'node_modules']);
+// Repository-local agent state is not shipped source. Scanning session logs
+// makes the identity gate depend on whichever coding tool happened to run CI.
+const SKIPPED_DIRECTORIES = new Set(['.codegraph', '.git', '.gjc', '.omo', 'node_modules']);
 const ENTRY_CLASSIFICATIONS = Object.freeze({
   REJECT: 'reject',
   SCAN: 'scan',

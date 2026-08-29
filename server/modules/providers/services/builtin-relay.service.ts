@@ -121,13 +121,12 @@ export async function builtinSpawn(
     if (await hasSession(name, run)) {
       return { ok: false, reachable: true, conflict: true, detail: `세션 ${name} 이미 존재` };
     }
-    const created = await run(['new-session', '-d', '-s', name, '-c', resolvedCwd]);
+    // Start the agent as the pane command. Creating an interactive shell and
+    // immediately typing into it races shell initialization and can lose the
+    // boot command while still reporting a successful spawn.
+    const created = await run(['new-session', '-d', '-s', name, '-c', resolvedCwd, 'gjc']);
     if (created.code !== 0) {
       return fail(`tmux 세션 생성 실패: ${created.output.slice(0, 200)}`);
-    }
-    const boot = await run(['send-keys', '-t', `=${name}:`, 'gjc', 'Enter']);
-    if (boot.code !== 0) {
-      return fail(`gjc 기동 입력 실패: ${boot.output.slice(0, 200)}`);
     }
     return { ok: true, reachable: true, conflict: false, detail: `내장 릴레이로 생성됨 — ${name} @ ${resolvedCwd}` };
   } catch (error) {

@@ -1,3 +1,10 @@
+export { sessionsService } from './services/sessions.service.js';
+export { sessionConversationsSearchService } from './services/session-conversations-search.service.js';
+export { getHomeDirSuggestions } from './services/home-dirs.service.js';
+export { listLiveGjcCommands } from './services/live-commands.service.js';
+export { answerTmuxApproval, getTmuxApprovalPrompt } from './services/tmux-approval.service.js';
+export { answerTmuxInteractivePrompt, getTmuxInteractivePrompt, submitTmuxInteractiveCustomResponse } from './services/tmux-interactive-prompt.service.js';
+export { spawnLiveSession } from './services/live-send.service.js';
 export { sessionSynchronizerService } from './services/session-synchronizer.service.js';
 export { providerSkillsService } from './services/skills.service.js';
 export { providerMcpService } from './services/mcp.service.js';
@@ -17,6 +24,7 @@ export {
 export {
   getExternalCliSessionsDetailed,
   getExternalCliSessionsDetailedFresh,
+  normalizeExternalPaneOutput,
   type ExternalCliSession,
   type ExternalCliSessionsDetailedResult,
 } from './services/external-cli-sessions.service.js';
@@ -33,16 +41,24 @@ export {
 export {
   getCurrentTmuxPaneIdentity,
   getCurrentTmuxPaneIdentityState,
+  resolveExternalCliCwd,
   type CurrentTmuxPaneIdentity,
 } from './services/external-cli-sessions.service.js';
 export {
   assertFreshExternalTmuxTarget,
   type VerifiedTmuxActionTarget,
 } from './services/tmux-fresh-verifier.service.js';
-export { assertFreshLocalAgentTmuxTarget } from './services/tmux-target-guard.service.js';
+export { assertFreshLocalAgentTmuxTarget, assertLineageTmuxTarget } from './services/tmux-target-guard.service.js';
 export {
   assertTmuxPaneIdentity,
+  captureTmuxPane,
+  killTmuxPane,
+  killTmuxSession,
   readTmuxPaneIdentity,
+  sameTmuxPaneIdentity,
+  sendTmuxProcessAction,
+  sendToTmuxPane,
+  stopAgentProcessInPane,
 } from './services/tmux-pane-actions.service.js';
 export { createProviderToolApprovals } from './services/provider-tool-approvals.service.js';
 export {

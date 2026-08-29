@@ -49,8 +49,15 @@
     "errors": {
       "towerUnavailable": "관제탑 미가동 — 생성 불가",
       "nameConflict": "같은 이름의 세션이 이미 있습니다",
-      "createFailed": "세션 생성 실패"
-    }
+      "createFailed": "세션 생성 실패",
+      "outcomeUnknown": "요청은 전송됐지만 결과를 알 수 없습니다. 다시 시도하기 전에 해당 PC를 확인하세요."
+    },
+    "thisMachine": "이 PC",
+    "hostLabel": "생성 위치",
+    "hostProjectLabel": "해당 PC의 프로젝트",
+    "hostProjectPlaceholder": "프로젝트 선택…",
+    "hostWorkingDirectoryPlaceholder": "해당 PC의 홈 기준 폴더 (예: workspace/my-proj)",
+    "recheckHost": "해당 PC 다시 확인"
   },
   "externalSessions": {
     "viewInTerminal": "tmux 세션 '{{name}}' 터미널로 보기",
@@ -105,5 +112,40 @@
     "stopping": "종료 중…",
     "cancel": "취소",
     "close": "닫기"
+  },
+  "hostGroups": {
+    "localLabel": "이 컴퓨터",
+    "localChip": "이 컴퓨터",
+    "regionLabel": "{{host}} — {{status}}",
+    "filterLabel": "컴퓨터별 세션 필터",
+    "filterAll": "전체 컴퓨터",
+    "filterHost": "{{host}}만 보기",
+    "hostLabelDisambiguated": "{{label}} · {{suffix}}",
+    "counts": "실행 {{panes}} · 세션 {{sessions}} · 프로젝트 {{projects}}",
+    "empty": "{{host}}에서 작동 중인 세션이 없습니다",
+    "unavailable": "{{host}}의 세션 목록을 지금은 확인할 수 없습니다",
+    "truncated": "{{host}}가 이 목록의 한도보다 많은 행을 보냈습니다 — 새로고침하면 나머지를 볼 수 있습니다",
+    "stale": "오래된 정보",
+    "openRow": "{{host}}의 '{{name}}' 열기",
+    "disabledRow": "{{host}}의 '{{name}}'은 사용할 수 없습니다 — {{status}}",
+    "hostChip": "{{host}}",
+    "status": {
+      "connecting": "연결 중",
+      "syncing": "동기화 중",
+      "online": "온라인",
+      "degraded": "불안정",
+      "offline": "오프라인",
+      "revoked": "권한 해제",
+      "incompatible": "버전 불일치"
+    },
+    "statusDetail": {
+      "connecting": "이 컴퓨터와 암호화 연결을 맺고 있습니다",
+      "syncing": "전체 스냅샷을 기다리는 중입니다 — 도착할 때까지 조작은 비활성됩니다",
+      "online": "연결되어 동기화된 상태입니다",
+      "degraded": "연결이 불안정합니다 — 아래 목록이 최신이 아닐 수 있습니다",
+      "offline": "연결할 수 없습니다 — 아래 목록은 마지막으로 확인된 상태입니다",
+      "revoked": "이 컴퓨터의 접근 권한이 해제되었습니다",
+      "incompatible": "이 컴퓨터의 플릿 프로토콜 버전이 호환되지 않습니다"
+    }
   }
 }

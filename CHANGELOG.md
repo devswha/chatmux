@@ -115,7 +115,19 @@ future server artifacts are published only through
 
 ## Unreleased
 
+### Added
+
+- Multi-PC fleet management now supports one browser-facing hub plus up to nine full
+  peer installations. Owner-only Hosts settings provide single-use enrollment,
+  explicit reconnect/sync state, local-first revocation, and direct-peer recovery
+  over Tailscale HTTPS/WSS or an explicitly created literal-loopback SSH forward.
+
 ### Changed
+
+- Fleet operations keep peer data, tmux ownership, installation keys, updates, and
+  recovery local to each PC. Releases are updated hub first and then one peer at a
+  time; ChatMux provides no relay, transport downgrade, cloud sync, automatic
+  failover, fleet updater, remote desktop/IDE, or zero-configuration reachability.
 
 - Cursor CLI integration now uses the documented `agent` command for chat,
   authentication, model discovery, tmux spawning, resume terminals, and live

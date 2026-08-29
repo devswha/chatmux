@@ -4,7 +4,7 @@ import type { LLMProvider } from '../../../types/app';
 import type { ProviderAuthStatus } from '../../provider-auth/types';
 import type { InterfaceFontSize } from '../../../utils/interfaceFontSize';
 
-export type SettingsMainTab = 'agents' | 'appearance' | 'access';
+export type SettingsMainTab = 'agents' | 'appearance' | 'access' | 'fleet';
 export type AgentProvider = LLMProvider;
 export type AgentCategory = 'account' | 'permissions';
 export type ProjectSortOrder = 'name' | 'date';

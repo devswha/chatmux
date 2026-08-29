@@ -69,7 +69,27 @@
     "label": "Settings",
     "agents": "Agents",
     "appearance": "Appearance",
-    "access": "Access"
+    "access": "Access",
+    "fleet": "Hosts"
+  },
+  "fleet": {
+    "loading": "Loading fleet settings...",
+    "capacity": "{{current}} of {{total}} PCs in this fleet",
+    "unknown": "Not negotiated",
+    "neverSeen": "Never connected",
+    "noCapabilities": "No negotiated capabilities",
+    "securityNote": "Only public fingerprints and operational state are shown. Private keys, token hashes, peer URLs, and sensitive paths never appear here.",
+    "identity": { "title": "This PC", "description": "Public installation identity used to pin trusted peers.", "local": "Local public fingerprint" },
+    "pairing": { "generate": "Generate pairing code", "copy": "Copy pairing code", "expires": "Single use; expires at {{time}}" },
+    "enroll": { "title": "Add a PC", "description": "Generate a code on the PC being added, then enter its endpoint and code here.", "roleConflict": "This PC is enrolled under another hub. Revoke that hub grant before using this PC as a hub. Direct local recovery remains available.", "label": "Host label", "mode": "Connection mode", "url": "Peer URL", "token": "Pairing code", "submit": "Add host" },
+    "modes": { "direct": "Direct WSS (recommended)", "ssh": "SSH loopback forward", "directHelp": "Use Tailscale Serve or another trusted TLS endpoint ending in /fleet-ws. Plaintext is rejected.", "sshHelp": "Create an owner-managed SSH local forward first. Only ws://127.0.0.1 or ws://[::1] ending in /fleet-ws is accepted; ChatMux never downgrades automatically." },
+    "hosts": { "title": "Enrolled hosts", "description": "Connection health and negotiated machine capabilities. A fleet supports ten PCs total.", "empty": "No peer PCs are enrolled." },
+    "fields": { "mode": "Mode", "version": "Protocol", "lastSeen": "Last seen" },
+    "states": { "online": "Online", "connecting": "Connecting", "syncing": "Syncing", "degraded": "Degraded", "offline": "Offline", "revoked": "Revoked", "incompatible": "Incompatible" },
+    "actions": { "reconnect": "Reconnect", "revoke": "Revoke grant", "removeLocal": "Remove from hub", "cancel": "Cancel", "confirmRevoke": "Revoke" },
+    "confirm": { "title": "Confirm peer revocation", "description": "The hub removes local authorization first, then asks the peer to revoke this hub grant. Remote revocation may report unreachable separately." },
+    "revocationOutcome": "Hub-local: {{local}}; peer grant: {{peer}}.",
+    "errors": { "load": "Fleet settings unavailable ({{code}}).", "action": "Fleet action failed ({{code}})." }
   },
   "appearanceSettings": {
     "darkMode": {

@@ -20,9 +20,10 @@ async function directoryEntry(directory, name) {
 
 test('skips skipped directories', async (t) => {
   const directory = await withTemporaryDirectory(t);
-  await mkdir(join(directory, '.git'));
+  await Promise.all(['.git', '.omo'].map((name) => mkdir(join(directory, name))));
 
   assert.equal(classifyDirectoryEntry(await directoryEntry(directory, '.git'), '.git'), 'skip');
+  assert.equal(classifyDirectoryEntry(await directoryEntry(directory, '.omo'), '.omo'), 'skip');
 });
 
 test('scans regular files with skipped-directory names', async (t) => {

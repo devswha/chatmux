@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 
+import ctypes
 import json
 import os
 import re
+import select
 import sys
 from pathlib import Path
 import subprocess
@@ -31,9 +33,10 @@ CURRENT_PATH = REPOSITORY_ROOT / ".omo" / "cua" / "current.json"
 SESSION_ID = "019f0000-0000-7000-8000-000000000106"
 LONG_TURN_PROMPT = "__fake_long_running_turn__"
 CREATED_SESSION = "cua-created-codex"
-CREATED_OMO_SESSION = "cua-created-omo"
-ORDER_STORAGE_KEY = "chatmux.liveSessionOrder.v1"
+CREATED_OMO_SESSION = "cua-01-omo"
+ORDER_STORAGE_KEY = "chatmux.liveSessionOrder.v2"
 SKILLS_URL_RE = re.compile(r"/api/providers/([^/]+)/skills(?:\?|$)")
+VIEWPORT_SESSIONS: list[Any] = []
 
 
 # ─── slash-menu skill fixtures ─────────────────────────────────────────
@@ -67,7 +70,10 @@ SKILL_FIXTURES: dict[str, dict[str, Any]] = {
 
 # Names present in the built-in server catalog. When the /api/providers/*/skills
 # fetch fails we still expect at least one of these to survive.
-BUILT_IN_COMMAND_NAMES = {"/help", "/models", "/cost", "/memory", "/config", "/status"}
+BUILT_IN_COMMAND_NAMES = {
+    "/help", "/models", "/cost", "/memory", "/config", "/status",
+    "$help", "$models", "$cost", "$memory", "$config", "$status",
+}
 
 
 class SkillsInterceptor:
@@ -93,6 +99,7 @@ class SkillsInterceptor:
         self.slow_started = threading.Event()
         self.slow_release = threading.Event()
         self.slow_finished = threading.Event()
+        self.commands_requested = threading.Event()
 
     def configure(
         self,
@@ -165,13 +172,24 @@ class SkillsInterceptor:
                 record["releaseTimeout"] = True
 
         skill = SKILL_FIXTURES.get(provider)
-        skills_body = [
+        trigger = "$" if provider == "codex" else "/"
+        native_builtins = [
             {
-                **skill,
+                "name": f"cua-builtin-{name[1:]}",
+                "command": f"{trigger}{name[1:]}",
+                "description": f"CUA native built-in {name[1:]}",
+                "scope": "builtin",
+                "sourcePath": None,
                 "pluginName": None,
                 "pluginId": None,
             }
-        ] if skill else []
+            for name in sorted(name for name in BUILT_IN_COMMAND_NAMES if name.startswith("/"))
+        ]
+        skills_body = native_builtins + ([{
+            **skill,
+            "pluginName": None,
+            "pluginId": None,
+        }] if skill else [])
         record["fulfilledStatus"] = 200
         record["skills"] = [entry["name"] for entry in skills_body]
         if not recorded:
@@ -191,39 +209,139 @@ class SkillsInterceptor:
             if mode == "slow":
                 self.slow_finished.set()
 
+    def _commands(self, route: Route) -> None:
+        self.commands_requested.set()
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps({
+                "builtIn": [
+                    {"name": name, "namespace": "builtin", "description": f"CUA built-in {name}"}
+                    for name in sorted(BUILT_IN_COMMAND_NAMES)
+                ],
+                "custom": [],
+            }),
+        )
+
     def install(self, context: Any) -> None:
         context.route(SKILLS_URL_RE, self._handle)
+        context.route("**/api/commands/list", self._commands)
 
 
-def read_events(log_path: str) -> list[dict[str, Any]]:
-    return [
-        json.loads(line)
-        for line in Path(log_path).read_text(encoding="utf-8").splitlines()
-        if line
-    ]
+def arm_log_event(log_path: str, event_type: str, timeout_seconds: float = 10):
+    """Subscribe to the owned NDJSON file before triggering the browser action."""
+    libc = ctypes.CDLL(None, use_errno=True)
+    fd = libc.inotify_init1(os.O_CLOEXEC)
+    if fd < 0:
+        raise OSError(ctypes.get_errno(), "inotify_init1 failed")
+    if libc.inotify_add_watch(fd, os.fsencode(log_path), 0x00000002 | 0x00000008) < 0:
+        os.close(fd)
+        raise OSError(ctypes.get_errno(), "inotify_add_watch failed")
+    offset = os.path.getsize(log_path)
+
+    def wait() -> bool:
+        nonlocal offset
+        deadline = time.monotonic() + timeout_seconds
+        try:
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0 or not select.select([fd], [], [], remaining)[0]:
+                    raise TimeoutError(f"Timed out waiting for {event_type}")
+                os.read(fd, 4096)
+                with open(log_path, "r", encoding="utf-8") as log:
+                    log.seek(offset)
+                    appended = log.read()
+                    offset = log.tell()
+                if any(json.loads(line).get("type") == event_type for line in appended.splitlines() if line):
+                    return True
+        finally:
+            os.close(fd)
+
+    return wait
 
 
-def wait_for_event(log_path: str, event_type: str, timeout_seconds: float = 10) -> bool:
-    deadline = time.monotonic() + timeout_seconds
-    while time.monotonic() < deadline:
-        if any(event.get("type") == event_type for event in read_events(log_path)):
-            return True
-        time.sleep(0.1)
-    return False
+def arm_dom(page: Any, key: str, selector: str, expression: str) -> None:
+    page.evaluate("""({ key, selector, expression }) => {
+      window.__cuaDomSignals ??= {};
+      const predicate = new Function('node', `return (${expression});`);
+      window.__cuaDomSignals[key] = new Promise((resolve, reject) => {
+        const inspect = () => [...document.querySelectorAll(selector)].find(predicate);
+        const observer = new MutationObserver(() => { const node = inspect(); if (node) finish(node); });
+        const timeout = setTimeout(() => { observer.disconnect(); reject(new Error(`DOM signal timed out: ${key}`)); }, 15000);
+        const finish = (node) => { clearTimeout(timeout); observer.disconnect(); resolve({ text: node.textContent }); };
+        observer.observe(document.documentElement, { subtree: true, childList: true, attributes: true, characterData: true });
+        const existing = inspect(); if (existing) finish(existing);
+      });
+    }""", {"key": key, "selector": selector, "expression": expression})
+
+
+def await_dom(page: Any, key: str) -> dict[str, Any]:
+    return page.evaluate("key => window.__cuaDomSignals[key]", key)
+
+
+def arm_file_creation(directory: Path, prefix: str, timeout_seconds: float = 15):
+    directory.mkdir(parents=True, exist_ok=True)
+    libc = ctypes.CDLL(None, use_errno=True)
+    fd = libc.inotify_init1(os.O_CLOEXEC)
+    if fd < 0:
+        raise OSError(ctypes.get_errno(), "inotify_init1 failed")
+    if libc.inotify_add_watch(fd, os.fsencode(directory), 0x00000100 | 0x00000080) < 0:
+        os.close(fd)
+        raise OSError(ctypes.get_errno(), "inotify_add_watch failed")
+
+    def wait() -> Path:
+        deadline = time.monotonic() + timeout_seconds
+        try:
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0 or not select.select([fd], [], [], remaining)[0]:
+                    raise TimeoutError(f"Timed out waiting for file prefix {prefix}")
+                data = os.read(fd, 4096)
+                offset = 0
+                while offset + 16 <= len(data):
+                    _wd, _mask, _cookie, name_length = __import__("struct").unpack_from("iIII", data, offset)
+                    name = data[offset + 16:offset + 16 + name_length].rstrip(b"\0").decode()
+                    offset += 16 + name_length
+                    if name.startswith(prefix):
+                        return directory / name
+        finally:
+            os.close(fd)
+
+    return wait
+
+
+def arm_storage_change(page: Any, key: str, old_value: str | None) -> None:
+    page.evaluate("""({ key, oldValue }) => {
+      window.__cuaStorageSignal = new Promise((resolve, reject) => {
+        const native = Storage.prototype.setItem;
+        const timeout = setTimeout(() => reject(new Error(`Storage change timed out: ${key}`)), 10000);
+        Storage.prototype.setItem = function(name, value) {
+          native.call(this, name, value);
+          if (name === key && value !== oldValue) {
+            clearTimeout(timeout); Storage.prototype.setItem = native; resolve(value);
+          }
+        };
+      });
+    }""", {"key": key, "oldValue": old_value})
 
 
 def capture_pane(manifest: dict[str, Any], session_name: str) -> str:
-    environment = dict(os.environ)
-    environment.pop("TMUX", None)
-    environment["HOME"] = str(Path(manifest["harnessRoot"]) / "home")
-    environment["TMUX_TMPDIR"] = str(Path(manifest["harnessRoot"]) / "sockets")
+    socket_path = manifest["fleet"]["hub"]["socketPath"]
     return subprocess.run(
-        ["tmux", "capture-pane", "-p", "-S", "-", "-t", f"={session_name}:"],
+        ["tmux", "-S", socket_path, "capture-pane", "-p", "-S", "-", "-t", f"={session_name}:"],
         check=True,
         capture_output=True,
-        env=environment,
+        env={key: value for key, value in os.environ.items() if key not in {"TMUX", "TMUX_PANE"}},
         text=True,
     ).stdout
+
+
+def set_viewport(page: Any, width: int, height: int) -> None:
+    session = page.context.new_cdp_session(page)
+    session.send("Emulation.setDeviceMetricsOverride", {
+        "width": width, "height": height, "deviceScaleFactor": 1, "mobile": width < 640,
+    })
+    VIEWPORT_SESSIONS.append(session)
 
 
 def read_slash_menu_names(page: Any) -> list[str]:
@@ -326,9 +444,19 @@ def create_session(
     provider_label: str,
     session_name: str,
     workspace: str,
-) -> None:
-    page.get_by_role("button", name="New session", exact=True).click()
-    page.get_by_role("button", name=provider_label, exact=True).click()
+    spawn_log_directory: Path,
+) -> Path:
+    page.locator("button[data-spawn-open]").click()
+    local_host = page.locator("button[data-spawn-host='local']")
+    # With no currently spawnable peer the host chooser is intentionally absent;
+    # the form is already local. When it is present, select local explicitly.
+    if local_host.count() > 0:
+        local_host.click()
+    provider = {
+        "Codex": "codex",
+        "Oh My OpenAgent": "omo",
+    }[provider_label]
+    page.locator(f"button[data-spawn-provider='{provider}']").click()
     page.get_by_placeholder(
         "Session name (letters and numbers, e.g. my-feature)"
     ).fill(session_name)
@@ -337,8 +465,11 @@ def create_session(
     )
     workspace_input.fill(workspace)
     workspace_input.press("Escape")
+    arm_dom(page, "session-created", "button", f"node.textContent.includes({json.dumps(session_name)})")
+    created_log = arm_file_creation(spawn_log_directory, "codex-")
     page.get_by_role("button", name="Create", exact=True).click()
-    page.get_by_text(session_name, exact=True).first.wait_for(timeout=15_000)
+    await_dom(page, "session-created")
+    return created_log()
 
 
 manifest = json.loads(CURRENT_PATH.read_text(encoding="utf-8"))
@@ -354,12 +485,6 @@ cdp_url = os.environ.get("CUA_CDP_URL", "http://127.0.0.1:9333")
 session_url = f"{manifest['baseUrl']}/session/{SESSION_ID}"
 gjc_agent = next(agent for agent in manifest["agents"] if agent["kind"] == "gjc")
 harness_home = str(Path(manifest["harnessRoot"]) / "home")
-workspace_default = str(Path(manifest["workspace"]))
-# The spawn endpoint rejects cwds outside HOME. Prepare a HOME-relative
-# workspace for the OMO session so we have provider AND workspace changes
-# to observe on the switch, without failing spawn validation.
-omo_workspace = str(Path(harness_home) / "omo-workspace")
-Path(omo_workspace).mkdir(parents=True, exist_ok=True)
 results: dict[str, Any] = {
     "mode": "browser_cdp_fallback",
     "sessionUrl": session_url,
@@ -380,7 +505,7 @@ with sync_playwright() as playwright:
     interceptor.configure(default="normal")
 
     page = context.new_page()
-    page.set_viewport_size({"width": 1600, "height": 1000})
+    set_viewport(page, 1600, 1000)
     page.goto(session_url, wait_until="domcontentloaded")
     gjc_row = page.get_by_text("cua-06-gjc", exact=True).first
     gjc_row.wait_for(timeout=15_000)
@@ -389,43 +514,50 @@ with sync_playwright() as playwright:
 
     # Create the codex session used by the existing "session_created" and
     # "session_switched" checks.
-    create_session(
+    spawned_log = create_session(
         page,
         provider_label="Codex",
         session_name=CREATED_SESSION,
         workspace=harness_home,
+        spawn_log_directory=Path(harness_home) / ".chatmux-cua-spawned",
     )
     results["checks"]["session_created"] = {
         "ok": page.get_by_text(CREATED_SESSION, exact=True).count() > 0,
         "session": CREATED_SESSION,
     }
     created_pane = capture_pane(manifest, CREATED_SESSION)
-    spawned_log_dir = Path(manifest["harnessRoot"]) / "home" / ".chatmux-cua-spawned"
-    spawned_logs = list(spawned_log_dir.glob("codex-*.ndjson"))
+    (evidence_root / "created-pane.txt").write_text(created_pane, encoding="utf-8")
+    spawned_logs = [spawned_log]
     results["checks"]["isolated_fake_spawn"] = {
         "ok": (
             "ChatMux CUA fixture ready: codex" in created_pane
             and len(spawned_logs) == 1
         ),
         "spawnedLogs": [str(path) for path in spawned_logs],
+        "paneReady": "ChatMux CUA fixture ready: codex" in created_pane,
     }
 
     order_before = page.evaluate(f"localStorage.getItem('{ORDER_STORAGE_KEY}')")
+    arm_storage_change(page, ORDER_STORAGE_KEY, order_before)
     drag_handle = page.get_by_role(
         "button",
         name="Drag to reorder session 'cua-07-omp'",
         exact=True,
     )
-    drag_handle.focus()
-    page.keyboard.press("Space")
-    page.wait_for_timeout(300)
-    page.keyboard.press("ArrowUp")
-    page.wait_for_timeout(200)
-    page.keyboard.press("ArrowUp")
-    page.wait_for_timeout(200)
-    page.keyboard.press("Space")
-    page.wait_for_timeout(300)
-    order_after = page.evaluate(f"localStorage.getItem('{ORDER_STORAGE_KEY}')")
+    over_handle = page.get_by_role(
+        "button",
+        name="Drag to reorder session 'cua-06-gjc'",
+        exact=True,
+    )
+    source_box = drag_handle.bounding_box()
+    target_box = over_handle.bounding_box()
+    if source_box is None or target_box is None:
+        raise AssertionError("reorder handles are not visible")
+    page.mouse.move(source_box["x"] + source_box["width"] / 2, source_box["y"] + source_box["height"] / 2)
+    page.mouse.down()
+    page.mouse.move(target_box["x"] + target_box["width"] / 2, target_box["y"] + target_box["height"] / 2, steps=20)
+    page.mouse.up()
+    order_after = page.evaluate("window.__cuaStorageSignal")
     results["checks"]["session_reordered"] = {
         "ok": bool(order_after and order_after != order_before),
         "before": json.loads(order_before) if order_before else [],
@@ -439,20 +571,16 @@ with sync_playwright() as playwright:
     # skills-endpoint failure, can never surface skills from a previous
     # provider in the slash menu, but built-in commands must survive.
     # ────────────────────────────────────────────────────────────────
-    # 1. Provider switch: create an OMO session in a distinct workspace so
-    #    both provider (gjc -> omo -> gjc) and workspacePath change together.
+    # 1. Provider/workspace switch: the fixture-owned OMO pane runs in the
+    #    project workspace while the created Codex pane runs in HOME.
     interceptor.configure(default="normal", providers={})
-    create_session(
-        page,
-        provider_label="Oh My OpenAgent",
-        session_name=CREATED_OMO_SESSION,
-        workspace=omo_workspace,
-    )
     omo_switch = switch_to_agent_row(page, CREATED_OMO_SESSION, "omo")
 
     # On this switch we're now on OMO. Open the slash menu.
     open_slash_menu_via_typing(page)
     omo_menu_names = read_slash_menu_names(page)
+    if not interceptor.commands_requested.is_set():
+        raise AssertionError("local built-in command inventory was not requested")
     page.screenshot(path=evidence_root / "slash-menu-omo.png")
     close_slash_menu(page)
     omo_has_own = SKILL_FIXTURES["omo"]["command"] in omo_menu_names
@@ -484,9 +612,11 @@ with sync_playwright() as playwright:
             omo_has_own,
             not omo_leaks_gjc,
             not omo_leaks_codex,
+            omo_keeps_builtin,
             codex_has_own,
             not codex_leaks_omo,
             not codex_leaks_gjc,
+            codex_keeps_builtin,
         ]),
         "omoHasOwn": omo_has_own,
         "omoLeaksGjc": omo_leaks_gjc,
@@ -574,22 +704,15 @@ with sync_playwright() as playwright:
     # 4. Synthetic 500 on skills. The menu must drop the previous provider's
     #    skills catalog entirely while built-in and custom commands survive.
     interceptor.reset_recording()
-    interceptor.configure(providers={"omo": "fail"})
-    fail_switch = switch_to_agent_row(page, CREATED_OMO_SESSION, "omo")
+    interceptor.configure(providers={"gjc": "fail"})
+    fail_switch = switch_to_agent_row(page, "cua-06-gjc", "gjc")
     if fail_switch["status"] != 500:
-        raise AssertionError("synthetic OMO skills failure did not return HTTP 500")
+        raise AssertionError("synthetic GJC skills failure did not return HTTP 500")
 
-    failure_composer = page.locator("textarea").first
-    failure_composer.click()
-    failure_composer.press("Control+a")
-    failure_composer.press("Delete")
-    failure_composer.type("/")
+    open_slash_menu_via_typing(page)
     failure_listbox = page.get_by_role("listbox", name="Available commands")
-    failure_menu_names = (
-        read_slash_menu_names(page)
-        if failure_listbox.count() > 0 and failure_listbox.is_visible()
-        else []
-    )
+    failure_menu_names = read_slash_menu_names(page)
+    failure_menu_visible = failure_listbox.is_visible()
     page.screenshot(path=evidence_root / "slash-menu-after-500.png")
     close_slash_menu(page)
 
@@ -616,10 +739,12 @@ with sync_playwright() as playwright:
     results["checks"]["slash_menu_500_clears_provider_skills"] = {
         "ok": all([
             fail_switch["status"] == 500,
+            failure_menu_visible,
+            len(failure_builtin_visible) > 0,
             not failure_provider_skills_leaked,
         ]),
         "status500Observed": fail_switch["status"] == 500,
-        "menuVisible": failure_listbox.count() > 0 and failure_listbox.is_visible(),
+        "menuVisible": failure_menu_visible,
         "builtInVisible": failure_builtin_visible,
         "providerSkillsLeaked": failure_provider_skills_leaked,
     }
@@ -644,14 +769,16 @@ with sync_playwright() as playwright:
     composer.fill(LONG_TURN_PROMPT)
     composer.press("Enter")
     page.get_by_role("button", name="Stop", exact=True).wait_for(timeout=10_000)
+    interrupted_signal = arm_log_event(gjc_agent["logPath"], "turn_interrupted")
     page.get_by_role("button", name="Stop", exact=True).click()
-    interrupted = wait_for_event(gjc_agent["logPath"], "turn_interrupted")
+    interrupted = interrupted_signal()
     results["checks"]["interrupt"] = {
         "ok": interrupted,
         "prompt": LONG_TURN_PROMPT,
     }
 
     transcript_path = Path(manifest["gjcTranscriptPath"])
+    arm_dom(page, "transcript-error", "body", "node.textContent.includes('ERROR')")
     with transcript_path.open("a", encoding="utf-8") as transcript:
         transcript.write(json.dumps({
             "type": "error",
@@ -660,8 +787,8 @@ with sync_playwright() as playwright:
         }) + "\n")
         transcript.flush()
         os.fsync(transcript.fileno())
+    await_dom(page, "transcript-error")
     error_badge = page.get_by_text("ERROR", exact=True).first
-    error_badge.wait_for(timeout=15_000)
     results["checks"]["error_state"] = {"ok": error_badge.is_visible()}
     page.screenshot(path=evidence_root / "desktop-interactions.png")
     results["artifacts"]["desktop_interactions"] = str(
@@ -669,9 +796,10 @@ with sync_playwright() as playwright:
     )
 
     created_row = page.get_by_text(CREATED_SESSION, exact=True).first
+    arm_dom(page, "session-selected", "body", "node.textContent.includes('Codex transcript pending')")
     created_row.locator("xpath=ancestor::button[1]").click()
+    await_dom(page, "session-selected")
     pending_heading = page.get_by_text("Codex transcript pending", exact=True)
-    pending_heading.wait_for(timeout=15_000)
     switch_screenshot = evidence_root / "desktop-session-switch.png"
     page.screenshot(path=switch_screenshot)
     results["checks"]["session_switched"] = {

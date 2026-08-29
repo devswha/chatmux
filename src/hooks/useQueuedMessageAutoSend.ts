@@ -1,59 +1,81 @@
 import { useEffect, useRef } from 'react';
 
-import { clearQueuedMessage, readQueuedMessage } from '../components/chat/utils/chatStorage';
+import { clearQueuedDraft, type PersistedStateStorage, readQueuedDraft } from '../fleet/persistedHostState';
+import type { HostQualifiedKey } from '../fleet/references';
 
-import type { MarkSessionProcessing, SessionActivityMap } from './useSessionProtection';
+import type { MarkTargetProcessing, QualifiedSessionActivityMap } from './useSessionProtection';
 
 interface UseQueuedMessageAutoSendArgs {
-  processingSessions: SessionActivityMap;
+  processingSessions: QualifiedSessionActivityMap;
   /**
-   * The session currently open in the chat view. Its queued draft is owned by
-   * the composer (which also handles image attachments and slash commands),
-   * so this hook never touches it.
+   * The session currently open in the chat view, as a host-qualified key. Its
+   * queued draft is owned by the composer (which also handles image attachments
+   * and slash commands), so this hook never touches it.
    */
-  activeSessionId: string | null;
+  activeSessionKey: HostQualifiedKey | null;
   /**
-   * Sessions currently owned by an external driver (tmux gjc). Auto-sending a
-   * queued draft into one would inject a second driver invisibly (리뷰 HIGH) —
-   * the draft stays stored until the session is no longer externally owned.
+   * Sessions currently owned by an external driver (tmux gjc), host-qualified.
+   * Auto-sending a queued draft into one would inject a second driver invisibly
+   * (리뷰 HIGH) — the draft stays stored until the session is no longer
+   * externally owned.
    */
-  liveSessionIds?: ReadonlySet<string>;
+  liveSessionKeys?: ReadonlySet<HostQualifiedKey>;
+  /** Authoritative local host id, or null before the server supplies one. */
+  localHostId: string | null;
+  /** Draft store, or null when this browser has no usable storage. */
+  storage: PersistedStateStorage | null;
   ws: WebSocket | null;
   sendMessage: (message: unknown) => void;
-  markSessionProcessing: MarkSessionProcessing;
+  markProcessing: MarkTargetProcessing;
 }
 
 /**
  * Dispatches queued messages for sessions the user is NOT currently viewing.
  *
  * The composer persists each queued draft (text + send options snapshotted at
- * queue time) under `queued_message_<sessionId>`. When a session's run leaves
- * the processing map — its previous response completed — this hook sends that
+ * queue time) under a host-qualified key. When a session's run leaves the
+ * processing map — its previous response completed — this hook sends that
  * session's queued message immediately instead of waiting for the user to
  * open the session again. Removing the storage key before sending is the
  * claim that keeps the composer's own flush from double-sending.
+ *
+ * Only sessions owned by this installation are dispatched here. The legacy
+ * `chat.send` frame carries a bare session id that the receiving server resolves
+ * against its own database, so sending a remote host's draft through it would
+ * deliver the message to whichever local session happens to share that id. A
+ * remote draft therefore stays queued until the host-qualified send path exists.
  */
 export function useQueuedMessageAutoSend({
   processingSessions,
-  activeSessionId,
-  liveSessionIds,
+  activeSessionKey,
+  liveSessionKeys,
+  localHostId,
+  storage,
   ws,
   sendMessage,
-  markSessionProcessing,
+  markProcessing,
 }: UseQueuedMessageAutoSendArgs) {
-  const prevProcessingRef = useRef<ReadonlySet<string>>(new Set());
+  const prevProcessingRef = useRef<QualifiedSessionActivityMap>(new Map());
 
   useEffect(() => {
     const prev = prevProcessingRef.current;
-    const current = new Set(processingSessions.keys());
-    prevProcessingRef.current = current;
+    prevProcessingRef.current = processingSessions;
+    if (storage === null) {
+      return;
+    }
 
-    for (const sessionId of prev) {
-      if (current.has(sessionId) || sessionId === activeSessionId || liveSessionIds?.has(sessionId)) {
+    for (const [sessionKey, activity] of prev) {
+      if (
+        processingSessions.has(sessionKey)
+        || sessionKey === activeSessionKey
+        || liveSessionKeys?.has(sessionKey)
+        || activity.hostId !== localHostId
+      ) {
         continue;
       }
 
-      const queued = readQueuedMessage(sessionId);
+      const target = { hostId: activity.hostId, localId: activity.localId };
+      const queued = readQueuedDraft(storage, target);
       if (!queued) {
         continue;
       }
@@ -64,14 +86,23 @@ export function useQueuedMessageAutoSend({
         continue;
       }
 
-      clearQueuedMessage(sessionId);
+      clearQueuedDraft(storage, target);
       sendMessage({
         type: 'chat.send',
-        sessionId,
+        sessionId: activity.localId,
         content: queued.content,
         options: { ...(queued.options ?? {}), images: [] },
       });
-      markSessionProcessing(sessionId, { statusText: null, canInterrupt: true });
+      markProcessing(target, { statusText: null, canInterrupt: true });
     }
-  }, [processingSessions, activeSessionId, liveSessionIds, ws, sendMessage, markSessionProcessing]);
+  }, [
+    processingSessions,
+    activeSessionKey,
+    liveSessionKeys,
+    localHostId,
+    storage,
+    ws,
+    sendMessage,
+    markProcessing,
+  ]);
 }

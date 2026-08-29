@@ -10,6 +10,7 @@
  *   sandbox       - Manage Docker sandbox environments
  *   install       - Configure the managed user service and remote access
  *   access        - Manage Tailscale owner and allowed users
+ *   fleet         - Manage installation identity and peer grants
  *   browser-mcp-cleanup - Explicitly remove managed Browser MCP provider entries
  *   status        - Show configuration and data locations
  *   help          - Show help information
@@ -226,6 +227,12 @@ Commands:
   sandbox          Manage Docker sandbox environments
   install          Install and start the managed user service
   access           Manage remote access (Tailscale accounts, VPN bind)
+  fleet            Manage installation identity and peer grants
+    chatmux fleet identity
+    chatmux fleet token
+    chatmux fleet grants
+    chatmux fleet revoke <installation-id>
+    chatmux fleet diagnose
   browser-mcp-cleanup Explicitly remove managed Browser MCP provider entries
     chatmux browser-mcp-cleanup apply
     chatmux browser-mcp-cleanup rollback --run-id <UUID>
@@ -643,10 +650,16 @@ async function runAccess(args) {
     await runAccessCli(args);
 }
 
+async function runFleet(args) {
+    loadEnvFile();
+    const { runFleetCli } = await import('./fleet-cli.js');
+    await runFleetCli(args);
+}
+
 // Parse CLI arguments
 export function parseArgs(args) {
     const parsed = { command: 'start', options: {} };
-    const commands = new Set(['start', 'sandbox', 'install', 'access', 'browser-mcp-cleanup', 'status', 'info']);
+    const commands = new Set(['start', 'sandbox', 'install', 'access', 'fleet', 'browser-mcp-cleanup', 'status', 'info']);
 
     const readOptionValue = (option, index) => {
         const value = args[index + 1];
@@ -682,7 +695,7 @@ export function parseArgs(args) {
             parsed.command = 'version';
         } else if (!arg.startsWith('-')) {
             parsed.command = arg;
-            if (arg === 'sandbox' || arg === 'install' || arg === 'access' || arg === 'browser-mcp-cleanup') {
+            if (arg === 'sandbox' || arg === 'install' || arg === 'access' || arg === 'fleet' || arg === 'browser-mcp-cleanup') {
                 parsed.remainingArgs = args.slice(i + 1);
                 break;
             }
@@ -731,6 +744,9 @@ export async function runChatmuxCli(args = process.argv.slice(2)) {
             break;
         case 'access':
             await runAccess(remainingArgs || []);
+            break;
+        case 'fleet':
+            await runFleet(remainingArgs || []);
             break;
         case 'browser-mcp-cleanup': {
             const exitCode = await runBrowserMcpCleanup(remainingArgs || []);

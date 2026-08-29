@@ -232,6 +232,58 @@ identity checks.
 The Settings **Access** tab shows the private HTTPS address, current identity,
 owner, and allowed accounts.
 
+## Create a multi-PC fleet
+
+Install ChatMux normally on every PC. A fleet is one browser-facing **hub** plus
+as many as nine enrolled **full peer installations** (ten PCs total). A peer is
+not an agent or satellite package: it keeps its own service, tmux sessions,
+SQLite database, installation key, updater, and direct UI.
+
+Only the owner can see **Settings → Hosts**, issue codes, enroll, reconnect,
+revoke, or remove peers. On the PC that will become a peer, open its direct UI
+and choose **Settings → Hosts → Generate pairing code**, or run locally:
+
+```sh
+chatmux fleet token
+```
+
+The code is single-use and expires after ten minutes. On the hub, open
+**Settings → Hosts → Add a PC**, enter a label, the peer endpoint, and the code.
+The default endpoint is the peer's Tailscale Serve address converted to WSS and
+ending in `/fleet-ws`, for example:
+
+```text
+wss://peer-name.tailnet-name.ts.net:8443/fleet-ws
+```
+
+Use the actual HTTPS host and port printed by `chatmux status`; do not assume
+`8443`. Both PCs must be able to reach that Tailscale Serve address. ChatMux
+never downgrades WSS to plaintext and does not provide a relay.
+
+If direct WSS is unavailable, the owner must first create this local forward on
+the **hub PC** and keep that SSH process running:
+
+```sh
+ssh -N -o ExitOnForwardFailure=yes \
+  -L 127.0.0.1:8022:127.0.0.1:<peer-backend-port> user@peer
+```
+
+Select **SSH loopback forward** and enter exactly
+`ws://127.0.0.1:8022/fleet-ws`. The only other accepted host spelling is
+`ws://[::1]:<port>/fleet-ws` for an explicitly IPv6-bound local forward.
+Non-loopback `ws://`, alternate loopback spellings, credentials, query strings,
+and paths other than `/fleet-ws` are rejected. ChatMux does not create, store,
+or restart the SSH forward.
+
+After enrollment, **Online** is usable. **Syncing** means the hub is obtaining a
+fresh peer snapshot and remote writes are suspended. **Offline** means the peer
+is unreachable; use **Reconnect** after fixing its direct endpoint or SSH
+forward. There is no failover or rerouting to another PC. The peer's own printed
+ChatMux address remains the recovery surface.
+
+See [REMOTE-ACCESS.md §8](REMOTE-ACCESS.md#8-multi-pc-fleet-one-hub-and-full-peers)
+for revoke, key-loss, update, and scope boundaries.
+
 ## Owner update operation
 
 `GET /api/system/update/status` exposes whether the current user can update and

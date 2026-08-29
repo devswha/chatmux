@@ -207,5 +207,13 @@
       "updateAvailable": "업데이트 가능",
       "closeSidebar": "사이드바 닫기"
     }
+  },
+  "fleet": {
+    "hostNotFound": {
+      "title": "이 호스트를 사용할 수 없습니다",
+      "description": "세션 링크가 이 허브에서 확인할 수 없는 설치를 가리킵니다. 세션은 소유한 기기에서만 열리므로 여기서는 아무것도 불러오지 않습니다.",
+      "requestedHost": "요청한 호스트",
+      "backToSessions": "세션 목록으로 돌아가기"
+    }
   }
 }

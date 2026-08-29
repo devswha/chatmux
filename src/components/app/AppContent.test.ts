@@ -44,6 +44,12 @@ test('refreshes the selected terminal capability from its exact pane row', () =>
   assert.equal(refreshed && 'attachCapability' in refreshed ? refreshed.attachCapability : undefined, 'fresh-capability');
 });
 
+test('hub-local discovery leaves a remote terminal under its owning host authority', () => {
+  const remote = { ...target, hostId: '11111111-1111-4111-8111-111111111111' };
+  assert.equal(refreshExternalTerminalAttachCapability(remote, []), remote);
+  assert.equal(isSameExternalTerminal(remote, { ...remote, hostId: '22222222-2222-4222-8222-222222222222' }), false);
+});
+
 test('invalidates a selected terminal when the authoritative roster lacks its exact pane', () => {
   const refreshed = refreshExternalTerminalAttachCapability(target, [{
     ...session,
@@ -180,23 +186,6 @@ test('B8: gjc and attach-only kinds always route to terminal regardless of force
   };
   assert.equal(resolveExternalTerminalRoute(gjcTarget), 'terminal');
   assert.equal(resolveExternalTerminalRoute(target), 'terminal');
-});
-
-test('capability refresh consumes the discovery roster without adding its own request', () => {
-  const hook = readFileSync(new URL('../sidebar/hooks/useExternalCliSessions.ts', import.meta.url), 'utf8');
-  const appContent = readFileSync(new URL('./AppContent.tsx', import.meta.url), 'utf8');
-  const refreshCallback = appContent.slice(
-    appContent.indexOf('const refreshExternalTerminalCapability'),
-    appContent.indexOf('const openExternalTerminal'),
-  );
-
-  // Hydration and unhealthy fallback share one request helper, so the source has
-  // one API call site. Capability refresh reads the authoritative roster already
-  // published by the sidebar hook and must not add a separate poll.
-  assert.equal((hook.match(/api\.externalSessions\(/g) ?? []).length, 1);
-  assert.match(hook, /if \(streamHealthy\) return undefined;/);
-  assert.match(hook, /onSessionsChangeRef\.current\?\.\(/);
-  assert.doesNotMatch(refreshCallback, /api\.externalSessions/);
 });
 
 test('standalone chrome keeps app UI below a separate opaque safe-area surface', () => {

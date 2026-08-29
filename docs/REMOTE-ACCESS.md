@@ -255,6 +255,140 @@ iOS/iPadOS에서는 Safari 등의 일반 브라우저 탭에서 ChatMux HTTPS �
 이 안내는 현재 제품 범위와 원격 origin 요구사항을 설명할 뿐, 릴레이·배포·릴리스가
 수행되었음을 뜻하지 않는다.
 
+## 8. Multi-PC fleet: one hub and full peers
+
+Fleet mode joins independently installed ChatMux PCs without changing the remote-access
+decision above. One installation is the browser-facing **hub** and up to nine other
+**full ChatMux installations** are peers: ten PCs total. Every peer retains its own
+tmux and provider processes, SQLite data, Ed25519 installation identity, service,
+updater, and direct browser UI. The hub stores routing/catalog metadata; it is not a
+relay, replicated database, consensus member, failover controller, or cloud-sync
+service.
+
+### 8.1 Owner-only enrollment
+
+Only the authenticated owner can open **Settings → Hosts**, generate a code, enroll a
+peer, reconnect it, revoke it, or remove its revoked hub record. An allowlisted
+non-owner cannot read fleet metadata or perform these actions.
+
+1. Install and start ChatMux on both PCs. Decide which PC is the hub.
+2. Open the peer directly and select **Settings → Hosts → Generate pairing code**,
+   or run `chatmux fleet token` locally on the peer. The token is single-use and
+   expires after ten minutes.
+3. On the hub, select **Settings → Hosts → Add a PC** and enter a distinct label,
+   the peer URL, connection mode, and token.
+4. Wait for **Online**. A temporary **Connecting** or **Syncing** state is expected;
+   writes stay disabled until the full snapshot has completed.
+
+The hard limit is one hub plus nine enrolled peers. Revoked records do not consume an
+enrolled-peer slot after revocation, and may be removed from the hub separately.
+A peer accepts only one active hub grant; revoke the old grant before replacement.
+
+### 8.2 Default transport: Tailscale HTTPS/WSS
+
+Use the peer's private Tailscale Serve HTTPS address from `chatmux status`, change only
+the scheme to `wss`, and append `/fleet-ws`:
+
+```text
+HTTPS UI:  https://peer-name.tailnet-name.ts.net:8443/
+Peer URL:  wss://peer-name.tailnet-name.ts.net:8443/fleet-ws
+```
+
+The shown port is an example; copy the actual host and port. The hub dials the peer
+directly. TLS and the mutually pinned installation keys are both required. ChatMux
+never enables Funnel, operates no relay, and never downgrades `wss://` to `ws://`.
+
+The only supported plaintext transport is an owner-managed SSH local forward. Create
+it manually on the **hub PC**, before enrollment:
+
+```sh
+ssh -N -o ExitOnForwardFailure=yes \
+  -L 127.0.0.1:8022:127.0.0.1:<peer-backend-port> user@peer
+```
+
+Choose **SSH loopback forward** and save exactly:
+
+```text
+ws://127.0.0.1:8022/fleet-ws
+```
+
+An explicitly IPv6-bound local forward may instead use
+`ws://[::1]:<local-port>/fleet-ws`. Those two literal loopback hosts are the complete
+allowlist. Non-loopback plaintext, aliases such as `localhost` or `127.1`, URL
+credentials, query strings, fragments, and any path other than `/fleet-ws` fail
+closed. ChatMux does not create, supervise, persist SSH keys for, or automatically
+restart this forward.
+
+### 8.3 Offline, syncing, and direct-peer recovery
+
+- **Syncing** means a connection or catalog epoch changed. The hub requests a full
+  snapshot and suspends peer writes until it is applied.
+- **Offline** means no authenticated direct path exists. Fix Tailscale Serve or the
+  SSH process, then choose **Reconnect**. Mutations are not replayed after a dropped
+  connection; an uncertain result requires reconciliation and fresh owner intent.
+- There is no automatic failover, peer-to-peer reroute, or hub replacement. If the
+  hub is unavailable, open the peer's own address from `chatmux status`. Its local
+  sessions, terminal, settings, and updater remain independent and usable.
+
+For redacted local diagnostics use:
+
+```sh
+chatmux fleet identity
+chatmux fleet grants
+chatmux fleet diagnose
+```
+
+Diagnostics print public installation IDs/fingerprints and reachability only, not peer
+URLs, keys, tokens, credentials, paths, sockets, or transcript content.
+
+### 8.4 Revocation and installation-key loss
+
+From the hub's **Settings → Hosts**, **Revoke grant** removes hub-local authorization
+before attempting peer-side revocation. If the peer is unreachable, the UI reports
+that outcome separately; local authority remains revoked. **Remove from hub** only
+deletes the already-revoked local record. Use the peer's direct UI for ongoing local
+work and its local CLI to inspect or revoke inbound grants:
+
+```sh
+chatmux fleet grants
+chatmux fleet revoke <old-installation-id>
+```
+
+Back up the entire `~/.chatmux/data` directory. Do not copy or replace individual key
+files. A restored complete data backup preserves the installation identity. If the
+identity is irrecoverably lost, do not trust a newly generated key as the same PC:
+
+1. Keep the affected PC off the fleet path and record the old installation ID from
+   the counterpart's Hosts screen or `chatmux fleet grants`.
+2. Revoke that old ID on every counterpart. If the hub key was lost, run the local
+   revoke command on each peer through its direct recovery surface. If a peer key was
+   lost, revoke it from the hub Hosts screen.
+3. As the affected PC's owner, preserve the broken data for investigation, then
+   rebuild or restore that installation according to
+   [SELF-HOST.md](SELF-HOST.md#installation-key-replacement). The managed-install
+   procedure stops the service and moves (never deletes) the broken
+   `~/.chatmux/data/installation-identity` directory before restart creates a new
+   identity.
+4. Generate a new peer token and enroll again. Verify the new public fingerprint on
+   both sides. Old grants never migrate to the new key.
+
+### 8.5 Hub-first updates and excluded surfaces
+
+Fleet updates are not broadcast. Update the hub first, verify its direct UI and peer
+states, then update one peer at a time from that peer's own owner UI. After each peer
+update, wait for **Online** after any **Syncing** phase before updating the next one.
+An **Incompatible** state requires a supported version pairing or manual recovery;
+there is no protocol downgrade. Keep the prior release and data backup according to
+the normal release procedure.
+
+Fleet scope is limited to the shipped host catalog, session/transcript reads and
+search, chat and prompt control, verified terminal attach/input, session lifecycle,
+and completion events. It does **not** provide remote desktop, a remote IDE or file
+editor, Git/project mutation, cloud or database sync, peer administration from peers,
+fleet-wide updates, arbitrary remote commands, remote plain-shell creation, managed
+SSH/Tailscale setup, a hosted relay, automatic failover, or zero-configuration remote
+reachability.
+
 ## 참고
 
 - 사용자용 설치·접근 안내: [INSTALL.md](INSTALL.md)

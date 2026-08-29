@@ -7,6 +7,9 @@ import { AuthProvider, ProtectedRoute, useAuth } from './components/auth';
 import type { AuthUser } from './components/auth/types';
 import { WebSocketProvider } from './contexts/WebSocketContext';
 import AppContent from './components/app/AppContent';
+import FleetSessionRoute from './fleet/FleetSessionRoute';
+import { FleetHostCatalogProvider } from './fleet/discovery/FleetHostCatalogContext';
+import { LOCAL_SESSION_ROUTE, REMOTE_SESSION_ROUTE } from './fleet/sessionRoute';
 import i18n from './i18n/config.js';
 import { CompletionNotificationsProvider } from './components/sidebar/context/CompletionNotificationsContext';
 
@@ -123,14 +126,25 @@ export default function App() {
         <AuthProvider>
           <WebSocketProvider>
             <ProtectedRoute>
-              <OwnerCompletionNotifications>
-                <Router basename={routerBasename}>
-                  <Routes>
-                    <Route path="/" element={<AppContent />} />
-                    <Route path="/session/:sessionId" element={<AppContent />} />
-                  </Routes>
-                </Router>
-              </OwnerCompletionNotifications>
+              <FleetHostCatalogProvider>
+                <OwnerCompletionNotifications>
+                  <Router basename={routerBasename}>
+                    <Routes>
+                      <Route path="/" element={<FleetSessionRoute><AppContent /></FleetSessionRoute>} />
+                      {/* Legacy deep link: local sessions only. */}
+                      <Route
+                        path={LOCAL_SESSION_ROUTE}
+                        element={<FleetSessionRoute><AppContent /></FleetSessionRoute>}
+                      />
+                      {/* Host-qualified deep link for a session owned by any installation. */}
+                      <Route
+                        path={REMOTE_SESSION_ROUTE}
+                        element={<FleetSessionRoute><AppContent /></FleetSessionRoute>}
+                      />
+                    </Routes>
+                  </Router>
+                </OwnerCompletionNotifications>
+              </FleetHostCatalogProvider>
             </ProtectedRoute>
           </WebSocketProvider>
         </AuthProvider>

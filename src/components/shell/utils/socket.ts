@@ -1,6 +1,6 @@
 import type { ShellIncomingMessage, ShellOutgoingMessage } from '../types/types';
 
-export function getShellWebSocketUrl(): string {
+export function getShellWebSocketUrl(targetClass?: 'local-agent' | 'attach-only' | 'remote-agent'): string {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
 
   // No client-side token pre-check: a WebSocket handshake cannot carry custom
@@ -8,7 +8,8 @@ export function getShellWebSocketUrl(): string {
   // implicit owner when CHATMUX_AUTH=none). Gating on the localStorage token
   // here silently broke every terminal attach in no-login mode — the socket
   // was never even attempted (외부 CLI/Shell 검은 화면).
-  return `${protocol}//${window.location.host}/shell`;
+  const pathname = targetClass === 'remote-agent' ? '/remote-shell' : '/shell';
+  return `${protocol}//${window.location.host}${pathname}`;
 }
 
 export function parseShellMessage(payload: string): ShellIncomingMessage | null {
