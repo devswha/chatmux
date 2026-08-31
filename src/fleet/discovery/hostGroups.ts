@@ -29,6 +29,8 @@ export type HostGroupRow = {
   readonly stale: boolean;
   /** This label also exists on another host, so the host label must be shown. */
   readonly duplicateLabel: boolean;
+  /** App transcript owned by this row. Null when the pane has no catalogued conversation yet. */
+  readonly transcriptLocalId: string | null;
   /** Exact pane display target. Null for transcript-only rows. */
   readonly pane: FleetHostPaneRow | null;
 };
@@ -109,7 +111,11 @@ function hostsByLabel(input: HostGroupsInput): ReadonlyMap<string, ReadonlySet<s
 function paneGroupRow(
   hostId: string,
   row: FleetHostPaneRow,
-  context: { readonly stale: boolean; readonly duplicated: (label: string) => boolean },
+  context: {
+    readonly stale: boolean;
+    readonly duplicated: (label: string) => boolean;
+    readonly transcriptLocalId: string | null;
+  },
 ): HostGroupRow {
   return {
     key: paneRowKey(hostId, row),
@@ -119,6 +125,7 @@ function paneGroupRow(
     detail: row.kind,
     stale: context.stale || row.presence === 'stale' || row.process === null,
     duplicateLabel: context.duplicated(row.tmuxName),
+    transcriptLocalId: context.transcriptLocalId,
     pane: row,
   };
 }
@@ -141,6 +148,7 @@ function sessionGroupRow(
     detail: context.projectName(row.projectLocalId) || row.provider,
     stale: context.stale,
     duplicateLabel: context.duplicated(label),
+    transcriptLocalId: row.localId,
     pane: null,
   };
 }
@@ -157,9 +165,15 @@ function groupRows(
   const paneSessionIds = new Set(
     entry.rows.panes.map((row) => row.providerSessionId).filter((id): id is string => id !== null),
   );
+  const transcriptSessionIds = new Set(entry.rows.sessions.map((row) => row.localId));
   const panes = [...entry.rows.panes]
     .sort((left, right) => left.tmuxName.localeCompare(right.tmuxName))
-    .map((row) => paneGroupRow(hostId, row, context));
+    .map((row) => paneGroupRow(hostId, row, {
+      ...context,
+      transcriptLocalId: row.providerSessionId !== null && transcriptSessionIds.has(row.providerSessionId)
+        ? row.providerSessionId
+        : null,
+    }));
   const sessions = [...entry.rows.sessions]
     .filter((row) => !paneSessionIds.has(row.localId))
     .sort((left, right) => right.lastActivityMs - left.lastActivityMs)

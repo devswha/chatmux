@@ -70,6 +70,13 @@ export default function SidebarHostGroups({ local, children, onRemotePaneOpen }:
   );
 
   const openRow = useCallback((group: HostGroup, row: HostGroupRow) => {
+    if (row.transcriptLocalId !== null) {
+      navigate(sessionRoutePath(
+        sessionRef(group.hostId, row.transcriptLocalId),
+        catalog.localHostId,
+      ));
+      return;
+    }
     const kind = row.pane === null ? null : cliKind(row.pane.kind);
     if (row.pane?.process && kind) {
       onRemotePaneOpen({
@@ -86,7 +93,6 @@ export default function SidebarHostGroups({ local, children, onRemotePaneOpen }:
       });
       return;
     }
-    navigate(sessionRoutePath(sessionRef(group.hostId, row.localId), catalog.localHostId));
   }, [catalog.localHostId, navigate, onRemotePaneOpen]);
 
   if (groups.length === 0) {

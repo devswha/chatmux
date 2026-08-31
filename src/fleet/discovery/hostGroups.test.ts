@@ -97,6 +97,7 @@ test('Given a peer whose pane owns a session, when groups are built, then the se
 
   const peerA = group(groups, PEER_A_HOST_ID);
   assert.deepEqual(peerA.rows.map((row) => row.kind), ['pane']);
+  assert.equal(peerA.rows[0]?.transcriptLocalId, 'gjc-session');
   assert.deepEqual(peerA.counts, { projects: 1, sessions: 1, panes: 1 });
 });
 

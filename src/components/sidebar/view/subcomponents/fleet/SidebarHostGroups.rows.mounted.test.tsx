@@ -23,13 +23,15 @@ import {
 
 async function collisionHarness(states: Parameters<typeof rosterBody>[0] = {}) {
   const harness = await mountHostGroups({ roster: () => jsonResponse(rosterBody(states)) });
+  const peerAPane = { ...paneRow('/tmp/peer-a.sock', 'omg'), kind: 'gjc' };
+  const peerBPane = { ...paneRow('/tmp/peer-b.sock', 'omg'), kind: 'gjc' };
   await harness.emit(snapshotFrame(PEER_A_HOST_ID, 1, {
     sessions: [sessionRow('gjc-session', 'refactor the parser')],
-    panes: [paneRow('/tmp/peer-a.sock', 'omg')],
+    panes: [peerAPane],
   }) as ServerEvent);
   await harness.emit(snapshotFrame(PEER_B_HOST_ID, 1, {
     sessions: [sessionRow('gjc-session', 'refactor the parser')],
-    panes: [paneRow('/tmp/peer-b.sock', 'omg')],
+    panes: [peerBPane],
   }) as ServerEvent);
   return harness;
 }
@@ -69,6 +71,11 @@ test('Given an online peer row, when it is activated, then the host-qualified ro
       harness.paths[harness.paths.length - 1],
       `/hosts/${PEER_B_HOST_ID}/session/gjc-session`,
       'selecting a remote row targets its owning host, never the local one',
+    );
+    assert.deepEqual(
+      harness.openedTerminals,
+      [],
+      'a pane with a catalogued transcript opens the conversation before its terminal',
     );
   } finally {
     await harness.dispose();
