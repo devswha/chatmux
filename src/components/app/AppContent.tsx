@@ -124,13 +124,21 @@ function AppContentInner() {
       return sidebarSharedProps.onSessionSelect(...args);
     },
     onExternalTerminalOpen: openExternalTerminal,
+    onRemoteTranscriptOpen: () => {
+      closeExternalTerminal();
+      setActiveTab('chat');
+      setSidebarOpen(false);
+    },
     onExternalSessionsChange: refreshExternalTerminalCapability,
   }), [
     sidebarSharedProps,
+    closeExternalTerminal,
     openExternalTerminal,
     refreshExternalTerminalCapability,
+    setActiveTab,
     setExternalTerminal,
     setExternalTranscript,
+    setSidebarOpen,
   ]);
 
   const { activeExternalTranscript, liveSessionTarget, liveSessionProcessing } = useActiveExternalTranscript({

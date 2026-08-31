@@ -44,6 +44,7 @@ type SidebarContentProps = {
   onShowVersionModal: () => void;
   onShowSettings: () => void;
   onExternalTerminalOpen: (target: ExternalTerminalTarget, options?: { forceAttach?: boolean }) => void;
+  onRemoteTranscriptOpen: () => void;
   onExternalSessionsChange: (sessions: ExternalCliSession[]) => void;
   t: TFunction;
 };
@@ -80,6 +81,7 @@ export default function SidebarContent({
   onShowVersionModal,
   onShowSettings,
   onExternalTerminalOpen,
+  onRemoteTranscriptOpen,
   onExternalSessionsChange,
   t,
 }: SidebarContentProps) {
@@ -151,6 +153,7 @@ export default function SidebarContent({
         <SidebarHostGroups
           local={localSummary}
           onRemotePaneOpen={onExternalTerminalOpen}
+          onRemoteTranscriptOpen={onRemoteTranscriptOpen}
         >
           {localSections}
         </SidebarHostGroups>

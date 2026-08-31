@@ -70,6 +70,7 @@ export type HostGroupsHarness = {
   readonly paths: readonly string[];
   readonly sent: readonly unknown[];
   readonly openedTerminals: readonly ExternalTerminalTarget[];
+  readonly openedTranscripts: number;
   readonly dispose: () => Promise<void>;
 };
 
@@ -88,6 +89,7 @@ export async function mountHostGroups(options: {
   const paths: string[] = [];
   const sent: unknown[] = [];
   const openedTerminals: ExternalTerminalTarget[] = [];
+  let openedTranscripts = 0;
   globalThis.fetch = (async () => options.roster()) as typeof globalThis.fetch;
   const i18n = await sidebarI18n();
 
@@ -114,6 +116,7 @@ export async function mountHostGroups(options: {
               <SidebarHostGroups
                 local={LOCAL_SUMMARY}
                 onRemotePaneOpen={(target) => openedTerminals.push(target)}
+                onRemoteTranscriptOpen={() => { openedTranscripts += 1; }}
               >
                 {options.children ?? <div data-local-sections="true" />}
               </SidebarHostGroups>
@@ -137,6 +140,7 @@ export async function mountHostGroups(options: {
     paths,
     sent,
     openedTerminals,
+    get openedTranscripts() { return openedTranscripts; },
     dispose: async () => {
       await act(async () => { renderer!.unmount(); await tick(); });
       globalThis.fetch = originalFetch;

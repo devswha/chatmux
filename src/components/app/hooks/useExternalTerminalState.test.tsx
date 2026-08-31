@@ -5,6 +5,7 @@ import { createElement } from 'react';
 import TestRenderer, { act, type ReactTestRenderer } from 'react-test-renderer';
 
 import { tmuxPaneIdentityKey } from '../../../../shared/tmux';
+import type { ExternalTerminalTarget } from '../../../types/app';
 import { api } from '../../../utils/api';
 import type { ExternalCliSession } from '../../sidebar/hooks/useExternalCliSessions';
 
@@ -67,5 +68,46 @@ test('does not request a fallback when the published external roster refreshes m
   } finally {
     if (renderer) await act(async () => renderer?.unmount());
     api.externalSessions = originalExternalSessions;
+  }
+});
+
+test('closing a terminal takeover also clears stale transcript takeover state', async () => {
+  const states: ReturnType<typeof useExternalTerminalState>[] = [];
+  let renderer: ReactTestRenderer | null = null;
+  function Probe() {
+    states.push(useExternalTerminalState({
+      setActiveTab: () => undefined,
+      setSidebarOpen: () => undefined,
+      onProjectSelect: () => undefined,
+      onSessionSelect: () => undefined,
+      projects: [],
+      subscribe: () => () => undefined,
+    }));
+    return null;
+  }
+  const target: ExternalTerminalTarget = {
+    tmuxName: 'remote-gjc',
+    tmux: session.tmux,
+    process: { pid: 42, startedAtMs: 1_700_000_000_000 },
+    kind: 'gjc',
+    cliKind: 'gjc',
+    project: null,
+  };
+
+  try {
+    await act(async () => {
+      renderer = TestRenderer.create(createElement(Probe));
+    });
+    await act(async () => {
+      states.at(-1)?.setExternalTranscript(target);
+    });
+    assert.equal(states.at(-1)?.externalTranscript, target);
+
+    await act(async () => states.at(-1)?.closeExternalTerminal());
+
+    assert.equal(states.at(-1)?.externalTerminal, null);
+    assert.equal(states.at(-1)?.externalTranscript, null);
+  } finally {
+    if (renderer) await act(async () => renderer?.unmount());
   }
 });

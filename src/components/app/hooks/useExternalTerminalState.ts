@@ -86,6 +86,7 @@ export function useExternalTerminalState({
 
   const closeExternalTerminal = useCallback(() => {
     setExternalTerminal(null);
+    setExternalTranscript(null);
   }, []);
 
   useExternalTerminalDiscoveryAuthority({

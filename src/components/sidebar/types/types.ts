@@ -35,6 +35,7 @@ export type SidebarProps = {
   onCloseSettings: () => void;
   isMobile: boolean;
   onExternalTerminalOpen: (target: ExternalTerminalTarget, options?: { forceAttach?: boolean }) => void;
+  onRemoteTranscriptOpen: () => void;
   onExternalSessionsChange: (sessions: ExternalCliSession[]) => void;
 };
 

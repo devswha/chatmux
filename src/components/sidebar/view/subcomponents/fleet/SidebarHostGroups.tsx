@@ -40,6 +40,7 @@ export type SidebarHostGroupsProps = {
   };
   children: ReactNode;
   onRemotePaneOpen: (target: ExternalTerminalTarget) => void;
+  onRemoteTranscriptOpen: () => void;
 };
 
 function cliKind(kind: string): ExternalTerminalTarget['cliKind'] | null {
@@ -55,7 +56,12 @@ function cliKind(kind: string): ExternalTerminalTarget['cliKind'] | null {
   }
 }
 
-export default function SidebarHostGroups({ local, children, onRemotePaneOpen }: SidebarHostGroupsProps) {
+export default function SidebarHostGroups({
+  local,
+  children,
+  onRemotePaneOpen,
+  onRemoteTranscriptOpen,
+}: SidebarHostGroupsProps) {
   const { t } = useTranslation('sidebar');
   const navigate = useNavigate();
   const { catalog } = useFleetHostCatalog();
@@ -71,6 +77,7 @@ export default function SidebarHostGroups({ local, children, onRemotePaneOpen }:
 
   const openRow = useCallback((group: HostGroup, row: HostGroupRow) => {
     if (row.transcriptLocalId !== null) {
+      onRemoteTranscriptOpen();
       navigate(sessionRoutePath(
         sessionRef(group.hostId, row.transcriptLocalId),
         catalog.localHostId,
@@ -93,7 +100,7 @@ export default function SidebarHostGroups({ local, children, onRemotePaneOpen }:
       });
       return;
     }
-  }, [catalog.localHostId, navigate, onRemotePaneOpen]);
+  }, [catalog.localHostId, navigate, onRemotePaneOpen, onRemoteTranscriptOpen]);
 
   if (groups.length === 0) {
     return <>{children}</>;

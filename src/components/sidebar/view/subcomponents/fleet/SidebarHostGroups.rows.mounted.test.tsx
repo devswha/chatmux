@@ -77,6 +77,11 @@ test('Given an online peer row, when it is activated, then the host-qualified ro
       [],
       'a pane with a catalogued transcript opens the conversation before its terminal',
     );
+    assert.equal(
+      harness.openedTranscripts,
+      1,
+      'opening a conversation clears any terminal takeover that would hide it',
+    );
   } finally {
     await harness.dispose();
   }
