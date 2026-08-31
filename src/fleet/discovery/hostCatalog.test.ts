@@ -139,6 +139,32 @@ test('Given an applied delta, when the identical delta is replayed, then the cat
   assert.equal(outcome.catalog, applied, 'a duplicate delta produces no new state');
 });
 
+test('Given an unchanged host heartbeat, when it repeats, then the catalog identity is preserved', () => {
+  const catalog = twoPeers();
+  const frame = parseHostFrame({
+    kind: 'fleet.host_state',
+    host: peerDescriptor(PEER_A_HOST_ID, 'studio', 'online'),
+  });
+  assert.ok(frame);
+
+  const outcome = applyHostFrame(catalog, frame);
+
+  assert.equal(outcome.catalog, catalog);
+});
+
+test('Given an already applied snapshot, when it repeats, then the catalog identity is preserved', () => {
+  const catalog = twoPeers();
+  const frame = parseHostFrame(snapshotFrame(PEER_A_HOST_ID, 4, {
+    sessions: [sessionRow('gjc-session', 'refactor the parser')],
+    panes: [paneRow('/tmp/peer-a.sock', 'omg')],
+  }));
+  assert.ok(frame);
+
+  const outcome = applyHostFrame(catalog, frame);
+
+  assert.equal(outcome.catalog, catalog);
+});
+
 test('Given a syncing peer, when its snapshot lands, then it is synchronised again at the snapshot revision', () => {
   const catalog = twoPeers();
   const gapped = apply(catalog, deltaFrame(PEER_A_HOST_ID, { prevRevision: 7, revision: 8 }, []));
