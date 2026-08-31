@@ -8,6 +8,7 @@ import { useUiPreferences } from '../../../hooks/useUiPreferences';
 import { useFileOpenResolver } from '../../../hooks/useFileOpenResolver';
 import { useEditorSidebar } from '../../code-editor/hooks/useEditorSidebar';
 import { useFleetHost } from '../../../fleet/FleetSessionRoute';
+import { isLocalHostScope } from '../../../fleet/hostApi/urls';
 import { useExternalPaneOutput } from '../hooks/useExternalPaneOutput';
 import { useTranscriptCliTarget } from '../hooks/useTranscriptCliTarget';
 
@@ -66,7 +67,7 @@ function MainContent({
 }: MainContentProps) {
   const { preferences } = useUiPreferences();
   const { t } = useTranslation('chat');
-  const { activeSessionKey } = useFleetHost();
+  const { activeSessionKey, storeScope } = useFleetHost();
   const { showRawParameters, showThinking, showImagePreviews, sendByCtrlEnter } = preferences;
 
   const {
@@ -103,7 +104,11 @@ function MainContent({
 
   // Resolves bare/partial file references (e.g. links inside chat messages) to
   // real project files before opening them in the in-app editor.
-  const resolvedFileOpen = useFileOpenResolver(selectedProject, handleFileOpen);
+  const resolvedFileOpen = useFileOpenResolver(
+    selectedProject,
+    handleFileOpen,
+    isLocalHostScope(storeScope),
+  );
 
   usePaletteOpsRegister({
     openFile: (filePath: string) => {

@@ -5,8 +5,10 @@ import {
   hostApprovalUrl,
   hostDirSuggestionsUrl,
   hostInventoryUrl,
+  hostProjectFilesUrl,
   hostPromptUrl,
   hostSessionMessagesUrl,
+  hostSessionTokenUsageUrl,
   hostSpawnUrl,
   hostTranscriptSearchUrl,
   isLocalHostScope,
@@ -34,6 +36,8 @@ test('Given the local host, when every session and project URL is built, then ex
   // Given / When / Then
   assert.equal(hostSessionMessagesUrl(local, SESSION, 'limit=20'), `/api/providers/sessions/${SESSION}/messages?limit=20`);
   assert.equal(hostInventoryUrl(local, SESSION), '/api/providers/sessions/live/commands');
+  assert.equal(hostSessionTokenUsageUrl(local, PROJECT, SESSION), `/api/projects/${PROJECT}/sessions/${SESSION}/token-usage`);
+  assert.equal(hostProjectFilesUrl(local, PROJECT), `/api/projects/${PROJECT}/files`);
   assert.equal(hostPromptUrl(local, SESSION), null);
   assert.equal(hostApprovalUrl(local, SESSION), null);
   assert.equal(hostDirSuggestionsUrl(local, PROJECT, 'repos/app'), '/api/providers/fs/dir-suggestions?prefix=repos%2Fapp');
@@ -51,6 +55,8 @@ test('Given the same local session id on two peers, when URLs are built, then ea
   assert.equal(messagesB, `/api/hosts/${PEER_B}/providers/sessions/${SESSION}/messages?limit=20`);
   assert.notEqual(messagesA, messagesB);
   assert.equal(hostInventoryUrl(peerA, SESSION), `/api/hosts/${PEER_A}/providers/sessions/${SESSION}/inventory`);
+  assert.equal(hostSessionTokenUsageUrl(peerA, PROJECT, SESSION), null);
+  assert.equal(hostProjectFilesUrl(peerA, PROJECT), null);
   assert.equal(hostPromptUrl(peerB, SESSION), `/api/hosts/${PEER_B}/providers/sessions/${SESSION}/prompt`);
   assert.equal(hostApprovalUrl(peerB, SESSION), `/api/hosts/${PEER_B}/providers/sessions/${SESSION}/approval`);
   assert.equal(hostSpawnUrl(peerA, PROJECT), `/api/hosts/${PEER_A}/projects/${PROJECT}/sessions/spawn`);

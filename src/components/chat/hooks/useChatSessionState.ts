@@ -6,6 +6,8 @@ import type { MarkSessionIdle, SessionActivityMap } from '../../../hooks/useSess
 import type { Project, ProjectSession, LLMProvider } from '../../../types/app';
 import type { SessionStore, NormalizedMessage } from '../../../stores/useSessionStore';
 import type { ChatMessage } from '../types/types';
+import { useFleetHost } from '../../../fleet/FleetSessionRoute';
+import { hostSessionTokenUsageUrl } from '../../../fleet/hostApi/urls';
 import { createCachedDiffCalculator, type DiffCalculator } from '../utils/messageTransforms';
 
 import { normalizedToChatMessages } from './useChatMessages';
@@ -139,6 +141,7 @@ export function useChatSessionState({
   sessionStore,
   showImagePreviews = true,
 }: UseChatSessionStateArgs) {
+  const { storeScope } = useFleetHost();
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(selectedSession?.id || null);
   const [isLoadingSessionMessages, setIsLoadingSessionMessages] = useState(false);
   const [isLoadingMoreMessages, setIsLoadingMoreMessages] = useState(false);
@@ -935,7 +938,11 @@ export function useChatSessionState({
     const fetchInitialTokenUsage = async () => {
       try {
         // The backend resolves the provider from the indexed session row.
-        const url = `/api/projects/${selectedProject.projectId}/sessions/${selectedSession.id}/token-usage`;
+        const url = hostSessionTokenUsageUrl(storeScope, selectedProject.projectId, selectedSession.id);
+        if (url === null) {
+          setTokenBudget(null);
+          return;
+        }
         const response = await authenticatedFetch(url);
         if (response.ok) {
           setTokenBudget(await response.json());
@@ -947,7 +954,7 @@ export function useChatSessionState({
       }
     };
     fetchInitialTokenUsage();
-  }, [selectedProject, selectedSession?.id]);
+  }, [selectedProject, selectedSession?.id, storeScope]);
 
   const visibleMessages = useMemo(() => {
     if (chatMessages.length <= visibleMessageCount) return chatMessages;

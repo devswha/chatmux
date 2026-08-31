@@ -82,6 +82,33 @@ test('Given owner and allowlisted HTTP users, when hosts are requested, then onl
   }
 });
 
+test('Given an available fleet authority, when identity is requested, then only the owner receives the local installation id', async () => {
+  const discovery = authority();
+  fleetBrowserDiscoveryGateway.bind(discovery);
+  const app = express();
+  app.use((request, _response, next) => {
+    Object.defineProperty(request, 'user', {
+      value: { id: 1, tailscaleRole: request.headers['x-role'] === 'owner' ? 'owner' : 'user' },
+    });
+    next();
+  });
+  app.use('/api', createFleetBrowserDiscoveryRouter('tailscale'));
+  const server = createServer(app);
+  const port = await listen(server);
+  try {
+    const owner = await fetch(`http://127.0.0.1:${port}/api/fleet/identity`, { headers: { 'x-role': 'owner' } });
+    const ordinary = await fetch(`http://127.0.0.1:${port}/api/fleet/identity`, { headers: { 'x-role': 'user' } });
+
+    assert.equal(owner.status, 200);
+    assert.deepEqual(await owner.json(), { data: { installationId: LOCAL } });
+    assert.equal(ordinary.status, 403);
+    assert.equal(JSON.stringify(await ordinary.json()).includes(LOCAL), false);
+  } finally {
+    await stop(server);
+    fleetBrowserDiscoveryGateway.unbind(discovery);
+  }
+});
+
 test('Given the authenticated app websocket, when the owner subscribes, then the real gateway sends the roster', async () => {
   const discovery = authority();
   fleetBrowserDiscoveryGateway.bind(discovery);

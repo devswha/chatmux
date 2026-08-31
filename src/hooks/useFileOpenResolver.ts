@@ -60,6 +60,7 @@ const findBestMatch = (files: FlatFile[], ref: string): string | null => {
 export function useFileOpenResolver(
   selectedProject: Project | null | undefined,
   onFileOpen: OnFileOpen,
+  allowProjectReads = true,
 ): OnFileOpen {
   const projectId = selectedProject?.projectId;
   const cacheRef = useRef<{ projectId?: string; files: Promise<FlatFile[]> | null }>({
@@ -68,7 +69,7 @@ export function useFileOpenResolver(
   });
 
   const loadFiles = useCallback((): Promise<FlatFile[]> => {
-    if (!projectId) {
+    if (!projectId || !allowProjectReads) {
       return Promise.resolve([]);
     }
     if (cacheRef.current.projectId === projectId && cacheRef.current.files) {
@@ -93,16 +94,22 @@ export function useFileOpenResolver(
 
     cacheRef.current = { projectId, files: filesPromise };
     return filesPromise;
-  }, [projectId]);
+  }, [allowProjectReads, projectId]);
 
   return useCallback(
     (filePath: string, diffInfo?: any) => {
+      if (!allowProjectReads) {
+        // A complete tool diff can render without reading the peer filesystem.
+        // Plain file references remain disabled until Fleet grants file access.
+        if (diffInfo) onFileOpen(filePath, diffInfo);
+        return;
+      }
       const ref = normalize(filePath).trim();
       void loadFiles().then((files) => {
         const match = findBestMatch(files, ref);
         onFileOpen(match ?? filePath, diffInfo);
       });
     },
-    [loadFiles, onFileOpen],
+    [allowProjectReads, loadFiles, onFileOpen],
   );
 }

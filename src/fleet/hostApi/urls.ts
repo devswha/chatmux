@@ -53,6 +53,28 @@ export function hostInventoryUrl(scope: HostScope, localId: string): string {
     : `${hostPrefix(scope)}/providers/sessions/${encodeURIComponent(localId)}/inventory`;
 }
 
+/**
+ * Token usage is already included in host-qualified transcript history. The
+ * standalone compatibility endpoint reads this installation's DB/filesystem,
+ * so a peer must never be sent there with a colliding project or session id.
+ */
+export function hostSessionTokenUsageUrl(
+  scope: HostScope,
+  projectLocalId: string,
+  sessionLocalId: string,
+): string | null {
+  return isLocalHostScope(scope)
+    ? `/api/projects/${encodeURIComponent(projectLocalId)}/sessions/${encodeURIComponent(sessionLocalId)}/token-usage`
+    : null;
+}
+
+/** Full project file access is local-only until Fleet advertises that capability. */
+export function hostProjectFilesUrl(scope: HostScope, projectLocalId: string): string | null {
+  return isLocalHostScope(scope)
+    ? `/api/projects/${encodeURIComponent(projectLocalId)}/files`
+    : null;
+}
+
 export function hostPromptUrl(scope: HostScope, localId: string): string | null {
   return isLocalHostScope(scope)
     ? null

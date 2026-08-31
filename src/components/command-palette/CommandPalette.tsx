@@ -94,10 +94,11 @@ export default function CommandPalette({
   // would answer with its own sessions under the same project id.
   const localSessions = useSessionsSource(projectId, open && showSessions && !isRemoteProject);
   const messageMatches = useSessionMessageSearch({ project: selectedProject ?? undefined, query: search, enabled: open && showSessions });
-  const files = useFilesSource(projectId, open && showFiles);
-  const commits = useCommitsSource(projectId, open && showCommits);
-  const branches = useBranchesSource(projectId, open && showBranches);
-  const git = useGitActions(projectId);
+  const localProjectId = isRemoteProject ? undefined : projectId;
+  const files = useFilesSource(localProjectId, open && showFiles);
+  const commits = useCommitsSource(localProjectId, open && showCommits);
+  const branches = useBranchesSource(localProjectId, open && showBranches);
+  const git = useGitActions(localProjectId);
 
   const peerRows = (hostId === null ? undefined : catalog.hosts.get(hostId))?.rows ?? EMPTY_HOST_ROW_SET;
   const sessionRows = React.useMemo(() => (
@@ -166,7 +167,7 @@ export default function CommandPalette({
             {showActions && (
               <PaletteActionGroups
                 selectedProject={selectedProject}
-                projectId={projectId}
+          projectId={localProjectId}
                 git={git}
                 run={run}
                 onStartNewChat={onStartNewChat}

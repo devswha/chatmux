@@ -44,6 +44,19 @@ export function authorizeFleetBrowserRequest(
 
 export function createFleetBrowserDiscoveryRouter(authMode: FleetBrowserAuthMode) {
   const router = express.Router();
+  router.get('/fleet/identity', (request: Request, response) => {
+    if (!authorizeFleetBrowserRequest(request, authMode)) {
+      response.status(403).json({ error: 'owner_required' });
+      return;
+    }
+    const authority = fleetBrowserDiscoveryGateway.current();
+    const local = authority?.hosts()[0];
+    if (local === undefined) {
+      response.status(404).json({ error: 'fleet_unavailable' });
+      return;
+    }
+    response.json({ data: { installationId: local.hostId } });
+  });
   router.get('/fleet/hosts', (request: Request, response) => {
     if (!authorizeFleetBrowserRequest(request, authMode)) {
       response.status(403).json({ error: 'owner_required' });

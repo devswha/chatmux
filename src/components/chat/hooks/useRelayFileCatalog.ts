@@ -55,7 +55,7 @@ export type RelayFileCatalog = {
   readonly request: () => void;
 };
 
-export function useRelayFileCatalog(workspacePath: string | null): RelayFileCatalog {
+export function useRelayFileCatalog(workspacePath: string | null, enabled = true): RelayFileCatalog {
   const [files, setFiles] = useState<readonly MentionableFile[]>([]);
   const [wanted, setWanted] = useState(false);
   const loadedRef = useRef<string | null>(null);
@@ -68,11 +68,12 @@ export function useRelayFileCatalog(workspacePath: string | null): RelayFileCata
     setWanted(false);
     loadedRef.current = null;
     requestedRef.current = null;
-  }, [workspacePath]);
+  }, [enabled, workspacePath]);
 
   useEffect(() => {
     if (
       workspacePath === null
+      || !enabled
       || !wanted
       || loadedRef.current === workspacePath
       || requestedRef.current === workspacePath
@@ -106,8 +107,10 @@ export function useRelayFileCatalog(workspacePath: string | null): RelayFileCata
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [wanted, workspacePath]);
+  }, [enabled, wanted, workspacePath]);
 
-  const request = useCallback(() => setWanted(true), []);
+  const request = useCallback(() => {
+    if (enabled) setWanted(true);
+  }, [enabled]);
   return { files, request };
 }

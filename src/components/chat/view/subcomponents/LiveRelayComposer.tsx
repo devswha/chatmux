@@ -12,6 +12,7 @@ import {
   PromptInputSubmit,
 } from '../../../../shared/view/ui';
 import { useFleetHost } from '../../../../fleet/FleetSessionRoute';
+import { isLocalHostScope } from '../../../../fleet/hostApi/urls';
 import { useRelayCommandInventory } from '../../hooks/useRelayCommandInventory';
 import { useRelayComposerMenus } from '../../hooks/useRelayComposerMenus';
 import { useRelayDelivery } from '../../hooks/useRelayDelivery';
@@ -88,7 +89,7 @@ export default function LiveRelayComposer({
   const commands = useRelayCommandInventory({ relayKind, workspacePath, commandTrigger, session: relaySession });
   const { prompt, dismiss: dismissPrompt } = useRelayInteractivePrompt({ relayKind, target, session: relaySession });
 
-  const fileCatalog = useRelayFileCatalog(workspacePath);
+  const fileCatalog = useRelayFileCatalog(workspacePath, isLocalHostScope(relaySession));
   const menus = useRelayComposerMenus({
     commands,
     files: fileCatalog.files,

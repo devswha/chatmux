@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Dispatch, KeyboardEvent, RefObject, SetStateAction } from 'react';
 
-import { api } from '../../../utils/api';
+import { useFleetHost } from '../../../fleet/FleetSessionRoute';
+import { hostProjectFilesUrl } from '../../../fleet/hostApi/urls';
+import { authenticatedFetch } from '../../../utils/api';
 import { escapeRegExp } from '../utils/chatFormatting';
 import type { Project } from '../../../types/app';
 
@@ -48,6 +50,7 @@ const flattenFileTree = (files: ProjectFileNode[], basePath = ''): MentionableFi
 };
 
 export function useFileMentions({ selectedProject, input, setInput, textareaRef }: UseFileMentionsOptions) {
+  const { storeScope } = useFleetHost();
   const [fileList, setFileList] = useState<MentionableFile[]>([]);
   const [fileMentions, setFileMentions] = useState<string[]>([]);
   const [filteredFiles, setFilteredFiles] = useState<MentionableFile[]>([]);
@@ -63,15 +66,21 @@ export function useFileMentions({ selectedProject, input, setInput, textareaRef 
       // File list is keyed by DB projectId now; the backend resolves it to
       // the project's path before reading.
       const projectId = selectedProject?.projectId;
+      const filesUrl = projectId
+        ? hostProjectFilesUrl({
+          hostId: selectedProject?.hostId ?? storeScope.hostId,
+          localHostId: storeScope.localHostId,
+        }, projectId)
+        : null;
       setFileList([]);
       setFilteredFiles([]);
-      if (!projectId) {
+      if (filesUrl === null) {
         return;
       }
 
 
       try {
-        const response = await api.getFiles(projectId, { signal: abortController.signal });
+        const response = await authenticatedFetch(filesUrl, { signal: abortController.signal });
         if (!response.ok) {
           return;
         }
@@ -91,7 +100,7 @@ export function useFileMentions({ selectedProject, input, setInput, textareaRef 
     return () => {
       abortController.abort();
     };
-  }, [selectedProject?.projectId]);
+  }, [selectedProject?.hostId, selectedProject?.projectId, storeScope.hostId, storeScope.localHostId]);
 
   useEffect(() => {
     const textBeforeCursor = input.slice(0, cursorPosition);
