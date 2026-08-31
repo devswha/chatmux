@@ -36,7 +36,6 @@ export const C_SCAN_IDLE_MS = 10_000;
 export const FORCE_REFRESH_DEBOUNCE_MS = 250;
 export const GRACE_TICKS_LIVE = 2;
 export const GRACE_TICKS_EXTERNAL = 2;
-export const GJC_BINDING_GRACE_TICKS = 5;
 export const UNAVAILABLE_DEGRADE_TICKS = 30;
 export const FULL_SCAN_FALLBACK_MS = 30_000;
 
@@ -184,7 +183,6 @@ export function createDiscoveryCollector(options: DiscoveryCollectorOptions = {}
   let revision = 0;
   let rows = new Map<DiscoveryRowKey, DiscoveryRow>();
   const missingTicks = new Map<DiscoveryRowKey, number>();
-  const liveBindingMissingTicks = new Map<DiscoveryRowKey, number>();
   const laneState: Record<DiscoveryLane, LaneState> = {
     external: { failures: 0, health: { ok: true, lastOkRevision: null, consecutiveFailures: 0 } },
     live: { failures: 0, health: { ok: true, lastOkRevision: null, consecutiveFailures: 0 } },
@@ -303,28 +301,18 @@ export function createDiscoveryCollector(options: DiscoveryCollectorOptions = {}
           && observed.process !== null
           && previous.process.pid === observed.process.pid
           && previous.process.startedAtMs === observed.process.startedAtMs;
-        const temporarilyUnboundLiveGjc = lane === 'live'
+        const idleLiveGjcWithKnownBinding = lane === 'live'
           && sameProcessGeneration
           && previous.providerSessionId !== null
           && !previous.providerSessionId.startsWith(IDLE_GJC_ID_PREFIX)
           && observed.providerSessionId?.startsWith(IDLE_GJC_ID_PREFIX) === true;
-        let candidate: DiscoveryRow;
-        if (temporarilyUnboundLiveGjc) {
-          const misses = (liveBindingMissingTicks.get(key) ?? 0) + 1;
-          liveBindingMissingTicks.set(key, misses);
-          candidate = misses < GJC_BINDING_GRACE_TICKS
-            ? {
-                ...previous,
-                lastSeenRevision: revision + 1,
-                presence: 'present',
-                staleSinceRevision: null,
-              }
-            : { ...observed, lastSeenRevision: revision + 1 };
-          if (misses >= GJC_BINDING_GRACE_TICKS) liveBindingMissingTicks.delete(key);
-        } else {
-          liveBindingMissingTicks.delete(key);
-          candidate = { ...observed, lastSeenRevision: revision + 1 };
-        }
+        const candidate: DiscoveryRow = {
+          ...observed,
+          providerSessionId: idleLiveGjcWithKnownBinding
+            ? previous.providerSessionId
+            : observed.providerSessionId,
+          lastSeenRevision: revision + 1,
+        };
         const replacement = sameRow(previous, candidate) ? previous : candidate;
         if (replacement !== previous) {
           next.set(key, replacement);
@@ -337,7 +325,6 @@ export function createDiscoveryCollector(options: DiscoveryCollectorOptions = {}
       const replacementSessionId = observedSessionIds.get(tmuxSessionNameKey(previous));
       if (replacementSessionId !== undefined && replacementSessionId !== previous.tmux.sessionId) {
         missingTicks.delete(key);
-        liveBindingMissingTicks.delete(key);
         next.delete(key);
         changed = true;
         continue;
@@ -351,14 +338,12 @@ export function createDiscoveryCollector(options: DiscoveryCollectorOptions = {}
         missingTicks.set(key, misses);
         if (misses >= grace) {
           missingTicks.delete(key);
-          liveBindingMissingTicks.delete(key);
           next.delete(key);
           changed = true;
         }
       }
     }
     for (const [key, row] of found) {
-      liveBindingMissingTicks.delete(key);
       next.set(key, { ...row, lastSeenRevision: revision + 1 });
       changed = true;
     }

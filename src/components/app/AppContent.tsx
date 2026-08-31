@@ -218,7 +218,12 @@ function AppContentInner() {
           selectedSession={selectedSession}
           isSessionReadOnly={Boolean(
             selectedSession
-            && (sidebarSharedProps.liveSessionIds.has(selectedSession.id) || activeExternalTranscript || (liveSessionTarget && 'hostId' in liveSessionTarget)),
+            && (
+              remoteSelection?.catalogued === false
+              || sidebarSharedProps.liveSessionIds.has(selectedSession.id)
+              || activeExternalTranscript
+              || (liveSessionTarget && 'hostId' in liveSessionTarget)
+            ),
           )}
           liveSessionTarget={liveSessionTarget}
           liveSessionModel={activeExternalTranscript?.model

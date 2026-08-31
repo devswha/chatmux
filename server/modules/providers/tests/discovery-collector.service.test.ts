@@ -5,7 +5,6 @@ import {
   C_SCAN_IDLE_MS,
   C_SCAN_MS,
   FORCE_REFRESH_DEBOUNCE_MS,
-  GJC_BINDING_GRACE_TICKS,
   GRACE_TICKS_EXTERNAL,
   GRACE_TICKS_LIVE,
   UNAVAILABLE_DEGRADE_TICKS,
@@ -138,7 +137,7 @@ test('live rows are removed only after their lane grace period', async () => {
   assert.equal(GRACE_TICKS_LIVE, 2);
 });
 
-test('a temporary GJC receipt gap preserves the bound conversation while the process stays alive', async () => {
+test('an idle GJC process preserves its last bound conversation for the same process generation', async () => {
   const state = scans();
   await state.collector.tick();
   const idle = {
@@ -151,11 +150,12 @@ test('a temporary GJC receipt gap preserves the bound conversation while the pro
   };
   state.live([idle]);
 
-  for (let tick = 1; tick < GJC_BINDING_GRACE_TICKS; tick += 1) {
+  for (let tick = 0; tick < 20; tick += 1) {
     await state.collector.tick();
     const row = state.collector.currentSnapshot().rows.find((candidate) => candidate.lane === 'live');
     assert.equal(row?.providerSessionId, 'session-1');
     assert.equal(row?.presence, 'present');
+    assert.equal(row?.activity, 'unknown');
   }
 
   state.live([{ ...live, id: 'session-resumed', running: false }]);
@@ -165,22 +165,21 @@ test('a temporary GJC receipt gap preserves the bound conversation while the pro
   assert.equal(resumed?.presence, 'present');
 });
 
-test('a persistent GJC receipt gap eventually exposes the safe unbound process row', async () => {
+test('an idle GJC row does not inherit a binding from a replaced process generation', async () => {
   const state = scans();
   await state.collector.tick();
   const idleId = `${IDLE_GJC_ID_PREFIX}gjc:%1`;
   state.live([{
     ...live,
     id: idleId,
+    process: { pid: 12, startedAtMs: 102 },
     model: null,
     effort: null,
     running: null,
     error: null,
   }]);
 
-  for (let tick = 0; tick < GJC_BINDING_GRACE_TICKS; tick += 1) {
-    await state.collector.tick();
-  }
+  await state.collector.tick();
 
   const row = state.collector.currentSnapshot().rows.find((candidate) => candidate.lane === 'live');
   assert.equal(row?.providerSessionId, idleId);

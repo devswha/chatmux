@@ -5,6 +5,7 @@ import type { Project, ProjectSession } from '../../types/app';
 export type RemoteRouteSelection = Readonly<{
   project: Project;
   session: ProjectSession;
+  catalogued: boolean;
 }>;
 
 /** Display-safe selection for a host-qualified route; paths remain on the peer. */
@@ -15,7 +16,25 @@ export function remoteRouteSelection(
   if (activeSession === null || activeSession.hostId === null || activeSession.hostId === catalog.localHostId) return null;
   const host = catalog.hosts.get(activeSession.hostId);
   const row = host?.rows.sessions.find((session) => session.localId === activeSession.localId);
-  if (host === undefined || row === undefined) return null;
+  if (host === undefined) return null;
+  if (row === undefined) {
+    const session: ProjectSession = {
+      id: activeSession.localId,
+      summary: activeSession.localId,
+      __projectId: activeSession.localId,
+    };
+    return {
+      project: {
+        hostId: activeSession.hostId,
+        projectId: activeSession.localId,
+        displayName: host.descriptor.displayLabel || activeSession.hostId,
+        fullPath: '',
+        sessions: [session],
+      },
+      session,
+      catalogued: false,
+    };
+  }
   const projectRow = host.rows.projects.find((project) => project.localId === row.projectLocalId);
   const session: ProjectSession = {
     id: row.localId,
@@ -36,5 +55,6 @@ export function remoteRouteSelection(
       sessions: [session],
     },
     session,
+    catalogued: true,
   };
 }
