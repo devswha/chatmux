@@ -28,6 +28,7 @@ import {
 import { sessionRef } from '../../../../../fleet/references';
 import type { ExternalTerminalTarget } from '../../../../../types/app';
 import { sessionRoutePath } from '../../../../../fleet/sessionRoute';
+import { useFleetHost } from '../../../../../fleet/FleetSessionRoute';
 
 import SidebarHostGroup from './SidebarHostGroup';
 import SidebarRemoteHostRows from './SidebarRemoteHostRows';
@@ -64,6 +65,7 @@ export default function SidebarHostGroups({
 }: SidebarHostGroupsProps) {
   const { t } = useTranslation('sidebar');
   const navigate = useNavigate();
+  const { activeSession } = useFleetHost();
   const { catalog } = useFleetHostCatalog();
   const summary = useMemo<LocalHostSummary>(() => ({
     label: t('hostGroups.localLabel'),
@@ -112,7 +114,13 @@ export default function SidebarHostGroups({
         <SidebarHostGroup key={group.hostId} group={group}>
           {group.isLocal
             ? children
-            : <SidebarRemoteHostRows group={group} onSelect={(row) => openRow(group, row)} />}
+            : (
+              <SidebarRemoteHostRows
+                group={group}
+                selectedLocalId={activeSession?.hostId === group.hostId ? activeSession.localId : null}
+                onSelect={(row) => openRow(group, row)}
+              />
+            )}
         </SidebarHostGroup>
       ))}
     </div>

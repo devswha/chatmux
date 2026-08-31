@@ -23,6 +23,8 @@ export type HostGroupRow = {
   readonly key: HostQualifiedKey;
   readonly kind: HostGroupRowKind;
   readonly localId: string;
+  /** Provider used by the local-style row icon and activity treatment. */
+  readonly provider: string;
   readonly label: string;
   readonly detail: string;
   /** The row's own evidence is stale, or its host is no longer authoritative. */
@@ -115,12 +117,14 @@ function paneGroupRow(
     readonly stale: boolean;
     readonly duplicated: (label: string) => boolean;
     readonly transcriptLocalId: string | null;
+    readonly provider: string;
   },
 ): HostGroupRow {
   return {
     key: paneRowKey(hostId, row),
     kind: 'pane',
     localId: row.providerSessionId ?? row.localId,
+    provider: context.provider,
     label: row.tmuxName,
     detail: row.kind,
     stale: context.stale || row.presence === 'stale' || row.process === null,
@@ -144,6 +148,7 @@ function sessionGroupRow(
     key: referenceKey(sessionRef(hostId, row.localId)),
     kind: 'session',
     localId: row.localId,
+    provider: row.provider,
     label,
     detail: context.projectName(row.projectLocalId) || row.provider,
     stale: context.stale,
@@ -166,6 +171,9 @@ function groupRows(
     entry.rows.panes.map((row) => row.providerSessionId).filter((id): id is string => id !== null),
   );
   const transcriptSessionIds = new Set(entry.rows.sessions.map((row) => row.localId));
+  const sessionProviders = new Map(
+    entry.rows.sessions.map((row) => [row.localId, row.provider]),
+  );
   const panes = [...entry.rows.panes]
     .sort((left, right) => left.tmuxName.localeCompare(right.tmuxName))
     .map((row) => paneGroupRow(hostId, row, {
@@ -173,6 +181,9 @@ function groupRows(
       transcriptLocalId: row.providerSessionId !== null && transcriptSessionIds.has(row.providerSessionId)
         ? row.providerSessionId
         : null,
+      provider: row.providerSessionId === null
+        ? row.kind
+        : sessionProviders.get(row.providerSessionId) ?? row.kind,
     }));
   const sessions = [...entry.rows.sessions]
     .filter((row) => !paneSessionIds.has(row.localId))

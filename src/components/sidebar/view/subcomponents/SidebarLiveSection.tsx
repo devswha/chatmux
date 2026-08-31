@@ -400,7 +400,12 @@ export default function SidebarLiveSection({
       String(active.id),
       String(over.id),
     );
-    const nextOrder = mergeVisibleSessionOrder(reconciledSessionOrder, nextVisibleOrder);
+    // Remote host groups share this order contract. Re-read at the write
+    // boundary so a remote reorder made after this local section mounted is not
+    // overwritten by the local component's older in-memory snapshot.
+    const persistedOrder = migrateSessionOrderAliases(readStoredSessionOrder(), orderAliases);
+    const baseOrder = persistedOrder.length > 0 ? persistedOrder : reconciledSessionOrder;
+    const nextOrder = mergeVisibleSessionOrder(baseOrder, nextVisibleOrder);
     setSessionOrder(nextOrder);
     persistSessionOrder(nextOrder);
   };

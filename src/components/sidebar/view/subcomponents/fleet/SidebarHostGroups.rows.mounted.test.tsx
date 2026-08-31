@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import type { DragEndEvent } from '@dnd-kit/core';
+import { act } from 'react-test-renderer';
+
 import type { ServerEvent } from '../../../../../contexts/WebSocketContext';
 import {
   LOCAL_HOST_ID,
@@ -11,6 +14,11 @@ import {
   sessionRow,
   snapshotFrame,
 } from '../../../../../fleet/discovery/hostCatalog.testSupport';
+import {
+  LIVE_SESSION_ORDER_KEY,
+  createSessionOrderId,
+} from '../../../utils/sessionOrder';
+import SortableSessionRow from '../SortableSessionRow';
 
 import {
   groupHostIds,
@@ -20,6 +28,46 @@ import {
   rosterBody,
   visibleText,
 } from './hostGroups.testSupport';
+
+function installStorage(storage: Storage) {
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: storage });
+  return () => {
+    if (original) Object.defineProperty(globalThis, 'localStorage', original);
+    else Reflect.deleteProperty(globalThis, 'localStorage');
+  };
+}
+
+function sortableIds(
+  harness: Awaited<ReturnType<typeof mountHostGroups>>,
+  hostId: string,
+): string[] {
+  const section = harness.renderer.root.find(
+    (node) => typeof node.type === 'string' && node.props['data-host-id'] === hostId,
+  );
+  return section.findAllByType(SortableSessionRow).map((row) => row.props.id as string);
+}
+
+function dragRemote(
+  harness: Awaited<ReturnType<typeof mountHostGroups>>,
+  hostId: string,
+  activeId: string,
+  overId: string,
+): void {
+  const section = harness.renderer.root.find(
+    (node) => typeof node.type === 'string' && node.props['data-host-id'] === hostId,
+  );
+  const contexts = section.findAll((node) => (
+    typeof node.props.onDragEnd === 'function'
+    && Array.isArray(node.props.sensors)
+    && node.props.collisionDetection
+  ));
+  assert.equal(contexts.length, 1, 'the remote host owns one production DnD context');
+  contexts[0]!.props.onDragEnd({
+    active: { id: activeId },
+    over: { id: overId },
+  } as DragEndEvent);
+}
 
 async function collisionHarness(states: Parameters<typeof rosterBody>[0] = {}) {
   const harness = await mountHostGroups({ roster: () => jsonResponse(rosterBody(states)) });
@@ -84,6 +132,80 @@ test('Given an online peer row, when it is activated, then the host-qualified ro
     );
   } finally {
     await harness.dispose();
+  }
+});
+
+test('Given two remote live rows, when one is dragged, then local-style order persists across remounts', async () => {
+  const values = new Map<string, string>();
+  const restoreStorage = installStorage({
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => { values.set(key, value); },
+    removeItem: (key) => { values.delete(key); },
+    clear: () => { values.clear(); },
+    key: (index) => [...values.keys()][index] ?? null,
+    get length() { return values.size; },
+  });
+  const firstPane = {
+    ...paneRow('/tmp/peer-a.sock', 'alpha'),
+    localId: 'remote-alpha',
+    providerSessionId: null,
+    kind: 'codex',
+  };
+  const secondPane = {
+    ...paneRow('/tmp/peer-a.sock', 'zeta'),
+    localId: 'remote-zeta',
+    providerSessionId: null,
+    kind: 'shell',
+    tmux: { ...paneRow('/tmp/peer-a.sock', 'zeta').tmux, paneId: '%2' },
+    process: { pid: 5252, startedAtMs: 1_700_000_005_252 },
+  };
+  const expected = [
+    createSessionOrderId(firstPane.localId, firstPane.tmux, PEER_A_HOST_ID),
+    createSessionOrderId(secondPane.localId, secondPane.tmux, PEER_A_HOST_ID),
+  ];
+  let harness: Awaited<ReturnType<typeof mountHostGroups>> | null = null;
+  let remounted: Awaited<ReturnType<typeof mountHostGroups>> | null = null;
+
+  try {
+    harness = await mountHostGroups({ roster: () => jsonResponse(rosterBody()) });
+    await harness.emit(snapshotFrame(PEER_A_HOST_ID, 1, {
+      panes: [secondPane, firstPane],
+    }) as ServerEvent);
+
+    assert.deepEqual(sortableIds(harness, PEER_A_HOST_ID), expected, 'remote rows use the sortable local row shell');
+    const section = harness.renderer.root.find(
+      (node) => typeof node.type === 'string' && node.props['data-host-id'] === PEER_A_HOST_ID,
+    );
+    assert.equal(
+      section.findAllByType(SortableSessionRow).filter((row) => row.props.disabled === false).length,
+      2,
+      'each healthy remote row exposes the same enabled drag handle as a local row',
+    );
+
+    await act(async () => { dragRemote(harness!, PEER_A_HOST_ID, expected[1]!, expected[0]!); });
+    const reordered = [expected[1]!, expected[0]!];
+    assert.deepEqual(sortableIds(harness, PEER_A_HOST_ID), reordered);
+    assert.deepEqual(
+      JSON.parse(values.get(LIVE_SESSION_ORDER_KEY) ?? '{}'),
+      { version: 2, entries: reordered },
+      'remote order is stored through the same versioned sidebar contract',
+    );
+
+    await harness.dispose();
+    harness = null;
+    remounted = await mountHostGroups({ roster: () => jsonResponse(rosterBody()) });
+    await remounted.emit(snapshotFrame(PEER_A_HOST_ID, 1, {
+      panes: [secondPane, firstPane],
+    }) as ServerEvent);
+    assert.deepEqual(
+      sortableIds(remounted, PEER_A_HOST_ID),
+      reordered,
+      'a browser reload restores the remote host order',
+    );
+  } finally {
+    if (harness) await harness.dispose();
+    if (remounted) await remounted.dispose();
+    restoreStorage();
   }
 });
 
