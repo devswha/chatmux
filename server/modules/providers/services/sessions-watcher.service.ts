@@ -77,6 +77,13 @@ const CHOKIDAR_WATCH_PATHS = PROVIDER_WATCH_PATHS.filter(({ provider }) => (
   provider === 'cursor' || provider === 'opencode'
 ));
 
+export function chokidarWatchTarget(provider: LLMProvider, rootPath: string): string {
+  // OpenCode stores all session state in one SQLite database. Watching its
+  // whole data directory recursively can consume tens of thousands of file
+  // descriptors when caches or other artifacts live beside that database.
+  return provider === 'opencode' ? path.join(rootPath, 'opencode.db') : rootPath;
+}
+
 export function nativeWatchProviderForPath(filePath: string): LLMProvider | null {
   const absolutePath = path.resolve(filePath);
   const match = NATIVE_SESSION_WATCH_PATHS_BY_SPECIFICITY.find(({ rootPath }) => {
@@ -701,7 +708,7 @@ export async function initializeSessionsWatcher(): Promise<void> {
     try {
       await fsPromises.mkdir(rootPath, { recursive: true });
 
-      const watcher = chokidar.watch(rootPath, {
+      const watcher = chokidar.watch(chokidarWatchTarget(provider, rootPath), {
         ignored: WATCHER_IGNORED_PATTERNS,
         persistent: true,
         ignoreInitial: true,

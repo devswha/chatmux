@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   GJC_WATCH_DEGRADED_RETRY_MS,
   GJC_WATCH_MAX_FAST_FAILURES,
+  chokidarWatchTarget,
   getGjcWatcherHealth,
   nativeWatchProviderForPath,
   nextGjcWatcherRestartDelayMs,
@@ -54,4 +55,9 @@ test('native watcher paths map events to their owning provider without prefix co
     'claude',
   );
   assert.equal(nativeWatchProviderForPath('/tmp/not-a-chatmux-provider/session.jsonl'), null);
+});
+
+test('OpenCode watches only its SQLite database while directory-backed providers keep their root', () => {
+  assert.equal(chokidarWatchTarget('opencode', '/state/opencode'), '/state/opencode/opencode.db');
+  assert.equal(chokidarWatchTarget('cursor', '/state/cursor'), '/state/cursor');
 });
