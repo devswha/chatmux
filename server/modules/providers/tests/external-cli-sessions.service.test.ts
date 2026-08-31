@@ -984,6 +984,23 @@ test('classifyExternalSessions: gjc excludes only its exact pane (live lane cont
   ]);
 });
 
+test('classifyExternalSessions: short-lived GJC skill probes do not hide the owning server pane', () => {
+  const result = classifyExternalSessions({
+    panes: [{ name: 'chatmux', tmux: tmux('$358', '@358', '%358'), pid: 358000, command: 'node' }],
+    procs: [
+      { pid: 358000, ppid: 1, comm: 'node', args: 'node server/index.js' },
+      { pid: 358001, ppid: 358000, comm: 'bun', args: 'bun /home/user/.bun/bin/gjc skills list --json' },
+      { pid: 358002, ppid: 358000, comm: 'bun', args: 'bun /home/user/.bun/bin/gjc skills discover --json' },
+    ],
+  });
+
+  assert.deepEqual(result, [{
+    tmuxName: 'chatmux',
+    tmux: tmux('$358', '@358', '%358'),
+    kind: 'shell',
+  }]);
+});
+
 test('classifyExternalSessions: ssh tunnels surface as attach-only ssh rows (실측: company)', () => {
   const result = classifyExternalSessions({
     panes: [{ name: 'company', tmux: tmux('$3318360', '@3318360', '%3318360'), pid: 3318360, command: 'ssh' }],

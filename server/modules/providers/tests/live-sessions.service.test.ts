@@ -796,6 +796,8 @@ test('isGjcProcessArgs: argv-anchored — native, bun/node entry, package path; 
   assert.equal(isGjcProcessArgs('/usr/local/bin/gjc --resume 019f'), true);
   assert.equal(isGjcProcessArgs('/home/u/.bun/bin/bun /home/u/.bun/bin/gjc'), true);
   assert.equal(isGjcProcessArgs('/usr/bin/node /opt/node_modules/@gajae-code/coding-agent/bin/gjc.js'), true);
+  assert.equal(isGjcProcessArgs('bun /home/u/.bun/bin/gjc skills list --json'), false);
+  assert.equal(isGjcProcessArgs('bun /home/u/.bun/bin/gjc skills discover --json'), false);
   assert.equal(isGjcProcessArgs('man gjc'), false);
   assert.equal(isGjcProcessArgs('vi /tmp/notes/gjc'), false);
   assert.equal(isGjcProcessArgs('/usr/bin/node /srv/devserver/index.js'), false);

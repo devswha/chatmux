@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process';
 import { isCursorCliProcess } from '@/modules/providers/list/cursor/cursor-cli-command.js';
 
 import { recordHostCommand } from '../host-command-metrics.service.js';
+import { isGjcProcessArgs } from '../live-sessions/process-contracts.js';
 
 import type { ExternalCliKind, ExternalCliSession, ExternalLocalCliKind, ExternalPane, ProcessTreeEntry } from './contracts-and-resume.js';
 import { CLAUDE_SESSION_ID_RE, CODEX_THREAD_ID_RE, extractExternalResumeSessionId } from './contracts-and-resume.js';
@@ -33,7 +34,7 @@ export function processCliKind(proc: Pick<ProcessTreeEntry, 'comm' | 'args'>): E
     comm === name
     || new RegExp(`(?:^|\\s)(?:\\S*/)?${name.replace('-', '\\-')}(?=\\s|$)`, 'i').test(argv)
   );
-  if (executable('gjc')) return 'gjc';
+  if (executable('gjc') && isGjcProcessArgs(argv.trim() || proc.comm)) return 'gjc';
   if (executable('claude')) return 'claude';
   if (executable('codex')) return 'codex';
   if (isCursorCliProcess(proc)) return 'cursor';

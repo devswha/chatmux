@@ -107,14 +107,19 @@ export function isGjcProcessArgs(args: string): boolean {
     return false;
   }
   const head = basename(tokens[0]);
-  if (head === 'gjc') {
-    return true;
-  }
-  if ((head === 'bun' || head === 'node') && tokens.length > 1) {
-    return basename(tokens[1]) === 'gjc'
-      || tokens[1].includes('@gajae-code/coding-agent');
-  }
-  return false;
+  const entryIndex = head === 'gjc'
+    ? 0
+    : (head === 'bun' || head === 'node')
+        && tokens.length > 1
+        && (basename(tokens[1]) === 'gjc' || tokens[1].includes('@gajae-code/coding-agent'))
+      ? 1
+      : -1;
+  if (entryIndex < 0) return false;
+
+  // ChatMux probes GJC's native skill inventory in short-lived child
+  // processes. Those utility commands never own an interactive transcript and
+  // must not turn the server's own tmux pane into a live GJC row.
+  return tokens[entryIndex + 1] !== 'skills';
 }
 
 /** Parses `ps -eo pid,ppid,args` rows (args may contain spaces); tolerates the header. */
