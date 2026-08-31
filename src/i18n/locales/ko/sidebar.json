@@ -121,7 +121,7 @@
     "filterAll": "전체 컴퓨터",
     "filterHost": "{{host}}만 보기",
     "hostLabelDisambiguated": "{{label}} · {{suffix}}",
-    "counts": "실행 {{panes}} · 세션 {{sessions}} · 프로젝트 {{projects}}",
+    "counts": "터미널 {{panes}} · 세션 {{sessions}}",
     "empty": "{{host}}에서 작동 중인 세션이 없습니다",
     "unavailable": "{{host}}의 세션 목록을 지금은 확인할 수 없습니다",
     "truncated": "{{host}}가 이 목록의 한도보다 많은 행을 보냈습니다 — 새로고침하면 나머지를 볼 수 있습니다",

@@ -32,7 +32,7 @@ export const tick = () => new Promise<void>((resolve) => setImmediate(resolve));
 
 export const LOCAL_SUMMARY: SidebarHostGroupsProps['local'] = {
   rowLabels: ['omg'],
-  counts: { projects: 1, sessions: 1, panes: 1 },
+  counts: { sessions: 1, panes: 1 },
 };
 
 export function rosterBody(

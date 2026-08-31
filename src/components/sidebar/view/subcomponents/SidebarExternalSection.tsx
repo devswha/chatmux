@@ -64,6 +64,7 @@ export const resolveExternalSessionProject = (
   session: ExternalCliSession,
   projects: Project[],
 ): Project | null => {
+  if (session.project?.projectId) return session.project;
   const normalizedSessionPath = session.projectPath
     ? normalizeComparablePath(session.projectPath)
     : '';

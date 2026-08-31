@@ -1,5 +1,8 @@
+import path from 'node:path';
+
 import express from 'express';
 
+import { projectsDb } from '@/modules/database/index.js';
 import { updateProjectDisplayName } from '@/modules/projects/services/project-management.service.js';
 import { AppError, asyncHandler } from '@/shared/utils.js';
 import { getProjectSessionsPage, getProjectsWithSessions } from '@/modules/projects/services/projects-with-sessions-fetch.service.js';
@@ -56,12 +59,43 @@ router.get(
       readQueryStringValue(req.query.skipSync).trim() === '1';
     const sessionsLimit = readOptionalNumericQueryValue(req.query.sessionsLimit) ?? undefined;
     const sessionsOffset = readOptionalNumericQueryValue(req.query.sessionsOffset) ?? undefined;
+    const projectsLimit = readOptionalNumericQueryValue(req.query.limit) ?? undefined;
     const projects = await getProjectsWithSessions({
       skipSynchronization,
+      projectsLimit,
       sessionsLimit,
       sessionsOffset,
     });
     res.json(projects);
+  }),
+);
+
+router.get(
+  '/resolve',
+  asyncHandler(async (req, res) => {
+    const projectPath = readQueryStringValue(req.query.path).trim();
+    if (!projectPath) {
+      throw new AppError('path is required', {
+        code: 'INVALID_QUERY_PARAMETER',
+        statusCode: 400,
+      });
+    }
+    const project = projectsDb.getProjectPath(projectPath);
+    if (!project) {
+      throw new AppError('Project was not found.', {
+        code: 'PROJECT_NOT_FOUND',
+        statusCode: 404,
+      });
+    }
+    res.json({
+      projectId: project.project_id,
+      path: project.project_path,
+      fullPath: project.project_path,
+      displayName: project.custom_project_name?.trim()
+        || path.basename(project.project_path)
+        || project.project_path,
+      isStarred: Boolean(project.isStarred),
+    });
   }),
 );
 

@@ -39,13 +39,6 @@ export type SidebarProps = {
   onExternalSessionsChange: (sessions: ExternalCliSession[]) => void;
 };
 
-export type SettingsProject = {
-  name: string;
-  displayName: string;
-  fullPath: string;
-  path?: string;
-};
-
 export type CompletionNotificationReason =
   | 'settings_changed'
   | 'permission_denied'

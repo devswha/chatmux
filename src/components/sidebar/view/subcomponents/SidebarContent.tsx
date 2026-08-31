@@ -97,7 +97,6 @@ export default function SidebarContent({
   const localSummary = {
     rowLabels: [...liveSessionNames.values(), ...externalSessions.map((session) => session.tmuxName)],
     counts: {
-      projects: projects.length,
       sessions: liveSessionIds.size,
       panes: externalSessions.length,
     },

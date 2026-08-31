@@ -55,6 +55,10 @@ function AppContentInner() {
     localHostId,
     viewedHostId,
   } = useSessionProcessingWiring(fleetHost);
+  const localRouteSessionId = fleetHost.activeSession?.hostId
+    && fleetHost.activeSession.hostId !== fleetHost.localHostId
+    ? undefined
+    : sessionId;
 
   const {
     selectedProject: localSelectedProject,
@@ -75,7 +79,7 @@ function AppContentInner() {
     sidebarSharedProps,
     handleNewSession,
   } = useProjectsState({
-    sessionId,
+    sessionId: localRouteSessionId,
     navigate,
     subscribe,
     isConnected,

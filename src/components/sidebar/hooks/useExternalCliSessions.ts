@@ -6,6 +6,7 @@ import { readRestSessionContainer } from '../../../utils/liveSessions';
 import { useWebSocket } from '../../../contexts/WebSocketContext';
 import { useDiscoveryStream, type DiscoveryRow } from '../../../hooks/useDiscoveryStream';
 import type { ProviderConnectionIssue } from '../../../../shared/provider-connection';
+import type { Project } from '../../../types/app';
 
 export type ExternalSessionActivity = 'running' | 'waiting_user' | 'asking_user' | 'error' | 'unknown';
 
@@ -15,6 +16,8 @@ export type ExternalCliSession = {
   process: TmuxProcessGeneration | null;
   kind: 'claude' | 'codex' | 'cursor' | 'opencode' | 'omp' | 'omo' | 'ssh' | 'shell';
   projectPath?: string;
+  /** Minimal project context supplied with indexed transcripts; avoids loading the global project catalog. */
+  project?: Project;
   transcriptSessionId?: string;
   sessionName?: string;
   model?: string | null;

@@ -7,17 +7,9 @@ import type { InterfaceFontSize } from '../../../utils/interfaceFontSize';
 export type SettingsMainTab = 'agents' | 'appearance' | 'access' | 'fleet';
 export type AgentProvider = LLMProvider;
 export type AgentCategory = 'account' | 'permissions';
-export type ProjectSortOrder = 'name' | 'date';
 export type SaveStatus = 'success' | 'error' | null;
 export type CodexPermissionMode = 'default' | 'acceptEdits' | 'bypassPermissions';
 export type { InterfaceFontSize };
-
-export type SettingsProject = {
-  name: string;
-  displayName?: string;
-  fullPath?: string;
-  path?: string;
-};
 
 export type AuthStatus = ProviderAuthStatus;
 
@@ -55,16 +47,9 @@ export type CodeEditorSettingsState = {
   fontSize: string;
 };
 
-export type SettingsStoragePayload = {
-  claude: ClaudePermissionsState & { projectSortOrder: ProjectSortOrder; lastUpdated: string };
-  cursor: CursorPermissionsState & { lastUpdated: string };
-  codex: { permissionMode: CodexPermissionMode; lastUpdated: string };
-};
-
 export type SettingsProps = {
   isOpen: boolean;
   onClose: () => void;
-  projects?: SettingsProject[];
   initialTab?: string;
 };
 

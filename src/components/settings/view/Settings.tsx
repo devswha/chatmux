@@ -14,7 +14,7 @@ import { isFleetOwner } from '../fleet/fleetOwner';
 import { useSettingsController } from '../hooks/useSettingsController';
 import type { SettingsProps } from '../types/types';
 
-function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }: SettingsProps) {
+function Settings({ isOpen, onClose, initialTab = 'agents' }: SettingsProps) {
   const { t } = useTranslation('settings');
   const { authMode, user } = useAuth();
   const fleetOwner = isFleetOwner(authMode, user);
@@ -27,8 +27,6 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }: Set
     activeTab,
     setActiveTab,
     saveStatus,
-    projectSortOrder,
-    setProjectSortOrder,
     interfaceFontSize,
     setInterfaceFontSize,
     codeEditorSettings,
@@ -137,8 +135,6 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }: Set
             <div key={activeTab} className="settings-content-enter min-w-0 space-y-6 overflow-x-hidden p-4 pb-safe-area-inset-bottom md:space-y-8 md:p-6">
               {activeTab === 'appearance' && (
                 <AppearanceSettingsTab
-                  projectSortOrder={projectSortOrder}
-                  onProjectSortOrderChange={setProjectSortOrder}
                   interfaceFontSize={interfaceFontSize}
                   onInterfaceFontSizeChange={setInterfaceFontSize}
                   codeEditorSettings={codeEditorSettings}
@@ -159,7 +155,6 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }: Set
                   onCursorPermissionsChange={setCursorPermissions}
                   codexPermissionMode={codexPermissionMode}
                   onCodexPermissionModeChange={setCodexPermissionMode}
-                  projects={projects}
                 />
               )}
 

@@ -6,6 +6,13 @@ import type { CreateProjectPathResult, ProjectRepositoryRow } from '@/shared/typ
 import { normalizeProjectPath } from '@/shared/utils.js';
 import { revokeCompletionNotificationsForProject } from '@/modules/database/services/completion-notification-lifecycle.service.js';
 
+type ProjectListOptions = {
+    /** Hard result bound for UI/catalog consumers. Omit only for maintenance code. */
+    limit?: number;
+    /** Hide disposable projects under this root unless the user starred them. */
+    excludePathRoot?: string;
+};
+
 function projectPathForId(projectId: string): string | null {
     const row = getConnection().prepare('SELECT project_path FROM projects WHERE project_id = ?')
         .get(projectId) as { project_path: string } | undefined;
@@ -91,12 +98,42 @@ export const projectsDb = {
         return row?.project_path ?? null;
     },
 
-    getProjectPaths(): ProjectRepositoryRow[] {
+    getProjectPaths(options: ProjectListOptions = {}): ProjectRepositoryRow[] {
         const db = getConnection();
+        const limit = options.limit === undefined
+            ? null
+            : Math.min(Math.max(1, Math.floor(options.limit)), 500);
+        const excludedRoot = options.excludePathRoot
+            ? normalizeProjectPath(options.excludePathRoot).replace(/[\\/]+$/, '')
+            : null;
+        const where = excludedRoot === null
+            ? ''
+            : `WHERE p.isStarred = 1
+                 OR (p.project_path <> ? AND p.project_path NOT LIKE ? ESCAPE '\\')`;
+        const excludedSeparator = excludedRoot?.includes('\\') ? '\\' : '/';
+        const escapeLike = (value: string): string => value
+            .replaceAll('\\', '\\\\')
+            .replaceAll('%', '\\%')
+            .replaceAll('_', '\\_');
+        const parameters: Array<string | number> = excludedRoot === null
+            ? []
+            : [excludedRoot, `${escapeLike(`${excludedRoot}${excludedSeparator}`)}%`];
+        const bounded = limit === null ? '' : 'LIMIT ?';
+        if (limit !== null) parameters.push(limit);
         return db.prepare(`
-            SELECT project_id, project_path, custom_project_name, isStarred
-            FROM projects
-        `).all() as ProjectRepositoryRow[];
+            SELECT p.project_id, p.project_path, p.custom_project_name, p.isStarred
+            FROM projects p
+            LEFT JOIN (
+                SELECT project_path, MAX(COALESCE(updated_at, created_at, '')) AS last_activity
+                FROM sessions
+                GROUP BY project_path
+            ) activity ON activity.project_path = p.project_path
+            ${where}
+            ORDER BY p.isStarred DESC,
+                     datetime(activity.last_activity) DESC,
+                     p.project_path ASC
+            ${bounded}
+        `).all(...parameters) as ProjectRepositoryRow[];
     },
 
     getCustomProjectName(projectPath: string): string | null {

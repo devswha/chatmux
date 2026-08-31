@@ -408,8 +408,13 @@ export const sessionsDb = {
 
     return normalizeSessionRows(rows);
   },
-  getInitialSessionPagesByProject(limit: number): ProjectSessionPageRow[] {
+  getInitialSessionPagesByProject(
+    limit: number,
+    projectPaths: readonly string[] = [],
+  ): ProjectSessionPageRow[] {
     const db = getConnection();
+    if (projectPaths.length === 0) return [];
+    const placeholders = projectPaths.map(() => '?').join(', ');
     const rows = db
       .prepare(
         `WITH ranked_sessions AS (
@@ -420,13 +425,14 @@ export const sessionsDb = {
                     ORDER BY datetime(COALESCE(updated_at, created_at)) DESC, session_id DESC
                   ) AS row_number
            FROM sessions
+           WHERE project_path IN (${placeholders})
          )
          SELECT ${SESSION_ROW_COLUMNS}, total
          FROM ranked_sessions
          WHERE row_number <= ?
          ORDER BY project_path, row_number`
       )
-      .all(limit) as ProjectSessionPageRow[];
+      .all(...projectPaths, limit) as ProjectSessionPageRow[];
 
     return rows.map((row) => ({
       ...normalizeSessionRow(row),

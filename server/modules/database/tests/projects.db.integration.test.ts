@@ -6,7 +6,7 @@ import test from 'node:test';
 
 import Database from 'better-sqlite3';
 
-import { closeConnection, getDatabasePath } from '@/modules/database/connection.js';
+import { closeConnection, getConnection, getDatabasePath } from '@/modules/database/connection.js';
 import { initializeDatabase } from '@/modules/database/init-db.js';
 import { projectsDb } from '@/modules/database/repositories/projects.db.js';
 
@@ -55,6 +55,51 @@ test('projectsDb.createProjectPath returns active_conflict for active duplicates
     assert.equal(conflict.project?.project_id, initial.project?.project_id);
   });
 });
+
+test('projectsDb.getProjectPaths bounds recent projects and excludes disposable temp paths', async () => {
+  await withIsolatedDatabase(() => {
+    const db = getConnection();
+    db.prepare(`
+      INSERT INTO projects (project_id, project_path, custom_project_name, isStarred)
+      VALUES (?, ?, ?, ?)
+    `).run('old', '/workspace/old', 'old', 0);
+    db.prepare(`
+      INSERT INTO projects (project_id, project_path, custom_project_name, isStarred)
+      VALUES (?, ?, ?, ?)
+    `).run('recent', '/workspace/recent', 'recent', 0);
+    db.prepare(`
+      INSERT INTO projects (project_id, project_path, custom_project_name, isStarred)
+      VALUES (?, ?, ?, ?)
+    `).run('temp', path.join(tmpdir(), 'throwaway'), 'temp', 0);
+    db.prepare(`
+      INSERT INTO projects (project_id, project_path, custom_project_name, isStarred)
+      VALUES (?, ?, ?, ?)
+    `).run('starred-temp', path.join(tmpdir(), 'kept'), 'kept', 1);
+    db.prepare(`
+      INSERT INTO projects (project_id, project_path, custom_project_name, isStarred)
+      VALUES (?, ?, ?, ?)
+    `).run('windows-temp', 'C:\\Temp\\throwaway', 'windows-temp', 0);
+    db.prepare(`
+      INSERT INTO sessions (session_id, provider, project_path, created_at, updated_at)
+      VALUES (?, 'codex', ?, ?, ?)
+    `).run('old-session', '/workspace/old', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
+    db.prepare(`
+      INSERT INTO sessions (session_id, provider, project_path, created_at, updated_at)
+      VALUES (?, 'codex', ?, ?, ?)
+    `).run('recent-session', '/workspace/recent', '2026-08-01T00:00:00.000Z', '2026-08-01T00:00:00.000Z');
+
+    const rows = projectsDb.getProjectPaths({ limit: 2, excludePathRoot: tmpdir() });
+
+    assert.deepEqual(rows.map((row) => row.project_id), ['starred-temp', 'recent']);
+    assert.equal(rows.some((row) => row.project_id === 'temp'), false);
+    assert.equal(
+      projectsDb.getProjectPaths({ limit: 10, excludePathRoot: 'C:\\Temp' })
+        .some((row) => row.project_id === 'windows-temp'),
+      false,
+    );
+  });
+});
+
 test('uses the chatmux root and leaves the populated old root untouched without DATABASE_PATH', async () => {
   const previousDatabasePath = process.env.DATABASE_PATH;
   const previousHome = process.env.HOME;

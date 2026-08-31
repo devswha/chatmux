@@ -98,7 +98,6 @@ function Sidebar({
   return (
     <>
       <SidebarModals
-        projects={projects}
         showSettings={showSettings}
         settingsInitialTab={settingsInitialTab}
         onCloseSettings={onCloseSettings}

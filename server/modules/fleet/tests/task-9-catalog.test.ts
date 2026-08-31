@@ -2,6 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { FleetCatalogAggregator } from '../catalog/aggregator.js';
+import {
+  MAX_FLEET_CATALOG_DELTA_CHANGES,
+  MAX_FLEET_CATALOG_ROWS_PER_ENTITY,
+} from '../catalog/schema.js';
 import type { FleetCatalogDelta, FleetCatalogMaterial, FleetCatalogSnapshot } from '../catalog/types.js';
 import { PeerCatalogPublisher } from '../peer/catalog-publisher.js';
 
@@ -53,6 +57,38 @@ test('Given current material, when gap, malformed, epoch, or stale-generation in
     assert.equal(result.kind, cause === 'generation' ? 'stale' : 'resync_required');
     assert.equal(catalog.host(A)?.revision, 1); assert.equal(requested.length, cause === 'generation' ? 0 : 1);
   }
+});
+
+test('Given oversized peer material, when it reaches the hub, then it resyncs without retaining the rows', () => {
+  const requested: string[] = [];
+  const catalog = new FleetCatalogAggregator((hostId) => requested.push(hostId));
+  const initial = snapshot();
+  catalog.connected(A, 1, initial.epoch);
+
+  const oversizedSnapshot = {
+    ...initial,
+    projects: Array.from({ length: MAX_FLEET_CATALOG_ROWS_PER_ENTITY + 1 }, (_, index) => ({
+      localId: `project-${index}`,
+      path: `/workspace/${index}`,
+      displayName: `project-${index}`,
+      isStarred: false,
+    })),
+  };
+  assert.equal(catalog.snapshot(A, 1, initial.epoch, oversizedSnapshot).kind, 'resync_required');
+  assert.equal(catalog.host(A), undefined);
+
+  assert.equal(catalog.snapshot(A, 1, initial.epoch, initial).kind, 'applied');
+  const oversizedDelta = {
+    ...delta(initial, 2, []),
+    changes: Array.from({ length: MAX_FLEET_CATALOG_DELTA_CHANGES + 1 }, () => ({
+      op: 'upsert' as const,
+      entity: 'project' as const,
+      row: initial.projects[0]!,
+    })),
+  };
+  assert.equal(catalog.delta(A, 1, initial.epoch, oversizedDelta).kind, 'resync_required');
+  assert.equal(catalog.host(A)?.snapshot.projects.length, 1);
+  assert.deepEqual(requested, [A, A]);
 });
 
 test('Given a newer pane, when removal names its stale complete generation, then resync preserves the newer pane', () => {

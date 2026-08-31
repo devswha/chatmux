@@ -1,5 +1,5 @@
 import { app, assert, assertError, assertSuccess,
-  externalTmux, liveTmux, request, test, validProcess,
+  externalTmux, liveTmux, projectsDb, request, sessionsDb, test, validProcess,
 } from './support/provider-routes-contract.support.js';
 
 test('live and external roster responses expose availability without changing roster rows', async () => {
@@ -8,6 +8,32 @@ test('live and external roster responses expose availability without changing ro
   const liveData = liveResponse.body.data!;
   assert.deepEqual(liveData.discovery, { ok: true });
   assert.ok((liveData.liveSessions as Array<Record<string, unknown>>).every((row) => row.presence === 'present'));
+});
+
+test('session metadata exposes only the owning project context', async () => {
+  const projectPath = '/workspace/provider-project-context';
+  const providerSessionId = '019fbd4a-08f9-7ab0-a87e-5986efb405e5';
+  const sessionId = sessionsDb.createSession(
+    providerSessionId,
+    'codex',
+    projectPath,
+    'Project context transcript',
+  );
+  projectsDb.updateCustomProjectName(projectPath, 'Project Context');
+
+  const details = await request(`/sessions/${sessionId}`);
+  assertSuccess(details);
+  assert.deepEqual(details.body.data?.session, {
+    sessionId,
+    provider: 'codex',
+    summary: 'Project context transcript',
+    projectId: projectsDb.getProjectPath(projectPath)?.project_id,
+    projectPath,
+    projectName: 'Project Context',
+    createdAt: (details.body.data?.session as Record<string, unknown>).createdAt,
+    updatedAt: (details.body.data?.session as Record<string, unknown>).updatedAt,
+  });
+
 });
 
 test('unavailable roster responses retain authoritative stale snapshot rows while actions still fresh-verify', async () => {

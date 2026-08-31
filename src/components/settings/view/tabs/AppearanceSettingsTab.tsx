@@ -2,7 +2,7 @@ import { useTranslation } from 'react-i18next';
 
 import { useUiPreferences } from '../../../../hooks/useUiPreferences';
 import { DarkModeToggle } from '../../../../shared/view/ui';
-import type { CodeEditorSettingsState, InterfaceFontSize, ProjectSortOrder } from '../../types/types';
+import type { CodeEditorSettingsState, InterfaceFontSize } from '../../types/types';
 import LanguageSelector from '../../../../shared/view/ui/LanguageSelector';
 import SettingsCard from '../SettingsCard';
 import SettingsRow from '../SettingsRow';
@@ -12,8 +12,6 @@ import SettingsToggle from '../SettingsToggle';
 import InstallAppSection from './InstallAppSection';
 
 type AppearanceSettingsTabProps = {
-  projectSortOrder: ProjectSortOrder;
-  onProjectSortOrderChange: (value: ProjectSortOrder) => void;
   interfaceFontSize: InterfaceFontSize;
   onInterfaceFontSizeChange: (value: InterfaceFontSize) => void;
   codeEditorSettings: CodeEditorSettingsState;
@@ -24,8 +22,6 @@ type AppearanceSettingsTabProps = {
 };
 
 export default function AppearanceSettingsTab({
-  projectSortOrder,
-  onProjectSortOrderChange,
   interfaceFontSize,
   onInterfaceFontSizeChange,
   codeEditorSettings,
@@ -113,24 +109,6 @@ export default function AppearanceSettingsTab({
               onChange={(value) => setPreference('sendByCtrlEnter', value)}
               ariaLabel={t('quickSettings.sendByCtrlEnter')}
             />
-          </SettingsRow>
-        </SettingsCard>
-      </SettingsSection>
-
-      <SettingsSection title={t('appearanceSettings.projectSorting.label')}>
-        <SettingsCard>
-          <SettingsRow
-            label={t('appearanceSettings.projectSorting.label')}
-            description={t('appearanceSettings.projectSorting.description')}
-          >
-            <select
-              value={projectSortOrder}
-              onChange={(event) => onProjectSortOrderChange(event.target.value as ProjectSortOrder)}
-              className="w-full touch-manipulation rounded-lg border border-input bg-card p-2.5 text-sm text-foreground focus:border-primary focus:ring-1 focus:ring-primary sm:w-36"
-            >
-              <option value="name">{t('appearanceSettings.projectSorting.alphabetical')}</option>
-              <option value="date">{t('appearanceSettings.projectSorting.recentActivity')}</option>
-            </select>
           </SettingsRow>
         </SettingsCard>
       </SettingsSection>

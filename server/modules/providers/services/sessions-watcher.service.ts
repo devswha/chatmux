@@ -43,11 +43,51 @@ const PROVIDER_WATCH_PATHS: Array<{ provider: LLMProvider; rootPath: string }> =
 ];
 
 const GJC_TERMINAL_RECEIPT_ROOT = path.join(os.homedir(), '.gjc', 'agent', 'terminal-sessions');
-const GJC_WATCH_PATHS = [...new Set([
-  path.join(os.homedir(), '.gjc', 'agent', 'sessions'),
-  path.resolve(process.env.GJC_LIVE_SESSION_DIR || path.join(os.tmpdir(), 'gjc-live-sessions')),
-  GJC_TERMINAL_RECEIPT_ROOT,
-])];
+type NativeWatchPath = { provider: LLMProvider; rootPath: string };
+const NATIVE_SESSION_WATCH_PATHS: NativeWatchPath[] = [
+  {
+    provider: 'gjc',
+    rootPath: path.join(os.homedir(), '.gjc', 'agent', 'sessions'),
+  },
+  {
+    provider: 'gjc',
+    rootPath: path.resolve(process.env.GJC_LIVE_SESSION_DIR || path.join(os.tmpdir(), 'gjc-live-sessions')),
+  },
+  {
+    provider: 'gjc',
+    rootPath: GJC_TERMINAL_RECEIPT_ROOT,
+  },
+  ...PROVIDER_WATCH_PATHS.filter(({ provider }) => (
+    provider === 'claude' || provider === 'omp' || provider === 'omo'
+  )),
+  // Codex stores rollouts below YYYY/MM/DD. Making the current year the
+  // native root keeps the core's depth-2 watch bound while covering every new
+  // or resumed rollout written this year.
+  {
+    provider: 'codex',
+    rootPath: path.join(os.homedir(), '.codex', 'sessions', String(new Date().getFullYear())),
+  },
+];
+const NATIVE_SESSION_WATCH_ROOTS = [...new Set(
+  NATIVE_SESSION_WATCH_PATHS.map(({ rootPath }) => rootPath),
+)];
+const NATIVE_SESSION_WATCH_PATHS_BY_SPECIFICITY = [...NATIVE_SESSION_WATCH_PATHS]
+  .sort((left, right) => right.rootPath.length - left.rootPath.length);
+const CHOKIDAR_WATCH_PATHS = PROVIDER_WATCH_PATHS.filter(({ provider }) => (
+  provider === 'cursor' || provider === 'opencode'
+));
+
+export function nativeWatchProviderForPath(filePath: string): LLMProvider | null {
+  const absolutePath = path.resolve(filePath);
+  const match = NATIVE_SESSION_WATCH_PATHS_BY_SPECIFICITY.find(({ rootPath }) => {
+      const relative = path.relative(path.resolve(rootPath), absolutePath);
+      return relative !== ''
+        && relative !== '..'
+        && !relative.startsWith(`..${path.sep}`)
+        && !path.isAbsolute(relative);
+    });
+  return match?.provider ?? null;
+}
 
 const WATCHER_IGNORED_PATTERNS = [
   '**/node_modules/**',
@@ -466,7 +506,7 @@ function scheduleGjcWatcherRestart(): void {
         + ' — other processes on this host are consuming the watches.'
       : '';
     console.error(
-      `GJC native session watcher degraded after ${gjcWatcherConsecutiveFailures} consecutive failures; `
+      `Native session watcher degraded after ${gjcWatcherConsecutiveFailures} consecutive failures; `
         + `retrying every ${Math.round(GJC_WATCH_DEGRADED_RETRY_MS / 60_000)} minutes. `
         + `Session discovery updates may lag until it recovers.${remedy}`,
     );
@@ -485,12 +525,12 @@ async function runGjcSessionWatcherStart(
   const { signal } = controller;
   if (signal.aborted || sessionWatchersClosing || gjcWatcher || gjcWatcherStarting) return;
   try {
-    await Promise.all(GJC_WATCH_PATHS.map((rootPath) => (
+    await Promise.all(NATIVE_SESSION_WATCH_ROOTS.map((rootPath) => (
       fsPromises.mkdir(rootPath, { recursive: true })
     )));
   } catch {
     if (signal.aborted || sessionWatchersClosing) return;
-    console.error('Failed to prepare GJC native session watcher roots.');
+    console.error('Failed to prepare native session watcher roots.');
     scheduleGjcWatcherRestart();
     return;
   }
@@ -506,7 +546,7 @@ async function runGjcSessionWatcherStart(
     if (gjcWatcher === watcher) gjcWatcher = null;
     const reason = typeof error?.cause === 'string' ? error.cause : 'unreported';
     console.error(
-      `GJC native session watcher failed. (${reason}; consecutive ${gjcWatcherConsecutiveFailures})`
+      `Native session watcher failed. (${reason}; consecutive ${gjcWatcherConsecutiveFailures})`
     );
     void watcher.close()
       .catch(() => {})
@@ -517,8 +557,11 @@ async function runGjcSessionWatcherStart(
   };
 
   const watcher = new GjcSessionWatcher({
-    roots: GJC_WATCH_PATHS,
-    onEvent: (event, signal) => queueFileUpdate(event.kind, event.path, 'gjc', signal),
+    roots: NATIVE_SESSION_WATCH_ROOTS,
+    onEvent: (event, signal) => {
+      const provider = nativeWatchProviderForPath(event.path);
+      if (provider) queueFileUpdate(event.kind, event.path, provider, signal);
+    },
     onFailure: reportFailure,
     diagnostic: (message) => console.error(message),
   });
@@ -654,7 +697,7 @@ export async function initializeSessionsWatcher(): Promise<void> {
     failures: initialSync.failures,
   });
 
-  for (const { provider, rootPath } of PROVIDER_WATCH_PATHS) {
+  for (const { provider, rootPath } of CHOKIDAR_WATCH_PATHS) {
     try {
       await fsPromises.mkdir(rootPath, { recursive: true });
 
@@ -741,10 +784,10 @@ export async function closeSessionsWatcher(): Promise<void> {
       }
     }),
     ...nativeWatchers.map((watcher) => watcher.close().catch(() => {
-      console.error('Failed to close GJC native session watcher.');
+      console.error('Failed to close native session watcher.');
     })),
     ...startTasks.map((task) => task.catch(() => {
-      console.error('Failed to stop GJC native session watcher startup.');
+      console.error('Failed to stop native session watcher startup.');
     })),
     fallbackTask?.catch(() => {
       console.error('Failed to stop session watcher fallback reconciliation.');

@@ -121,7 +121,7 @@
     "filterAll": "All machines",
     "filterHost": "Show {{host}} only",
     "hostLabelDisambiguated": "{{label}} · {{suffix}}",
-    "counts": "{{panes}} live · {{sessions}} sessions · {{projects}} projects",
+    "counts": "{{panes}} terminals · {{sessions}} sessions",
     "empty": "No sessions on {{host}}",
     "unavailable": "{{host}} cannot report its sessions right now",
     "truncated": "{{host}} sent more rows than this view keeps — refresh to see the rest",

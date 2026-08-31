@@ -16,7 +16,6 @@ export default function AgentsSettingsTab({
   onCursorPermissionsChange,
   codexPermissionMode,
   onCodexPermissionModeChange,
-  projects,
 }: AgentsSettingsTabProps) {
   const [selectedAgent, setSelectedAgent] = useState<AgentProvider>('claude');
   const [selectedCategory, setSelectedCategory] = useState<AgentCategory>('account');
@@ -103,7 +102,6 @@ export default function AgentsSettingsTab({
           onCursorPermissionsChange={onCursorPermissionsChange}
           codexPermissionMode={codexPermissionMode}
           onCodexPermissionModeChange={onCodexPermissionModeChange}
-          projects={projects}
         />
       </div>
     </div>

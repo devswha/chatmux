@@ -1,3 +1,5 @@
+import path from 'node:path';
+
 import express, { type Request, type Response } from 'express';
 
 import { projectsDb, sessionsDb } from '@/modules/database/index.js';
@@ -77,6 +79,17 @@ import { AppError, asyncHandler, createApiSuccessResponse } from '@/shared/utils
 
 import { attachCapabilityService } from './services/attach-capability.service.js';
 
+function projectApiView(project: ReturnType<typeof projectsDb.getProjectPath>) {
+  return project === null ? null : {
+    projectId: project.project_id,
+    path: project.project_path,
+    fullPath: project.project_path,
+    displayName: project.custom_project_name?.trim()
+      || path.basename(project.project_path)
+      || project.project_path,
+    isStarred: Boolean(project.isStarred),
+  };
+}
 
 const router = express.Router();
 
@@ -869,12 +882,20 @@ router.get(
     const result = await getLiveGjcSessionsDetailed();
     const snapshotRows = result.ok ? [] : discoveryRows(_req, 'live');
     const presence = snapshotPresence(snapshotRows);
-    const liveSessions = (result.ok ? result.sessions : snapshotLiveSessions(snapshotRows)).map((session) => ({
-      ...session,
-      presence: session.tmux === null
-        ? 'present'
-        : rowPresence(presence, session.tmux),
-    }));
+    const liveSessions = (result.ok ? result.sessions : snapshotLiveSessions(snapshotRows)).map((session) => {
+      const persisted = sessionsDb.getSessionById(session.id)
+        ?? sessionsDb.getSessionByProviderSessionId('gjc', session.id);
+      const project = persisted?.project_path
+        ? projectApiView(projectsDb.getProjectPath(persisted.project_path))
+        : null;
+      return {
+        ...session,
+        ...(project ? { project } : {}),
+        presence: session.tmux === null
+          ? 'present'
+          : rowPresence(presence, session.tmux),
+      };
+    });
     res.json(createApiSuccessResponse({ liveSessions, discovery: { ok: result.ok } }));
   }),
 );
@@ -912,6 +933,9 @@ router.get(
         ? getCachedTmuxInteractiveActivity({ tmux: session.tmux, process: base.process })
         : null;
       const appSession = resolution.appSession;
+      const project = appSession?.project_path
+        ? projectApiView(projectsDb.getProjectPath(appSession.project_path))
+        : null;
       const activeModel = appSession
         ? await providerModelsService
           .getCurrentActiveModel(session.kind, appSession.session_id)
@@ -927,6 +951,7 @@ router.get(
           ? {
             transcriptSessionId: appSession.session_id,
             sessionName: appSession.custom_name,
+            ...(project ? { project } : {}),
           }
           : {}),
         model: activeModel?.model ?? null,
@@ -1421,6 +1446,7 @@ router.get(
         summary: session.custom_name ?? '',
         projectId: project?.project_id ?? null,
         projectPath: session.project_path,
+        projectName: projectApiView(project)?.displayName ?? null,
         createdAt: session.created_at,
         updatedAt: session.updated_at,
       },

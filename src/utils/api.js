@@ -101,7 +101,11 @@ export const api = {
       method: 'DELETE',
     }),
   },
-  projects: () => authenticatedFetch('/api/projects?skipSynchronization=1'),
+  // The app shell needs only a bounded working set. Historical sessions are
+  // resolved directly by id instead of materialising the entire project DB.
+  projects: () => authenticatedFetch('/api/projects?skipSynchronization=1&limit=100'),
+  projectByPath: (projectPath) =>
+    authenticatedFetch(`/api/projects/resolve?path=${encodeURIComponent(projectPath)}`),
   // Stores pasted/dropped relay images in the shared `~/.chatmux/assets`
   // store and returns their absolute paths — the only upload path the live
   // relay composer uses (B10: no bespoke upload endpoint).

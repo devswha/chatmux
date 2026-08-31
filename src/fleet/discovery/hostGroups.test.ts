@@ -19,7 +19,7 @@ import { hostActionsEnabled, hostAvailability, hostGroups, type HostGroup } from
 const LOCAL = {
   label: 'This machine',
   rowLabels: ['omg'],
-  counts: { projects: 1, sessions: 2, panes: 1 },
+  counts: { sessions: 2, panes: 1 },
 } as const;
 
 function apply(catalog: FleetHostCatalog, frame: unknown): FleetHostCatalog {
@@ -98,7 +98,7 @@ test('Given a peer whose pane owns a session, when groups are built, then the se
   const peerA = group(groups, PEER_A_HOST_ID);
   assert.deepEqual(peerA.rows.map((row) => row.kind), ['pane']);
   assert.equal(peerA.rows[0]?.transcriptLocalId, 'gjc-session');
-  assert.deepEqual(peerA.counts, { projects: 1, sessions: 1, panes: 1 });
+  assert.deepEqual(peerA.counts, { sessions: 1, panes: 1 });
 });
 
 test('Given a host filter, when groups are built, then only the selected host is shown', () => {

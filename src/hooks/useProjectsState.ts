@@ -91,7 +91,91 @@ type LiveRestMetadata = {
   running?: boolean;
   error?: boolean;
   connectionIssue?: ProviderConnectionIssue;
+  project?: Project;
 };
+
+function projectContext(value: unknown): Project | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const candidate = value as Record<string, unknown>;
+  if (
+    typeof candidate.projectId !== 'string'
+    || typeof candidate.fullPath !== 'string'
+    || typeof candidate.displayName !== 'string'
+  ) return null;
+  return {
+    projectId: candidate.projectId,
+    path: typeof candidate.path === 'string' ? candidate.path : candidate.fullPath,
+    fullPath: candidate.fullPath,
+    displayName: candidate.displayName,
+    isStarred: candidate.isStarred === true,
+    sessions: [],
+    sessionMeta: { hasMore: false, total: 0 },
+  };
+}
+
+function withContextSession(
+  project: Project,
+  session: ProjectSession,
+): Project {
+  const sessions = project.sessions ?? [];
+  const existing = sessions.findIndex((candidate) => candidate.id === session.id);
+  const nextSessions = existing < 0
+    ? [session, ...sessions]
+    : sessions.map((candidate, index) => index === existing ? { ...candidate, ...session } : candidate);
+  return {
+    ...project,
+    sessions: nextSessions,
+    sessionMeta: {
+      hasMore: project.sessionMeta?.hasMore ?? false,
+      total: Math.max(Number(project.sessionMeta?.total ?? 0), nextSessions.length),
+    },
+  };
+}
+
+function mergeProjectContexts(current: Project[], contexts: readonly Project[]): Project[] {
+  if (contexts.length === 0) return current;
+  const next = [...current];
+  for (const context of contexts) {
+    const index = next.findIndex((project) => project.projectId === context.projectId);
+    if (index < 0) {
+      next.push(context);
+      continue;
+    }
+    const existing = next[index]!;
+    next[index] = {
+      ...existing,
+      ...context,
+      sessions: mergeExpandedSessionPages([existing], [{ ...existing, ...context }])[0]?.sessions
+        ?? context.sessions,
+      sessionMeta: {
+        ...existing.sessionMeta,
+        ...context.sessionMeta,
+        total: Math.max(
+          Number(existing.sessionMeta?.total ?? 0),
+          Number(context.sessionMeta?.total ?? 0),
+        ),
+      },
+    };
+  }
+  return projectsHaveChanges(current, next) ? next : current;
+}
+
+function retainActiveProjectContexts(
+  incoming: Project[],
+  previous: Project[],
+  selectedProjectId: string | null,
+  liveIds: ReadonlySet<string>,
+): Project[] {
+  const incomingIds = new Set(incoming.map((project) => project.projectId));
+  const retained = previous.filter((project) => (
+    !incomingIds.has(project.projectId)
+    && (
+      project.projectId === selectedProjectId
+      || (project.sessions ?? []).some((session) => liveIds.has(session.id))
+    )
+  ));
+  return retained.length === 0 ? incoming : [...incoming, ...retained];
+}
 
 export function resolveLiveDiscoverySession(
   row: DiscoveryRow,
@@ -251,6 +335,7 @@ export function useProjectsState({
     const inputIds = new Set<string>();
     const errorIds = new Set<string>();
     const connectionIssues = new Map<string, ProviderConnectionIssue>();
+    const projectContexts = new Map<string, Project>();
     for (const row of rows) {
       const observation = resolveLiveDiscoverySession(
         row,
@@ -258,6 +343,15 @@ export function useProjectsState({
       );
       if (!observation) continue;
       const { sessionId, metadata } = observation;
+      if (metadata?.project) {
+        const context = projectContexts.get(metadata.project.projectId) ?? metadata.project;
+        projectContexts.set(metadata.project.projectId, withContextSession(context, {
+          id: sessionId,
+          summary: '',
+          __provider: 'gjc',
+          __projectId: metadata.project.projectId,
+        }));
+      }
       names.set(sessionId, row.tmuxName);
       panes.set(sessionId, row.tmux);
       presence.set(sessionId, row.presence);
@@ -288,6 +382,7 @@ export function useProjectsState({
     setLiveSessionInput(inputIds);
     setLiveSessionErrors(errorIds);
     setLiveSessionConnectionIssues(connectionIssues);
+    setProjects((current) => mergeProjectContexts(current, [...projectContexts.values()]));
     setLiveSessionsLoaded(true);
   }, []);
 
@@ -296,6 +391,7 @@ export function useProjectsState({
     effort?: unknown; claim?: unknown; kind?: unknown; running?: unknown; error?: unknown;
     connectionIssue?: unknown;
     presence?: unknown;
+    project?: unknown;
   }>, discoveryOk: boolean) => {
     if (!discoveryOk) {
       applyLiveIdentityOnly(sessions);
@@ -314,9 +410,20 @@ export function useProjectsState({
     const errors = new Set<string>();
     const connectionIssues = new Map<string, ProviderConnectionIssue>();
     const metadata = new Map<string, LiveRestMetadata>();
+    const projectContexts = new Map<string, Project>();
     for (const session of sessions) {
       if (typeof session.id !== 'string') continue;
       const hasPane = Boolean(session.tmux && typeof session.tmux === 'object');
+      const project = projectContext(session.project);
+      if (project) {
+        const context = projectContexts.get(project.projectId) ?? project;
+        projectContexts.set(project.projectId, withContextSession(context, {
+          id: session.id,
+          summary: '',
+          __provider: 'gjc',
+          __projectId: project.projectId,
+        }));
+      }
       const present = session.presence !== 'stale';
       presence.set(session.id, present ? 'present' : 'stale');
       if (hasPane) {
@@ -333,6 +440,7 @@ export function useProjectsState({
           connectionIssue: present && typeof session.connectionIssue === 'string'
             ? session.connectionIssue as ProviderConnectionIssue
             : undefined,
+          project: project ?? undefined,
         });
       }
       if (typeof session.tmuxName === 'string') names.set(session.id, session.tmuxName);
@@ -370,6 +478,7 @@ export function useProjectsState({
     setLiveSessionInput(new Set());
     setLiveSessionErrors(errors);
     setLiveSessionConnectionIssues(connectionIssues);
+    setProjects((current) => mergeProjectContexts(current, [...projectContexts.values()]));
     setLiveSessionsLoaded(true);
   }, [applyLiveIdentityOnly, applyLiveRows]);
 
@@ -417,6 +526,7 @@ export function useProjectsState({
           effort?: unknown; claim?: unknown; kind?: unknown; running?: unknown; error?: unknown;
           connectionIssue?: unknown;
           presence?: unknown;
+          project?: unknown;
         }>,
         container.discoveryOk,
       );
@@ -515,6 +625,8 @@ export function useProjectsState({
   sessionIdRef.current = sessionId;
   const activeSessionsRef = useRef(activeSessions);
   activeSessionsRef.current = activeSessions;
+  const liveSessionIdsRef = useRef(liveSessionIds);
+  liveSessionIdsRef.current = liveSessionIds;
   const sidebarRefreshGenerationRef = useRef(0);
 
 
@@ -527,7 +639,12 @@ export function useProjectsState({
       const projectData = (await response.json()) as Project[];
 
       setProjects((prevProjects) => {
-        const mergedProjects = mergeExpandedSessionPages(prevProjects, projectData);
+        const mergedProjects = retainActiveProjectContexts(
+          mergeExpandedSessionPages(prevProjects, projectData),
+          prevProjects,
+          selectedProjectRef.current?.projectId ?? null,
+          liveSessionIdsRef.current,
+        );
 
         if (prevProjects.length === 0) {
           return mergedProjects;
@@ -629,6 +746,57 @@ export function useProjectsState({
   useEffect(() => {
     void fetchProjects();
   }, [fetchProjects]);
+
+  const routeSessionLoaded = !sessionId || projects.some((project) => (
+    (project.sessions ?? []).some((session) => session.id === sessionId)
+  ));
+
+  // A deep link or an old live transcript may sit outside the bounded recent
+  // project list. Resolve that one session directly instead of expanding the
+  // app shell back to the complete historical project database.
+  useEffect(() => {
+    if (!sessionId || routeSessionLoaded) return undefined;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await api.sessionDetails(sessionId);
+        const body = await response.json().catch(() => null);
+        const row = body?.data?.session as Record<string, unknown> | undefined;
+        if (
+          cancelled
+          || !response.ok
+          || row?.sessionId !== sessionId
+          || typeof row.projectId !== 'string'
+          || typeof row.projectPath !== 'string'
+          || typeof row.provider !== 'string'
+        ) return;
+        const session: ProjectSession = {
+          id: sessionId,
+          summary: typeof row.summary === 'string' ? row.summary : '',
+          createdAt: typeof row.createdAt === 'string' ? row.createdAt : undefined,
+          updated_at: typeof row.updatedAt === 'string' ? row.updatedAt : undefined,
+          __provider: row.provider as LLMProvider,
+          __projectId: row.projectId,
+        };
+        const project = withContextSession({
+          projectId: row.projectId,
+          path: row.projectPath,
+          fullPath: row.projectPath,
+          displayName: typeof row.projectName === 'string' && row.projectName
+            ? row.projectName
+            : row.projectPath.split('/').filter(Boolean).pop() ?? row.projectPath,
+          sessions: [],
+          sessionMeta: { hasMore: false, total: 0 },
+        }, session);
+        setProjects((current) => mergeProjectContexts(current, [project]));
+        setSelectedProject(project);
+        setSelectedSession(session);
+      } catch {
+        // The ordinary not-found surface remains in control of invalid links.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [routeSessionLoaded, sessionId]);
 
 
   // Auto-select the project when there is only one, so the user lands on the new session page
@@ -889,17 +1057,9 @@ export function useProjectsState({
         (project) => project.projectId === selectedProjectSnapshot.projectId,
       );
       if (!refreshedProject) {
-        setSelectedProject((current) =>
-          current?.projectId === selectedProjectSnapshot.projectId ? null : current,
-        );
-        if (selectedSessionSnapshot) {
-          setSelectedSession((current) =>
-            current?.id === selectedSessionSnapshot.id ? null : current,
-          );
-          if (sessionIdRef.current === selectedSessionSnapshot.id) {
-            navigate('/');
-          }
-        }
+        // The selected project may legitimately be outside the bounded recent
+        // list. Keep its directly-resolved working context instead of treating
+        // list omission as deletion.
         return;
       }
 

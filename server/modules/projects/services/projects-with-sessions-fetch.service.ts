@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 
 import { projectsDb, sessionsDb } from '@/modules/database/index.js';
@@ -50,6 +51,7 @@ type ProgressUpdate = {
 
 type GetProjectsWithSessionsOptions = {
   skipSynchronization?: boolean;
+  projectsLimit?: number;
   sessionsLimit?: number;
   sessionsOffset?: number;
 };
@@ -81,13 +83,15 @@ const MAX_PROJECT_SESSIONS_PAGE_SIZE = 200;
 // many sessions (real gjc data: top projects hold 80/60/49… sessions). The frontend
 // lazy-loads the rest per project via getProjectSessionsPage + sessionMeta.hasMore.
 const INITIAL_PROJECT_SESSIONS_PAGE_SIZE = 5;
+export const DEFAULT_PROJECT_LIST_LIMIT = 100;
+export const MAX_PROJECT_LIST_LIMIT = 200;
 
 // generateDisplayName falls back to reading package.json from disk. The
 // project list calls it once per project row (5k+ rows on a mature index),
 // so results are cached briefly: a package.json rename still lands within a
 // minute, without re-reading thousands of files on every /api/projects call.
 const DISPLAY_NAME_CACHE_TTL_MS = 60_000;
-const DISPLAY_NAME_CACHE_MAX_ENTRIES = 20_000;
+const DISPLAY_NAME_CACHE_MAX_ENTRIES = 2_048;
 const displayNameCache = new Map<string, { name: string; expiresAtMs: number }>();
 
 // The project list loop used to broadcast one websocket frame per project,
@@ -210,7 +214,14 @@ export async function getProjectsWithSessions(
     await sessionSynchronizerService.synchronizeSessions();
   }
 
-  const projectRows = projectsDb.getProjectPaths() as Array<{
+  const projectsLimit = Math.min(
+    Math.max(1, options.projectsLimit ?? DEFAULT_PROJECT_LIST_LIMIT),
+    MAX_PROJECT_LIST_LIMIT,
+  );
+  const projectRows = projectsDb.getProjectPaths({
+    limit: projectsLimit,
+    excludePathRoot: os.tmpdir(),
+  }) as Array<{
     project_id: string;
     project_path: string;
     custom_project_name?: string | null;
@@ -222,8 +233,10 @@ export async function getProjectsWithSessions(
     Math.max(1, options.sessionsLimit ?? INITIAL_PROJECT_SESSIONS_PAGE_SIZE),
     MAX_PROJECT_SESSIONS_PAGE_SIZE,
   );
-  const initialSessionRows =
-    sessionsDb.getInitialSessionPagesByProject(initialSessionsLimit) as InitialProjectSessionRow[];
+  const initialSessionRows = sessionsDb.getInitialSessionPagesByProject(
+    initialSessionsLimit,
+    projectRows.map((project) => project.project_path),
+  ) as InitialProjectSessionRow[];
   const initialSessionsByProject = new Map<string, ProjectSessionsPageResult>();
 
   for (const sessionRow of initialSessionRows) {

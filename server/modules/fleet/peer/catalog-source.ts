@@ -1,4 +1,5 @@
 import path from 'node:path';
+import os from 'node:os';
 
 import { projectsDb, sessionsDb } from '@/modules/database/index.js';
 import type { DiscoveryCollector, DiscoveryRow } from '@/modules/providers/index.js';
@@ -25,6 +26,8 @@ type SessionRow = Readonly<{
   readonly updated_at?: string | null;
   readonly created_at?: string | null;
 }>;
+
+const FLEET_PROJECT_CATALOG_LIMIT = 100;
 
 function providerSessionKey(provider: string, sessionId: string): string {
   return `${provider}\0${sessionId}`;
@@ -78,12 +81,22 @@ export function createPeerCatalogSource(options: CatalogSourceOptions): Readonly
       // and livelocks the catalog before any snapshot can ship.
       await options.discovery.ensureFresh(2_000);
       const discovery = options.discovery.currentSnapshot();
-      const projectRows: ProjectRow[] = projectsDb.getProjectPaths();
-      const projectIds = new Map(projectRows.map((project) => [project.project_path, project.project_id]));
       const sessionRows = discoveredTmuxSessionRows(discovery.rows, {
         byProviderSessionId: (provider, sessionId) => sessionsDb.getSessionByProviderSessionId(provider, sessionId),
         byAppSessionId: (sessionId) => sessionsDb.getSessionById(sessionId),
       });
+      const recentProjects: ProjectRow[] = projectsDb.getProjectPaths({
+        limit: FLEET_PROJECT_CATALOG_LIMIT,
+        excludePathRoot: os.tmpdir(),
+      });
+      const projectsByPath = new Map(recentProjects.map((project) => [project.project_path, project]));
+      for (const session of sessionRows) {
+        if (!session.project_path || projectsByPath.has(session.project_path)) continue;
+        const activeProject = projectsDb.getProjectPath(session.project_path);
+        if (activeProject) projectsByPath.set(activeProject.project_path, activeProject);
+      }
+      const projectRows = [...projectsByPath.values()];
+      const projectIds = new Map(projectRows.map((project) => [project.project_path, project.project_id]));
       const sessions: FleetCatalogSession[] = sessionRows.flatMap((session) => {
         const projectLocalId = session.project_path === null || session.project_path === undefined
           ? undefined

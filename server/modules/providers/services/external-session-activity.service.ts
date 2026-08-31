@@ -136,6 +136,7 @@ type FileTail = {
 };
 
 const FILE_TAIL_BYTES = 128 * 1024;
+const FILE_ACTIVITY_CACHE_MAX_ENTRIES = 1_024;
 const fileActivityCache = new Map<string, {
   size: number;
   mtimeMs: number;
@@ -452,6 +453,14 @@ const transcriptEndedCache = new Map<string, {
   ended: boolean;
 }>();
 
+function setBoundedFileCache<T>(cache: Map<string, T>, key: string, value: T): void {
+  cache.delete(key);
+  cache.set(key, value);
+  if (cache.size > FILE_ACTIVITY_CACHE_MAX_ENTRIES) {
+    cache.delete(cache.keys().next().value!);
+  }
+}
+
 /**
  * Detects a transcript whose final record marks the session stream as closed
  * while the CLI process may still be alive in tmux (recorder died mid-run).
@@ -484,7 +493,7 @@ export async function readExternalTranscriptEndedDetailed(input: {
     }
 
     const transcriptEnded = parseOmpTranscriptEnded(parseJsonLines(tail.text));
-    transcriptEndedCache.set(input.jsonlPath, {
+    setBoundedFileCache(transcriptEndedCache, input.jsonlPath, {
       size: tail.size,
       mtimeMs: tail.mtimeMs,
       digest: tail.digest,
@@ -519,7 +528,7 @@ async function readJsonlActivity(
     }
 
     const activity = parseExternalJsonlActivity(kind, tail.text);
-    fileActivityCache.set(filePath, {
+    setBoundedFileCache(fileActivityCache, filePath, {
       size: tail.size,
       mtimeMs: tail.mtimeMs,
       digest: tail.digest,

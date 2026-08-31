@@ -93,6 +93,22 @@ test('authenticated rename persists trimmed and blank display names', async () =
   assert.equal(projectsDb.getProjectById(projectId)?.custom_project_name, null);
 });
 
+test('project path resolution returns one minimal project instead of the complete catalog', async () => {
+  const projectPath = '/workspace/project-rename-contract';
+  const response = await fetch(`${baseUrl}/api/projects/resolve?path=${encodeURIComponent(projectPath)}`);
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    projectId,
+    path: projectPath,
+    fullPath: projectPath,
+    displayName: 'project-rename-contract',
+    isStarred: false,
+  });
+  assert.equal((await fetch(`${baseUrl}/api/projects/resolve`)).status, 400);
+  assert.equal((await fetch(`${baseUrl}/api/projects/resolve?path=${encodeURIComponent('/workspace/missing')}`)).status, 404);
+});
+
 test('rename repository failures preserve the existing 500 response', async () => {
   const original = projectsDb.updateCustomProjectNameById;
   projectsDb.updateCustomProjectNameById = () => {

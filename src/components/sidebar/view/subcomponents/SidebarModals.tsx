@@ -1,15 +1,10 @@
-import { useMemo } from 'react';
 import ReactDOM from 'react-dom';
 
 import Settings from '../../../settings/view/Settings';
 import VersionUpgradeModal from '../../../version-upgrade/view';
-import type { Project } from '../../../../types/app';
 import type { UpdateJob, InstallMode } from '../../../../hooks/useVersionCheck';
-import { normalizeProjectForSettings } from '../../utils/utils';
-import type { SettingsProject } from '../../types/types';
 
 type SidebarModalsProps = {
-  projects: Project[];
   showSettings: boolean;
   settingsInitialTab: string;
   onCloseSettings: () => void;
@@ -33,7 +28,6 @@ type SidebarModalsProps = {
 type TypedSettingsProps = {
   isOpen: boolean;
   onClose: () => void;
-  projects: SettingsProject[];
   initialTab: string;
 };
 
@@ -44,7 +38,6 @@ function TypedSettings(props: TypedSettingsProps) {
 }
 
 export default function SidebarModals({
-  projects,
   showSettings,
   settingsInitialTab,
   onCloseSettings,
@@ -64,11 +57,6 @@ export default function SidebarModals({
   sourceUpdate,
   sourceUpdateInFlight,
 }: SidebarModalsProps) {
-  const settingsProjects = useMemo(
-    () => projects.map(normalizeProjectForSettings),
-    [projects],
-  );
-
   return (
     <>
       {showSettings &&
@@ -76,7 +64,6 @@ export default function SidebarModals({
           <TypedSettings
             isOpen={showSettings}
             onClose={onCloseSettings}
-            projects={settingsProjects}
             initialTab={settingsInitialTab}
           />,
           document.body,

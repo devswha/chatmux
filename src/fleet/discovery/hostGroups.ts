@@ -38,7 +38,6 @@ export type HostGroupRow = {
 };
 
 export type HostGroupCounts = {
-  readonly projects: number;
   readonly sessions: number;
   readonly panes: number;
 };
@@ -227,7 +226,6 @@ function buildGroup(
     counts: isLocal
       ? input.local.counts
       : {
-        projects: entry.rows.projects.length,
         sessions: entry.rows.sessions.length,
         panes: entry.rows.panes.length,
       },

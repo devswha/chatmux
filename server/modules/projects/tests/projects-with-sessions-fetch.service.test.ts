@@ -12,19 +12,27 @@ type Stubs = {
   getInitialSessionPagesByProject: typeof sessionsDb.getInitialSessionPagesByProject;
 };
 
-function withStubs(total: number, run: (captured: { limit?: number }) => Promise<void>): Promise<void> {
+type CapturedReads = {
+  sessionsLimit?: number;
+  projectOptions?: Parameters<typeof projectsDb.getProjectPaths>[0];
+  projectPaths?: readonly string[];
+};
+
+function withStubs(total: number, run: (captured: CapturedReads) => Promise<void>): Promise<void> {
   const original: Stubs = {
     getProjectPaths: projectsDb.getProjectPaths,
     getInitialSessionPagesByProject: sessionsDb.getInitialSessionPagesByProject,
   };
-  const captured: { limit?: number } = {};
+  const captured: CapturedReads = {};
   // custom_project_name is set so getProjectsWithSessions skips filesystem displayName derivation.
-  (projectsDb as unknown as { getProjectPaths: () => unknown }).getProjectPaths = () => [
-    { project_id: 'p1', project_path: '/ws/p1', custom_project_name: 'p1', isStarred: 0 },
-  ];
-  (sessionsDb as unknown as { getInitialSessionPagesByProject: (limit: number) => unknown[] })
-    .getInitialSessionPagesByProject = (limit) => {
-      captured.limit = limit;
+  (projectsDb as unknown as { getProjectPaths: (options?: unknown) => unknown }).getProjectPaths = (options) => {
+    captured.projectOptions = options as CapturedReads['projectOptions'];
+    return [{ project_id: 'p1', project_path: '/ws/p1', custom_project_name: 'p1', isStarred: 0 }];
+  };
+  (sessionsDb as unknown as { getInitialSessionPagesByProject: (limit: number, paths: readonly string[]) => unknown[] })
+    .getInitialSessionPagesByProject = (limit, paths) => {
+      captured.sessionsLimit = limit;
+      captured.projectPaths = paths;
       return total > 0
         ? [{
             session_id: 's1',
@@ -47,7 +55,9 @@ function withStubs(total: number, run: (captured: { limit?: number }) => Promise
 test('getProjectsWithSessions caps the initial eager session slice at 5 when no limit is given', async () => {
   await withStubs(42, async (captured) => {
     const projects = await getProjectsWithSessions({ skipSynchronization: true });
-    assert.equal(captured.limit, 5, 'eager per-project session slice must default to 5');
+    assert.equal(captured.sessionsLimit, 5, 'eager per-project session slice must default to 5');
+    assert.deepEqual(captured.projectOptions, { limit: 100, excludePathRoot: os.tmpdir() });
+    assert.deepEqual(captured.projectPaths, ['/ws/p1'], 'sessions are read only for the bounded project slice');
     assert.equal(projects.length, 1);
     assert.equal(projects[0].sessionMeta.total, 42, 'total reflects the full session count for lazy-load');
     assert.equal(projects[0].sessionMeta.hasMore, true, 'hasMore lets the frontend lazy-load the rest');
@@ -57,7 +67,7 @@ test('getProjectsWithSessions caps the initial eager session slice at 5 when no 
 test('getProjectsWithSessions respects an explicit sessionsLimit (no forced cap)', async () => {
   await withStubs(42, async (captured) => {
     await getProjectsWithSessions({ skipSynchronization: true, sessionsLimit: 12 });
-    assert.equal(captured.limit, 12, 'an explicit sessionsLimit overrides the small default');
+    assert.equal(captured.sessionsLimit, 12, 'an explicit sessionsLimit overrides the small default');
   });
 });
 

@@ -74,7 +74,7 @@ const { authenticateToken, generateToken, AUTH_MODE } = await import('@/middlewa
 assert.equal(AUTH_MODE, 'password');
 const { default: providerRoutes } = await import('../../provider.routes.js');
 const { getCurrentTmuxPaneIdentityState } = await import('../../services/external-cli-sessions.service.js');
-const { initializeDatabase, sessionsDb, userDb } = await import('@/modules/database/index.js');
+const { initializeDatabase, projectsDb, sessionsDb, userDb } = await import('@/modules/database/index.js');
 
 type ApiError = { error?: string; code?: string };
 type ApiResponse = { status: number; body: ApiError & { success?: boolean; data?: Record<string, unknown> } };
@@ -165,6 +165,6 @@ function assertSuccess(response: ApiResponse, status = 200): void {
 export {
   access, app, assert, assertError, assertSuccess, baseUrl, createHmac, execFileAsync,
   externalTmux, fixtureBin, getCurrentTmuxPaneIdentityState, liveTmux, mkdtemp, os,
-  path, processStartMs, request, sessionsDb, test, token, validProcess, writeFile,
+  path, processStartMs, projectsDb, request, sessionsDb, test, token, validProcess, writeFile,
 };
 export type { ApiResponse };

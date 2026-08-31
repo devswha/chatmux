@@ -195,9 +195,23 @@ export function useExternalTerminalDiscoveryAuthority({
           projectId?: unknown;
           createdAt?: unknown;
           updatedAt?: unknown;
+          projectPath?: unknown;
+          projectName?: unknown;
         } | undefined;
         const projectId = typeof session?.projectId === 'string' ? session.projectId : '';
-        const project = sidebarSharedProps.projects.find((candidate) => candidate.projectId === projectId);
+        const project = sidebarSharedProps.projects.find((candidate) => candidate.projectId === projectId)
+          ?? (projectId && typeof session?.projectPath === 'string'
+            ? {
+              projectId,
+              path: session.projectPath,
+              fullPath: session.projectPath,
+              displayName: typeof session.projectName === 'string' && session.projectName
+                ? session.projectName
+                : session.projectPath.split('/').filter(Boolean).pop() ?? session.projectPath,
+              sessions: [],
+              sessionMeta: { hasMore: false, total: 1 },
+            } satisfies Project
+            : null);
         if (
           cancelled
           || controller.signal.aborted

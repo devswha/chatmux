@@ -5,7 +5,6 @@ import type {
   ClaudePermissionsState,
   CursorPermissionsState,
   CodexPermissionMode,
-  SettingsProject,
 } from '../../../types/types';
 
 export type AgentContext = {
@@ -25,7 +24,6 @@ export type AgentsSettingsTabProps = {
   onCursorPermissionsChange: (value: CursorPermissionsState) => void;
   codexPermissionMode: CodexPermissionMode;
   onCodexPermissionModeChange: (value: CodexPermissionMode) => void;
-  projects: SettingsProject[];
 };
 
 export type AgentCategoryTabsSectionProps = {
@@ -52,5 +50,4 @@ export type AgentCategoryContentSectionProps = {
   onCursorPermissionsChange: (value: CursorPermissionsState) => void;
   codexPermissionMode: CodexPermissionMode;
   onCodexPermissionModeChange: (value: CodexPermissionMode) => void;
-  projects: SettingsProject[];
 };

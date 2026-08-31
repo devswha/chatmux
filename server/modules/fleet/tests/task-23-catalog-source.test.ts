@@ -6,6 +6,7 @@ import type {
   DiscoveryRow,
   DiscoverySnapshot,
 } from '@/modules/providers/index.js';
+import { projectsDb, sessionsDb } from '@/modules/database/index.js';
 
 import { fleetCatalogPaneKey } from '../catalog/keys.js';
 import { parseFleetCatalogSnapshot } from '../catalog/schema.js';
@@ -186,4 +187,49 @@ test('peer catalog ignores unresolved, provider-mismatched, and pane-less histor
     byAppSessionId: () => null,
   }), []);
   assert.deepEqual(historicalReads, ['codex:shared-id']);
+});
+
+test('peer catalog requests a bounded recent project slice and retains an active omitted project', async () => {
+  const originalGetProjectPaths = projectsDb.getProjectPaths;
+  const originalGetProjectPath = projectsDb.getProjectPath;
+  const originalGetByProviderId = sessionsDb.getSessionByProviderSessionId;
+  const originalGetById = sessionsDb.getSessionById;
+  let requestedOptions: Parameters<typeof projectsDb.getProjectPaths>[0];
+  const recentProjects = Array.from({ length: 100 }, (_, index) => ({
+    project_id: `recent-${index}`,
+    project_path: `/workspace/recent-${index}`,
+    custom_project_name: `recent-${index}`,
+    isStarred: 0,
+  }));
+  const activeSession = {
+    session_id: 'active-session', provider: 'codex',
+    provider_session_id: discoveryRow().providerSessionId,
+    project_path: '/workspace/active-outside-limit', custom_name: 'active',
+    jsonl_path: null,
+    created_at: '2026-08-31T00:00:00.000Z',
+    updated_at: '2026-08-31T00:00:00.000Z',
+  };
+
+  projectsDb.getProjectPaths = ((options) => {
+    requestedOptions = options;
+    return recentProjects;
+  }) as typeof projectsDb.getProjectPaths;
+  projectsDb.getProjectPath = ((projectPath) => projectPath === activeSession.project_path
+    ? { project_id: 'active-project', project_path: projectPath, custom_project_name: 'active-project', isStarred: 0 }
+    : null) as typeof projectsDb.getProjectPath;
+  sessionsDb.getSessionByProviderSessionId = (() => activeSession) as typeof sessionsDb.getSessionByProviderSessionId;
+  sessionsDb.getSessionById = (() => null) as typeof sessionsDb.getSessionById;
+
+  try {
+    const material = await sourceFor(fakeCollector([discoveryRow()]).collector).read();
+    assert.deepEqual(requestedOptions, { limit: 100, excludePathRoot: '/tmp' });
+    assert.equal(material.projects.length, 101, 'one active project may extend the recent-project cap');
+    assert.equal(material.projects.some((project) => project.localId === 'active-project'), true);
+    assert.deepEqual(material.sessions.map((session) => session.localId), ['active-session']);
+  } finally {
+    projectsDb.getProjectPaths = originalGetProjectPaths;
+    projectsDb.getProjectPath = originalGetProjectPath;
+    sessionsDb.getSessionByProviderSessionId = originalGetByProviderId;
+    sessionsDb.getSessionById = originalGetById;
+  }
 });

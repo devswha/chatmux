@@ -26,21 +26,16 @@ type WorkspaceProject = {
 const LOAD_DEBOUNCE_MS = 200;
 
 async function loadFiles(workspacePath: string): Promise<readonly MentionableFile[] | null> {
-  const projectsResponse = await api.projects();
-  if (!projectsResponse.ok) {
+  const projectResponse = await api.projectByPath(workspacePath);
+  if (!projectResponse.ok) {
     return null;
   }
-  const projects = (await projectsResponse.json()) as WorkspaceProject[];
-  if (!Array.isArray(projects)) {
-    return null;
-  }
+  const project = (await projectResponse.json()) as WorkspaceProject;
   const normalized = normalizeWorkspacePath(workspacePath);
-  const project = projects.find((candidate) =>
-    [candidate.fullPath, candidate.path]
-      .filter((path): path is string => typeof path === 'string')
-      .some((path) => normalizeWorkspacePath(path) === normalized),
-  );
-  if (!project?.projectId) {
+  const matches = [project.fullPath, project.path]
+    .filter((candidate): candidate is string => typeof candidate === 'string')
+    .some((candidate) => normalizeWorkspacePath(candidate) === normalized);
+  if (!project?.projectId || !matches) {
     return null;
   }
   const filesResponse = await api.getFiles(project.projectId);

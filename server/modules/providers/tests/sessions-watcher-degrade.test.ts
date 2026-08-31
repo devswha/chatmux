@@ -5,6 +5,7 @@ import {
   GJC_WATCH_DEGRADED_RETRY_MS,
   GJC_WATCH_MAX_FAST_FAILURES,
   getGjcWatcherHealth,
+  nativeWatchProviderForPath,
   nextGjcWatcherRestartDelayMs,
 } from '@/modules/providers/services/sessions-watcher.service.js';
 
@@ -41,4 +42,16 @@ test('watcher health starts clean and its shape is stable for status surfaces', 
     degraded: false,
     enospcObserved: false,
   });
+});
+
+test('native watcher paths map events to their owning provider without prefix confusion', () => {
+  assert.equal(
+    nativeWatchProviderForPath(`${process.env.HOME}/.codex/sessions/${new Date().getFullYear()}/08/31/session.jsonl`),
+    'codex',
+  );
+  assert.equal(
+    nativeWatchProviderForPath(`${process.env.HOME}/.claude/projects/workspace/session.jsonl`),
+    'claude',
+  );
+  assert.equal(nativeWatchProviderForPath('/tmp/not-a-chatmux-provider/session.jsonl'), null);
 });
