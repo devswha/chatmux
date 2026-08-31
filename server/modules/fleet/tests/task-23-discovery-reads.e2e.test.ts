@@ -147,6 +147,7 @@ test('task-23 discovery and read routing across two colliding peers', {
     // Then: peer A answers its own provider state and home-relative suggestions.
     assert.equal(metadataA.status, 200, JSON.stringify(metadataA.body));
     assert.equal(data(metadataA.body).provider, 'codex');
+    assert.equal(data(metadataA.body).projectName, catalogA.projects[0]?.displayName);
     assert.equal(inventoryA.status, 200, JSON.stringify(inventoryA.body));
     assert.equal(data(inventoryA.body).provider, 'codex');
     assert.equal(suggestionsA.status, 200, JSON.stringify(suggestionsA.body));

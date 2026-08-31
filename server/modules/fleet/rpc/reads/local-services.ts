@@ -1,3 +1,5 @@
+import path from 'node:path';
+
 import { projectsDb, sessionsDb } from '@/modules/database/index.js';
 import {
   assertFreshExternalTmuxTarget,
@@ -66,7 +68,18 @@ export function createLocalFleetReadServices(discovery: DiscoveryCollector): Fle
       const session = sessionsDb.getSessionById(localId);
       if (session === null) return null;
       const project = session.project_path === null ? null : projectsDb.getProjectPath(session.project_path);
-      return json({ sessionId: session.session_id, provider: session.provider, summary: session.custom_name ?? '', projectId: project?.project_id ?? null, projectPath: session.project_path, createdAt: session.created_at, updatedAt: session.updated_at });
+      return json({
+        sessionId: session.session_id,
+        provider: session.provider,
+        summary: session.custom_name ?? '',
+        projectId: project?.project_id ?? null,
+        projectPath: session.project_path,
+        projectName: project === null
+          ? null
+          : project.custom_project_name?.trim() || path.basename(project.project_path) || project.project_path,
+        createdAt: session.created_at,
+        updatedAt: session.updated_at,
+      });
     },
     history: async (localId, options) => json(await sessionsService.fetchHistory(localId, options)),
     search: async (projectLocalId, options) => {
