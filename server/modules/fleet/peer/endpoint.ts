@@ -68,6 +68,9 @@ export function createFleetPeerEndpoint(options: FleetPeerEndpointOptions): Read
           .then((release) => connections.has(connection) ? catalogReleases.set(connection, release) : release())
           .catch((error: unknown) => { if (error instanceof Error) { connection.stop(); socket.close(1011, 'fleet catalog unavailable'); return; } throw error; });
       },
+      onError: (code, detail) => {
+        console.error('Fleet peer protocol connection rejected', { code, detail });
+      },
     });
     connections.add(connection);
     socket.on('message', (raw: RawData) => { void connection.receive(raw); });

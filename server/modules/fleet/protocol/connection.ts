@@ -226,7 +226,7 @@ export class FleetProtocolConnection {
   private reject(error: unknown): void {
     if (this.state.kind === 'closed') return;
     const code = error instanceof FleetProtocolError ? error.code : 'PROTOCOL_FRAME_INVALID';
-    this.options.onError?.(code);
+    this.options.onError?.(code, error instanceof FleetProtocolError ? error.message : undefined);
     const auth = this.state.kind === 'awaiting_hello' || this.state.kind === 'awaiting_proof';
     this.options.transport.close(auth ? 4003 : 4002, auth ? 'fleet authentication rejected' : 'fleet protocol rejected');
     this.stop();

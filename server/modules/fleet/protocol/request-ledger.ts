@@ -1,4 +1,4 @@
-import type { FleetRequestEnvelope, FleetResponseEnvelope } from '../../../../shared/fleet.js';
+import type { FleetOperation, FleetRequestEnvelope, FleetResponseEnvelope } from '../../../../shared/fleet.js';
 
 import { canonicalFleetJson } from './codec.js';
 
@@ -11,6 +11,7 @@ type PendingEntry = Readonly<{
 type CompleteEntry = Readonly<{
   readonly canonicalRequest: string;
   readonly response: FleetResponseEnvelope;
+  readonly replaySafe: boolean;
 }>;
 
 type LedgerEntry =
@@ -27,6 +28,16 @@ export type FleetRequestAdmission =
   | Readonly<{ readonly kind: 'conflict' }>
   | Readonly<{ readonly kind: 'full' }>;
 
+const REPLAY_SAFE_OPERATIONS: ReadonlySet<FleetOperation> = new Set([
+  'catalog.snapshot',
+  'session.read',
+  'session.history',
+  'session.search',
+  'prompt.read',
+  'approval.read',
+  'pane.capture',
+]);
+
 export class FleetRequestLedger {
   private readonly entries = new Map<string, LedgerEntry>();
 
@@ -42,7 +53,7 @@ export class FleetRequestLedger {
         case 'complete': return { kind: 'replay', response: existing.value.response };
       }
     }
-    if (this.entries.size >= this.capacity) return { kind: 'full' };
+    if (this.entries.size >= this.capacity && !this.evictOldestReplaySafeEntry()) return { kind: 'full' };
     const deferred = Promise.withResolvers<FleetResponseEnvelope>();
     this.entries.set(request.requestId, {
       kind: 'pending',
@@ -53,10 +64,25 @@ export class FleetRequestLedger {
       complete: (response) => {
         const current = this.entries.get(request.requestId);
         if (current?.kind !== 'pending' || current.value.canonicalRequest !== canonicalRequest) return;
-        this.entries.set(request.requestId, { kind: 'complete', value: { canonicalRequest, response } });
+        // Reinsert completed entries at the tail so bounded eviction follows
+        // completion order without ever removing an in-flight request.
+        this.entries.delete(request.requestId);
+        this.entries.set(request.requestId, {
+          kind: 'complete',
+          value: { canonicalRequest, response, replaySafe: REPLAY_SAFE_OPERATIONS.has(request.operation) },
+        });
         current.value.resolve(response);
       },
     };
+  }
+
+  private evictOldestReplaySafeEntry(): boolean {
+    for (const [requestId, entry] of this.entries) {
+      if (entry.kind !== 'complete' || !entry.value.replaySafe) continue;
+      this.entries.delete(requestId);
+      return true;
+    }
+    return false;
   }
 
   get size(): number {

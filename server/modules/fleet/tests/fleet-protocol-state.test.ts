@@ -91,6 +91,18 @@ test('Given a full request ledger, when a new request ID arrives, then it is den
   assert.deepEqual(ledger.admit(second), { kind: 'full' });
 });
 
+test('Given a full request ledger, when a completed read is oldest, then it is evicted for a new request', () => {
+  const ledger = new FleetRequestLedger(1);
+  const first = ledger.admit(request());
+  assert.equal(first.kind, 'dispatch');
+  if (first.kind !== 'dispatch') return;
+  first.complete(response());
+
+  const secondRequest = parseFleetRequestEnvelope({ ...request(), requestId: 'request-2' });
+  assert.equal(ledger.admit(secondRequest).kind, 'dispatch');
+  assert.equal(ledger.size, 1);
+});
+
 test('Given a blocked writer, when queue bounds are exceeded, then the socket closes without unbounded buffering', () => {
   const callbacks: ((error?: Error) => void)[] = [];
   const closes: Readonly<{ code: number; reason: string }>[] = [];

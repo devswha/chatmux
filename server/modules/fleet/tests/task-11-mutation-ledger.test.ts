@@ -32,6 +32,16 @@ test('Given the 4096-entry generation cache, when full, then a new ID is rejecte
   if (replay.kind !== 'replay') throw new TypeError('replay missing'); assert.deepEqual(replay.response, firstResponse);
 });
 
+test('Given a completed mutation and a full cache, when a new ID arrives, then the mutation is not evicted', () => {
+  const ledger = new FleetRequestLedger(1); const first = mutation('protected-mutation');
+  const admitted = ledger.admit(first); assert.equal(admitted.kind, 'dispatch');
+  if (admitted.kind !== 'dispatch') throw new TypeError('mutation was not dispatched');
+  admitted.complete(success(first));
+
+  assert.equal(ledger.admit(mutation('new-id')).kind, 'full');
+  assert.equal(ledger.admit(first).kind, 'replay');
+});
+
 test('Given successful mutation dispatch, when the peer responds, then sideEffect is applied', async () => {
   let calls = 0; const dispatch = createPeerOperationDispatcher(HOST, { 'chat.send': async () => { calls += 1; return { ok: true }; } });
   const response = await dispatch(mutation('applied'));

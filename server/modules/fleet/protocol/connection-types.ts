@@ -39,7 +39,7 @@ export type FleetProtocolConnectionOptions = Readonly<{
   readonly onEvent?: (event: FleetEventEnvelope) => void;
   readonly onAuthenticated?: (connection: FleetAuthenticatedConnection) => void;
   readonly onResponse?: (response: FleetResponseEnvelope) => void;
-  readonly onError?: (code: FleetProtocolErrorCode) => void;
+  readonly onError?: (code: FleetProtocolErrorCode, detail?: string) => void;
   readonly scheduler?: FleetProtocolScheduler;
   readonly writer?: FleetWriterOptions;
   readonly requestCapacity?: number;
