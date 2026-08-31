@@ -144,7 +144,7 @@ export function useChatSessionState({
   const [isLoadingMoreMessages, setIsLoadingMoreMessages] = useState(false);
   const [hasMoreMessages, setHasMoreMessages] = useState(false);
   const [totalMessages, setTotalMessages] = useState(0);
-  const [isUserScrolledUp, setIsUserScrolledUp] = useState(false);
+  const [isUserScrolledUp, setIsUserScrolledUpState] = useState(false);
   const [hasNewMessagesBelow, setHasNewMessagesBelow] = useState(false);
   const [tokenBudget, setTokenBudget] = useState<Record<string, unknown> | null>(null);
   const [visibleMessageCount, setVisibleMessageCount] = useState(INITIAL_VISIBLE_MESSAGES);
@@ -155,6 +155,9 @@ export function useChatSessionState({
   const [viewHiddenCount, setViewHiddenCount] = useState(0);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const isUserScrolledUpRef = useRef(false);
+  const scrollToBottomFrameRef = useRef<number | null>(null);
+  const initialScrollFrameRef = useRef<number | null>(null);
   const wasNearTopRef = useRef(false);
   const [searchTarget, setSearchTarget] = useState<{ timestamp?: string; uuid?: string; snippet?: string } | null>(null);
   const searchScrollActiveRef = useRef(false);
@@ -173,6 +176,11 @@ export function useChatSessionState({
     enabled: showImagePreviews,
   });
   const transcriptRefreshInFlightRef = useRef(false);
+
+  const setIsUserScrolledUp = useCallback((next: boolean) => {
+    isUserScrolledUpRef.current = next;
+    setIsUserScrolledUpState(next);
+  }, []);
   /**
    * Tracks the last processed value from `useProjectsState.newSessionTrigger`.
    *
@@ -351,11 +359,69 @@ export function useChatSessionState({
 
   const rewindMessages = useCallback((count: number) => setViewHiddenCount(count), []);
 
-  const scrollToBottom = useCallback(() => {
-    const container = scrollContainerRef.current;
-    if (!container) return;
-    container.scrollTop = container.scrollHeight;
+  const cancelPendingScrollToBottom = useCallback(() => {
+    if (scrollToBottomFrameRef.current === null) return;
+    cancelAnimationFrame(scrollToBottomFrameRef.current);
+    scrollToBottomFrameRef.current = null;
   }, []);
+
+  const cancelPendingInitialScroll = useCallback(() => {
+    pendingInitialScrollRef.current = false;
+    if (initialScrollFrameRef.current === null) return;
+    cancelAnimationFrame(initialScrollFrameRef.current);
+    initialScrollFrameRef.current = null;
+  }, []);
+
+  const scrollToBottom = useCallback(() => {
+    const apply = () => {
+      const container = scrollContainerRef.current;
+      if (!container) return;
+      container.scrollTop = container.scrollHeight;
+    };
+
+    apply();
+
+    // A send updates the message list, activity indicator, and composer in the
+    // same React turn. The old 100ms timer could run before those layout
+    // changes settled, leaving the newly sent bubble below the viewport.
+    // Re-apply on the next two painted layouts so callers do not have to guess
+    // how long rendering will take.
+    if (typeof requestAnimationFrame !== 'function') return;
+    cancelPendingScrollToBottom();
+    scrollToBottomFrameRef.current = requestAnimationFrame(() => {
+      apply();
+      scrollToBottomFrameRef.current = requestAnimationFrame(() => {
+        apply();
+        scrollToBottomFrameRef.current = null;
+      });
+    });
+  }, [cancelPendingScrollToBottom]);
+
+  useEffect(() => cancelPendingScrollToBottom, [cancelPendingScrollToBottom]);
+
+  // Markdown highlighting, images, tool results, and streaming blocks can
+  // change height without changing the message count. Follow those delayed
+  // reflows only while the user is already following the tail; manual review
+  // higher in the transcript must keep its position.
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    const content = container?.firstElementChild;
+    if (!container || !content || typeof ResizeObserver === 'undefined') return;
+
+    const observer = new ResizeObserver(() => {
+      if (
+        isUserScrolledUpRef.current
+        || isLoadingMoreRef.current
+        || pendingScrollRestoreRef.current
+        || searchScrollActiveRef.current
+      ) {
+        return;
+      }
+      scrollToBottom();
+    });
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [activeSessionId, scrollToBottom]);
 
   const scrollToBottomAndReset = useCallback(() => {
     scrollToBottom();
@@ -476,7 +542,14 @@ export function useChatSessionState({
 
     const nearBottom = isNearBottom();
     setIsUserScrolledUp(!nearBottom);
-    if (nearBottom) setHasNewMessagesBelow(false);
+    if (nearBottom) {
+      setHasNewMessagesBelow(false);
+    } else {
+      // A real user scroll wins over both the short post-render correction
+      // loop and the longer initial lazy-content settling loop.
+      cancelPendingScrollToBottom();
+      cancelPendingInitialScroll();
+    }
 
     const scrolledNearTop = container.scrollTop < 100;
 
@@ -505,7 +578,14 @@ export function useChatSessionState({
       const didLoad = await loadOlderMessages(container);
       if (didLoad) topLoadLockRef.current = true;
     }
-  }, [hasMoreMessages, isNearBottom, loadOlderMessages]);
+  }, [
+    cancelPendingInitialScroll,
+    cancelPendingScrollToBottom,
+    hasMoreMessages,
+    isNearBottom,
+    loadOlderMessages,
+    setIsUserScrolledUp,
+  ]);
 
   useLayoutEffect(() => {
     restorePendingScroll();
@@ -513,6 +593,7 @@ export function useChatSessionState({
 
   // Reset scroll/pagination state on session change
   useEffect(() => {
+    cancelPendingInitialScroll();
     if (!searchScrollActiveRef.current) {
       pendingInitialScrollRef.current = true;
       setVisibleMessageCount(INITIAL_VISIBLE_MESSAGES);
@@ -522,7 +603,12 @@ export function useChatSessionState({
     isLoadingMoreRef.current = false;
     wasNearTopRef.current = false;
     setIsUserScrolledUp(false);
-  }, [selectedProject?.projectId, selectedSession?.id]);
+  }, [
+    cancelPendingInitialScroll,
+    selectedProject?.projectId,
+    selectedSession?.id,
+    setIsUserScrolledUp,
+  ]);
 
   // Initial scroll to bottom — robust to lazy content reflow.
   // The previous implementation fired one scrollToBottom() at +200ms and
@@ -538,15 +624,18 @@ export function useChatSessionState({
     if (!pendingInitialScrollRef.current || !scrollContainerRef.current || isLoadingSessionMessages) return;
     if (chatMessages.length === 0) { pendingInitialScrollRef.current = false; return; }
     if (searchScrollActiveRef.current) { pendingInitialScrollRef.current = false; return; }
+    if (typeof requestAnimationFrame !== 'function') return;
 
     const container = scrollContainerRef.current;
     let frame = 0;
     let lastHeight = 0;
     let stableCount = 0;
-    let rafId = 0;
 
     const tick = () => {
-      if (!pendingInitialScrollRef.current || !scrollContainerRef.current) return;
+      if (!pendingInitialScrollRef.current || !scrollContainerRef.current) {
+        initialScrollFrameRef.current = null;
+        return;
+      }
       container.scrollTop = container.scrollHeight;
       if (container.scrollHeight === lastHeight) {
         stableCount++;
@@ -556,14 +645,18 @@ export function useChatSessionState({
       }
       frame++;
       if (stableCount < 3 && frame < 60) {
-        rafId = requestAnimationFrame(tick);
+        initialScrollFrameRef.current = requestAnimationFrame(tick);
       } else {
         pendingInitialScrollRef.current = false;
+        initialScrollFrameRef.current = null;
       }
     };
-    rafId = requestAnimationFrame(tick);
+    initialScrollFrameRef.current = requestAnimationFrame(tick);
     return () => {
-      if (rafId) cancelAnimationFrame(rafId);
+      if (initialScrollFrameRef.current !== null) {
+        cancelAnimationFrame(initialScrollFrameRef.current);
+        initialScrollFrameRef.current = null;
+      }
     };
   }, [chatMessages.length, isLoadingSessionMessages, scrollToBottom]);
 
@@ -719,7 +812,7 @@ export function useChatSessionState({
           });
 
           if (isNearBottom()) {
-            setTimeout(() => scrollToBottom(), 200);
+            scrollToBottom();
           }
         }
       } catch (error) {
@@ -873,7 +966,7 @@ export function useChatSessionState({
     if (searchScrollActiveRef.current) return;
 
     if (!isUserScrolledUp) {
-      setTimeout(() => scrollToBottom(), 50);
+      scrollToBottom();
       return;
     }
 
