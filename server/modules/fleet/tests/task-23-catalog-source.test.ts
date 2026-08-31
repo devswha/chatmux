@@ -10,7 +10,7 @@ import type {
 import { fleetCatalogPaneKey } from '../catalog/keys.js';
 import { parseFleetCatalogSnapshot } from '../catalog/schema.js';
 import { PeerCatalogPublisher } from '../peer/catalog-publisher.js';
-import { createPeerCatalogSource } from '../peer/catalog-source.js';
+import { createPeerCatalogSource, discoveredTmuxSessionRows } from '../peer/catalog-source.js';
 
 const HOST_ID = '00000000-0000-4000-8000-000000000023';
 
@@ -149,4 +149,41 @@ test('catalog pane keys stay distinct when field boundaries shift', () => {
   const right = fleetCatalogPaneKey('external', { ...TMUX, socketPath: '/a', sessionId: '$123' });
   // Then: length-prefixing keeps the wire keys distinct.
   assert.notEqual(left, right);
+});
+
+test('peer catalog sessions are limited to sessions backed by discovered tmux panes', () => {
+  const running = {
+    session_id: 'app-session', provider: 'codex',
+    provider_session_id: '019f0000-0000-7000-8000-000000000201',
+    project_path: '/workspace', custom_name: 'running',
+  };
+  const lookups: string[] = [];
+
+  assert.deepEqual(
+    discoveredTmuxSessionRows([discoveryRow()], {
+      byProviderSessionId: (provider, sessionId) => {
+        lookups.push(`${provider}:${sessionId}`);
+        return running;
+      },
+      byAppSessionId: () => { throw new Error('provider-native match should not need fallback'); },
+    }),
+    [running],
+    'the app-facing session resolves through the pane provider-native id',
+  );
+  assert.deepEqual(lookups, ['codex:019f0000-0000-7000-8000-000000000201']);
+});
+
+test('peer catalog ignores unresolved, provider-mismatched, and pane-less historical sessions', () => {
+  const historicalReads: string[] = [];
+  const unresolvedPane = { ...discoveryRow(), providerSessionId: null };
+  const mismatchedPane = { ...discoveryRow(), providerSessionId: 'shared-id' };
+
+  assert.deepEqual(discoveredTmuxSessionRows([unresolvedPane, mismatchedPane], {
+    byProviderSessionId: (provider, sessionId) => {
+      historicalReads.push(`${provider}:${sessionId}`);
+      return { session_id: sessionId, provider: 'claude', project_path: '/workspace' };
+    },
+    byAppSessionId: () => null,
+  }), []);
+  assert.deepEqual(historicalReads, ['codex:shared-id']);
 });

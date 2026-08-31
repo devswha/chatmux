@@ -1,7 +1,7 @@
 import path from 'node:path';
 
 import { projectsDb, sessionsDb } from '@/modules/database/index.js';
-import type { DiscoveryCollector } from '@/modules/providers/index.js';
+import type { DiscoveryCollector, DiscoveryRow } from '@/modules/providers/index.js';
 import { chatRunRegistry } from '@/modules/websocket/index.js';
 
 import type { FleetCapability } from '../../../../shared/fleet.js';
@@ -16,7 +16,40 @@ type CatalogSourceOptions = Readonly<{
 }>;
 function activityMs(value: string): number { const parsed = Date.parse(value); return Number.isFinite(parsed) ? parsed : 0; }
 type ProjectRow = Readonly<{ readonly project_id: string; readonly project_path: string; readonly custom_project_name?: string | null; readonly isStarred?: number }>;
-type SessionRow = Readonly<{ readonly session_id: string; readonly provider: string; readonly custom_name?: string | null; readonly updated_at?: string | null; readonly created_at?: string | null }>;
+type SessionRow = Readonly<{
+  readonly session_id: string;
+  readonly provider: string;
+  readonly provider_session_id?: string | null;
+  readonly project_path?: string | null;
+  readonly custom_name?: string | null;
+  readonly updated_at?: string | null;
+  readonly created_at?: string | null;
+}>;
+
+function providerSessionKey(provider: string, sessionId: string): string {
+  return `${provider}\0${sessionId}`;
+}
+
+type TmuxSessionLookup = Readonly<{
+  readonly byProviderSessionId: (provider: string, sessionId: string) => SessionRow | null;
+  readonly byAppSessionId: (sessionId: string) => SessionRow | null;
+}>;
+
+/** Resolve only the transcript rows named by currently discovered tmux panes. */
+export function discoveredTmuxSessionRows(
+  discoveryRows: readonly Pick<DiscoveryRow, 'kind' | 'providerSessionId'>[],
+  lookup: TmuxSessionLookup,
+): readonly SessionRow[] {
+  const sessions = new Map<string, SessionRow>();
+  for (const row of discoveryRows) {
+    if (row.providerSessionId === null) continue;
+    const session = lookup.byProviderSessionId(row.kind, row.providerSessionId)
+      ?? lookup.byAppSessionId(row.providerSessionId);
+    if (session === null || session.provider !== row.kind) continue;
+    sessions.set(providerSessionKey(session.provider, session.session_id), session);
+  }
+  return [...sessions.values()];
+}
 
 export function createPeerCatalogSource(options: CatalogSourceOptions): Readonly<{
   readonly read: () => Promise<FleetCatalogMaterial>;
@@ -46,11 +79,25 @@ export function createPeerCatalogSource(options: CatalogSourceOptions): Readonly
       await options.discovery.ensureFresh(2_000);
       const discovery = options.discovery.currentSnapshot();
       const projectRows: ProjectRow[] = projectsDb.getProjectPaths();
-      const sessions: FleetCatalogSession[] = [];
-      for (const project of projectRows) {
-        const rows: SessionRow[] = sessionsDb.getSessionsByProjectPath(project.project_path);
-        sessions.push(...rows.map((session) => ({ localId: session.session_id, projectLocalId: project.project_id, provider: session.provider, summary: session.custom_name ?? '', lastActivityMs: activityMs(session.updated_at ?? session.created_at ?? '') })));
-      }
+      const projectIds = new Map(projectRows.map((project) => [project.project_path, project.project_id]));
+      const sessionRows = discoveredTmuxSessionRows(discovery.rows, {
+        byProviderSessionId: (provider, sessionId) => sessionsDb.getSessionByProviderSessionId(provider, sessionId),
+        byAppSessionId: (sessionId) => sessionsDb.getSessionById(sessionId),
+      });
+      const sessions: FleetCatalogSession[] = sessionRows.flatMap((session) => {
+        const projectLocalId = session.project_path === null || session.project_path === undefined
+          ? undefined
+          : projectIds.get(session.project_path);
+        return projectLocalId === undefined
+          ? []
+          : [{
+            localId: session.session_id,
+            projectLocalId,
+            provider: session.provider,
+            summary: session.custom_name ?? '',
+            lastActivityMs: activityMs(session.updated_at ?? session.created_at ?? ''),
+          }];
+      });
       return {
         host: { hostId: options.hostId, displayLabel: options.displayLabel, capabilities: options.capabilities },
         projects: projectRows.map((project) => ({ localId: project.project_id, path: project.project_path, displayName: project.custom_project_name?.trim() || path.basename(project.project_path) || project.project_path, isStarred: Boolean(project.isStarred) })),

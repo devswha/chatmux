@@ -39,7 +39,7 @@ test('Given a server with no fleet surface, when the sidebar renders, then the l
   }
 });
 
-test('Given a host filter, when a peer is selected, then only that group renders and All restores every host', async () => {
+test('Given fleet hosts, when the sidebar renders, then every host is visible without redundant filter buttons', async () => {
   const harness = await mountHostGroups({ roster: () => jsonResponse(rosterBody()) });
 
   try {
@@ -49,28 +49,7 @@ test('Given a host filter, when a peer is selected, then only that group renders
     const chips = harness.renderer.root.findAll(
       (node) => node.type === 'button' && typeof node.props['data-host-filter'] === 'string',
     );
-    assert.deepEqual(
-      chips.map((chip) => chip.props['data-host-filter']),
-      ['all', LOCAL_HOST_ID, PEER_A_HOST_ID, PEER_B_HOST_ID],
-      'every host stays selectable, including the local one',
-    );
-
-    await act(async () => {
-      chips.find((chip) => chip.props['data-host-filter'] === PEER_A_HOST_ID)?.props.onClick();
-    });
-    assert.deepEqual(groupHostIds(harness), [PEER_A_HOST_ID]);
-    assert.equal(
-      harness.renderer.root.find(
-        (node) => node.type === 'button' && node.props['data-host-filter'] === PEER_A_HOST_ID,
-      ).props['aria-pressed'],
-      true,
-    );
-
-    await act(async () => {
-      harness.renderer.root.find(
-        (node) => node.type === 'button' && node.props['data-host-filter'] === 'all',
-      ).props.onClick();
-    });
+    assert.deepEqual(chips, []);
     assert.deepEqual(groupHostIds(harness), [LOCAL_HOST_ID, PEER_A_HOST_ID, PEER_B_HOST_ID]);
   } finally {
     await harness.dispose();

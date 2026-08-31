@@ -4,15 +4,16 @@
  * Wraps the existing local sections. With no enrolled peer it renders them and
  * nothing else, so a single-machine install keeps exactly its pre-fleet sidebar,
  * including the local REST fallback those sections own. With peers enrolled it
- * adds the machine dimension: a filter, the local machine first, then one region
- * per peer with its explicit availability.
+ * adds the machine dimension: the local machine first, then one region per peer
+ * with its explicit availability. The labelled regions are sufficient context,
+ * so every host stays visible without a second row of filter controls.
  *
  * The local sections are passed through as `children` and never re-created here,
  * so peer state churn cannot re-render them — their pending destructive
  * confirmation belongs to the local host and must survive any peer failure.
  */
 
-import { type ReactNode, useCallback, useMemo, useState } from 'react';
+import { type ReactNode, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 
@@ -28,7 +29,6 @@ import { sessionRef } from '../../../../../fleet/references';
 import type { ExternalTerminalTarget } from '../../../../../types/app';
 import { sessionRoutePath } from '../../../../../fleet/sessionRoute';
 
-import SidebarHostFilter from './SidebarHostFilter';
 import SidebarHostGroup from './SidebarHostGroup';
 import SidebarRemoteHostRows from './SidebarRemoteHostRows';
 
@@ -59,20 +59,14 @@ export default function SidebarHostGroups({ local, children, onRemotePaneOpen }:
   const { t } = useTranslation('sidebar');
   const navigate = useNavigate();
   const { catalog } = useFleetHostCatalog();
-  const [selectedHostId, setSelectedHostId] = useState<string | null>(null);
-
   const summary = useMemo<LocalHostSummary>(() => ({
     label: t('hostGroups.localLabel'),
     rowLabels: local.rowLabels,
     counts: local.counts,
   }), [local.counts, local.rowLabels, t]);
-  const allGroups = useMemo(
+  const groups = useMemo(
     () => hostGroups({ catalog, local: summary, filter: null }),
     [catalog, summary],
-  );
-  const visibleGroups = useMemo(
-    () => hostGroups({ catalog, local: summary, filter: selectedHostId }),
-    [catalog, selectedHostId, summary],
   );
 
   const openRow = useCallback((group: HostGroup, row: HostGroupRow) => {
@@ -95,18 +89,13 @@ export default function SidebarHostGroups({ local, children, onRemotePaneOpen }:
     navigate(sessionRoutePath(sessionRef(group.hostId, row.localId), catalog.localHostId));
   }, [catalog.localHostId, navigate, onRemotePaneOpen]);
 
-  if (allGroups.length === 0) {
+  if (groups.length === 0) {
     return <>{children}</>;
   }
 
   return (
     <div className="flex flex-col">
-      <SidebarHostFilter
-        groups={allGroups}
-        selectedHostId={selectedHostId}
-        onSelect={setSelectedHostId}
-      />
-      {visibleGroups.map((group) => (
+      {groups.map((group) => (
         <SidebarHostGroup key={group.hostId} group={group}>
           {group.isLocal
             ? children
