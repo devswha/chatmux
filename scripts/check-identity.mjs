@@ -19,9 +19,14 @@ const MAX_FILE_BYTES = 64 * 1024 * 1024;
 const MAX_ARCHIVE_BYTES = 512 * 1024 * 1024;
 const MAX_REPORTED_ERRORS = 100;
 const GENERATED_DIRECTORIES = ['dist', 'dist-server', 'release'];
+const FORBIDDEN_RELEASE_DEPENDENCIES = new Set([
+  '@release-it/conventional-changelog',
+  'auto-changelog',
+  'release-it',
+]);
 // Repository-local agent state is not shipped source. Scanning session logs
 // makes the identity gate depend on whichever coding tool happened to run CI.
-const SKIPPED_DIRECTORIES = new Set(['.codegraph', '.git', '.gjc', '.omo', 'node_modules']);
+const SKIPPED_DIRECTORIES = new Set(['.codegraph', '.git', '.gjc', '.insane-review', '.omo', 'node_modules']);
 const ENTRY_CLASSIFICATIONS = Object.freeze({
   REJECT: 'reject',
   SCAN: 'scan',
@@ -106,6 +111,46 @@ export function classifyDirectoryEntry(entry, relativePath) {
     : ENTRY_CLASSIFICATIONS.SCAN;
 }
 
+// Generated-output skipping must stay anchored to the repository root:
+// skipping any directory merely named `release` would blind the scan to
+// source paths such as scripts/release, where a reintroduced launcher
+// would otherwise pass the identity check.
+export function isGeneratedDirectoryRoot(relativePath) {
+  return GENERATED_DIRECTORIES.includes(relativePath);
+}
+
+export function isForbiddenReleaseConfig(relativePath) {
+  return /(?:^|\/)\.release-it(?:\.[^/]+)?$/.test(relativePath);
+}
+
+export function findForbiddenReleaseCommand(text) {
+  // Script sources are launch surfaces just like package.json scripts:
+  // wrappers such as `npx -y release-it`, `npm exec --yes release-it`,
+  // `pnpm dlx release-it`, or spawnSync('npx', ['-y', 'release-it']) all
+  // restore an alternate release path, so any release-it mention is forbidden.
+  return /\brelease-it\b/iu.exec(text)?.[0] ?? null;
+}
+
+export function findForbiddenReleaseInvocation(relativePath, text) {
+  if (
+    relativePath === 'scripts/check-identity.mjs' ||
+    relativePath === 'scripts/check-identity.test.mjs'
+  ) {
+    return null;
+  }
+
+  // GitHub configuration is a launch surface of its own: a workflow step or a
+  // marketplace action can invoke release-it, so any mention there is forbidden.
+  if (/^\.github\/.*\.ya?ml$/u.test(relativePath)) {
+    return /\brelease-it\b/iu.exec(text)?.[0] ?? null;
+  }
+
+  if (!/\.(?:bash|cjs|cts|js|mjs|mts|sh|ts|tsx)$/u.test(relativePath)) {
+    return null;
+  }
+
+  return findForbiddenReleaseCommand(text);
+}
 
 function normalizeRelativePath(absolutePath) {
   return relative(REPOSITORY_ROOT, absolutePath).split(sep).join('/');
@@ -142,6 +187,10 @@ function lineAndColumn(text, index) {
 }
 
 function scanPath(relativePath) {
+  if (isForbiddenReleaseConfig(relativePath)) {
+    addError(`${relativePath}: forbidden release-it configuration`);
+  }
+
   for (const matcher of LEGACY_MATCHERS) {
     if (matcher.expression.test(relativePath)) {
       addError(`${relativePath}: ${matcher.label} in path`);
@@ -220,6 +269,10 @@ function scanSpecialFile(relativePath, buffer) {
   }
 
   const text = buffer.toString('utf8');
+  const releaseInvocation = findForbiddenReleaseInvocation(relativePath, text);
+  if (releaseInvocation) {
+    addError(`${relativePath}: forbidden release-it command invocation`);
+  }
 
   if (relativePath === 'README.md') {
     validateMainReadme(text);
@@ -283,7 +336,7 @@ async function walkDirectory(directoryPath, category) {
         continue;
       }
 
-      if (category === 'source' && GENERATED_DIRECTORIES.includes(entry.name)) {
+      if (category === 'source' && isGeneratedDirectoryRoot(relativePath)) {
         continue;
       }
 
@@ -322,9 +375,66 @@ async function readJson(relativePath) {
   }
 }
 
+export function findForbiddenPackageScripts(scripts) {
+  const violations = [];
+
+  for (const [name, command] of Object.entries(scripts ?? {})) {
+    if (name === 'release' || /publish|update|platform/i.test(name) || /npm\s+publish\b/i.test(command)) {
+      violations.push(`package.json scripts.${name}: forbidden publication or platform command`);
+    }
+    // Package scripts are launchers, so any release-it mention at all is forbidden.
+    if (/\brelease-it\b/iu.test(command)) {
+      violations.push(`package.json scripts.${name}: forbidden release-it command invocation`);
+    }
+  }
+
+  return violations;
+}
+
+export function findForbiddenReleaseDependencies(packageJson, packageLock) {
+  const violations = [];
+  const dependencySections = ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies'];
+
+  if (packageJson?.['release-it'] !== undefined) {
+    violations.push('package.json release-it: forbidden release-it configuration key');
+  }
+
+  for (const [source, manifest] of [
+    ['package.json', packageJson],
+    ['package-lock.json root', packageLock?.packages?.['']],
+  ]) {
+    for (const section of dependencySections) {
+      for (const [dependency, specification] of Object.entries(manifest?.[section] ?? {})) {
+        if (FORBIDDEN_RELEASE_DEPENDENCIES.has(dependency)) {
+          violations.push(`${source} ${section}.${dependency}: forbidden release-it dependency`);
+        } else if (/^npm:release-it(?:@|$)/u.test(specification)) {
+          violations.push(`${source} ${section}.${dependency}: forbidden npm alias to release-it`);
+        }
+      }
+    }
+  }
+
+  for (const dependency of FORBIDDEN_RELEASE_DEPENDENCIES) {
+    const lockPackage = Object.keys(packageLock?.packages ?? {}).find(
+      (packagePath) =>
+        packagePath === `node_modules/${dependency}` ||
+        packagePath.endsWith(`/node_modules/${dependency}`),
+    );
+    if (lockPackage) {
+      violations.push(`package-lock.json ${lockPackage}: forbidden release-it dependency`);
+    }
+  }
+
+  return violations;
+}
+
 function validatePackageMetadata(packageJson, packageLock) {
   if (!packageJson || !packageLock) {
     return;
+  }
+
+  for (const violation of findForbiddenReleaseDependencies(packageJson, packageLock)) {
+    addError(violation);
   }
 
   assertEqual('package.json name', packageJson.name, PACKAGE_NAME);
@@ -340,10 +450,8 @@ function validatePackageMetadata(packageJson, packageLock) {
   assertEqual('package.json Node engine', packageJson.engines?.node, NODE_ENGINE_RANGE);
   assertEqual('package.json check script', packageJson.scripts?.['check:identity'], 'node scripts/check-identity.mjs');
 
-  for (const [name, command] of Object.entries(packageJson.scripts ?? {})) {
-    if (name === 'release' || /publish|update|platform/i.test(name) || /npm\s+publish\b/i.test(command)) {
-      addError(`package.json scripts.${name}: forbidden publication or platform command`);
-    }
+  for (const violation of findForbiddenPackageScripts(packageJson.scripts)) {
+    addError(violation);
   }
 
   const lockRoot = packageLock.packages?.[''];

@@ -6,6 +6,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: chatmux-release
+  cancel-in-progress: false
+
 jobs:
   release-policy:
     name: Validate protected release ref
@@ -21,9 +25,130 @@ jobs:
             exit 1
           fi
 
+  release-preflight:
+    name: Validate release version
+    needs: release-policy
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 22.22.2
+          architecture: x64
+          cache: npm
+
+      # The metadata check imports the TypeScript compiler to derive the schema
+      # generation from the migration registry, so preflight needs dev dependencies.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Reject duplicate or non-increasing stable release
+        id: version-policy
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./package.json').version")"
+          TAG="v$VERSION"
+          TAG_REFS_PATH="$RUNNER_TEMP/release-tag-refs.json"
+          RELEASE_PAGES_PATH="$RUNNER_TEMP/release-pages.json"
+          gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/$TAG" > "$TAG_REFS_PATH"
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$RELEASE_PAGES_PATH"
+          TARGET_VERSION="$VERSION" TARGET_TAG="$TAG" TAG_REFS_PATH="$TAG_REFS_PATH" \
+            RELEASE_PAGES_PATH="$RELEASE_PAGES_PATH" node --input-type=module <<'EOF'
+          import fs from 'node:fs';
+          const stable = /^(?:v)?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u;
+          const parse = (value) => {
+            const match = stable.exec(value);
+            if (!match) return null;
+            const components = match.slice(1).map(Number);
+            return components.every(Number.isSafeInteger) ? components : null;
+          };
+          const compare = (left, right) => {
+            for (let index = 0; index < left.length; index += 1) {
+              if (left[index] < right[index]) return -1;
+              if (left[index] > right[index]) return 1;
+            }
+            return 0;
+          };
+          const target = parse(process.env.TARGET_VERSION);
+          if (!target) throw new Error(`package.json version is not stable SemVer: ${process.env.TARGET_VERSION}`);
+
+          const tags = JSON.parse(fs.readFileSync(process.env.TAG_REFS_PATH, 'utf8'));
+          if (tags.some((tag) => tag.ref === `refs/tags/${process.env.TARGET_TAG}`)) {
+            throw new Error(`Tag ${process.env.TARGET_TAG} already exists.`);
+          }
+          const releases = JSON.parse(fs.readFileSync(process.env.RELEASE_PAGES_PATH, 'utf8')).flat();
+          if (releases.some((release) => release.tag_name === process.env.TARGET_TAG)) {
+            throw new Error(`Release ${process.env.TARGET_TAG} already exists.`);
+          }
+          const published = releases
+            .filter((release) => !release.draft && !release.prerelease)
+            .map((release) => ({ tag: release.tag_name, version: parse(release.tag_name) }))
+            .filter((release) => release.version);
+          const highest = published.reduce(
+            (current, release) => !current || compare(release.version, current.version) > 0 ? release : current,
+            null,
+          );
+          if (highest && compare(target, highest.version) <= 0) {
+            throw new Error(`Release ${process.env.TARGET_VERSION} must be greater than published stable ${highest.tag}.`);
+          }
+          if (highest && process.env.GITHUB_OUTPUT) {
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `highest_stable_tag=${highest.tag}\n`);
+          }
+          EOF
+
+      - name: Fetch canonical predecessor metadata
+        id: canonical-metadata
+        if: steps.version-policy.outputs.highest_stable_tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREDECESSOR_TAG: ${{ steps.version-policy.outputs.highest_stable_tag }}
+        run: |
+          set -euo pipefail
+          canonical_path="$RUNNER_TEMP/canonical-update-compatibility.json"
+          gh api "repos/$GITHUB_REPOSITORY/contents/packaging/release/update-compatibility.json?ref=$PREDECESSOR_TAG" \
+            --jq .content | base64 --decode > "$canonical_path"
+          echo "path=$canonical_path" >> "$GITHUB_OUTPUT"
+
+          # Published metadata is immutable and releases up to v1.8.14 record no
+          # schemaGeneration, so the predecessor's generation is derived from the
+          # migration registry source at the predecessor tag. The registry moved
+          # once in repository history, so both known locations are tried.
+          registry_path="$RUNNER_TEMP/canonical-migration-registry.ts"
+          found=""
+          for candidate in \
+            server/modules/database/migration-parts/migration-registry.ts \
+            server/modules/database/migrations.ts; do
+            if gh api -H "Accept: application/vnd.github.raw" \
+              "repos/$GITHUB_REPOSITORY/contents/$candidate?ref=$PREDECESSOR_TAG" > "$registry_path" 2>/dev/null; then
+              found="yes"
+              break
+            fi
+          done
+          if [ -z "$found" ]; then
+            echo "Could not fetch the migration registry at $PREDECESSOR_TAG to derive the predecessor schema generation." >&2
+            exit 1
+          fi
+          echo "registry_path=$registry_path" >> "$GITHUB_OUTPUT"
+
+      - name: Validate release metadata
+        env:
+          CHATMUX_CANONICAL_COMPATIBILITY_DECLARATION: ${{ steps.canonical-metadata.outputs.path }}
+          CHATMUX_CANONICAL_MIGRATION_REGISTRY: ${{ steps.canonical-metadata.outputs.registry_path }}
+        run: node scripts/release/check-release-metadata.mjs
+
   build:
     name: Build Node 22 Linux x64 server artifact
-    needs: release-policy
+    needs: release-preflight
     timeout-minutes: 30
     runs-on: ubuntu-22.04
     permissions:
@@ -46,7 +171,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
-          node-version: 22
+          node-version: 22.22.2
           architecture: x64
           cache: npm
 
@@ -60,8 +185,8 @@ jobs:
         run: |
           set -euo pipefail
           case "$(node --version)" in
-            v22.*) ;;
-            *) echo "Node 22 is required." >&2; exit 1 ;;
+            v22.22.2) ;;
+            *) echo "Node 22.22.2 is required." >&2; exit 1 ;;
           esac
           case "$(getconf GNU_LIBC_VERSION)" in
             "glibc 2.35") ;;
@@ -76,6 +201,8 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+      - name: Verify dependency signatures
+        run: npm audit signatures
       - name: Verify source
         run: npm run verify
 
@@ -177,7 +304,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
-          node-version: 22
+          node-version: 22.22.2
           architecture: x64
 
       - name: Download canonical server release assets
@@ -248,7 +375,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
-          node-version: 22
+          node-version: 22.22.2
           architecture: x64
       - name: Download just-built canonical server release assets
         uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
@@ -329,6 +456,55 @@ jobs:
             if (entries.some((entry) => entry.includes('image.png'))) throw new Error('image.png is forbidden from release publication.');
           "
 
+      - name: Bind release tag to the verified commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.build.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          tag_endpoint="repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG"
+          release_endpoint="repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG"
+          tag_error="$RUNNER_TEMP/release-tag-lookup.error"
+          release_error="$RUNNER_TEMP/release-lookup.error"
+
+          require_reusable_tag() {
+            local tag_sha="$1"
+            if [ "$tag_sha" != "$GITHUB_SHA" ]; then
+              echo "Existing release tag points to $tag_sha instead of verified commit $GITHUB_SHA." >&2
+              exit 1
+            fi
+            if gh api "$release_endpoint" --silent 2>"$release_error"; then
+              echo "Release $RELEASE_TAG already exists; refusing to reuse its tag." >&2
+              exit 1
+            elif ! grep -q 'HTTP 404' "$release_error"; then
+              cat "$release_error" >&2
+              exit 1
+            fi
+            echo "Reusing release tag already bound to the verified commit."
+          }
+
+          if tag_sha="$(gh api "$tag_endpoint" --jq '.object.sha' 2>"$tag_error")"; then
+            require_reusable_tag "$tag_sha"
+          elif grep -q 'HTTP 404' "$tag_error"; then
+            if ! gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+              -f "ref=refs/tags/$RELEASE_TAG" \
+              -f "sha=$GITHUB_SHA"; then
+              # The API may have accepted the POST before a transport failure, or a
+              # same-commit tag may have won the race. Resolve and validate either case.
+              tag_sha="$(gh api "$tag_endpoint" --jq '.object.sha')"
+              require_reusable_tag "$tag_sha"
+            fi
+          else
+            cat "$tag_error" >&2
+            exit 1
+          fi
+
+          tag_sha="$(gh api "$tag_endpoint" --jq '.object.sha')"
+          if [ "$tag_sha" != "$GITHUB_SHA" ]; then
+            echo "Release tag is not bound to the verified workflow commit." >&2
+            exit 1
+          fi
+
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -341,6 +517,6 @@ jobs:
             "release-assets/$ASSET_NAME.sha256" \
             install.sh \
             --repo "$GITHUB_REPOSITORY" \
-            --target "$GITHUB_SHA" \
+            --verify-tag \
             --title "ChatMux $RELEASE_TAG" \
             --generate-notes

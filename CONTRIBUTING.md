@@ -144,11 +144,11 @@ feat!: redesign settings page layout
 
 ChatMux uses trunk-based development: `main` plus short-lived branches. There is no long-lived `dev` branch — `main` must stay releasable at all times, and releases are cut from it by explicit workflow dispatch.
 
-1. **Every feature and bug fix goes through a PR**, even from maintainers. Create a short-lived branch (`fix/...`, `feat/...`), open a PR, let CI pass, then squash-merge and delete the branch. PR titles follow the commit convention above — release notes are generated from merged PR titles.
+1. **Every change goes through a PR**, including documentation and release bookkeeping, even from maintainers. Create a short-lived branch (`fix/...`, `feat/...`), open a PR, let CI pass, then squash-merge and delete the branch. PR titles follow the commit convention above — release notes are generated from merged PR titles.
 2. **Group related small fixes into one PR**; keep unrelated changes out.
-3. **Only release bookkeeping commits go directly to `main`**: the `chore(release): declare X database rollback compatibility` and `chore(release): vX` commits, plus trivial typo/doc-only fixes.
-4. **Never batch-merge a long-lived integration branch into `main`.** If a change is too big for one PR, land it as a series of PRs that each keep `main` green.
-5. **Branch protection enforces the gate**: `main` requires the `Verify Node 22` / `Verify Node 24` checks to pass before a PR can merge, and force-pushes/deletions are blocked. Admins may bypass only for the release bookkeeping commits above or to unblock a proven CI-infrastructure flake (prefer re-running the failed job).
+3. **Never batch-merge a long-lived integration branch into `main`.** If a change is too big for one PR, land it as a series of PRs that each keep `main` green.
+4. **Branch protection enforces the gate**: `main` requires the `PR policy`, `Verify Node 22`, `Verify Node 24`, and `Canonical server bundle` checks to pass before a PR can merge. These checks must be from the latest `main`, force-pushes/deletions are blocked, and zero human approvals are required.
+5. **Do not use routine administrative bypasses.** Re-run a proven CI-infrastructure flake or fix the source condition instead.
 
 ## Releases
 
@@ -162,9 +162,11 @@ direct recovery UI.
 
 Cutting a release (maintainers):
 
-1. On up-to-date `main`, add the compatibility declaration for the new version to `packaging/release/update-compatibility.json` and commit it as `chore(release): declare X.Y.Z database rollback compatibility`. When the database schema is unchanged, carry forward **every** prior version sharing that schema in `rollbackCompatibleFrom` (the release workflow proves each declared entry); reset the list to only the immediately preceding version when a release actually migrates the schema. A single-entry declaration on an unchanged schema strands any install more than one release behind in `manual_required` (#49).
-2. Bump the version (`npm version X.Y.Z --no-git-tag-version`), prepend the `CHANGELOG.md` section, and commit as `chore(release): vX.Y.Z`.
-3. Push `main` and dispatch the **Release ChatMux Server** workflow (`gh workflow run "Release ChatMux Server" --ref main`). The workflow verifies, builds, proves rollback compatibility, and publishes the GitHub Release with the tag.
+1. Open one atomic release-prep PR containing the compatibility declaration in `packaging/release/update-compatibility.json` and the version and lockfile update (`npm version X.Y.Z --no-git-tag-version`). Record `database.schemaGeneration` from the registered migration count reported by `npm run release:check-metadata`. When the database schema is unchanged, carry forward **every** prior version sharing that schema in `rollbackCompatibleFrom` (the release workflow proves each declared entry); reset the list to only the immediately preceding version only when the registered schema generation actually increases. A single-entry declaration on an unchanged schema strands any install more than one release behind in `manual_required` (#49). Never edit the entries of already-published releases: their metadata is anchored to the immutable predecessor tag, and preflight rejects any divergence. GitHub-generated release notes are canonical; do not maintain a second hand-written release-note source.
+2. Merge the release-prep PR only after the required checks run on latest `main`.
+3. Dispatch the **Release ChatMux Server** workflow from `main` (`gh workflow run "Release ChatMux Server" --ref main`). The workflow rejects duplicate, stale, and non-increasing stable versions before it verifies, builds, proves rollback compatibility, and publishes the GitHub Release with the tag. `npm run cua:release` is manual release evidence and recommended before dispatch; it does not gate publication.
+
+The `release-preflight` job enforces compatibility-declaration completeness before anything is built: `npm run release:check-metadata` (`scripts/release/check-release-metadata.mjs`) checks that `package.json` and both `package-lock.json` version fields agree, derives the schema generation from the ordered migration registry, requires that exact generation in the target compatibility entry, and anchors the predecessor and its rollback window to metadata published at the predecessor tag. The predecessor's schema generation is derived from the migration registry source at the predecessor tag rather than trusted from mutable metadata, which also bootstraps releases whose predecessor predates `schemaGeneration` (v1.8.14 and earlier record none). A singleton predecessor is accepted only when the schema generation increases; otherwise every version declared by the predecessor plus the predecessor itself must be carried forward. Local runs use the in-repository history and the recorded predecessor generation with a warning because no canonical predecessor files are available.
 
 Maintainers publish approved repository revisions through the repository-owned self-hosting lifecycle. Use an immutable commit SHA for installations and updates; do not rely on a global package or a moving branch.
 

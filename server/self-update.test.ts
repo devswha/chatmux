@@ -779,14 +779,18 @@ test('canonical release discovery accepts only exact three-asset stable contract
         { name: `${archive}.sha256`, browser_download_url: `https://github.com/devswha/chatmux/releases/download/v${version}/${archive}.sha256` },
         { name: 'install.sh', browser_download_url: `https://github.com/devswha/chatmux/releases/download/v${version}/install.sh` }
       ] }
-      : { schema: 1, releases: { [version]: { database: { rollbackCompatibleFrom: ['1.2.2'] } } } },
+      : { schema: 1, releases: { [version]: { database: { rollbackCompatibleFrom: ['1.2.2'], schemaGeneration: 19 } } } },
     text: async () => `${checksum}  ${archive}\n`,
     status: 200,
     headers: new Headers(),
   }) as any;
   const release = await discoverCanonicalRelease(fetcher);
   assert.equal(release.release.archiveName, archive);
-  assert.deepEqual(release.compatibility.database.rollbackCompatibleFrom, ['1.2.2']);
+  assert.deepEqual(
+    release.compatibility,
+    { database: { rollbackCompatibleFrom: ['1.2.2'] } },
+    'a governed release declaring schemaGeneration stays discoverable and the field is stripped',
+  );
 });
 function canonicalDiscoveryFetcher(checksumResponse: (url: string) => any, checksumUrl?: string, onRequest?: (url: string, init?: RequestInit) => void) {
   const version = '1.2.3';

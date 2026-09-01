@@ -49,6 +49,15 @@ test('immutable job descriptors and compatibility metadata are closed and exact'
   assert.equal(validateImmutableUpdateJobDescriptor({ ...descriptor, installMode: 'remote' }), null);
   assert.equal(validateCompatibilityMetadata({ database: { rollbackCompatibleFrom: ['1.2.2', '1.2.2'] } }), null);
   assert.equal(validateCompatibilityMetadata({ database: { rollbackCompatibleFrom: ['1.2.2-rc.1'] } }), null);
+  assert.deepEqual(
+    validateCompatibilityMetadata({ database: { rollbackCompatibleFrom: ['1.2.2'], schemaGeneration: 19 } }),
+    { database: { rollbackCompatibleFrom: ['1.2.2'] } },
+    'the governance-only schemaGeneration field is accepted and stripped',
+  );
+  assert.equal(validateCompatibilityMetadata({ database: { rollbackCompatibleFrom: ['1.2.2'], schemaGeneration: -1 } }), null);
+  assert.equal(validateCompatibilityMetadata({ database: { rollbackCompatibleFrom: ['1.2.2'], schemaGeneration: 1.5 } }), null);
+  assert.equal(validateCompatibilityMetadata({ database: { rollbackCompatibleFrom: ['1.2.2'], schemaGeneration: '19' } }), null);
+  assert.equal(validateCompatibilityMetadata({ database: { rollbackCompatibleFrom: ['1.2.2'], unexpected: true } }), null);
   for (const mutation of [
     { ...descriptor, sourceVersion: 'not-a-version' },
     { ...descriptor, sourceBootId: '' },

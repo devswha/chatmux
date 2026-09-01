@@ -19,18 +19,19 @@ const xtermModules = new Map([
   ['@xterm/addon-web-links', 'export class WebLinksAddon {}'],
   ['@xterm/addon-webgl', 'export class WebglAddon {}'],
 ]);
+// CSS is stubbed in resolve rather than load: a load hook that forwards
+// nextLoad() breaks on Node 22, which rejects the undefined source that the
+// default step returns for commonjs modules.
 const cssModuleHooks = registerHooks({
   resolve(specifier, context, nextResolve) {
     const source = xtermModules.get(specifier);
-    return source
-      ? { url: `data:text/javascript,${encodeURIComponent(source)}`, shortCircuit: true }
-      : nextResolve(specifier, context);
-  },
-  load(url, context, nextLoad) {
-    if (url.endsWith('.css')) {
-      return { format: 'module', source: 'export default {};', shortCircuit: true };
+    if (source) {
+      return { url: `data:text/javascript,${encodeURIComponent(source)}`, shortCircuit: true };
     }
-    return nextLoad(url, context);
+    if (specifier.endsWith('.css')) {
+      return { url: 'data:text/javascript,export%20default%20%7B%7D;', shortCircuit: true };
+    }
+    return nextResolve(specifier, context);
   },
 });
 const [

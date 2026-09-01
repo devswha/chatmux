@@ -4,15 +4,8 @@ on:
   push:
     branches:
       - main
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
-      - '.github/ISSUE_TEMPLATE/**'
   pull_request:
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
-      - '.github/ISSUE_TEMPLATE/**'
+    types: [opened, edited, synchronize, reopened]
   workflow_dispatch:
 
 permissions:
@@ -23,16 +16,46 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  pr-policy:
+    name: PR policy
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        if: github.event_name == 'pull_request'
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 22.22.2
+          cache: npm
+
+      - name: Install dependencies
+        if: github.event_name == 'pull_request'
+        run: npm ci
+
+      - name: Validate pull request title
+        if: github.event_name == 'pull_request'
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: printf '%s\n' "$PR_TITLE" | npx --no-install commitlint
+
   verify:
-    name: Verify Node ${{ matrix.node-version }}
+    name: Verify Node ${{ matrix.node-major }}
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        node-version:
-          - 22
-          - 24
+        include:
+          - node-version: 22.22.2
+            node-major: 22
+          - node-version: 24.15.0
+            node-major: 24
     steps:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
@@ -68,7 +91,7 @@ jobs:
       - name: Write verify receipt
         run: |
           mkdir -p .ci-receipts
-          node scripts/cua/write-release-receipt.mjs verify .ci-receipts/verify-node-${{ matrix.node-version }}.json ubuntu-22.04
+          node scripts/cua/write-release-receipt.mjs verify .ci-receipts/verify-node${{ matrix.node-major }}.json ubuntu-22.04
 
       - name: Upload verify receipt
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -92,7 +115,7 @@ jobs:
       - name: Set up Node.js 22
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
-          node-version: 22
+          node-version: 22.22.2
           cache: npm
 
       - name: Install dependencies
@@ -119,9 +142,8 @@ jobs:
   fleet-release:
     name: Fleet release evidence
     # Release-grade browser/desktop QA requires a warm dedicated host; CI runners
-    # starve the fixture startup budgets with high variance. Run it manually (the
-    # owner's verified local cua:release flow remains the release gate) and keep
-    # automatic CI on the verify and bundle contracts.
+    # starve the fixture startup budgets with high variance. This workflow-dispatch
+    # evidence is manual and recommended; publication is not gated on it.
     if: github.event_name == 'workflow_dispatch'
     needs: [verify, bundle]
     runs-on: ubuntu-22.04
@@ -145,7 +167,7 @@ jobs:
       - name: Set up Node.js 24
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
-          node-version: 24
+          node-version: 24.15.0
           cache: npm
 
       - name: Set up Bun
