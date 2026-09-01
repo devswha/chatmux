@@ -25,8 +25,8 @@ export function compareVersions(left, right) {
   return 0;
 }
 
-export function deriveSchemaGeneration(source) {
-  const sourceFile = ts.createSourceFile(MIGRATION_REGISTRY_PATH, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+export function deriveSchemaGeneration(source, label = MIGRATION_REGISTRY_PATH) {
+  const sourceFile = ts.createSourceFile(label, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
   let migrations;
 
   const visit = (node) => {
@@ -44,11 +44,11 @@ export function deriveSchemaGeneration(source) {
   };
   visit(sourceFile);
 
-  if (!migrations) throw new Error(`${MIGRATION_REGISTRY_PATH}: could not find the MIGRATIONS array.`);
+  if (!migrations) throw new Error(`${label}: could not find the MIGRATIONS array.`);
 
   const versions = migrations.elements.map((element, index) => {
     if (!ts.isObjectLiteralExpression(element)) {
-      throw new Error(`${MIGRATION_REGISTRY_PATH}: migration ${index + 1} is not an object literal.`);
+      throw new Error(`${label}: migration ${index + 1} is not an object literal.`);
     }
     const property = element.properties.find((candidate) =>
       ts.isPropertyAssignment(candidate) &&
@@ -56,14 +56,14 @@ export function deriveSchemaGeneration(source) {
         (ts.isStringLiteral(candidate.name) && candidate.name.text === 'version')),
     );
     if (!property || !ts.isPropertyAssignment(property) || !ts.isNumericLiteral(property.initializer)) {
-      throw new Error(`${MIGRATION_REGISTRY_PATH}: migration ${index + 1} has no literal numeric version.`);
+      throw new Error(`${label}: migration ${index + 1} has no literal numeric version.`);
     }
     return Number(property.initializer.text);
   });
 
   for (let index = 0; index < versions.length; index += 1) {
     if (!Number.isSafeInteger(versions[index]) || versions[index] !== index + 1) {
-      throw new Error(`${MIGRATION_REGISTRY_PATH}: migration versions must be contiguous safe integers starting at 1.`);
+      throw new Error(`${label}: migration versions must be contiguous safe integers starting at 1.`);
     }
   }
   return versions.length;
@@ -101,7 +101,7 @@ function declaredRollbackVersions(declaration, version) {
   return Array.isArray(versions) ? versions : null;
 }
 
-function findDeclarationViolations(declaration, canonicalDeclaration, targetVersion, codeSchemaGeneration) {
+function findDeclarationViolations(declaration, canonicalDeclaration, targetVersion, codeSchemaGeneration, canonicalSchemaGeneration) {
   if (declaration?.schema !== 1) {
     return [`${DECLARATION_PATH}: expected schema 1, found ${JSON.stringify(declaration?.schema)}`];
   }
@@ -151,8 +151,25 @@ function findDeclarationViolations(declaration, canonicalDeclaration, targetVers
     }
   }
 
+  // Published metadata is immutable, and releases up to 1.8.14 predate schemaGeneration.
+  // The predecessor's generation is therefore derived from the migration registry source
+  // at the predecessor tag when available, with the recorded value as local fallback.
   const previousDatabase = databaseMetadata(history, previousVersion);
-  const previousGeneration = previousDatabase?.schemaGeneration;
+  const recordedPreviousGeneration = previousDatabase?.schemaGeneration;
+  const previousGeneration = Number.isSafeInteger(canonicalSchemaGeneration)
+    ? canonicalSchemaGeneration
+    : recordedPreviousGeneration;
+  if (
+    Number.isSafeInteger(canonicalSchemaGeneration) &&
+    Number.isSafeInteger(recordedPreviousGeneration) &&
+    canonicalSchemaGeneration !== recordedPreviousGeneration
+  ) {
+    violations.push(
+      `${DECLARATION_PATH} releases["${previousVersion}"].database.schemaGeneration: recorded ` +
+      `${recordedPreviousGeneration} disagrees with generation ${canonicalSchemaGeneration} ` +
+      'derived from the migration registry at the predecessor tag.',
+    );
+  }
   const targetGeneration = targetDatabase?.schemaGeneration;
   const generationIncreased =
     Number.isSafeInteger(previousGeneration) &&
@@ -165,8 +182,9 @@ function findDeclarationViolations(declaration, canonicalDeclaration, targetVers
   const missing = [...carried, previousVersion].filter((version) => !seen.has(version));
   if (missing.length > 0) {
     violations.push(
-      `${label}: a singleton predecessor is allowed only when its recorded schemaGeneration is lower than ` +
-      `the target generation; otherwise carry forward every version declared by ${previousVersion} plus ` +
+      `${label}: a singleton predecessor is allowed only when its schema generation (derived from the ` +
+      'predecessor tag when available, otherwise recorded) is lower than the target generation; ' +
+      `otherwise carry forward every version declared by ${previousVersion} plus ` +
       `${previousVersion} itself; missing ${missing.join(', ')}.`,
     );
   }
@@ -176,6 +194,7 @@ function findDeclarationViolations(declaration, canonicalDeclaration, targetVers
 
 export function checkReleaseMetadata({
   canonicalDeclaration,
+  canonicalSchemaGeneration,
   codeSchemaGeneration,
   declaration,
   packageJson,
@@ -193,7 +212,7 @@ export function checkReleaseMetadata({
     targetVersion,
     violations: [
       ...findVersionDisagreements(packageJson, packageLock),
-      ...findDeclarationViolations(declaration, canonicalDeclaration, targetVersion, codeSchemaGeneration),
+      ...findDeclarationViolations(declaration, canonicalDeclaration, targetVersion, codeSchemaGeneration, canonicalSchemaGeneration),
     ],
   };
 }
@@ -208,20 +227,29 @@ async function main() {
     ? process.argv[canonicalArgumentIndex + 1]
     : process.env.CHATMUX_CANONICAL_COMPATIBILITY_DECLARATION;
   if (canonicalArgumentIndex >= 0 && !canonicalPath) throw new Error('--canonical-declaration requires a path.');
+  const canonicalRegistryPath = process.env.CHATMUX_CANONICAL_MIGRATION_REGISTRY;
 
-  const [packageJson, packageLock, declaration, migrationSource, canonicalDeclaration] = await Promise.all([
+  const [packageJson, packageLock, declaration, migrationSource, canonicalDeclaration, canonicalRegistrySource] = await Promise.all([
     readJson(resolve(REPOSITORY_ROOT, 'package.json')),
     readJson(resolve(REPOSITORY_ROOT, 'package-lock.json')),
     readJson(resolve(REPOSITORY_ROOT, DECLARATION_PATH)),
     readFile(resolve(REPOSITORY_ROOT, MIGRATION_REGISTRY_PATH), 'utf8'),
     canonicalPath ? readJson(resolve(canonicalPath)) : null,
+    canonicalRegistryPath ? readFile(resolve(canonicalRegistryPath), 'utf8') : null,
   ]);
   if (!canonicalDeclaration) {
     console.warn('Warning: no canonical compatibility declaration provided; using mutable in-repository history.');
   }
+  if (!canonicalRegistrySource) {
+    console.warn('Warning: no canonical migration registry provided; using the recorded predecessor schema generation.');
+  }
   const codeSchemaGeneration = deriveSchemaGeneration(migrationSource);
+  const canonicalSchemaGeneration = canonicalRegistrySource
+    ? deriveSchemaGeneration(canonicalRegistrySource, 'canonical predecessor migration registry')
+    : null;
   const { targetVersion, violations } = checkReleaseMetadata({
     canonicalDeclaration,
+    canonicalSchemaGeneration,
     codeSchemaGeneration,
     declaration,
     packageJson,

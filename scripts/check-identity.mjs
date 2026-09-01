@@ -115,20 +115,33 @@ export function isForbiddenReleaseConfig(relativePath) {
   return /(?:^|\/)\.release-it(?:\.[^/]+)?$/.test(relativePath);
 }
 
+export function findForbiddenReleaseCommand(text) {
+  const invocation =
+    /\bnpx\s+(?:(?:--[^\s]+)\s+)*release-it\b/iu.exec(text) ??
+    /\b(?:exec|execFile|execFileSync|execSync|execa|spawn|spawnSync)\s*\(\s*['"`](?:npx\s+)?release-it\b/iu.exec(text) ??
+    /(?:^|[;&|]\s*|\bexec\s+)release-it(?:\s|$)/imu.exec(text);
+  return invocation?.[0] ?? null;
+}
+
 export function findForbiddenReleaseInvocation(relativePath, text) {
   if (
     relativePath === 'scripts/check-identity.mjs' ||
-    relativePath === 'scripts/check-identity.test.mjs' ||
-    !/\.(?:bash|cjs|js|mjs|sh)$/u.test(relativePath)
+    relativePath === 'scripts/check-identity.test.mjs'
   ) {
     return null;
   }
 
-  const invocation =
-    /\bnpx\s+(?:(?:--[^\s]+)\s+)*release-it\b/u.exec(text) ??
-    /\b(?:exec|execFile|execFileSync|execSync|execa|spawn|spawnSync)\s*\(\s*['"`](?:npx\s+)?release-it\b/u.exec(text) ??
-    /(?:^|[;&|]\s*|\bexec\s+)release-it(?:\s|$)/mu.exec(text);
-  return invocation?.[0] ?? null;
+  // GitHub configuration is a launch surface of its own: a workflow step or a
+  // marketplace action can invoke release-it, so any mention there is forbidden.
+  if (/^\.github\/.*\.ya?ml$/u.test(relativePath)) {
+    return /\brelease-it\b/iu.exec(text)?.[0] ?? null;
+  }
+
+  if (!/\.(?:bash|cjs|cts|js|mjs|mts|sh|ts|tsx)$/u.test(relativePath)) {
+    return null;
+  }
+
+  return findForbiddenReleaseCommand(text);
 }
 
 function normalizeRelativePath(absolutePath) {
@@ -354,6 +367,22 @@ async function readJson(relativePath) {
   }
 }
 
+export function findForbiddenPackageScripts(scripts) {
+  const violations = [];
+
+  for (const [name, command] of Object.entries(scripts ?? {})) {
+    if (name === 'release' || /publish|update|platform/i.test(name) || /npm\s+publish\b/i.test(command)) {
+      violations.push(`package.json scripts.${name}: forbidden publication or platform command`);
+    }
+    // Package scripts are launchers, so any release-it mention at all is forbidden.
+    if (/\brelease-it\b/iu.test(command)) {
+      violations.push(`package.json scripts.${name}: forbidden release-it command invocation`);
+    }
+  }
+
+  return violations;
+}
+
 export function findForbiddenReleaseDependencies(packageJson, packageLock) {
   const violations = [];
   const dependencySections = ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies'];
@@ -413,10 +442,8 @@ function validatePackageMetadata(packageJson, packageLock) {
   assertEqual('package.json Node engine', packageJson.engines?.node, NODE_ENGINE_RANGE);
   assertEqual('package.json check script', packageJson.scripts?.['check:identity'], 'node scripts/check-identity.mjs');
 
-  for (const [name, command] of Object.entries(packageJson.scripts ?? {})) {
-    if (name === 'release' || /publish|update|platform/i.test(name) || /npm\s+publish\b/i.test(command)) {
-      addError(`package.json scripts.${name}: forbidden publication or platform command`);
-    }
+  for (const violation of findForbiddenPackageScripts(packageJson.scripts)) {
+    addError(violation);
   }
 
   const lockRoot = packageLock.packages?.[''];

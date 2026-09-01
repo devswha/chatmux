@@ -128,8 +128,12 @@ export function validateReleaseDescriptor(value: unknown): ReleaseDescriptor | n
 }
 
 export function validateCompatibilityMetadata(value: unknown): CompatibilityMetadata | null {
-  if (!closedObject(value, ['database']) || !closedObject(value.database, ['rollbackCompatibleFrom'])) return null;
-  const versions = value.database.rollbackCompatibleFrom;
+  // schemaGeneration is release-governance bookkeeping validated by the release
+  // workflow; it is accepted here so governed releases stay discoverable, then
+  // stripped because the updater derives nothing from it.
+  if (!closedObject(value, ['database']) || !closedObject(value.database, ['rollbackCompatibleFrom', 'schemaGeneration'])) return null;
+  const { rollbackCompatibleFrom: versions, schemaGeneration } = value.database;
+  if (schemaGeneration !== undefined && (typeof schemaGeneration !== 'number' || !Number.isSafeInteger(schemaGeneration) || schemaGeneration < 0)) return null;
   if (!Array.isArray(versions) || versions.some((version) => !parseStrictSemVer(version)) || new Set(versions).size !== versions.length) return null;
   return { database: { rollbackCompatibleFrom: [...versions] } };
 }

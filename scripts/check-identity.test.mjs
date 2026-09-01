@@ -6,6 +6,8 @@ import { join } from 'node:path';
 
 import {
   classifyDirectoryEntry,
+  findForbiddenPackageScripts,
+  findForbiddenReleaseCommand,
   findForbiddenReleaseDependencies,
   findForbiddenReleaseInvocation,
   isForbiddenReleaseConfig,
@@ -80,6 +82,41 @@ test('rejects release-it command invocations only in executable script entrypoin
   assert.match(findForbiddenReleaseInvocation('scripts/publish.mjs', "spawn('release-it', args)"), /release-it/u);
   assert.equal(findForbiddenReleaseInvocation('CHANGELOG.md', 'npx release-it'), null);
   assert.equal(findForbiddenReleaseInvocation('scripts/check-identity.test.mjs', 'npx release-it'), null);
+});
+
+test('rejects release-it launchers in TypeScript sources', () => {
+  assert.match(findForbiddenReleaseInvocation('scripts/ship.ts', "spawnSync('release-it', ['--ci'])"), /release-it/u);
+  assert.match(findForbiddenReleaseInvocation('scripts/ship.mts', 'await execa(`npx release-it`)'), /release-it/u);
+  assert.equal(findForbiddenReleaseInvocation('scripts/ship.ts', "const label = 'released items';"), null);
+});
+
+test('rejects any release-it mention in GitHub workflow and configuration YAML', () => {
+  assert.match(findForbiddenReleaseInvocation('.github/workflows/ship.yml', '      - run: npx release-it'), /release-it/iu);
+  assert.match(findForbiddenReleaseInvocation('.github/workflows/ship.yaml', 'uses: release-it/release-it-action@v1'), /release-it/iu);
+  assert.match(findForbiddenReleaseInvocation('.github/workflows/ship.yml', '      - run: Release-It --ci'), /release-it/iu);
+  assert.equal(findForbiddenReleaseInvocation('.github/workflows/ci.yml', 'name: release-assets'), null);
+  assert.equal(findForbiddenReleaseInvocation('other/pipeline.yml', 'command: release-it'), null);
+});
+
+test('rejects release-it invocations in package.json scripts', () => {
+  assert.deepEqual(findForbiddenPackageScripts({ ship: 'npx release-it' }), [
+    'package.json scripts.ship: forbidden release-it command invocation',
+  ]);
+  assert.deepEqual(findForbiddenPackageScripts({ ship: 'release-it --ci' }), [
+    'package.json scripts.ship: forbidden release-it command invocation',
+  ]);
+  assert.deepEqual(findForbiddenPackageScripts({ ship: 'node_modules/.bin/release-it' }), [
+    'package.json scripts.ship: forbidden release-it command invocation',
+  ]);
+  assert.deepEqual(findForbiddenPackageScripts({ release: 'echo done' }), [
+    'package.json scripts.release: forbidden publication or platform command',
+  ]);
+  assert.deepEqual(findForbiddenPackageScripts({ build: 'vite build' }), []);
+});
+
+test('matches release-it commands case-insensitively', () => {
+  assert.match(findForbiddenReleaseCommand('npx Release-It'), /release-it/iu);
+  assert.equal(findForbiddenReleaseCommand('echo releases'), null);
 });
 
 test('rejects a release-it package configuration key', () => {

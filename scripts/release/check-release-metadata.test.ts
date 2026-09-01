@@ -37,9 +37,11 @@ function check(
   lockVersion: string = version,
   canonicalDeclaration?: unknown,
   codeSchemaGeneration: number = CODE_GENERATION,
+  canonicalSchemaGeneration: number | null = null,
 ) {
   return checkReleaseMetadata({
     canonicalDeclaration,
+    canonicalSchemaGeneration,
     codeSchemaGeneration,
     declaration,
     packageJson: { version },
@@ -83,6 +85,30 @@ test('rejects a singleton predecessor when its schema generation is missing', ()
 
   const { violations } = check(declaration, TARGET, TARGET, undefined, 20);
   assert.ok(violations.some((violation) => /singleton predecessor is allowed only/u.test(violation)));
+});
+
+test('bootstraps a pre-governance predecessor from the tag-derived schema generation', () => {
+  const declaration = declarationWith(['1.8.14'], 20);
+  delete declaration.releases['1.8.14'].database.schemaGeneration;
+
+  const bootstrapped = check(declaration, TARGET, TARGET, undefined, 20, 16);
+  assert.deepEqual(bootstrapped.violations, []);
+
+  const unchanged = check(declaration, TARGET, TARGET, undefined, 20, 20);
+  assert.ok(unchanged.violations.some((violation) => /singleton predecessor is allowed only/u.test(violation)));
+});
+
+test('rejects recorded predecessor metadata that disagrees with the tag-derived generation', () => {
+  const { violations } = check(
+    declarationWith(['1.8.12', '1.8.13', '1.8.14']),
+    TARGET,
+    TARGET,
+    undefined,
+    CODE_GENERATION,
+    16,
+  );
+  assert.ok(violations.some((violation) =>
+    /recorded 19 disagrees with generation 16 derived from the migration registry at the predecessor tag/u.test(violation)));
 });
 
 test('rejects a target declaration with a missing or mismatched schema generation', () => {
