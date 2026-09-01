@@ -11,6 +11,7 @@ import {
   findForbiddenReleaseDependencies,
   findForbiddenReleaseInvocation,
   isForbiddenReleaseConfig,
+  isGeneratedDirectoryRoot,
 } from './check-identity.mjs';
 
 async function withTemporaryDirectory(t) {
@@ -117,6 +118,26 @@ test('rejects release-it invocations in package.json scripts', () => {
 test('matches release-it commands case-insensitively', () => {
   assert.match(findForbiddenReleaseCommand('npx Release-It'), /release-it/iu);
   assert.equal(findForbiddenReleaseCommand('echo releases'), null);
+});
+
+test('rejects release-it launcher wrappers in script sources', () => {
+  assert.match(findForbiddenReleaseCommand('npx -y release-it --ci'), /release-it/iu);
+  assert.match(findForbiddenReleaseCommand('npm exec --yes release-it'), /release-it/iu);
+  assert.match(findForbiddenReleaseCommand('pnpm dlx release-it'), /release-it/iu);
+  assert.match(findForbiddenReleaseCommand('bunx release-it'), /release-it/iu);
+  assert.match(
+    findForbiddenReleaseInvocation('scripts/ship.ts', "spawnSync('npx', ['-y', 'release-it'])"),
+    /release-it/iu,
+  );
+});
+
+test('skips generated directories only at the repository root during traversal', () => {
+  assert.equal(isGeneratedDirectoryRoot('release'), true);
+  assert.equal(isGeneratedDirectoryRoot('dist'), true);
+  assert.equal(isGeneratedDirectoryRoot('dist-server'), true);
+  assert.equal(isGeneratedDirectoryRoot('scripts/release'), false);
+  assert.equal(isGeneratedDirectoryRoot('src/dist'), false);
+  assert.equal(isGeneratedDirectoryRoot('packaging/release'), false);
 });
 
 test('rejects a release-it package configuration key', () => {

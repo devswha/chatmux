@@ -135,6 +135,26 @@ test('uses canonical predecessor metadata and rejects changed historical metadat
   assert.ok(violations.some((violation) => /differs from canonical metadata published at the predecessor tag/u.test(violation)));
 });
 
+test('rejects changes to any canonical historical entry, not just the predecessor', () => {
+  const canonical = declarationWith(['1.8.12', '1.8.13', '1.8.14']);
+  const current = structuredClone(canonical);
+  current.releases['1.8.12'].database.schemaGeneration = 17;
+
+  const { violations } = check(current, TARGET, TARGET, canonical);
+  assert.ok(violations.some((violation) =>
+    /releases\["1\.8\.12"\]: differs from canonical metadata published at the predecessor tag/u.test(violation)));
+});
+
+test('rejects removal of a canonical historical entry', () => {
+  const canonical = declarationWith(['1.8.12', '1.8.13', '1.8.14']);
+  const current = structuredClone(canonical);
+  delete current.releases['1.8.12'];
+
+  const { violations } = check(current, TARGET, TARGET, canonical);
+  assert.ok(violations.some((violation) =>
+    /releases\["1\.8\.12"\]: differs from canonical metadata published at the predecessor tag/u.test(violation)));
+});
+
 test('rejects non-stable and duplicate declared versions', () => {
   const prerelease = check(declarationWith(['1.8.12', '1.8.13', '1.8.14-rc.1', '1.8.14']));
   assert.ok(prerelease.violations.some((violation) => /"1\.8\.14-rc\.1" is not an exact stable SemVer/u.test(violation)));

@@ -111,16 +111,24 @@ export function classifyDirectoryEntry(entry, relativePath) {
     : ENTRY_CLASSIFICATIONS.SCAN;
 }
 
+// Generated-output skipping must stay anchored to the repository root:
+// skipping any directory merely named `release` would blind the scan to
+// source paths such as scripts/release, where a reintroduced launcher
+// would otherwise pass the identity check.
+export function isGeneratedDirectoryRoot(relativePath) {
+  return GENERATED_DIRECTORIES.includes(relativePath);
+}
+
 export function isForbiddenReleaseConfig(relativePath) {
   return /(?:^|\/)\.release-it(?:\.[^/]+)?$/.test(relativePath);
 }
 
 export function findForbiddenReleaseCommand(text) {
-  const invocation =
-    /\bnpx\s+(?:(?:--[^\s]+)\s+)*release-it\b/iu.exec(text) ??
-    /\b(?:exec|execFile|execFileSync|execSync|execa|spawn|spawnSync)\s*\(\s*['"`](?:npx\s+)?release-it\b/iu.exec(text) ??
-    /(?:^|[;&|]\s*|\bexec\s+)release-it(?:\s|$)/imu.exec(text);
-  return invocation?.[0] ?? null;
+  // Script sources are launch surfaces just like package.json scripts:
+  // wrappers such as `npx -y release-it`, `npm exec --yes release-it`,
+  // `pnpm dlx release-it`, or spawnSync('npx', ['-y', 'release-it']) all
+  // restore an alternate release path, so any release-it mention is forbidden.
+  return /\brelease-it\b/iu.exec(text)?.[0] ?? null;
 }
 
 export function findForbiddenReleaseInvocation(relativePath, text) {
@@ -328,7 +336,7 @@ async function walkDirectory(directoryPath, category) {
         continue;
       }
 
-      if (category === 'source' && GENERATED_DIRECTORIES.includes(entry.name)) {
+      if (category === 'source' && isGeneratedDirectoryRoot(relativePath)) {
         continue;
       }
 

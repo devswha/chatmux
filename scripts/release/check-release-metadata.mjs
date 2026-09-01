@@ -139,17 +139,24 @@ function findDeclarationViolations(declaration, canonicalDeclaration, targetVers
     }
   }
 
+  // Published metadata is immutable for the whole history, not just the
+  // immediate predecessor: every release entry recorded in the canonical
+  // declaration at the predecessor tag must survive unchanged. Entries at or
+  // above the target version were never published from that tag, so only
+  // lower versions are frozen.
+  if (canonicalDeclaration) {
+    for (const [version, canonicalEntry] of Object.entries(canonicalDeclaration.releases ?? {})) {
+      const parsed = parseStableVersion(version);
+      if (parsed && compareVersions(parsed, target) >= 0) continue;
+      if (JSON.stringify(declaration?.releases?.[version]) !== JSON.stringify(canonicalEntry)) {
+        violations.push(`${DECLARATION_PATH} releases["${version}"]: differs from canonical metadata published at the predecessor tag.`);
+      }
+    }
+  }
+
   const history = canonicalDeclaration ?? declaration;
   const previousVersion = findPreviousRelease(history, targetVersion);
   if (previousVersion === null) return violations;
-
-  if (canonicalDeclaration) {
-    const currentPrevious = declaration?.releases?.[previousVersion];
-    const canonicalPrevious = canonicalDeclaration?.releases?.[previousVersion];
-    if (JSON.stringify(currentPrevious) !== JSON.stringify(canonicalPrevious)) {
-      violations.push(`${DECLARATION_PATH} releases["${previousVersion}"]: differs from canonical metadata published at the predecessor tag.`);
-    }
-  }
 
   // Published metadata is immutable, and releases up to 1.8.14 predate schemaGeneration.
   // The predecessor's generation is therefore derived from the migration registry source
