@@ -190,6 +190,8 @@ async function readCompatibilityDeclaration(version) {
 
   const entry = declaration.releases[version];
   const versions = entry?.database?.rollbackCompatibleFrom;
+  const databaseKeys = entry?.database ? Object.keys(entry.database) : [];
+  const schemaGeneration = entry?.database?.schemaGeneration;
   if (
     !entry ||
     typeof entry !== 'object' ||
@@ -197,7 +199,10 @@ async function readCompatibilityDeclaration(version) {
     !entry.database ||
     typeof entry.database !== 'object' ||
     Array.isArray(entry.database) ||
-    Object.keys(entry.database).length !== 1 ||
+    databaseKeys.some((key) => key !== 'rollbackCompatibleFrom' && key !== 'schemaGeneration') ||
+    !databaseKeys.includes('rollbackCompatibleFrom') ||
+    (databaseKeys.includes('schemaGeneration') &&
+      (!Number.isSafeInteger(schemaGeneration) || schemaGeneration < 1)) ||
     !Array.isArray(versions) ||
     versions.some((candidate) => typeof candidate !== 'string' || !STRICT_SEMVER.test(candidate)) ||
     new Set(versions).size !== versions.length
