@@ -428,10 +428,44 @@ jobs:
           RELEASE_TAG: ${{ needs.build.outputs.release_tag }}
         run: |
           set -euo pipefail
-          gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
-            -f "ref=refs/tags/$RELEASE_TAG" \
-            -f "sha=$GITHUB_SHA"
-          tag_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq '.object.sha')"
+          tag_endpoint="repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG"
+          release_endpoint="repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG"
+          tag_error="$RUNNER_TEMP/release-tag-lookup.error"
+          release_error="$RUNNER_TEMP/release-lookup.error"
+
+          require_reusable_tag() {
+            local tag_sha="$1"
+            if [ "$tag_sha" != "$GITHUB_SHA" ]; then
+              echo "Existing release tag points to $tag_sha instead of verified commit $GITHUB_SHA." >&2
+              exit 1
+            fi
+            if gh api "$release_endpoint" --silent 2>"$release_error"; then
+              echo "Release $RELEASE_TAG already exists; refusing to reuse its tag." >&2
+              exit 1
+            elif ! grep -q 'HTTP 404' "$release_error"; then
+              cat "$release_error" >&2
+              exit 1
+            fi
+            echo "Reusing release tag already bound to the verified commit."
+          }
+
+          if tag_sha="$(gh api "$tag_endpoint" --jq '.object.sha' 2>"$tag_error")"; then
+            require_reusable_tag "$tag_sha"
+          elif grep -q 'HTTP 404' "$tag_error"; then
+            if ! gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+              -f "ref=refs/tags/$RELEASE_TAG" \
+              -f "sha=$GITHUB_SHA"; then
+              # The API may have accepted the POST before a transport failure, or a
+              # same-commit tag may have won the race. Resolve and validate either case.
+              tag_sha="$(gh api "$tag_endpoint" --jq '.object.sha')"
+              require_reusable_tag "$tag_sha"
+            fi
+          else
+            cat "$tag_error" >&2
+            exit 1
+          fi
+
+          tag_sha="$(gh api "$tag_endpoint" --jq '.object.sha')"
           if [ "$tag_sha" != "$GITHUB_SHA" ]; then
             echo "Release tag is not bound to the verified workflow commit." >&2
             exit 1

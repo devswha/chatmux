@@ -5,6 +5,7 @@ on:
     branches:
       - main
   pull_request:
+    types: [opened, edited, synchronize, reopened]
   workflow_dispatch:
 
 permissions:
@@ -90,7 +91,7 @@ jobs:
       - name: Write verify receipt
         run: |
           mkdir -p .ci-receipts
-          node scripts/cua/write-release-receipt.mjs verify .ci-receipts/verify-node-${{ matrix.node-version }}.json ubuntu-22.04
+          node scripts/cua/write-release-receipt.mjs verify .ci-receipts/verify-node${{ matrix.node-major }}.json ubuntu-22.04
 
       - name: Upload verify receipt
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
