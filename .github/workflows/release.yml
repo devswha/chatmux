@@ -39,29 +39,42 @@ jobs:
           persist-credentials: false
 
       - name: Reject duplicate or non-increasing stable release
+        id: version-policy
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           VERSION="$(node -p "require('./package.json').version")"
           TAG="v$VERSION"
-          TAG_REFS="$(gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/$TAG")"
-          RELEASE_PAGES="$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100")"
-          TARGET_VERSION="$VERSION" TARGET_TAG="$TAG" TAG_REFS="$TAG_REFS" RELEASE_PAGES="$RELEASE_PAGES" node --input-type=module <<'EOF'
+          TAG_REFS_PATH="$RUNNER_TEMP/release-tag-refs.json"
+          RELEASE_PAGES_PATH="$RUNNER_TEMP/release-pages.json"
+          gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/$TAG" > "$TAG_REFS_PATH"
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$RELEASE_PAGES_PATH"
+          TARGET_VERSION="$VERSION" TARGET_TAG="$TAG" TAG_REFS_PATH="$TAG_REFS_PATH" \
+            RELEASE_PAGES_PATH="$RELEASE_PAGES_PATH" node --input-type=module <<'EOF'
+          import fs from 'node:fs';
           const stable = /^(?:v)?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u;
           const parse = (value) => {
             const match = stable.exec(value);
-            return match && match.slice(1).map(Number);
+            if (!match) return null;
+            const components = match.slice(1).map(Number);
+            return components.every(Number.isSafeInteger) ? components : null;
           };
-          const compare = (left, right) => left.reduce((result, value, index) => result || value - right[index], 0);
+          const compare = (left, right) => {
+            for (let index = 0; index < left.length; index += 1) {
+              if (left[index] < right[index]) return -1;
+              if (left[index] > right[index]) return 1;
+            }
+            return 0;
+          };
           const target = parse(process.env.TARGET_VERSION);
           if (!target) throw new Error(`package.json version is not stable SemVer: ${process.env.TARGET_VERSION}`);
 
-          const tags = JSON.parse(process.env.TAG_REFS);
+          const tags = JSON.parse(fs.readFileSync(process.env.TAG_REFS_PATH, 'utf8'));
           if (tags.some((tag) => tag.ref === `refs/tags/${process.env.TARGET_TAG}`)) {
             throw new Error(`Tag ${process.env.TARGET_TAG} already exists.`);
           }
-          const releases = JSON.parse(process.env.RELEASE_PAGES).flat();
+          const releases = JSON.parse(fs.readFileSync(process.env.RELEASE_PAGES_PATH, 'utf8')).flat();
           if (releases.some((release) => release.tag_name === process.env.TARGET_TAG)) {
             throw new Error(`Release ${process.env.TARGET_TAG} already exists.`);
           }
@@ -76,9 +89,27 @@ jobs:
           if (highest && compare(target, highest.version) <= 0) {
             throw new Error(`Release ${process.env.TARGET_VERSION} must be greater than published stable ${highest.tag}.`);
           }
+          if (highest && process.env.GITHUB_OUTPUT) {
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `highest_stable_tag=${highest.tag}\n`);
+          }
           EOF
 
+      - name: Fetch canonical predecessor metadata
+        id: canonical-metadata
+        if: steps.version-policy.outputs.highest_stable_tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREDECESSOR_TAG: ${{ steps.version-policy.outputs.highest_stable_tag }}
+        run: |
+          set -euo pipefail
+          canonical_path="$RUNNER_TEMP/canonical-update-compatibility.json"
+          gh api "repos/$GITHUB_REPOSITORY/contents/packaging/release/update-compatibility.json?ref=$PREDECESSOR_TAG" \
+            --jq .content | base64 --decode > "$canonical_path"
+          echo "path=$canonical_path" >> "$GITHUB_OUTPUT"
+
       - name: Validate release metadata
+        env:
+          CHATMUX_CANONICAL_COMPATIBILITY_DECLARATION: ${{ steps.canonical-metadata.outputs.path }}
         run: node scripts/release/check-release-metadata.mjs
 
   build:
