@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import {
   classifyDirectoryEntry,
   findForbiddenReleaseDependencies,
+  findForbiddenReleaseInvocation,
   isForbiddenReleaseConfig,
 } from './check-identity.mjs';
 
@@ -72,6 +73,39 @@ test('rejects release-it configuration files', () => {
   assert.equal(isForbiddenReleaseConfig('.release-it.cjs'), true);
   assert.equal(isForbiddenReleaseConfig('config/.release-it.json'), true);
   assert.equal(isForbiddenReleaseConfig('release-it.json'), false);
+});
+
+test('rejects release-it command invocations only in executable script entrypoints', () => {
+  assert.match(findForbiddenReleaseInvocation('release.sh', 'exec npx release-it "$@"'), /release-it/u);
+  assert.match(findForbiddenReleaseInvocation('scripts/publish.mjs', "spawn('release-it', args)"), /release-it/u);
+  assert.equal(findForbiddenReleaseInvocation('CHANGELOG.md', 'npx release-it'), null);
+  assert.equal(findForbiddenReleaseInvocation('scripts/check-identity.test.mjs', 'npx release-it'), null);
+});
+
+test('rejects a release-it package configuration key', () => {
+  assert.deepEqual(findForbiddenReleaseDependencies({ 'release-it': {} }, {}), [
+    'package.json release-it: forbidden release-it configuration key',
+  ]);
+});
+
+test('rejects npm aliases that resolve to release-it in every dependency section', () => {
+  const violations = findForbiddenReleaseDependencies(
+    {
+      dependencies: { publisher: 'npm:release-it' },
+      optionalDependencies: { optionalPublisher: 'npm:release-it@20.2.1' },
+    },
+    {
+      packages: {
+        '': { peerDependencies: { peerPublisher: 'npm:release-it@^20' } },
+      },
+    },
+  );
+
+  assert.deepEqual(violations, [
+    'package.json dependencies.publisher: forbidden npm alias to release-it',
+    'package.json optionalDependencies.optionalPublisher: forbidden npm alias to release-it',
+    'package-lock.json root peerDependencies.peerPublisher: forbidden npm alias to release-it',
+  ]);
 });
 
 test('rejects obsolete release dependencies from manifests and lock packages', () => {

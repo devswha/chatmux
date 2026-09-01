@@ -115,6 +115,22 @@ export function isForbiddenReleaseConfig(relativePath) {
   return /(?:^|\/)\.release-it(?:\.[^/]+)?$/.test(relativePath);
 }
 
+export function findForbiddenReleaseInvocation(relativePath, text) {
+  if (
+    relativePath === 'scripts/check-identity.mjs' ||
+    relativePath === 'scripts/check-identity.test.mjs' ||
+    !/\.(?:bash|cjs|js|mjs|sh)$/u.test(relativePath)
+  ) {
+    return null;
+  }
+
+  const invocation =
+    /\bnpx\s+(?:(?:--[^\s]+)\s+)*release-it\b/u.exec(text) ??
+    /\b(?:exec|execFile|execFileSync|execSync|execa|spawn|spawnSync)\s*\(\s*['"`](?:npx\s+)?release-it\b/u.exec(text) ??
+    /(?:^|[;&|]\s*|\bexec\s+)release-it(?:\s|$)/mu.exec(text);
+  return invocation?.[0] ?? null;
+}
+
 function normalizeRelativePath(absolutePath) {
   return relative(REPOSITORY_ROOT, absolutePath).split(sep).join('/');
 }
@@ -232,6 +248,10 @@ function scanSpecialFile(relativePath, buffer) {
   }
 
   const text = buffer.toString('utf8');
+  const releaseInvocation = findForbiddenReleaseInvocation(relativePath, text);
+  if (releaseInvocation) {
+    addError(`${relativePath}: forbidden release-it command invocation`);
+  }
 
   if (relativePath === 'README.md') {
     validateMainReadme(text);
@@ -338,14 +358,20 @@ export function findForbiddenReleaseDependencies(packageJson, packageLock) {
   const violations = [];
   const dependencySections = ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies'];
 
+  if (packageJson?.['release-it'] !== undefined) {
+    violations.push('package.json release-it: forbidden release-it configuration key');
+  }
+
   for (const [source, manifest] of [
     ['package.json', packageJson],
     ['package-lock.json root', packageLock?.packages?.['']],
   ]) {
     for (const section of dependencySections) {
-      for (const dependency of FORBIDDEN_RELEASE_DEPENDENCIES) {
-        if (manifest?.[section]?.[dependency] !== undefined) {
+      for (const [dependency, specification] of Object.entries(manifest?.[section] ?? {})) {
+        if (FORBIDDEN_RELEASE_DEPENDENCIES.has(dependency)) {
           violations.push(`${source} ${section}.${dependency}: forbidden release-it dependency`);
+        } else if (/^npm:release-it(?:@|$)/u.test(specification)) {
+          violations.push(`${source} ${section}.${dependency}: forbidden npm alias to release-it`);
         }
       }
     }

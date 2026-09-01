@@ -4,8 +4,6 @@
 .env*
 .gitignore
 .nvmrc
-.release-it.json
-release.sh
 postcss.config.js
 vite.config.js
 tailwind.config.js
