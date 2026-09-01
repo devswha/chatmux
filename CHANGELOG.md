@@ -1,6 +1,8 @@
 # Changelog
 
-All notable changes to ChatMux will be documented in this file.
+This file is the historical generated changelog through v1.8.0. Current canonical
+release notes are generated from merged pull-request titles and published with
+each [GitHub Release](https://github.com/devswha/chatmux/releases).
 
 
 ## [1.8.0](https://github.com/devswha/chatmux/compare/v1.7.0...v1.8.0) (2026-08-02)

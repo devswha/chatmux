@@ -17,6 +17,7 @@ native/**/target/
 
 # Local agent runtime state
 .gjc/
+.insane-review/
 
 # Environment variables
 .env

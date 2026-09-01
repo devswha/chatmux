@@ -19,9 +19,14 @@ const MAX_FILE_BYTES = 64 * 1024 * 1024;
 const MAX_ARCHIVE_BYTES = 512 * 1024 * 1024;
 const MAX_REPORTED_ERRORS = 100;
 const GENERATED_DIRECTORIES = ['dist', 'dist-server', 'release'];
+const FORBIDDEN_RELEASE_DEPENDENCIES = new Set([
+  '@release-it/conventional-changelog',
+  'auto-changelog',
+  'release-it',
+]);
 // Repository-local agent state is not shipped source. Scanning session logs
 // makes the identity gate depend on whichever coding tool happened to run CI.
-const SKIPPED_DIRECTORIES = new Set(['.codegraph', '.git', '.gjc', '.omo', 'node_modules']);
+const SKIPPED_DIRECTORIES = new Set(['.codegraph', '.git', '.gjc', '.insane-review', '.omo', 'node_modules']);
 const ENTRY_CLASSIFICATIONS = Object.freeze({
   REJECT: 'reject',
   SCAN: 'scan',
@@ -106,6 +111,9 @@ export function classifyDirectoryEntry(entry, relativePath) {
     : ENTRY_CLASSIFICATIONS.SCAN;
 }
 
+export function isForbiddenReleaseConfig(relativePath) {
+  return /(?:^|\/)\.release-it(?:\.[^/]+)?$/.test(relativePath);
+}
 
 function normalizeRelativePath(absolutePath) {
   return relative(REPOSITORY_ROOT, absolutePath).split(sep).join('/');
@@ -142,6 +150,10 @@ function lineAndColumn(text, index) {
 }
 
 function scanPath(relativePath) {
+  if (isForbiddenReleaseConfig(relativePath)) {
+    addError(`${relativePath}: forbidden release-it configuration`);
+  }
+
   for (const matcher of LEGACY_MATCHERS) {
     if (matcher.expression.test(relativePath)) {
       addError(`${relativePath}: ${matcher.label} in path`);
@@ -322,9 +334,44 @@ async function readJson(relativePath) {
   }
 }
 
+export function findForbiddenReleaseDependencies(packageJson, packageLock) {
+  const violations = [];
+  const dependencySections = ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies'];
+
+  for (const [source, manifest] of [
+    ['package.json', packageJson],
+    ['package-lock.json root', packageLock?.packages?.['']],
+  ]) {
+    for (const section of dependencySections) {
+      for (const dependency of FORBIDDEN_RELEASE_DEPENDENCIES) {
+        if (manifest?.[section]?.[dependency] !== undefined) {
+          violations.push(`${source} ${section}.${dependency}: forbidden release-it dependency`);
+        }
+      }
+    }
+  }
+
+  for (const dependency of FORBIDDEN_RELEASE_DEPENDENCIES) {
+    const lockPackage = Object.keys(packageLock?.packages ?? {}).find(
+      (packagePath) =>
+        packagePath === `node_modules/${dependency}` ||
+        packagePath.endsWith(`/node_modules/${dependency}`),
+    );
+    if (lockPackage) {
+      violations.push(`package-lock.json ${lockPackage}: forbidden release-it dependency`);
+    }
+  }
+
+  return violations;
+}
+
 function validatePackageMetadata(packageJson, packageLock) {
   if (!packageJson || !packageLock) {
     return;
+  }
+
+  for (const violation of findForbiddenReleaseDependencies(packageJson, packageLock)) {
+    addError(violation);
   }
 
   assertEqual('package.json name', packageJson.name, PACKAGE_NAME);

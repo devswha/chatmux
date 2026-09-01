@@ -4,7 +4,11 @@ import { test } from 'node:test';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { classifyDirectoryEntry } from './check-identity.mjs';
+import {
+  classifyDirectoryEntry,
+  findForbiddenReleaseDependencies,
+  isForbiddenReleaseConfig,
+} from './check-identity.mjs';
 
 async function withTemporaryDirectory(t) {
   const directory = await mkdtemp(join(tmpdir(), 'check-identity-'));
@@ -20,9 +24,10 @@ async function directoryEntry(directory, name) {
 
 test('skips skipped directories', async (t) => {
   const directory = await withTemporaryDirectory(t);
-  await Promise.all(['.git', '.omo'].map((name) => mkdir(join(directory, name))));
+  await Promise.all(['.git', '.insane-review', '.omo'].map((name) => mkdir(join(directory, name))));
 
   assert.equal(classifyDirectoryEntry(await directoryEntry(directory, '.git'), '.git'), 'skip');
+  assert.equal(classifyDirectoryEntry(await directoryEntry(directory, '.insane-review'), '.insane-review'), 'skip');
   assert.equal(classifyDirectoryEntry(await directoryEntry(directory, '.omo'), '.omo'), 'skip');
 });
 
@@ -59,4 +64,38 @@ test('rejects nested .codegraph symlinks', async (t) => {
     classifyDirectoryEntry(await directoryEntry(join(directory, 'nested'), '.codegraph'), 'nested/.codegraph'),
     'reject',
   );
+});
+
+test('rejects release-it configuration files', () => {
+  assert.equal(isForbiddenReleaseConfig('.release-it'), true);
+  assert.equal(isForbiddenReleaseConfig('.release-it.json'), true);
+  assert.equal(isForbiddenReleaseConfig('.release-it.cjs'), true);
+  assert.equal(isForbiddenReleaseConfig('config/.release-it.json'), true);
+  assert.equal(isForbiddenReleaseConfig('release-it.json'), false);
+});
+
+test('rejects obsolete release dependencies from manifests and lock packages', () => {
+  const violations = findForbiddenReleaseDependencies(
+    {
+      dependencies: { 'auto-changelog': '^2.5.0' },
+      devDependencies: { 'release-it': '^20.2.1' },
+    },
+    {
+      packages: {
+        '': {
+          peerDependencies: {
+            '@release-it/conventional-changelog': '^11.0.1',
+          },
+        },
+        'node_modules/example/node_modules/release-it': {},
+      },
+    },
+  );
+
+  assert.deepEqual(violations, [
+    'package.json dependencies.auto-changelog: forbidden release-it dependency',
+    'package.json devDependencies.release-it: forbidden release-it dependency',
+    'package-lock.json root peerDependencies.@release-it/conventional-changelog: forbidden release-it dependency',
+    'package-lock.json node_modules/example/node_modules/release-it: forbidden release-it dependency',
+  ]);
 });

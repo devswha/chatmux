@@ -6,6 +6,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: chatmux-release
+  cancel-in-progress: false
+
 jobs:
   release-policy:
     name: Validate protected release ref
@@ -21,9 +25,62 @@ jobs:
             exit 1
           fi
 
+  release-preflight:
+    name: Validate release version
+    needs: release-policy
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+
+      - name: Reject duplicate or non-increasing stable release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./package.json').version")"
+          TAG="v$VERSION"
+          TAG_REFS="$(gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/$TAG")"
+          RELEASE_PAGES="$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100")"
+          TARGET_VERSION="$VERSION" TARGET_TAG="$TAG" TAG_REFS="$TAG_REFS" RELEASE_PAGES="$RELEASE_PAGES" node --input-type=module <<'EOF'
+          const stable = /^(?:v)?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u;
+          const parse = (value) => {
+            const match = stable.exec(value);
+            return match && match.slice(1).map(Number);
+          };
+          const compare = (left, right) => left.reduce((result, value, index) => result || value - right[index], 0);
+          const target = parse(process.env.TARGET_VERSION);
+          if (!target) throw new Error(`package.json version is not stable SemVer: ${process.env.TARGET_VERSION}`);
+
+          const tags = JSON.parse(process.env.TAG_REFS);
+          if (tags.some((tag) => tag.ref === `refs/tags/${process.env.TARGET_TAG}`)) {
+            throw new Error(`Tag ${process.env.TARGET_TAG} already exists.`);
+          }
+          const releases = JSON.parse(process.env.RELEASE_PAGES).flat();
+          if (releases.some((release) => release.tag_name === process.env.TARGET_TAG)) {
+            throw new Error(`Release ${process.env.TARGET_TAG} already exists.`);
+          }
+          const published = releases
+            .filter((release) => !release.draft && !release.prerelease)
+            .map((release) => ({ tag: release.tag_name, version: parse(release.tag_name) }))
+            .filter((release) => release.version);
+          const highest = published.reduce(
+            (current, release) => !current || compare(release.version, current.version) > 0 ? release : current,
+            null,
+          );
+          if (highest && compare(target, highest.version) <= 0) {
+            throw new Error(`Release ${process.env.TARGET_VERSION} must be greater than published stable ${highest.tag}.`);
+          }
+          EOF
+
   build:
     name: Build Node 22 Linux x64 server artifact
-    needs: release-policy
+    needs: release-preflight
     timeout-minutes: 30
     runs-on: ubuntu-22.04
     permissions:
@@ -46,7 +103,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
-          node-version: 22
+          node-version: 22.22.2
           architecture: x64
           cache: npm
 
@@ -60,8 +117,8 @@ jobs:
         run: |
           set -euo pipefail
           case "$(node --version)" in
-            v22.*) ;;
-            *) echo "Node 22 is required." >&2; exit 1 ;;
+            v22.22.2) ;;
+            *) echo "Node 22.22.2 is required." >&2; exit 1 ;;
           esac
           case "$(getconf GNU_LIBC_VERSION)" in
             "glibc 2.35") ;;
@@ -76,6 +133,8 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+      - name: Verify dependency signatures
+        run: npm audit signatures
       - name: Verify source
         run: npm run verify
 
@@ -329,6 +388,21 @@ jobs:
             if (entries.some((entry) => entry.includes('image.png'))) throw new Error('image.png is forbidden from release publication.');
           "
 
+      - name: Bind release tag to the verified commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.build.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+            -f "ref=refs/tags/$RELEASE_TAG" \
+            -f "sha=$GITHUB_SHA"
+          tag_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq '.object.sha')"
+          if [ "$tag_sha" != "$GITHUB_SHA" ]; then
+            echo "Release tag is not bound to the verified workflow commit." >&2
+            exit 1
+          fi
+
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -341,6 +415,6 @@ jobs:
             "release-assets/$ASSET_NAME.sha256" \
             install.sh \
             --repo "$GITHUB_REPOSITORY" \
-            --target "$GITHUB_SHA" \
+            --verify-tag \
             --title "ChatMux $RELEASE_TAG" \
             --generate-notes
