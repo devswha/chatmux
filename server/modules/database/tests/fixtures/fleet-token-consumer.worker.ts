@@ -1,8 +1,12 @@
 import { parentPort, workerData } from 'node:worker_threads';
 
 import Database from 'better-sqlite3';
+import { tsImport } from 'tsx/esm/api';
 
-import { FleetPairingTokensRepository } from '@/modules/database/repositories/fleet-pairing-tokens.js';
+const { FleetPairingTokensRepository } = await tsImport(
+  '../../repositories/fleet-pairing-tokens.js',
+  import.meta.url,
+) as typeof import('../../repositories/fleet-pairing-tokens.js');
 
 type ConsumerData = Readonly<{
   filename: string;
