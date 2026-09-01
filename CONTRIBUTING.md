@@ -166,6 +166,8 @@ Cutting a release (maintainers):
 2. Merge the release-prep PR only after the required checks run on latest `main`.
 3. Dispatch the **Release ChatMux Server** workflow from `main` (`gh workflow run "Release ChatMux Server" --ref main`). The workflow rejects duplicate, stale, and non-increasing stable versions before it verifies, builds, proves rollback compatibility, and publishes the GitHub Release with the tag. `npm run cua:release` is manual release evidence and recommended before dispatch; it does not gate publication.
 
+The `release-preflight` job enforces compatibility-declaration completeness before anything is built: `npm run release:check-metadata` (`scripts/release/check-release-metadata.mjs`) checks that `package.json` and both `package-lock.json` version fields agree, that `packaging/release/update-compatibility.json` has an exact entry for the target version listing only unique stable versions below it, and that the entry either resets to exactly the preceding release (a real schema migration) or carries every version that release declared forward. Run it locally on a release-prep PR to see the missing versions before CI does.
+
 Maintainers publish approved repository revisions through the repository-owned self-hosting lifecycle. Use an immutable commit SHA for installations and updates; do not rely on a global package or a moving branch.
 
 ```bash

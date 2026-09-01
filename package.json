@@ -57,6 +57,7 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p server/tsconfig.json",
     "check:identity": "node scripts/check-identity.mjs",
+    "release:check-metadata": "node scripts/release/check-release-metadata.mjs",
     "audit": "npm audit --audit-level=high",
     "check:core": "cargo fmt --manifest-path native/chatmux-core/Cargo.toml -- --check && cargo clippy --locked --manifest-path native/chatmux-core/Cargo.toml --all-targets -- -D warnings && cargo test --locked --manifest-path native/chatmux-core/Cargo.toml",
     "test": "node scripts/run-tests.mjs",

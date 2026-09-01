@@ -78,6 +78,9 @@ jobs:
           }
           EOF
 
+      - name: Validate release metadata
+        run: node scripts/release/check-release-metadata.mjs
+
   build:
     name: Build Node 22 Linux x64 server artifact
     needs: release-preflight
