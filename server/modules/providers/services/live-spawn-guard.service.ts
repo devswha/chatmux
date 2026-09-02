@@ -20,7 +20,15 @@ const GUARDED_PROVIDERS: ReadonlySet<string> = new Set<ExternalLocalCliKind>([
   'claude', 'codex', 'cursor', 'opencode', 'omp', 'omo',
 ]);
 
-export type LiveTmuxSpawnBlock = { tmuxName: string };
+export type LiveTmuxSpawnBlock = { readonly tmuxName: string };
+
+export type LiveTmuxSpawnGuardResult =
+  | { readonly kind: 'blocked'; readonly tmuxName: string }
+  | { readonly kind: 'clear' }
+  | { readonly kind: 'discovery_unavailable' };
+
+const CLEAR_RESULT = { kind: 'clear' } as const;
+const DISCOVERY_UNAVAILABLE_RESULT = { kind: 'discovery_unavailable' } as const;
 
 /** Pure matcher, exported for tests. */
 export function findLiveTmuxPaneForSession(
@@ -36,22 +44,21 @@ export function findLiveTmuxPaneForSession(
 }
 
 /**
- * Returns the live tmux owner of a provider-native session id, or null when
- * spawning is safe. Fail-open on unavailable or failed discovery evidence:
- * a false block would break the core chat path outright, while a false allow
- * merely restores the pre-guard behavior — and when tmux is not running at
- * all, no pane can own the transcript anyway.
+ * Distinguishes a clear fresh scan from unavailable discovery so callers can
+ * fail closed only when resuming a provider-native session could create a
+ * duplicate writer.
  */
 export async function findLiveTmuxSpawnBlock(
   provider: LLMProvider | string,
   providerSessionId: string | null | undefined,
-): Promise<LiveTmuxSpawnBlock | null> {
-  if (!providerSessionId || !GUARDED_PROVIDERS.has(provider)) return null;
+): Promise<LiveTmuxSpawnGuardResult> {
+  if (!providerSessionId || !GUARDED_PROVIDERS.has(provider)) return CLEAR_RESULT;
   try {
     const detailed = await getExternalCliSessionsDetailedFresh();
-    if (!detailed.ok) return null;
-    return findLiveTmuxPaneForSession(provider, providerSessionId, detailed.sessions);
+    if (!detailed.ok) return DISCOVERY_UNAVAILABLE_RESULT;
+    const owner = findLiveTmuxPaneForSession(provider, providerSessionId, detailed.sessions);
+    return owner ? { kind: 'blocked', tmuxName: owner.tmuxName } : CLEAR_RESULT;
   } catch {
-    return null;
+    return DISCOVERY_UNAVAILABLE_RESULT;
   }
 }
