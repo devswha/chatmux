@@ -4,6 +4,9 @@
 and security semantics. Later work MUST NOT widen the surfaces below without a new
 RFC revision.
 
+Revision 2 (2026-09-02): adds the catalog bound and the `omitted` snapshot marker
+under "Closed protocol". Everything else is unchanged from revision 1.
+
 ## Topology and authority
 
 - A fleet MUST contain one designated hub and at most nine enrolled full peers (ten
@@ -69,6 +72,20 @@ RFC revision.
   interrupt/escape/terminate; process termination; and session spawn/termination.
   Events are limited to catalog snapshot/delta, host state, chat delta,
   prompt/approval change, pane output, and completion ready.
+- Catalog frames MUST fit the frame bound like every other frame. A peer MUST
+  publish a bounded catalog rather than its whole session table. Priority, highest
+  first: present panes; the most recently active sessions with the projects they
+  belong to; starred projects. Rows MUST leave in this order until the snapshot
+  fits: projects no session references and nobody starred, stale panes, the least
+  recently active sessions (a project whose last kept session leaves goes with it
+  unless starred), starred projects without sessions, and present panes only as a
+  last resort. When any row was dropped the snapshot MUST carry
+  `omitted` with per-entity counts; when nothing was dropped the field MUST be
+  absent so `fleet/1` hubs that predate it stay compatible. Omitted rows are
+  reachable only through the owning peer's own UI; the hub MUST NOT infer, page, or
+  request them. A delta that would exceed the bound MUST be replaced by a full
+  snapshot at the same epoch and the next revision, which the hub MUST apply as a
+  replacement of its current view.
 - Errors are closed values for malformed frames, protocol/capability/identifier
   failures, unknown operation/event/error, host availability, uncertain command
   outcome, stale/altered/cache-full requests, deadline/frame bounds, and denial.
