@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
+import { promises as fsPromises } from 'node:fs';
 import { lstat, mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
 import {
+  isGitMetadataPath,
   openProjectFileForWrite,
   resolveProjectEntryForMutation,
   resolveProjectFileForRead,
@@ -126,5 +128,27 @@ test('project file writes use the same regular file object that passed validatio
     assert.equal(await readFile(outsideFile, 'utf8'), 'outside');
   } finally {
     await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('project file containment keeps .git metadata out of reach for reads, writes, and mutations', async () => {
+  const root = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'containment-git-'));
+  try {
+    await fsPromises.mkdir(path.join(root, '.git', 'hooks'), { recursive: true });
+    await fsPromises.writeFile(path.join(root, '.git', 'config'), '[core]\n');
+    await fsPromises.writeFile(path.join(root, '.gitignore'), 'node_modules\n');
+    await fsPromises.writeFile(path.join(root, 'notes.md'), '# notes\n');
+
+    assert.equal(await resolveProjectFileForRead(root, path.join(root, '.git', 'config')), null, 'git config can carry remote credentials and fsmonitor commands');
+    assert.equal(await resolveProjectFileForWrite(root, path.join(root, '.git', 'config')), null);
+    assert.equal(await resolveProjectFileForWrite(root, path.join(root, '.git', 'hooks', 'pre-commit')), null, 'a hook written here would run on the app\'s next git commit');
+    assert.equal(await resolveProjectEntryForMutation(root, path.join(root, '.git')), null);
+    assert.equal(await openProjectFileForWrite(root, path.join(root, '.git', 'config')), null);
+    assert.equal(isGitMetadataPath(root, path.join(root, '.git')), true);
+
+    assert.equal(await resolveProjectFileForRead(root, path.join(root, '.gitignore')), path.join(await fsPromises.realpath(root), '.gitignore'), 'dotfiles that merely start with .git stay editable');
+    assert.ok(await resolveProjectFileForWrite(root, path.join(root, 'notes.md')));
+  } finally {
+    await fsPromises.rm(root, { recursive: true, force: true });
   }
 });

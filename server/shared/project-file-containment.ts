@@ -9,6 +9,23 @@ function isWithinProjectRoot(projectRootRealPath: string, candidateRealPath: str
   );
 }
 
+/**
+ * `.git` under the project root is repository metadata, not project content.
+ * Writing `.git/config` (core.fsmonitor, diff.external) or a hook turns the
+ * app's own git calls into command execution, and `.git/config` can carry
+ * credentials in remote URLs, so the file API neither reads nor writes there.
+ */
+export function isGitMetadataPath(projectRootRealPath: string, candidateRealPath: string): boolean {
+  if (!isWithinProjectRoot(projectRootRealPath, candidateRealPath) || candidateRealPath === projectRootRealPath) return false;
+  const relative = candidateRealPath.slice(projectRootRealPath.length + 1);
+  const [head] = relative.split(path.sep);
+  return head === '.git';
+}
+
+function isAccessibleProjectPath(projectRootRealPath: string, candidateRealPath: string): boolean {
+  return isWithinProjectRoot(projectRootRealPath, candidateRealPath) && !isGitMetadataPath(projectRootRealPath, candidateRealPath);
+}
+
 async function resolveNearestExistingAncestor(filePath: string): Promise<{
   path: string;
   missingPathSegments: string[];
@@ -52,7 +69,7 @@ export async function resolveProjectFileForRead(
   ]);
   const fileRealPath = await realpath(filePath);
 
-  return isWithinProjectRoot(projectRootRealPath, fileRealPath) ? fileRealPath : null;
+  return isAccessibleProjectPath(projectRootRealPath, fileRealPath) ? fileRealPath : null;
 }
 
 /**
@@ -83,7 +100,7 @@ export async function resolveProjectFileForWrite(
   }
 
   const fileRealPath = path.join(ancestorRealPath, ...ancestor.missingPathSegments);
-  return isWithinProjectRoot(projectRootRealPath, fileRealPath) ? fileRealPath : null;
+  return isAccessibleProjectPath(projectRootRealPath, fileRealPath) ? fileRealPath : null;
 }
 
 /**
@@ -104,7 +121,8 @@ export async function resolveProjectEntryForMutation(
     return null;
   }
 
-  return path.join(parentRealPath, path.basename(absoluteEntryPath));
+  const entryRealPath = path.join(parentRealPath, path.basename(absoluteEntryPath));
+  return isGitMetadataPath(projectRootRealPath, entryRealPath) ? null : entryRealPath;
 }
 
 export async function openProjectFileForWrite(
