@@ -125,7 +125,15 @@ function decorateAndRecordEvent(run: ChatRun, message: NormalizedMessage): Norma
   }
 
   notifyProcessingChanged();
-  for (const listener of eventListeners) listener(outbound);
+  for (const listener of eventListeners) {
+    try {
+      listener(outbound);
+    } catch (error) {
+      // Listeners are side channels (fleet publish, tests); the browser
+      // stream that recorded this event must never fail because one broke.
+      console.error('[Chat Run Registry] Event listener failed:', error instanceof Error ? error.message : error);
+    }
+  }
   return outbound;
 }
 

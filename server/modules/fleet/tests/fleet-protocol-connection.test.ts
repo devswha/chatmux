@@ -86,7 +86,7 @@ function request(generation: number, body: null | Readonly<Record<string, string
   });
 }
 
-function fixture(overrides: Partial<FleetProtocolConnectionOptions> = {}, suppliedHub?: ReturnType<typeof identity>) {
+function fixture(overrides: Partial<FleetProtocolConnectionOptions> = {}, suppliedHub?: ReturnType<typeof identity>, capabilities: FleetProtocolConnectionOptions['local']['capabilities'] = ['catalog.read']) {
   const hub = suppliedHub ?? identity();
   const peer = identity();
   const scheduler = new Scheduler();
@@ -95,7 +95,7 @@ function fixture(overrides: Partial<FleetProtocolConnectionOptions> = {}, suppli
   const activeTransport = overrides.transport instanceof Transport ? overrides.transport : transport;
   let dispatchCount = 0;
   const options: FleetProtocolConnectionOptions = {
-    local: { role: 'peer', signer: peer.signer, processEpoch: 'peer-epoch', capabilities: ['catalog.read'], transportMode: 'direct-wss' },
+    local: { role: 'peer', signer: peer.signer, processEpoch: 'peer-epoch', capabilities, transportMode: 'direct-wss' },
     trust: { find: async (installationId) => ({ installationId, pinnedPublicKey: hub.publicKey, state: 'active' }) },
     replayGuard: new FleetChallengeReplayGuard(), registry, transport: activeTransport, scheduler,
     dispatch: async (incoming) => { dispatchCount += 1; return successfulResponse(incoming); },
@@ -104,9 +104,9 @@ function fixture(overrides: Partial<FleetProtocolConnectionOptions> = {}, suppli
   return { hub, peer, scheduler, transport: activeTransport, registry, options, connection: new FleetProtocolConnection(options), dispatchCount: () => dispatchCount };
 }
 
-async function authenticate(subject: ReturnType<typeof fixture>, connectionId = randomUUID()): Promise<void> {
+async function authenticate(subject: ReturnType<typeof fixture>, connectionId = randomUUID(), capabilities: FleetProtocolConnectionOptions['local']['capabilities'] = ['catalog.read']): Promise<void> {
   const hello = createFleetHello({
-    role: 'hub', signer: subject.hub.signer, processEpoch: 'hub-epoch', capabilities: ['catalog.read'],
+    role: 'hub', signer: subject.hub.signer, processEpoch: 'hub-epoch', capabilities,
     transportMode: 'direct-wss', connectionId,
   });
   await subject.connection.receive(Buffer.from(encodeFleetFrame(hello)));
@@ -203,6 +203,75 @@ test('Given frame and writer bounds, when either is exceeded, then input never r
   assert.equal(bounded.transport.closes[0]?.reason, 'fleet writer capacity exceeded');
   assert.equal(bounded.dispatchCount(), 0);
 });
+
+test('Given an authenticated peer, when an event exceeds the frame bound, then it is dropped and the connection survives', async () => {
+  const dropped: Array<[string, string]> = [];
+  const errors: string[] = [];
+  const subject = fixture({ onDroppedFrame: (code, kind) => { dropped.push([code, kind]); }, onError: (code) => { errors.push(code); } });
+  await authenticate(subject);
+  const sentBefore = subject.transport.sent.length;
+
+  const oversized = subject.connection.publish('catalog.delta', 'event-big', { text: 'x'.repeat(FLEET_MAX_FRAME_BYTES) });
+  const normal = subject.connection.publish('catalog.delta', 'event-small', { text: 'hello' });
+
+  assert.equal(oversized, false);
+  assert.equal(normal, true);
+  assert.deepEqual(dropped, [['PROTOCOL_FRAME_TOO_LARGE', 'event']]);
+  assert.deepEqual(errors, []);
+  assert.deepEqual(subject.transport.closes, [], 'a frame the wire cannot carry never closes the connection');
+  assert.equal(subject.transport.sent.length, sentBefore + 1);
+  const last = decodeFleetFrame(Buffer.from(subject.transport.sent.at(-1) ?? ''));
+  assert.equal(last.kind === 'event' && last.eventId, 'event-small');
+});
+
+test('Given an authenticated peer, when a response exceeds the frame bound, then the hub gets a bounded FLEET_FRAME_TOO_LARGE failure', async () => {
+  const capabilities = ['catalog.read', 'chat.control'] as const;
+  const subject = fixture({
+    dispatch: async (incoming): Promise<FleetResponseEnvelope> => ({
+      kind: 'response', protocolVersion: incoming.protocolVersion, connectionGeneration: incoming.connectionGeneration,
+      requestId: incoming.requestId, target: incoming.target, status: 'success',
+      sideEffect: incoming.operation === 'chat.send' ? 'applied' : 'none',
+      body: { blob: 'y'.repeat(FLEET_MAX_FRAME_BYTES) },
+    }),
+  }, undefined, capabilities);
+  await authenticate(subject, undefined, capabilities);
+
+  const sentBefore = subject.transport.sent.length;
+  await subject.connection.receive(Buffer.from(encodeFleetFrame(request(1))));
+  await subject.transport.waitForCount(sentBefore + 1);
+  const readReply = decodeFleetFrame(Buffer.from(subject.transport.sent.at(-1) ?? ''));
+  assert.equal(readReply.kind, 'response');
+  if (readReply.kind !== 'response') return;
+  assert.equal(readReply.status, 'failure');
+  assert.equal(readReply.status === 'failure' && readReply.error, 'FLEET_FRAME_TOO_LARGE');
+  assert.equal(readReply.sideEffect, 'none');
+  assert.equal(readReply.requestId, 'request-1');
+
+  const mutation = { ...request(1, { value: 'go' }, 'chat.send'), requestId: 'request-2' };
+  await subject.connection.receive(Buffer.from(encodeFleetFrame(mutation)));
+  await subject.transport.waitForCount(sentBefore + 2);
+  const mutationReply = decodeFleetFrame(Buffer.from(subject.transport.sent.at(-1) ?? ''));
+  assert.equal(mutationReply.kind === 'response' && mutationReply.status === 'failure' && mutationReply.sideEffect, 'possible', 'an applied mutation whose result cannot be delivered is reported as uncertain, never as none');
+  assert.deepEqual(subject.transport.closes, []);
+});
+
+test('Given a saturated writer, when publishing continues, then the connection closes without throwing into the publisher', async () => {
+  const transport = new Transport();
+  transport.blocked = true;
+  const errors: string[] = [];
+  const subject = fixture({ transport, writer: { maxFrames: 4, maxBytes: 1024 * 1024 }, onError: (code) => { errors.push(code); } });
+  await authenticate(subject);
+
+  const results: boolean[] = [];
+  for (let index = 0; index < 8; index += 1) {
+    results.push(subject.connection.publish('catalog.delta', `event-${index}`, { index }));
+  }
+
+  assert.ok(results.includes(false), 'the publisher learns the connection is gone');
+  assert.deepEqual(subject.transport.closes[0], { code: 4008, reason: 'fleet writer capacity exceeded' });
+  assert.ok(errors.includes('PROTOCOL_QUEUE_FULL'));
+});
+
 
 test('Given an authenticated hub, when its grant is revoked, then the next lease tick closes the connection', async () => {
   const errors: string[] = [];
