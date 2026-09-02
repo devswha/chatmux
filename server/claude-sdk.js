@@ -254,7 +254,26 @@ function mapCliOptionsToSDK(options = {}) {
     sdkOptions.resume = sessionId;
   }
 
+  if (options.toolAccess === 'none') {
+    applyTextOnlyToolAccess(sdkOptions);
+  }
+
   return sdkOptions;
+}
+
+/**
+ * Text-only calls (commit message generation over repository content) feed
+ * untrusted text straight into the prompt. Whatever that text says, the run
+ * must be unable to act on it: no built-in tools, no repository-provided
+ * settings or hooks, a single model turn, and never a permission bypass, even
+ * when the operator's global tool settings enable one for interactive chat.
+ */
+function applyTextOnlyToolAccess(sdkOptions) {
+  sdkOptions.tools = [];
+  sdkOptions.allowedTools = [];
+  sdkOptions.maxTurns = 1;
+  sdkOptions.settingSources = [];
+  delete sdkOptions.permissionMode;
 }
 
 /**
@@ -554,7 +573,8 @@ async function queryClaudeSDK(command, options = {}, ws, runtime = {}) {
       effortModels,
     });
 
-    const mcpServers = await loadMcpConfigFn(options.cwd);
+    // MCP servers are tools too: a text-only run gets none of them.
+    const mcpServers = options.toolAccess === 'none' ? null : await loadMcpConfigFn(options.cwd);
     if (mcpServers) {
       sdkOptions.mcpServers = mcpServers;
     }
