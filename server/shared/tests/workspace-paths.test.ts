@@ -9,8 +9,7 @@ import {
   normalizeProjectPath,
   sanitizeLeafDirectoryName,
   validateWorkspacePath,
-  WORKSPACES_ROOT,
-} from '@/shared/workspace-paths.js';
+  WORKSPACES_ROOT, resolveWorkspaceDirectoryWithinRoot } from '@/shared/workspace-paths.js';
 import { validateWorkspacePath as validateWorkspacePathFromUtils } from '@/shared/utils.js';
 
 test('workspace paths reject traversal, system paths, and locations outside the workspace root', async () => {
@@ -66,4 +65,14 @@ test('normalization and leaf names reject traversal forms while preserving valid
 
   assert.equal(sanitizeLeafDirectoryName('  project-01  '), 'project-01');
   assert.equal(validateWorkspacePathFromUtils, validateWorkspacePath);
+});
+
+test('read-only workspace resolution stays inside the workspace root without the creation blocklist', async () => {
+  const root = os.homedir();
+  assert.equal(await resolveWorkspaceDirectoryWithinRoot(root), await resolveWorkspaceDirectoryWithinRoot(`${root}/`), 'trailing separators do not matter');
+  assert.notEqual(await resolveWorkspaceDirectoryWithinRoot(root), null, 'the root itself is listable');
+  assert.equal(await resolveWorkspaceDirectoryWithinRoot('/etc'), null, 'outside the root');
+  assert.equal(await resolveWorkspaceDirectoryWithinRoot(path.join(root, '..')), null, 'traversal above the root');
+  assert.equal(await resolveWorkspaceDirectoryWithinRoot(path.join(root, 'definitely-missing-chatmux-dir')), null, 'must exist');
+  assert.equal(await resolveWorkspaceDirectoryWithinRoot(''), null);
 });

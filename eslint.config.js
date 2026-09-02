@@ -163,6 +163,7 @@ export default tseslint.config(
             "server/shared/image-attachments.ts",
             "server/shared/project-file-containment.ts",
             "server/shared/workspace-paths.ts",
+            "server/shared/password-policy.ts",
             "server/middleware/auth.js",
             "server/middleware/client-address.js",
             "server/tailscale-auth.ts",
