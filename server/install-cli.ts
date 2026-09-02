@@ -858,10 +858,19 @@ async function printAccessQr(run: CommandRunner, url: string): Promise<void> {
   }
 }
 
-/** Reads one secret line from stdin without echo; used so a password never appears in argv. */
-async function readSecretFromStdin(): Promise<string> {
+type SecretInput = AsyncIterable<Buffer | string> & { readonly isTTY?: boolean };
+
+/**
+ * Reads a secret from a piped stdin so a password never appears in argv. A
+ * terminal is refused: reading it to EOF would echo every keystroke into the
+ * screen and scrollback, which is the leak this path exists to avoid.
+ */
+export async function readSecretFromStdin(input: SecretInput = process.stdin): Promise<string> {
+  if (input.isTTY) {
+    throw new Error("stdin is a terminal; pipe the password in instead: printf '%s' '<password>' | chatmux access password --stdin");
+  }
   const chunks: Buffer[] = [];
-  for await (const chunk of process.stdin) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  for await (const chunk of input) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
   return Buffer.concat(chunks).toString('utf8');
 }
 

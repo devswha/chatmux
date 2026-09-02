@@ -16,8 +16,7 @@ import {
   runAccessCli,
   selectAvailableServerPort,
   renderSystemdUnit,
-  runInstallCli,
-} from './install-cli.js';
+  runInstallCli, readSecretFromStdin } from './install-cli.js';
 import { chooseServePort, parseServePorts } from './tailscale-access.js';
 import { getTailscaleAccessConfig } from './tailscale-auth.js';
 
@@ -713,4 +712,10 @@ test('access password rotates the owner credential and revokes existing sessions
   // The token-version bump signs out every session issued before the change.
   assert.equal(appConfigDb.get(`auth_token_version:${created.id}`), '1');
   closeConnection();
+});
+
+test('the stdin secret reader refuses a terminal and joins piped chunks verbatim', async () => {
+  await assert.rejects(readSecretFromStdin({ isTTY: true, async *[Symbol.asyncIterator]() { yield 'typed'; } }), /stdin is a terminal/);
+  const piped = { isTTY: false, async *[Symbol.asyncIterator]() { yield Buffer.from('pass'); yield 'phrase-'; yield Buffer.from('é'); } };
+  assert.equal(await readSecretFromStdin(piped), 'passphrase-é');
 });
