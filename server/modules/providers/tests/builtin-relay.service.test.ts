@@ -77,3 +77,16 @@ test('builtinRelayEnabled: on by default, CHATMUX_BUILTIN_RELAY=0 restores tower
   assert.equal(builtinRelayEnabled({ CHATMUX_BUILTIN_RELAY: '0' }), false);
   assert.equal(builtinRelayEnabled({ CHATMUX_BUILTIN_RELAY: '1' }), true);
 });
+
+test('builtinSpawn: session creation goes through the spawn runner, other commands through the plain runner', async () => {
+  const home = mkdtempSync(path.join(tmpdir(), 'relay-home-'));
+  mkdirSync(path.join(home, 'workspace', 'proj'), { recursive: true });
+  const plain = runner(() => ({ code: 1, output: '' }));
+  const spawnRun = runner(() => ok);
+
+  const created = await builtinSpawn('scoped', '~/workspace/proj', { run: plain.run, spawnRun: spawnRun.run, home });
+
+  assert.equal(created.ok, true);
+  assert.deepEqual(plain.calls.map((call) => call.args[0]), ['has-session'], 'the existence check talks to the existing server');
+  assert.deepEqual(spawnRun.calls.map((call) => call.args[0]), ['new-session'], 'only the command that may fork a tmux server is isolated');
+});
