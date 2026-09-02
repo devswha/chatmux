@@ -61,10 +61,22 @@ export class FleetProtocolConnection {
     return this.incoming;
   }
 
-  publish(event: FleetEvent, eventId: string, body: JsonValue): void {
-    if (this.state.kind !== 'authenticated') return;
-    assertFleetCapability(this.state.capabilities, capabilityForEvent(event));
-    this.send({
+  /**
+   * Publishes one event. Never throws: publishers run inside unrelated
+   * emitters (node-pty data, chat run listeners), where an exception would
+   * take down the whole process rather than this one connection. An event
+   * the wire cannot carry is dropped and reported; a saturated writer closes
+   * this connection so the hub reconnects and resnapshots.
+   */
+  publish(event: FleetEvent, eventId: string, body: JsonValue): boolean {
+    if (this.state.kind !== 'authenticated') return false;
+    try {
+      assertFleetCapability(this.state.capabilities, capabilityForEvent(event));
+    } catch (error) {
+      this.options.onDroppedFrame?.(error instanceof FleetProtocolError ? error.code : 'PROTOCOL_FRAME_INVALID', 'event');
+      return false;
+    }
+    return this.send({
       kind: 'event', protocolVersion: FLEET_PROTOCOL_VERSION,
       connectionGeneration: this.state.generation, eventId, event,
       hostId: this.options.local.signer.installationId, body,
@@ -189,8 +201,41 @@ export class FleetProtocolConnection {
     });
   }
 
-  private send(frame: Parameters<typeof encodeFleetFrame>[0]): void {
-    this.writer.send(encodeFleetFrame(frame));
+  /**
+   * Encodes and queues one frame. A frame over the size bound is never a
+   * reason to drop the connection: a response is replaced by a bounded
+   * FLEET_FRAME_TOO_LARGE failure so the hub's request settles, any other
+   * frame is dropped and reported. Writer saturation closes the connection.
+   */
+  private send(frame: Parameters<typeof encodeFleetFrame>[0]): boolean {
+    if (this.state.kind === 'closed') return false;
+    let encoded: string;
+    try {
+      encoded = encodeFleetFrame(frame);
+    } catch (error) {
+      if (!(error instanceof FleetProtocolError) || error.code !== 'PROTOCOL_FRAME_TOO_LARGE') {
+        this.reject(error);
+        return false;
+      }
+      this.options.onDroppedFrame?.(error.code, frame.kind);
+      if (frame.kind === 'response') {
+        return this.send({
+          kind: 'response', protocolVersion: frame.protocolVersion, connectionGeneration: frame.connectionGeneration,
+          requestId: frame.requestId, target: frame.target, status: 'failure',
+          // An applied mutation whose result cannot be delivered is an uncertain outcome, never a silent 'none'.
+          sideEffect: frame.status === 'success' && frame.sideEffect === 'applied' ? 'possible' : frame.status === 'failure' ? frame.sideEffect : 'none',
+          error: 'FLEET_FRAME_TOO_LARGE', body: null,
+        });
+      }
+      return false;
+    }
+    try {
+      this.writer.send(encoded);
+      return true;
+    } catch (error) {
+      this.reject(error);
+      return false;
+    }
   }
 
   /**

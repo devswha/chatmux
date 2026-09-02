@@ -49,3 +49,24 @@ test('Given a processing subscriber, when runs materially mutate, then notificat
   assert.deepEqual(observed, [0, 1, -1]);
   chatRunRegistry.clearAll();
 });
+
+test('Given a throwing event subscriber, when a run streams, then the other subscriber and the run itself are unaffected', () => {
+  chatRunRegistry.clearAll();
+  const observed: Array<{ readonly seq?: number }> = [];
+  const unsubscribeBad = chatRunRegistry.subscribeEvents(() => { throw new Error('listener bug'); });
+  const unsubscribeGood = chatRunRegistry.subscribeEvents((event) => observed.push(event));
+  const run = chatRunRegistry.startRun({
+    appSessionId: 'listener-isolation', provider: 'codex', providerSessionId: null,
+    connection: new Connection(), userId: null,
+  });
+  assert.ok(run);
+  try {
+    assert.doesNotThrow(() => run.writer.send({ kind: 'stream_delta', provider: 'codex', sessionId: 'native', content: 'one' }));
+    assert.doesNotThrow(() => run.writer.send({ kind: 'complete', provider: 'codex', sessionId: 'native', exitCode: 0 }));
+    assert.deepEqual(observed.map(({ seq }) => seq), [1, 2], 'the healthy subscriber still receives every event');
+  } finally {
+    unsubscribeBad();
+    unsubscribeGood();
+    chatRunRegistry.clearAll();
+  }
+});
