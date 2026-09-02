@@ -6,6 +6,7 @@ import {
   authenticateTailscaleRequest,
   getTailscaleAccessConfig,
   getTailscaleAccessRole,
+  hasProxyHeaders,
   isLoopbackHost,
   normalizeTailscaleLogin,
   revokeTailscaleUser,
@@ -98,4 +99,48 @@ test('local direct access remains an owner recovery path without accepting DNS r
     socket: { remoteAddress: '127.0.0.1' },
     headers: { host: 'malicious.example' },
   }, store), null);
+});
+
+test('a Tailscale Serve request that rewrites Host to a loopback name never becomes the local owner', () => {
+  const store = createStore();
+  setTailscaleOwner('owner@example.com', store);
+  // Observed on a real host: Serve forwards the client's Host verbatim and
+  // always stamps x-forwarded-* plus tailscale-user-* on the proxied request.
+  const serveWithLoopbackHost = {
+    host: 'localhost',
+    'x-forwarded-for': '100.64.0.2',
+    'x-forwarded-host': 'localhost',
+    'x-forwarded-proto': 'https',
+    'tailscale-user-login': 'owner@example.com',
+    'tailscale-user-name': 'Owner',
+  };
+  assert.equal(authenticateTailscaleRequest({
+    socket: { remoteAddress: '127.0.0.1' },
+    headers: serveWithLoopbackHost,
+  }, store), null, 'even the allowlisted owner must not be promoted to local through a rewritten Host');
+  assert.equal(authenticateTailscaleRequest({
+    socket: { remoteAddress: '127.0.0.1' },
+    headers: { ...serveWithLoopbackHost, 'tailscale-user-login': 'stranger@example.com' },
+  }, store), null, 'a tailnet user outside the allowlist cannot bypass it with Host: localhost');
+  assert.equal(authenticateTailscaleRequest({
+    socket: { remoteAddress: '127.0.0.1' },
+    headers: { host: '127.0.0.1:3001', 'x-forwarded-for': '100.64.0.2' },
+  }, store), null, 'any forwarded-for header marks the request as proxied');
+  assert.equal(authenticateTailscaleRequest({
+    socket: { remoteAddress: '127.0.0.1' },
+    headers: { host: '[::1]:3001', forwarded: 'for=100.64.0.2;proto=https' },
+  }, store), null, 'the RFC 7239 Forwarded header also marks the request as proxied');
+  assert.deepEqual(authenticateTailscaleRequest({
+    socket: { remoteAddress: '127.0.0.1' },
+    headers: { host: 'localhost:3001', 'accept-encoding': 'gzip' },
+  }, store), { login: null, name: null, role: 'local', source: 'local' }, 'an untouched loopback request keeps the recovery path');
+});
+
+test('proxy header detection is case-insensitive and ignores unset entries', () => {
+  assert.equal(hasProxyHeaders(undefined), false);
+  assert.equal(hasProxyHeaders({ host: 'localhost' }), false);
+  assert.equal(hasProxyHeaders({ host: 'localhost', 'x-forwarded-for': undefined }), false);
+  assert.equal(hasProxyHeaders({ host: 'localhost', 'X-Forwarded-Proto': 'https' }), true);
+  assert.equal(hasProxyHeaders({ host: 'localhost', 'tailscale-headers-info': 'https://tailscale.com/s/serve-headers' }), true);
+  assert.equal(hasProxyHeaders({ host: 'localhost', via: '1.1 proxy' }), true);
 });
