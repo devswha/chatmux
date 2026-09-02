@@ -841,7 +841,7 @@ export function useChatComposerState({
       });
 
       setIsUserScrolledUp(false);
-      setTimeout(() => scrollToBottom(), 100);
+      scrollToBottom();
 
       // One message shape for every provider. The backend resolves the
       // provider, project path, and provider-native resume id from the

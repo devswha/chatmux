@@ -59,6 +59,11 @@ type ProviderSpawnResult = Promise<unknown> & {
   abortHandle?: string;
 };
 
+type LiveTmuxSpawnGuardResult =
+  | { readonly kind: 'blocked'; readonly tmuxName: string }
+  | { readonly kind: 'clear' }
+  | { readonly kind: 'discovery_unavailable' };
+
 type ChatWebSocketDependencies = {
   /** Provider runtimes keyed by provider id. */
   spawnFns: Record<LLMProvider, ProviderSpawnFn>;
@@ -79,16 +84,13 @@ type ChatWebSocketDependencies = {
   /** Provider-runtime approvals included in `chat_subscribed` after reconnect. */
   getPendingApprovalsForSession: (providerSessionId: string) => unknown[];
   /**
-   * Live-pane spawn guard (#44): resolves the tmux session that currently
-   * owns a provider-native session id, or null when spawning is safe. When a
-   * transcript is live in a tmux pane, spawning a headless resume would put a
-   * second writer on the same JSONL and the live agent would never see the
-   * message, so `chat.send` must refuse instead.
+   * Live-pane spawn guard (#44): reports whether a fresh scan found the tmux
+   * owner, proved there is none, or could not establish either result.
    */
   findLiveTmuxSpawnBlock?: (
     provider: LLMProvider,
     providerSessionId: string | null | undefined,
-  ) => Promise<{ tmuxName: string } | null>;
+  ) => Promise<LiveTmuxSpawnGuardResult>;
   /** Optional non-chat protocol mounted on the authenticated /ws gateway. */
   handleDiscovery?: (ws: WebSocket, data: AnyRecord) => boolean;
 };
@@ -185,19 +187,32 @@ async function handleChatSend(
   }
 
   if (session.provider_session_id && dependencies.findLiveTmuxSpawnBlock) {
-    const liveOwner = await dependencies.findLiveTmuxSpawnBlock(
+    const spawnGuard = await dependencies.findLiveTmuxSpawnBlock(
       provider,
       session.provider_session_id,
     );
-    if (liveOwner) {
-      sendProtocolError(
-        ws,
-        'SESSION_LIVE_IN_TMUX',
-        `This session is currently live in tmux session "${liveOwner.tmuxName}". `
-          + 'Send input through the live session view instead of starting a second process.',
-        sessionId,
-      );
-      return;
+    switch (spawnGuard.kind) {
+      case 'blocked':
+        sendProtocolError(
+          ws,
+          'SESSION_LIVE_IN_TMUX',
+          `This session is currently live in tmux session "${spawnGuard.tmuxName}". `
+            + 'Send input through the live session view instead of starting a second process.',
+          sessionId,
+        );
+        return;
+      case 'discovery_unavailable':
+        sendProtocolError(
+          ws,
+          'DISCOVERY_UNAVAILABLE',
+          'Cannot safely resume this session because live session discovery is unavailable.',
+          sessionId,
+        );
+        return;
+      case 'clear':
+        break;
+      default:
+        spawnGuard satisfies never;
     }
   }
 

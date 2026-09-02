@@ -4,7 +4,9 @@ use std::io::{self, Read, Write};
 use std::process::{Child, Command, ExitCode, ExitStatus, Stdio};
 use std::thread;
 
-use chatmux_core::{Command as CliCommand, jobs, map_exit_status, parse_args, pty, watcher};
+use chatmux_core::{
+    Command as CliCommand, jobs, map_exit_status, mkdir_under, parse_args, pty, watcher,
+};
 
 const USAGE_ERROR: &[u8] = b"chatmux-core: usage error\n";
 const SPAWN_ERROR: &[u8] = b"chatmux-core: spawn failed\n";
@@ -33,6 +35,7 @@ fn main() -> ExitCode {
                 fail(JOBS_ERROR)
             }
         }
+        Ok(CliCommand::MkdirUnder { home, components }) => run_mkdir_under(home, components),
         Ok(CliCommand::Pty { program, args }) => {
             if pty::run(program, args) {
                 ExitCode::SUCCESS
@@ -42,6 +45,32 @@ fn main() -> ExitCode {
         }
         Err(_) => fail(USAGE_ERROR),
     }
+}
+
+fn run_mkdir_under(home: std::path::PathBuf, components: Vec<std::ffi::OsString>) -> ExitCode {
+    let (output, exit_code) = match mkdir_under::mkdir_under(&home, &components) {
+        Ok(path) => (
+            serde_json::json!({ "ok": true, "path": path.to_string_lossy() }),
+            ExitCode::SUCCESS,
+        ),
+        Err(error) => {
+            #[cfg(not(windows))]
+            let output = serde_json::json!({
+                "ok": false,
+                "code": format!("{:?}", error.errno()),
+                "component": error.component().to_string_lossy(),
+            });
+            #[cfg(windows)]
+            let output = serde_json::json!({ "ok": false, "code": "UNSUPPORTED" });
+            (output, ExitCode::FAILURE)
+        }
+    };
+    if serde_json::to_writer(io::stdout().lock(), &output).is_err()
+        || io::stdout().write_all(b"\n").is_err()
+    {
+        return ExitCode::FAILURE;
+    }
+    exit_code
 }
 
 fn run_proxy(program: std::ffi::OsString, args: Vec<std::ffi::OsString>) -> ExitCode {

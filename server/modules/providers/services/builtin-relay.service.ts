@@ -1,8 +1,8 @@
 import { spawn } from 'node:child_process';
-import { stat, realpath } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
 
+import { ensureHomeCwd } from './external-cli-sessions/inference-and-spawn.js';
 import { recordHostCommand } from './host-command-metrics.service.js';
 import type { LiveSpawnResult } from './live-send.service.js';
 import { resolveTmuxSpawnLaunch } from './tmux-spawn-scope.service.js';
@@ -99,7 +99,7 @@ async function hasSession(name: string, run: TmuxRunner): Promise<boolean> {
 }
 
 
-/** Mirrors the tower's cwd contract: expanduser, must be an existing dir under $HOME. */
+/** Mirrors the tower's cwd contract: expanduser and create a missing directory under $HOME. */
 export async function resolveSpawnCwd(cwd: string, home: string = homedir()): Promise<string | null> {
   const trimmed = cwd.trim();
   const expanded = trimmed === '~'
@@ -107,18 +107,7 @@ export async function resolveSpawnCwd(cwd: string, home: string = homedir()): Pr
     : trimmed.startsWith('~/')
       ? path.join(home, trimmed.slice(2))
       : trimmed;
-  if (!path.isAbsolute(expanded)) {
-    return null;
-  }
-  try {
-    const [real, homeReal] = await Promise.all([realpath(expanded), realpath(home)]);
-    if (real !== homeReal && !real.startsWith(`${homeReal}${path.sep}`)) {
-      return null;
-    }
-    return (await stat(real)).isDirectory() ? real : null;
-  } catch {
-    return null;
-  }
+  return ensureHomeCwd(expanded, home);
 }
 
 /** Direct spawn: new detached tmux session at the validated cwd, then boot gjc in it. */
@@ -137,7 +126,7 @@ export async function builtinSpawn(
   }
   const resolvedCwd = await resolveSpawnCwd(cwd, deps.home);
   if (!resolvedCwd) {
-    return fail('작업 폴더는 홈 아래 실존 디렉터리만');
+    return fail('작업 폴더는 홈 아래 생성 가능한 디렉터리만');
   }
   try {
     if (await hasSession(name, run)) {

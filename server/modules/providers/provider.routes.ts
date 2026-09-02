@@ -20,7 +20,6 @@ import {
   getCurrentTmuxPaneIdentityState,
   getExternalCliSessionsDetailed,
   normalizeExternalPaneOutput,
-  resolveExternalCliCwd,
   spawnExternalCliSession,
   type ExternalCliSession,
   type ExternalSpawnCli,
@@ -35,6 +34,7 @@ import {
   toExternalSessionDisplayActivity,
 } from '@/modules/providers/services/external-session-activity.service.js';
 import { getHomeDir, getHomeDirSuggestions } from '@/modules/providers/services/home-dirs.service.js';
+import { ensureExternalCliCwd } from '@/modules/providers/services/external-cli-sessions/inference-and-spawn.js';
 import { isValidSpawnName, spawnLiveSession } from '@/modules/providers/services/live-send.service.js';
 import { listLiveGjcCommands } from '@/modules/providers/services/live-commands.service.js';
 import { assertLineageTmuxTarget } from '@/modules/providers/services/tmux-target-guard.service.js';
@@ -999,9 +999,9 @@ router.post(
     if (!cwdInput) {
       throw new AppError('cwd is required.', { code: 'EMPTY_CWD', statusCode: 400 });
     }
-    const cwd = await resolveExternalCliCwd(cwdInput);
+    const cwd = await ensureExternalCliCwd(cwdInput);
     if (!cwd) {
-      throw new AppError('cwd must be an existing directory under HOME.', {
+      throw new AppError('cwd must be a directory under HOME that can be created.', {
         code: 'INVALID_CWD',
         statusCode: 400,
       });
@@ -1376,9 +1376,9 @@ router.post(
     if (!cwdInput) {
       throw new AppError('cwd is required.', { code: 'EMPTY_CWD', statusCode: 400 });
     }
-    const cwd = await resolveExternalCliCwd(cwdInput);
+    const cwd = await ensureExternalCliCwd(cwdInput);
     if (!cwd) {
-      throw new AppError('cwd must be an existing directory under HOME.', {
+      throw new AppError('cwd must be a directory under HOME that can be created.', {
         code: 'INVALID_CWD',
         statusCode: 400,
       });

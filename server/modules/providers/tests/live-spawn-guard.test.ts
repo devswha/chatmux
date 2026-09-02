@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import type { ExternalCliSession } from '@/modules/providers/services/external-cli-sessions.service.js';
-import { findLiveTmuxPaneForSession } from '@/modules/providers/services/live-spawn-guard.service.js';
+import {
+  createFindLiveTmuxSpawnBlock,
+  findLiveTmuxPaneForSession,
+} from '@/modules/providers/services/live-spawn-guard.service.js';
 
 const tmux = {
   socketPath: '/tmp/tmux-1000/default',
@@ -39,6 +42,36 @@ test('a different provider, different id, or unresolved pane never blocks', () =
   assert.equal(findLiveTmuxPaneForSession('omp', 'S-1', sessions), null);
   assert.equal(findLiveTmuxPaneForSession('omo', 'S-other', sessions), null);
   assert.equal(findLiveTmuxPaneForSession('omo', 'S-1', []), null);
+});
+
+test('the discovery adapter preserves unavailable, clear, and blocked states', async () => {
+  const unavailable = createFindLiveTmuxSpawnBlock(async () => ({ ok: false, sessions: [] }));
+  assert.deepEqual(await unavailable('omo', 'S-1'), { kind: 'discovery_unavailable' });
+
+  const throwing = createFindLiveTmuxSpawnBlock(async () => { throw new Error('scan failed'); });
+  assert.deepEqual(await throwing('omo', 'S-1'), { kind: 'discovery_unavailable' });
+
+  const clear = createFindLiveTmuxSpawnBlock(async () => ({ ok: true, sessions: [] }));
+  assert.deepEqual(await clear('omo', 'S-1'), { kind: 'clear' });
+
+  const blocked = createFindLiveTmuxSpawnBlock(async () => ({
+    ok: true,
+    sessions: [session({ kind: 'omo', providerSessionId: 'S-1', tmuxName: 'omo-pane' })],
+  }));
+  assert.deepEqual(await blocked('omo', 'S-1'), { kind: 'blocked', tmuxName: 'omo-pane' });
+});
+
+test('the discovery adapter skips discovery without a guarded provider session id', async () => {
+  let discoveryCalls = 0;
+  const findBlock = createFindLiveTmuxSpawnBlock(async () => {
+    discoveryCalls++;
+    return { ok: true, sessions: [] };
+  });
+
+  assert.deepEqual(await findBlock('omo', null), { kind: 'clear' });
+  assert.deepEqual(await findBlock('omo', undefined), { kind: 'clear' });
+  assert.deepEqual(await findBlock('gjc', 'S-1'), { kind: 'clear' });
+  assert.equal(discoveryCalls, 0);
 });
 
 test('every headless-resume provider is guarded; gjc and non-CLI lanes are not', () => {

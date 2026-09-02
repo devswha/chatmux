@@ -1,7 +1,9 @@
+import { spawn } from 'node:child_process';
 import { constants as fsConstants } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, isAbsolute, relative, sep, delimiter, dirname } from 'node:path';
-import { realpath, stat, access } from 'node:fs/promises';
+import { mkdir, realpath, stat, lstat, access } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 
 import { CURSOR_CLI_COMMAND_CANDIDATES } from '@/modules/providers/list/cursor/cursor-cli-command.js';
 
@@ -85,28 +87,171 @@ export function normalizeExternalPaneOutput(output: string, maxChars = 32_768): 
   return plain.length > maxChars ? plain.slice(-maxChars) : plain;
 }
 
+function isWithinHome(home: string, target: string): boolean {
+  const rel = relative(home, target);
+  return rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
+}
+
+function expandExternalCliCwd(input: string, home: string): string | null {
+  if (input.includes('\0')) return null;
+  const trimmed = input.trim();
+  if (trimmed === '~') return home;
+  if (trimmed.startsWith('~/')) return join(home, trimmed.slice(2));
+  return isAbsolute(trimmed) ? trimmed : join(home, trimmed);
+}
+
+type CreateUnderRootResult =
+  | { ok: true; path: string }
+  | { ok: false; code: string };
+
+type EnsureHomeCwdIo = {
+  realpath(pathname: string): Promise<string>;
+  lstat(pathname: string): Promise<{ isDirectory(): boolean }>;
+  mkdir(pathname: string): Promise<unknown>;
+  stat(pathname: string): Promise<{ isDirectory(): boolean }>;
+  createUnderRoot(home: string, components: string[]): Promise<CreateUnderRootResult>;
+};
+
+function coreExecutablePath(): string {
+  const executable = process.platform === 'win32' ? 'chatmux-core.exe' : 'chatmux-core';
+  const compiled = !import.meta.url.endsWith('.ts');
+  return fileURLToPath(new URL(
+    compiled
+      ? `../../../../../../dist-native/${executable}`
+      : `../../../../../dist-native/${executable}`,
+    import.meta.url,
+  ));
+}
+
+async function createUnderRoot(home: string, components: string[]): Promise<CreateUnderRootResult> {
+  return new Promise((resolve) => {
+    const child = spawn(coreExecutablePath(), ['mkdir-under', '--home', home, '--', ...components], {
+      stdio: ['ignore', 'pipe', 'ignore'],
+      windowsHide: true,
+    });
+    let stdout = '';
+    let settled = false;
+    const finish = (result: CreateUnderRootResult): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(result);
+    };
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      finish({ ok: false, code: 'TIMEOUT' });
+    }, 5_000);
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', (chunk: string) => {
+      stdout += chunk;
+      if (stdout.length > 64 * 1024) {
+        child.kill('SIGKILL');
+        finish({ ok: false, code: 'MALFORMED_OUTPUT' });
+      }
+    });
+    child.once('error', () => finish({ ok: false, code: 'SPAWN_ERROR' }));
+    child.once('close', (code) => {
+      if (code !== 0) {
+        finish({ ok: false, code: 'CORE_ERROR' });
+        return;
+      }
+      try {
+        const output: unknown = JSON.parse(stdout);
+        if (
+          typeof output === 'object' && output !== null &&
+          'ok' in output && output.ok === true &&
+          'path' in output && typeof output.path === 'string'
+        ) {
+          finish({ ok: true, path: output.path });
+          return;
+        }
+      } catch {
+        // Invalid core output is a closed failure below.
+      }
+      finish({ ok: false, code: 'MALFORMED_OUTPUT' });
+    });
+  });
+}
+
+const defaultEnsureHomeCwdIo: EnsureHomeCwdIo = {
+  realpath,
+  lstat,
+  mkdir,
+  stat,
+  createUnderRoot,
+};
+
+function hasFsErrorCode(error: unknown, code: string): boolean {
+  return error instanceof Error && 'code' in error && error.code === code;
+}
+
+/** Creates a missing absolute cwd by walking every component below canonical HOME. */
+export async function ensureHomeCwd(
+  cwd: string,
+  home = homedir(),
+  io: EnsureHomeCwdIo = defaultEnsureHomeCwdIo,
+): Promise<string | null> {
+  if (cwd.includes('\0') || !isAbsolute(cwd)) return null;
+  try {
+    const homeReal = await io.realpath(home);
+    const rel = relative(homeReal, cwd);
+    if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return null;
+    const components = rel.split(sep).filter(Boolean);
+
+    if (process.platform !== 'win32') {
+      const created = await io.createUnderRoot(homeReal, components);
+      return created.ok && typeof created.path === 'string' ? created.path : null;
+    }
+
+    // Windows fallback: nix does not expose the Unix openat/mkdirat contract
+    // there, so retain the existing stepwise behavior on that platform.
+    let canonicalPath = homeReal;
+    for (const component of components) {
+      const expectedPath = join(canonicalPath, component);
+      try {
+        const entry = await io.lstat(expectedPath);
+        if (!entry.isDirectory()) return null;
+      } catch (error) {
+        if (!hasFsErrorCode(error, 'ENOENT')) return null;
+        try {
+          await io.mkdir(expectedPath);
+        } catch (mkdirError) {
+          if (!hasFsErrorCode(mkdirError, 'EEXIST')) return null;
+          const racedEntry = await io.lstat(expectedPath);
+          if (!racedEntry.isDirectory()) return null;
+        }
+      }
+
+      const resolved = await io.realpath(expectedPath);
+      if (resolved !== expectedPath) return null;
+      canonicalPath = resolved;
+    }
+
+    return (await io.stat(canonicalPath)).isDirectory() ? canonicalPath : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Resolves a web spawn cwd and rejects traversal/symlink escape outside HOME. */
 export async function resolveExternalCliCwd(input: string): Promise<string | null> {
-  const home = await realpath(homedir()).catch(() => null);
-  if (!home || input.includes('\0')) return null;
-  const trimmed = input.trim();
-  const expanded = trimmed === '~'
-    ? homedir()
-    : trimmed.startsWith('~/')
-      ? join(homedir(), trimmed.slice(2))
-      : isAbsolute(trimmed)
-        ? trimmed
-        : join(homedir(), trimmed);
+  const home = homedir();
+  const expanded = expandExternalCliCwd(input, home);
+  if (!expanded) return null;
   try {
-    const resolved = await realpath(expanded);
-    const rel = relative(home, resolved);
-    if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
-      return null;
-    }
+    const [homeReal, resolved] = await Promise.all([realpath(home), realpath(expanded)]);
+    if (!isWithinHome(homeReal, resolved)) return null;
     return (await stat(resolved)).isDirectory() ? resolved : null;
   } catch {
     return null;
   }
+}
+
+/** Resolves a web spawn cwd, creating a missing directory only after containment is proven. */
+export async function ensureExternalCliCwd(input: string): Promise<string | null> {
+  const home = homedir();
+  const expanded = expandExternalCliCwd(input, home);
+  return expanded ? ensureHomeCwd(expanded, home) : null;
 }
 
 export type ExternalSpawnCli = ExternalLocalCliKind;
