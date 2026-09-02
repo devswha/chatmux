@@ -2,6 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  isHealthProbeHost,
+  resolveHealthProbeHost,
+  formatHealthProbeHost,
   archiveNameForVersion,
   compareStrictSemVer,
   parseStrictSemVer,
@@ -71,4 +74,37 @@ test('immutable job descriptors and compatibility metadata are closed and exact'
 test('public errors remove paths, urls, tokens, and control characters', () => {
   const error = sanitizePublicUpdateError('failed /home/me/.chatmux/current\nhttps://secret.example/x token=abc');
   assert.equal(error, 'failed [redacted] [redacted] [redacted]');
+});
+
+test('the update descriptor keeps its closed key set so older releases can still parse shared state', () => {
+  const release = validateReleaseDescriptor({
+    repository: 'devswha/chatmux', tag: 'v1.2.3', version: '1.2.3',
+    archiveName: 'chatmux-server-1.2.3-linux-x64-node22.tar.gz', checksumName: 'chatmux-server-1.2.3-linux-x64-node22.tar.gz.sha256',
+    bootstrapName: 'install.sh', archiveSha256: 'a'.repeat(64), publishedAt: '2026-01-01T00:00:00.000Z',
+  });
+  const base = { id: 'abcdefghijklmnopqrstuv', release, compatibility: { database: { rollbackCompatibleFrom: ['1.2.2'] } }, createdAt: 1, installMode: 'release', sourceVersion: '1.2.2', sourceBootId: 'boot-123', serverPort: 3000 };
+
+  assert.ok(validateImmutableUpdateJobDescriptor(base));
+  // The probe host travels in the worker environment, never in the descriptor:
+  // a rolled-back prior release parses this file with the same closed key set.
+  assert.equal(validateImmutableUpdateJobDescriptor({ ...base, serverHost: '192.168.1.10' }), null);
+  assert.equal(isHealthProbeHost('192.168.1.10'), true);
+  assert.equal(isHealthProbeHost('fd7a:115c:a1e0::1'), true);
+  assert.equal(isHealthProbeHost('nas.local'), true);
+  for (const bad of ['', ' ', 'http://x', '192.168.1.10:3000', '[::1]', 'a b', 42, null]) {
+    assert.equal(isHealthProbeHost(bad), false, `rejects ${JSON.stringify(bad)}`);
+  }
+});
+
+test('the probe host follows the bind address, mapping wildcards and unknown values to loopback', () => {
+  assert.equal(resolveHealthProbeHost(undefined), '127.0.0.1');
+  assert.equal(resolveHealthProbeHost(''), '127.0.0.1');
+  assert.equal(resolveHealthProbeHost('0.0.0.0'), '127.0.0.1', 'a wildcard bind is reachable on loopback');
+  assert.equal(resolveHealthProbeHost('::'), '127.0.0.1');
+  assert.equal(resolveHealthProbeHost('localhost'), '127.0.0.1');
+  assert.equal(resolveHealthProbeHost('192.168.1.10'), '192.168.1.10', 'a LAN bind is probed where it listens');
+  assert.equal(resolveHealthProbeHost('[fd7a::1]'), 'fd7a::1');
+  assert.equal(resolveHealthProbeHost('not a host'), '127.0.0.1');
+  assert.equal(formatHealthProbeHost('fd7a::1'), '[fd7a::1]');
+  assert.equal(formatHealthProbeHost('192.168.1.10'), '192.168.1.10');
 });
