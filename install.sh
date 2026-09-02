@@ -136,7 +136,10 @@ require_command chmod
 ensure_managed_root
 
 TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/chatmux-install.XXXXXX")
-trap 'rm -rf "$TEMP_DIR"' EXIT HUP INT TERM
+stage=''
+# A failed extraction must not leave releases/.install-* behind: the next run
+# would refuse the half-written directory as an incomplete release.
+trap 'rm -rf "$TEMP_DIR"; [ -z "$stage" ] || rm -rf "$stage"' EXIT HUP INT TERM
 
 if [ -n "${CHATMUX_VERSION:-}" ]; then
   VERSION=${CHATMUX_VERSION#v}

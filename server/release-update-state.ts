@@ -50,6 +50,7 @@ interface PersistedState {
 export interface StateFileSystem {
   mkdirSync(path: string, options: { recursive: boolean; mode: number }): void;
   lstatSync(path: string): nodeFs.Stats;
+  fstatSync(fd: number): nodeFs.Stats;
   readFileSync(path: string, encoding: 'utf8'): string;
   writeFileSync(path: string, data: string, options: { encoding: 'utf8'; mode: number; flag: 'wx' | 'w' }): void;
   openSync(path: string, flags: string): number;
@@ -282,8 +283,13 @@ export class ReleaseUpdateStateStore {
     const job = this.get(id);
     return job?.recovery ? this.copyRecovery(job.recovery) : null;
   }
-  /** Terminalizes precisely one nonterminal job only when its deterministic worker is proven inactive. */
-  failIfInactive(id: string, isLive: () => boolean): PersistedUpdateJob | null {
+  /**
+   * Terminalizes precisely one nonterminal job only when its deterministic
+   * worker is proven inactive. When the caller is the server itself and it is
+   * running the release the job cut over to, the update evidently succeeded:
+   * the worker only died between the restart and its final bookkeeping.
+   */
+  failIfInactive(id: string, isLive: () => boolean, options: { runningVersion?: string } = {}): PersistedUpdateJob | null {
     if (!isOpaqueUpdateJobId(id)) return null;
     return this.withExclusiveLock(() => {
       const state = this.readState();
@@ -293,9 +299,17 @@ export class ReleaseUpdateStateStore {
       if (!job || isTerminalUpdatePhase(job.phase) || isLive()) return null;
       const postCutover = ['cutting_over', 'restarting', 'verifying_health', 'rolling_back'].includes(job.phase);
       if (postCutover && !job.recovery) throw new ReleaseUpdateStateError('Post-cutover update lacks recovery authority.');
+      const targetIsRunning = postCutover
+        && job.recovery!.cutoverState === 'live_link_swapped'
+        && job.recovery!.rollbackState === 'not_started'
+        && options.runningVersion !== undefined
+        && options.runningVersion === job.recovery!.targetRelease.version;
       if (!postCutover) {
         job.phase = 'failed';
         job.error = 'Updater stopped before completion';
+      } else if (targetIsRunning) {
+        job.phase = 'succeeded';
+        delete job.error;
       } else if (job.recovery!.rollbackState === 'completed') {
         job.phase = 'failed_rolled_back';
         job.error = 'Update failed; verified rollback restored the previous release';
@@ -408,14 +422,31 @@ export class ReleaseUpdateStateStore {
     }
   }
 
+  /**
+   * Removes a lock left by a dead owner. Two contenders can both read the same
+   * dead PID; if the first has already unlinked and re-created the lock, the
+   * second must not unlink the *new* owner's file. The inode of the file that
+   * was inspected is compared with the inode at the path right before unlink,
+   * so only the very file that named the dead PID is ever removed.
+   */
   private recoverDeadLock(): boolean {
+    let fd: number;
+    try { fd = this.fs.openSync(this.lockPath, 'r'); } catch { return false; }
+    let inspectedIno: number | bigint;
     let text: string;
-    try { text = this.fs.readFileSync(this.lockPath, 'utf8'); } catch { return false; }
+    try {
+      inspectedIno = this.fs.fstatSync(fd).ino;
+      text = this.fs.readFileSync(this.lockPath, 'utf8');
+    } catch { return false; } finally { try { this.fs.closeSync(fd); } catch { /* nothing to release */ } }
     const match = /^([1-9]\d*)\n$/.exec(text);
     if (!match) return false;
     const pid = Number(match[1]);
     if (!Number.isSafeInteger(pid) || this.isProcessAlive(pid)) return false;
-    try { this.fs.unlinkSync(this.lockPath); return true; } catch { return false; }
+    try {
+      if (this.fs.lstatSync(this.lockPath).ino !== inspectedIno) return false;
+      this.fs.unlinkSync(this.lockPath);
+      return true;
+    } catch { return false; }
   }
 
   private ensureSafeRoot(): void {
@@ -450,7 +481,12 @@ export class ReleaseUpdateStateStore {
 
   private prune(state: PersistedState, allocator: number): void {
     const now = this.now();
-    const candidates = Object.values(state.jobs).filter((job) => isTerminalUpdatePhase(job.phase) && !job.locked && job.phase !== 'manual_required' && job.phase !== 'failed_rollback');
+    // manual_required and failed_rollback records are the operator's evidence
+    // and are kept until a later update succeeded: that success proves the
+    // install recovered, after which they age out like any other record.
+    const lastSuccess = Math.max(0, ...Object.values(state.jobs).filter((job) => job.phase === 'succeeded').map((job) => job.completionOrdinal ?? 0));
+    const needsOperator = (job: PersistedUpdateJob): boolean => (job.phase === 'manual_required' || job.phase === 'failed_rollback') && (job.completionOrdinal ?? 0) > lastSuccess;
+    const candidates = Object.values(state.jobs).filter((job) => isTerminalUpdatePhase(job.phase) && !job.locked && !needsOperator(job));
     const doomed = new Set<string>();
     for (const job of candidates) if (job.completedAt! < now - UPDATE_STATE_RETENTION_MS) doomed.add(job.descriptor.id);
     const retained = candidates.filter((job) => !doomed.has(job.descriptor.id)).sort((a, b) => a.completionOrdinal! - b.completionOrdinal!);
