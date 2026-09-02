@@ -7,6 +7,11 @@ RFC revision.
 Revision 2 (2026-09-02): adds the catalog bound and the `omitted` snapshot marker
 under "Closed protocol". Everything else is unchanged from revision 1.
 
+Revision 3 (2026-09-02): fixes how a peer answers a request whose handler fails
+unexpectedly (under "Side-effect safety") and clarifies that request, response, and
+event bodies are opaque JSON: only descriptor fields named by this RFC are parsed
+as fleet enums. Everything else is unchanged from revision 2.
+
 ## Topology and authority
 
 - A fleet MUST contain one designated hub and at most nine enrolled full peers (ten
@@ -97,3 +102,11 @@ MUST retain at most 4,096 canonical mutation results and reject new mutations on
 full. Mutations MUST NOT replay after disconnect; uncertainty is
 `HOST_COMMAND_OUTCOME_UNKNOWN` until reconciliation and fresh user intent. A read
 MAY retry once only after a newly authenticated, synchronized connection.
+
+A handler failure the peer cannot map to a closed error is a per-request outcome,
+not a connection outcome. The peer MUST answer that request with a failure and keep
+the connection: `HOST_COMMAND_OUTCOME_UNKNOWN` with `sideEffect: "possible"` for a
+mutation, `FLEET_UNKNOWN_ERROR` with `sideEffect: "none"` for a read. The failure is
+the request's canonical result for duplicate detection. Closing the connection
+remains reserved for protocol violations, where nothing about the peer's state can
+be trusted.
