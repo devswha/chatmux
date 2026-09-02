@@ -76,6 +76,15 @@ impl PendingEvents {
     }
 
     fn push(&mut self, event: Event) {
+        if event.need_rescan() {
+            // The kernel queue itself overflowed (IN_Q_OVERFLOW): notify
+            // reports it as an event, not an error, and nothing after it can
+            // be trusted. Same remedy as our own overflow: drop and rescan.
+            self.order.clear();
+            self.paths.clear();
+            self.overflowed = true;
+            return;
+        }
         let may_be_directory = matches!(
             event.kind,
             EventKind::Create(_)
@@ -435,7 +444,7 @@ mod tests {
         EventQueue, MAX_PENDING_PATHS, OutputEvent, PendingEvents, PendingPath, directory_depth,
         frame_for_path, frame_for_resolved_path, watch_directory_tree,
     };
-    use notify::event::{CreateKind, DataChange, ModifyKind, RemoveKind, RenameMode};
+    use notify::event::{CreateKind, DataChange, Flag, ModifyKind, RemoveKind, RenameMode};
     use notify::{Config, Event, EventHandler, EventKind, RecursiveMode, Watcher, WatcherKind};
     use std::fs;
     use std::path::{Path, PathBuf};
@@ -537,6 +546,21 @@ mod tests {
         let taken = std::mem::take(&mut pending);
         assert!(taken.overflowed);
         assert!(pending.is_idle());
+    }
+
+    #[test]
+    fn a_kernel_rescan_notice_is_treated_as_an_overflow() {
+        let mut pending = PendingEvents::default();
+        pending.push(change("/r/a.jsonl"));
+        pending.push(Event::new(EventKind::Other).set_flag(Flag::Rescan));
+        assert!(pending.overflowed);
+        assert!(!pending.failed);
+        assert!(pending.paths.is_empty());
+
+        // A plain "other" event without the flag stays ignorable.
+        let mut quiet = PendingEvents::default();
+        quiet.push(Event::new(EventKind::Other));
+        assert!(quiet.is_idle());
     }
 
     #[test]
