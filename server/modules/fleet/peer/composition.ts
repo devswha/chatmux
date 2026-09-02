@@ -20,6 +20,7 @@ import { PeerCatalogPublisher } from './catalog-publisher.js';
 import { createPeerCatalogSource } from './catalog-source.js';
 import { createFleetPeerEndpoint, type UpgradeListener } from './endpoint.js';
 import { createPeerOperationDispatcher } from './operation-dispatcher.js';
+import { fleetPeerRevocationGateway } from './revocation-gateway.js';
 import {
   loadFleetPeerSigner,
   SqliteFleetGenerationStore,
@@ -86,10 +87,12 @@ export async function createLocalFleetPeerRuntime(options: LocalFleetPeerOptions
   const releaseCompletionEvents = completionPublisher.subscribe((event) => {
     endpoint.publish('completion.ready', `completion-${randomUUID()}`, json(event));
   });
+  fleetPeerRevocationGateway.bind(endpoint.revokeConnections);
   return {
     capabilities,
     start: endpoint.start,
     stop: async () => {
+      fleetPeerRevocationGateway.unbind(endpoint.revokeConnections);
       releaseCompletionGateway();
       releaseCompletionEvents();
       releaseChatEvents();
