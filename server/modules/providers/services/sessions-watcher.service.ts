@@ -478,6 +478,17 @@ function scheduleGjcWatcherRestart(): void {
   gjcWatcherRestartTimer.unref?.();
 }
 
+/** Rescans the GJC roots after the watcher lost events, as the startup reconcile does. */
+async function reconcileGjcTranscriptsAfterGap(signal: AbortSignal): Promise<void> {
+  if (signal.aborted || sessionWatchersClosing) return;
+  const reconciliation = await sessionSynchronizerService.reconcileProvider('gjc', signal);
+  if (signal.aborted || sessionWatchersClosing) return;
+  for (const sessionId of reconciliation.sessionIds) {
+    markTranscriptChanged('gjc', providerSessionIdForIndexed('gjc', sessionId));
+    queuePendingWatcherUpdate('change', 'gjc', sessionId);
+  }
+}
+
 async function runGjcSessionWatcherStart(
   reconcileAfterStart: boolean,
   controller: AbortController
@@ -519,6 +530,9 @@ async function runGjcSessionWatcherStart(
   const watcher = new GjcSessionWatcher({
     roots: GJC_WATCH_PATHS,
     onEvent: (event, signal) => queueFileUpdate(event.kind, event.path, 'gjc', signal),
+    // The native watcher (or this client) dropped events under a burst. One
+    // provider-wide reconcile closes the gap; the watcher keeps running.
+    onResync: (signal) => reconcileGjcTranscriptsAfterGap(signal),
     onFailure: reportFailure,
     diagnostic: (message) => console.error(message),
   });
