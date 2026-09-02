@@ -22,8 +22,8 @@ pub enum Command {
         database: PathBuf,
     },
     MkdirUnder {
-        root: PathBuf,
-        relative: Vec<OsString>,
+        home: PathBuf,
+        components: Vec<OsString>,
     },
     Pty {
         program: OsString,
@@ -86,16 +86,16 @@ where
     I: IntoIterator<Item = OsString>,
 {
     let mut args = args.into_iter();
-    if args.next().as_deref() != Some(std::ffi::OsStr::new("--root")) {
+    if args.next().as_deref() != Some(std::ffi::OsStr::new("--home")) {
         return Err(ParseError);
     }
-    let root = args.next().map(PathBuf::from).ok_or(ParseError)?;
-    if !root.is_absolute() || args.next().as_deref() != Some(std::ffi::OsStr::new("--")) {
+    let home = args.next().map(PathBuf::from).ok_or(ParseError)?;
+    if !home.is_absolute() || args.next().as_deref() != Some(std::ffi::OsStr::new("--")) {
         return Err(ParseError);
     }
     Ok(Command::MkdirUnder {
-        root,
-        relative: args.collect(),
+        home,
+        components: args.collect(),
     })
 }
 
@@ -202,23 +202,23 @@ mod tests {
     }
 
     #[test]
-    fn parses_mkdir_under_root_and_opaque_components() {
+    fn parses_mkdir_under_home_and_opaque_components() {
         assert_eq!(
             parse_args([
                 os("mkdir-under"),
-                os("--root"),
+                os("--home"),
                 os("/home/user"),
                 os("--"),
                 os("project name"),
                 os("child"),
             ]),
             Ok(Command::MkdirUnder {
-                root: "/home/user".into(),
-                relative: vec![os("project name"), os("child")],
+                home: "/home/user".into(),
+                components: vec![os("project name"), os("child")],
             })
         );
         assert_eq!(
-            parse_args([os("mkdir-under"), os("--root"), os("relative"), os("--")]),
+            parse_args([os("mkdir-under"), os("--home"), os("relative"), os("--")]),
             Err(ParseError)
         );
     }

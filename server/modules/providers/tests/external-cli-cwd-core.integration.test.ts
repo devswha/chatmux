@@ -15,12 +15,12 @@ type CoreOutput =
   | { ok: true; path: string }
   | { ok: false; code: string; component?: string };
 
-function runMkdirUnder(root: string, components: string[]): Promise<{
+function runMkdirUnder(home: string, components: string[]): Promise<{
   code: number | null;
   output: CoreOutput;
 }> {
   return new Promise((resolve, reject) => {
-    const child = spawn(corePath, ['mkdir-under', '--root', root, '--', ...components], {
+    const child = spawn(corePath, ['mkdir-under', '--home', home, '--', ...components], {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let stdout = '';
@@ -69,6 +69,17 @@ test('real native core creates nested directories and refuses a symlink componen
     const nested = path.join(home, 'workspace', 'nested');
     assert.equal(await ensureHomeCwd(nested, home), nested);
     assert.equal((await lstat(nested)).isDirectory(), true);
+
+    const target = path.join(home, 'target');
+    await mkdir(path.join(target, 'existing'), { recursive: true });
+    await symlink(target, path.join(home, 'leading-link'));
+    assert.equal(
+      await ensureHomeCwd(path.join(home, 'leading-link', 'existing', 'must-not-exist'), home),
+      null,
+    );
+    assert.equal((await lstat(path.join(home, 'leading-link'))).isSymbolicLink(), true);
+    assert.equal((await lstat(path.join(target, 'existing'))).isDirectory(), true);
+    await assert.rejects(lstat(path.join(target, 'existing', 'must-not-exist')), { code: 'ENOENT' });
 
     await symlink(outside, path.join(home, 'link'));
     const rejected = await runMkdirUnder(home, ['link', 'escaped']);

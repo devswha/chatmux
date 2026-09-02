@@ -109,7 +109,7 @@ type EnsureHomeCwdIo = {
   lstat(pathname: string): Promise<{ isDirectory(): boolean }>;
   mkdir(pathname: string): Promise<unknown>;
   stat(pathname: string): Promise<{ isDirectory(): boolean }>;
-  createUnderRoot(root: string, components: string[]): Promise<CreateUnderRootResult>;
+  createUnderRoot(home: string, components: string[]): Promise<CreateUnderRootResult>;
 };
 
 function coreExecutablePath(): string {
@@ -123,9 +123,9 @@ function coreExecutablePath(): string {
   ));
 }
 
-async function createUnderRoot(root: string, components: string[]): Promise<CreateUnderRootResult> {
+async function createUnderRoot(home: string, components: string[]): Promise<CreateUnderRootResult> {
   return new Promise((resolve) => {
-    const child = spawn(coreExecutablePath(), ['mkdir-under', '--root', root, '--', ...components], {
+    const child = spawn(coreExecutablePath(), ['mkdir-under', '--home', home, '--', ...components], {
       stdio: ['ignore', 'pipe', 'ignore'],
       windowsHide: true,
     });
@@ -185,24 +185,7 @@ function hasFsErrorCode(error: unknown, code: string): boolean {
   return error instanceof Error && 'code' in error && error.code === code;
 }
 
-async function realpathExistingAncestor(
-  target: string,
-  io: EnsureHomeCwdIo,
-): Promise<{ path: string; realpath: string } | null> {
-  let ancestor = target;
-  while (true) {
-    try {
-      return { path: ancestor, realpath: await io.realpath(ancestor) };
-    } catch (error) {
-      if (!hasFsErrorCode(error, 'ENOENT')) return null;
-      const parent = dirname(ancestor);
-      if (parent === ancestor) return null;
-      ancestor = parent;
-    }
-  }
-}
-
-/** Creates a missing absolute cwd only after its existing ancestor is proven inside HOME. */
+/** Creates a missing absolute cwd by walking every component below canonical HOME. */
 export async function ensureHomeCwd(
   cwd: string,
   home = homedir(),
@@ -210,22 +193,20 @@ export async function ensureHomeCwd(
 ): Promise<string | null> {
   if (cwd.includes('\0') || !isAbsolute(cwd)) return null;
   try {
-    const [homeReal, ancestor] = await Promise.all([
-      io.realpath(home),
-      realpathExistingAncestor(cwd, io),
-    ]);
-    if (!ancestor || !isWithinHome(homeReal, ancestor.realpath)) return null;
+    const homeReal = await io.realpath(home);
+    const rel = relative(homeReal, cwd);
+    if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return null;
+    const components = rel.split(sep).filter(Boolean);
 
-    const suffix = relative(ancestor.path, cwd).split(sep).filter(Boolean);
     if (process.platform !== 'win32') {
-      const created = await io.createUnderRoot(ancestor.realpath, suffix);
+      const created = await io.createUnderRoot(homeReal, components);
       return created.ok && typeof created.path === 'string' ? created.path : null;
     }
 
     // Windows fallback: nix does not expose the Unix openat/mkdirat contract
     // there, so retain the existing stepwise behavior on that platform.
-    let canonicalPath = ancestor.realpath;
-    for (const component of suffix) {
+    let canonicalPath = homeReal;
+    for (const component of components) {
       const expectedPath = join(canonicalPath, component);
       try {
         const entry = await io.lstat(expectedPath);

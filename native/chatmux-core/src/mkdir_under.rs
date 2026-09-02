@@ -30,24 +30,24 @@ impl MkdirUnderError {
     }
 }
 
-/// Creates `components` below an already-canonical directory without resolving
-/// any pathname after the root has been opened.
+/// Creates `components` below canonical HOME. After HOME is opened, every
+/// component is inspected and opened relative to the preceding directory.
 #[cfg(not(windows))]
 pub fn mkdir_under(
-    canonical_root: &Path,
+    canonical_home: &Path,
     components: &[OsString],
 ) -> Result<PathBuf, MkdirUnderError> {
     use nix::fcntl::{AtFlags, OFlag, open, openat};
     use nix::sys::stat::{Mode, SFlag, fstatat, mkdirat};
 
     let directory_flags = OFlag::O_RDONLY | OFlag::O_DIRECTORY | OFlag::O_NOFOLLOW;
-    let mut directory = open(canonical_root, directory_flags, Mode::empty()).map_err(|errno| {
+    let mut directory = open(canonical_home, directory_flags, Mode::empty()).map_err(|errno| {
         MkdirUnderError::Root {
-            root: canonical_root.to_path_buf(),
+            root: canonical_home.to_path_buf(),
             errno,
         }
     })?;
-    let mut result = canonical_root.to_path_buf();
+    let mut result = canonical_home.to_path_buf();
 
     for component in components {
         if !is_single_normal_component(component) {
@@ -57,14 +57,27 @@ pub fn mkdir_under(
             });
         }
 
-        match mkdirat(
+        let metadata = match fstatat(
             &directory,
             component.as_os_str(),
-            Mode::from_bits_truncate(0o755),
+            AtFlags::AT_SYMLINK_NOFOLLOW,
         ) {
-            Ok(()) => {}
-            Err(Errno::EEXIST) => {
-                let metadata = fstatat(
+            Ok(metadata) => metadata,
+            Err(Errno::ENOENT) => {
+                match mkdirat(
+                    &directory,
+                    component.as_os_str(),
+                    Mode::from_bits_truncate(0o755),
+                ) {
+                    Ok(()) | Err(Errno::EEXIST) => {}
+                    Err(errno) => {
+                        return Err(MkdirUnderError::Component {
+                            component: component.clone(),
+                            errno,
+                        });
+                    }
+                }
+                fstatat(
                     &directory,
                     component.as_os_str(),
                     AtFlags::AT_SYMLINK_NOFOLLOW,
@@ -72,13 +85,7 @@ pub fn mkdir_under(
                 .map_err(|errno| MkdirUnderError::Component {
                     component: component.clone(),
                     errno,
-                })?;
-                if SFlag::from_bits_truncate(metadata.st_mode) & SFlag::S_IFMT != SFlag::S_IFDIR {
-                    return Err(MkdirUnderError::Component {
-                        component: component.clone(),
-                        errno: Errno::ENOTDIR,
-                    });
-                }
+                })?
             }
             Err(errno) => {
                 return Err(MkdirUnderError::Component {
@@ -86,6 +93,12 @@ pub fn mkdir_under(
                     errno,
                 });
             }
+        };
+        if SFlag::from_bits_truncate(metadata.st_mode) & SFlag::S_IFMT != SFlag::S_IFDIR {
+            return Err(MkdirUnderError::Component {
+                component: component.clone(),
+                errno: Errno::ENOTDIR,
+            });
         }
 
         directory = openat(
@@ -106,7 +119,7 @@ pub fn mkdir_under(
 
 #[cfg(windows)]
 pub fn mkdir_under(
-    _canonical_root: &Path,
+    _canonical_home: &Path,
     _components: &[OsString],
 ) -> Result<PathBuf, MkdirUnderError> {
     Err(MkdirUnderError::Unsupported)
@@ -144,16 +157,16 @@ mod tests {
     }
 
     #[test]
-    fn refuses_a_symlink_component_without_creating_through_it() {
+    fn refuses_a_mid_path_symlink_without_creating_through_it() {
         let temporary = tempdir().unwrap();
-        let root = temporary.path().join("root");
+        let home = temporary.path().join("home");
         let outside = temporary.path().join("outside");
-        fs::create_dir(&root).unwrap();
+        fs::create_dir_all(home.join("first")).unwrap();
         fs::create_dir(&outside).unwrap();
-        symlink(&outside, root.join("link")).unwrap();
-        let root = fs::canonicalize(root).unwrap();
+        symlink(&outside, home.join("first/link")).unwrap();
+        let home = fs::canonicalize(home).unwrap();
 
-        let error = mkdir_under(&root, &components(&["link", "child"])).unwrap_err();
+        let error = mkdir_under(&home, &components(&["first", "link", "child"])).unwrap_err();
 
         assert_eq!(
             error,
@@ -163,13 +176,52 @@ mod tests {
             }
         );
         assert!(
-            fs::symlink_metadata(root.join("link"))
+            fs::symlink_metadata(home.join("first/link"))
                 .unwrap()
                 .file_type()
                 .is_symlink()
         );
         assert_eq!(
             fs::symlink_metadata(outside.join("child"))
+                .unwrap_err()
+                .kind(),
+            std::io::ErrorKind::NotFound
+        );
+    }
+
+    #[test]
+    fn refuses_a_leading_symlink_before_an_existing_component() {
+        let temporary = tempdir().unwrap();
+        let home = temporary.path().join("home");
+        let target = temporary.path().join("target");
+        fs::create_dir(&home).unwrap();
+        fs::create_dir_all(target.join("existing")).unwrap();
+        symlink(&target, home.join("link")).unwrap();
+        let home = fs::canonicalize(home).unwrap();
+
+        let error =
+            mkdir_under(&home, &components(&["link", "existing", "must-not-exist"])).unwrap_err();
+
+        assert_eq!(
+            error,
+            MkdirUnderError::Component {
+                component: OsString::from("link"),
+                errno: Errno::ENOTDIR,
+            }
+        );
+        assert!(
+            fs::symlink_metadata(home.join("link"))
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert!(
+            fs::symlink_metadata(target.join("existing"))
+                .unwrap()
+                .is_dir()
+        );
+        assert_eq!(
+            fs::symlink_metadata(target.join("existing/must-not-exist"))
                 .unwrap_err()
                 .kind(),
             std::io::ErrorKind::NotFound

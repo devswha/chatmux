@@ -35,7 +35,7 @@ fn main() -> ExitCode {
                 fail(JOBS_ERROR)
             }
         }
-        Ok(CliCommand::MkdirUnder { root, relative }) => run_mkdir_under(root, relative),
+        Ok(CliCommand::MkdirUnder { home, components }) => run_mkdir_under(home, components),
         Ok(CliCommand::Pty { program, args }) => {
             if pty::run(program, args) {
                 ExitCode::SUCCESS
@@ -47,8 +47,8 @@ fn main() -> ExitCode {
     }
 }
 
-fn run_mkdir_under(root: std::path::PathBuf, relative: Vec<std::ffi::OsString>) -> ExitCode {
-    let (output, exit_code) = match mkdir_under::mkdir_under(&root, &relative) {
+fn run_mkdir_under(home: std::path::PathBuf, components: Vec<std::ffi::OsString>) -> ExitCode {
+    let (output, exit_code) = match mkdir_under::mkdir_under(&home, &components) {
         Ok(path) => (
             serde_json::json!({ "ok": true, "path": path.to_string_lossy() }),
             ExitCode::SUCCESS,

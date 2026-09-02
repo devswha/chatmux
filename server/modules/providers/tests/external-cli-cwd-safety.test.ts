@@ -23,7 +23,7 @@ async function fixture(prefix: string): Promise<{
 }
 
 function testIo(
-  createUnderRoot: (root: string, components: string[]) => Promise<
+  createUnderRoot: (home: string, components: string[]) => Promise<
     { ok: true; path: string } | { ok: false; code: string }
   >,
 ) {
@@ -42,20 +42,21 @@ function testIo(
 
 const unixTest = process.platform === 'win32' ? test.skip : test;
 
-unixTest('ensureHomeCwd delegates the proven ancestor and suffix to the native core', async () => {
+unixTest('ensureHomeCwd delegates canonical HOME and every relative component to the native core', async () => {
   const { root, home, target } = await fixture('chatmux-cwd-delegate-');
   const anchoredPath = path.join(home, 'native-result');
-  const calls: Array<{ root: string; components: string[] }> = [];
+  const calls: Array<{ home: string; components: string[] }> = [];
+  await mkdir(path.join(home, 'first'));
 
-  const io = testIo(async (provenRoot, components) => {
-    calls.push({ root: provenRoot, components });
+  const io = testIo(async (canonicalHome, components) => {
+    calls.push({ home: canonicalHome, components });
     return { ok: true, path: anchoredPath };
   });
   try {
     const result = await ensureHomeCwd(target, home, io);
 
     assert.equal(result, anchoredPath, 'only the core-returned anchored path is accepted');
-    assert.deepEqual(calls, [{ root: await realpath(home), components: ['first', 'second'] }]);
+    assert.deepEqual(calls, [{ home: await realpath(home), components: ['first', 'second'] }]);
     assert.deepEqual(io.mkdirCalls, []);
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -84,7 +85,7 @@ for (const [name, create] of [
   });
 }
 
-unixTest('ensureHomeCwd aborts when ancestor discovery hits EACCES', async () => {
+unixTest('ensureHomeCwd aborts when HOME canonicalization hits EACCES', async () => {
   const { root, home, target } = await fixture('chatmux-cwd-eacces-');
   let createCalled = false;
   const io = testIo(async () => {
@@ -92,12 +93,29 @@ unixTest('ensureHomeCwd aborts when ancestor discovery hits EACCES', async () =>
     return { ok: true, path: target };
   });
   io.realpath = async (pathname: string) => {
-    if (pathname === target) throw fsError('EACCES');
+    if (pathname === home) throw fsError('EACCES');
     return realpath(pathname);
   };
 
   try {
     assert.equal(await ensureHomeCwd(target, home, io), null);
+    assert.equal(createCalled, false);
+    assert.deepEqual(io.mkdirCalls, []);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+unixTest('ensureHomeCwd rejects lexical HOME escapes before invoking the native core', async () => {
+  const { root, home } = await fixture('chatmux-cwd-escape-');
+  let createCalled = false;
+  const io = testIo(async () => {
+    createCalled = true;
+    return { ok: true, path: root };
+  });
+
+  try {
+    assert.equal(await ensureHomeCwd(path.join(root, 'outside'), home, io), null);
     assert.equal(createCalled, false);
     assert.deepEqual(io.mkdirCalls, []);
   } finally {
