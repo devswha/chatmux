@@ -1,5 +1,8 @@
 import express, { type Request, type Response } from 'express';
 
+import {
+  assertProvenSessionBinding,
+} from '@/modules/providers/services/tmux-session-binding.service.js';
 import { projectsDb, sessionsDb } from '@/modules/database/index.js';
 import { emitRelayKeyDiagnostic } from '@/modules/notifications/index.js';
 import { providerAuthService } from '@/modules/providers/services/provider-auth.service.js';
@@ -170,6 +173,9 @@ function assertTmuxTranscriptTarget(
       statusCode: 409,
     });
   }
+  // The row matched the target's id, but that id may itself be a cwd/time
+  // guess; only a process-bound link may drive prompt and approval keys.
+  assertProvenSessionBinding(target);
   return sessionId;
 }
 

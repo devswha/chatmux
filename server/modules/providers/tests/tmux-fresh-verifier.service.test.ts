@@ -46,9 +46,24 @@ test('fresh verifier performs one uncached scan without populating the display c
   await discovery.getExternalCliSessions();
   assert.equal(scans, 2, 'a fresh authorization scan must not seed the display cache');
   assert.equal(target.tmux.paneId, tmux.paneId);
+  assert.equal(target.binding, null, 'no provider session id, no grade');
   assert.equal(Object.isFrozen(target), true);
   assert.equal(Object.isFrozen(target.tmux), true);
   assert.equal(Object.isFrozen(target.process), true);
+});
+
+test('fresh verifier carries the roster binding grade onto the verified target', async () => {
+  for (const binding of ['tagged', 'observed', 'inferred'] as const) {
+    const discovery = createExternalCliSessionDiscovery({
+      discover: async () => ({ ok: true, sessions: [{ ...session, providerSessionId: 'thread-1', binding }] }),
+    });
+    const target = await assertFreshExternalTmuxTarget(tmux, processGeneration, {
+      scan: () => discovery.getExternalCliSessionsFresh(),
+      assertPaneIdentity: async () => {},
+    });
+    assert.equal(target.providerSessionId, 'thread-1');
+    assert.equal(target.binding, binding);
+  }
 });
 
 test('fresh verifier rejects coordinate, process, terminal-only, connection-issue, and absent targets', async () => {

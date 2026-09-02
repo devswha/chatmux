@@ -15,6 +15,7 @@ import {
   type ReleaseUpdatePhase,
   formatHealthProbeHost,
   isHealthProbeHost,
+  parseReleaseChecksumFile,
   resolveHealthProbeHost,
 } from './release-update-contract.js';
 import { ReleaseUpdateStateStore } from './release-update-state.js';
@@ -117,9 +118,9 @@ export function validateTarListing(listing: string): void {
   if (!count) throw new ReleaseUpdateWorkerError('Archive is empty.');
 }
 function parseChecksum(text: string, expectedName: string): string {
-  const match = new RegExp(`^([a-f0-9]{64})\\s+\\*?${expectedName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'm').exec(text.trim());
-  if (!match || text.trim().split(/\r?\n/).length !== 1) throw new ReleaseUpdateWorkerError('Release checksum is malformed.');
-  return match[1];
+  const digest = parseReleaseChecksumFile(text, expectedName);
+  if (digest === null) throw new ReleaseUpdateWorkerError('Release checksum is malformed.');
+  return digest;
 }
 function isJsonObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);

@@ -4,7 +4,7 @@ import { isCursorCliProcess } from '@/modules/providers/list/cursor/cursor-cli-c
 
 import { recordHostCommand } from '../host-command-metrics.service.js';
 
-import type { ExternalCliKind, ExternalCliSession, ExternalLocalCliKind, ExternalPane, ProcessTreeEntry } from './contracts-and-resume.js';
+import type { ExternalCliKind, ExternalCliSession, ExternalLocalCliKind, ExternalPane, ProcessTreeEntry, ExternalSessionBinding } from './contracts-and-resume.js';
 import { CLAUDE_SESSION_ID_RE, CODEX_THREAD_ID_RE, extractExternalResumeSessionId } from './contracts-and-resume.js';
 
 
@@ -168,11 +168,18 @@ export function classifyExternalSessions(args: {
     )) ?? 'shell';
     const ids = kind === 'ssh' || kind === 'shell' ? [] : [...(sessionIds.get(kind) ?? [])];
     const agentPid = subtreeKinds.find((entry) => entry.kind === kind)?.proc.pid;
+    // A single id came either from the ChatMux spawn tag on the pane or from
+    // the agent's own argv; both are process-bound, but only the former was
+    // written by us.
+    const binding: ExternalSessionBinding = (pane.taggedKind === kind && pane.taggedSessionId === ids[0])
+      || (kind === 'codex' && pane.codexThreadId === ids[0])
+      ? 'tagged'
+      : 'observed';
     result.push({
       tmuxName: pane.name,
       tmux: pane.tmux,
       kind,
-      ...(ids.length === 1 ? { providerSessionId: ids[0] } : {}),
+      ...(ids.length === 1 ? { providerSessionId: ids[0], binding } : {}),
       ...(pane.cwd ? { cwd: pane.cwd } : {}),
       ...(agentPid !== undefined ? { agentPid } : {}),
     });

@@ -12,7 +12,7 @@ import { validateLocalAgentContext } from '../local-agent-context.service.js';
 import { descendants, isClaudeRuntimeProcess, parseClaudeRuntimeSession } from './process-classification.js';
 import { assignFreshIndexedProviderSessionIds, assignUniqueIndexedProviderSessionIds } from './session-correlation.js';
 import { MAX_RUNTIME_DESCRIPTORS, TRANSCRIPT_FILE_SESSION_ID_RE } from './contracts-and-resume.js';
-import type { ExternalCliSession, ExternalPane, FreshIndexedProviderSession, ProcessTreeEntry } from './contracts-and-resume.js';
+import type { ExternalCliSession, ExternalPane, ExternalSessionBinding, FreshIndexedProviderSession, ProcessTreeEntry } from './contracts-and-resume.js';
 
 export async function inferClaudeSessionIds(args: {
   sessions: ExternalCliSession[];
@@ -145,7 +145,7 @@ export async function addExternalRuntimeMetadata(args: {
       socketPath: session.tmux.socketPath,
     });
     if (connectionIssue) {
-      const { providerSessionId: _providerSessionId, ...unbound } = session;
+      const { providerSessionId: _providerSessionId, binding: _binding, ...unbound } = session;
       return {
         ...unbound,
         ...(startedAtMs === null ? {} : { startedAtMs }),
@@ -226,14 +226,18 @@ export function applyInferredProviderSessionIds(
 ): ExternalCliSession[] {
   return sessions.map((session) => {
     if (session.connectionIssue) {
-      const { providerSessionId: _providerSessionId, ...unbound } = session;
+      const { providerSessionId: _providerSessionId, binding: _binding, ...unbound } = session;
       return unbound;
     }
     const targetKey = tmuxPaneIdentityKey(session.tmux);
     const providerSessionId = inferredIds.get(targetKey);
+    // Authoritative keys are the process-scoped sources (runtime receipt,
+    // open transcript, open rollout); everything else in `inferredIds` came
+    // from a cwd or time-window guess and is graded accordingly.
+    const binding: ExternalSessionBinding = authoritativeTargetKeys.has(targetKey) ? 'observed' : 'inferred';
     return providerSessionId
       && (!session.providerSessionId || authoritativeTargetKeys.has(targetKey))
-      ? { ...session, providerSessionId }
+      ? { ...session, providerSessionId, binding }
       : session;
   });
 }

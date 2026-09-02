@@ -12,6 +12,7 @@ import {
   getExternalCliSessionsDetailedFresh,
   type ExternalCliSession,
   type ExternalCliSessionsDetailedResult,
+  type ExternalSessionBinding,
 } from './external-cli-sessions.service.js';
 import {
   resolveExternalSessionActivity,
@@ -52,6 +53,8 @@ export type DiscoveryRow = Readonly<{
   process: TmuxProcessGeneration | null;
   kind: string;
   providerSessionId: string | null;
+  /** External lane only: how providerSessionId is tied to the process (see ExternalSessionBinding). Server-local, not on the fleet wire. */
+  binding?: ExternalSessionBinding;
   connectionIssue?: ProviderConnectionIssue;
   activity: ExternalSessionDisplayActivity;
   /** Server-authoritative proof that tmux actions may target this live row. */
@@ -134,6 +137,7 @@ function sameRow(a: DiscoveryRow, b: DiscoveryRow): boolean {
     && a.process?.startedAtMs === b.process?.startedAtMs
     && a.kind === b.kind
     && a.providerSessionId === b.providerSessionId
+    && a.binding === b.binding
     && a.connectionIssue === b.connectionIssue
     && a.activity === b.activity
     && a.tmuxActionable === b.tmuxActionable
@@ -243,6 +247,7 @@ export function createDiscoveryCollector(options: DiscoveryCollectorOptions = {}
         process,
         kind: session.kind,
         providerSessionId: session.providerSessionId ?? null,
+        ...(session.binding ? { binding: session.binding } : {}),
         ...(session.connectionIssue ? { connectionIssue: session.connectionIssue } : {}),
         activity: process
           ? getCachedTmuxInteractiveActivity({ tmux: session.tmux, process }) ?? transcriptActivity
