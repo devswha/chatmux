@@ -1,3 +1,5 @@
+import { isIP } from 'node:net';
+
 export const CANONICAL_RELEASE_REPOSITORY = 'devswha/chatmux' as const;
 export const RELEASE_PLATFORM = 'linux-x64-node22' as const;
 export const RELEASE_BOOTSTRAP_ASSET = 'install.sh' as const;
@@ -86,6 +88,37 @@ export interface ImmutableUpdateJobDescriptor {
   sourceVersion: string;
   sourceBootId: string;
   serverPort: number;
+}
+
+const HOSTNAME = /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/i;
+
+/*
+ * The health probe host is deliberately NOT part of the persisted descriptor:
+ * every release parses the shared update state with a closed key set, so a
+ * new field would make the state unreadable to the prior release right after
+ * a rollback. The router hands it to the worker as CHATMUX_HEALTH_HOST.
+ */
+
+/** True for an IP literal (no brackets) or a plain DNS hostname. */
+export function isHealthProbeHost(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && (isIP(value) !== 0 || HOSTNAME.test(value));
+}
+
+/**
+ * Maps the configured bind address to the address the updater must probe.
+ * Wildcard binds are reachable on loopback; anything else is probed as bound.
+ * Unrecognized values fall back to loopback rather than failing the update.
+ */
+export function resolveHealthProbeHost(bindHost: unknown): string {
+  if (typeof bindHost !== 'string') return '127.0.0.1';
+  const trimmed = bindHost.trim().replace(/^\[(.*)\]$/, '$1');
+  if (!trimmed || trimmed === '0.0.0.0' || trimmed === '::' || trimmed === 'localhost') return '127.0.0.1';
+  return isHealthProbeHost(trimmed) ? trimmed : '127.0.0.1';
+}
+
+/** Host as it appears in a URL authority: IPv6 literals need brackets. */
+export function formatHealthProbeHost(host: string): string {
+  return isIP(host) === 6 ? `[${host}]` : host;
 }
 
 export interface SanitizedUpdateJobStatus {
