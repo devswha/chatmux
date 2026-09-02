@@ -87,7 +87,16 @@ export class HubPeerConnection {
   sendFrame(frame: Extract<Parameters<typeof encodeFleetFrame>[0], { readonly kind: 'request' }>): boolean {
     if (this.socket === undefined || !this.proofVerified || this.status.generation === null) return false;
     if (frame.connectionGeneration !== this.status.generation) return false;
-    this.socket.send(encodeFleetFrame(frame));
+    let encoded: string;
+    try {
+      encoded = encodeFleetFrame(frame);
+    } catch (error) {
+      // A request the wire cannot carry (oversized chat.send or paste) fails
+      // this call only; the peer connection stays up for everything else.
+      if (error instanceof FleetProtocolError && error.code === 'PROTOCOL_FRAME_TOO_LARGE') return false;
+      throw error;
+    }
+    this.socket.send(encoded);
     return true;
   }
 

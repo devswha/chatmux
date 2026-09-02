@@ -60,6 +60,9 @@ export function createFleetPeerEndpoint(options: FleetPeerEndpointOptions): Read
     const connection = new FleetProtocolConnection({
       local: options.local, trust: options.trust, registry: options.registry,
       replayGuard, transport, dispatch: options.dispatch,
+      onDroppedFrame: (code, frameKind) => {
+        console.warn(`[Fleet Peer] Dropped ${frameKind} frame (${code}); the connection stays up.`);
+      },
       onAuthenticated: (connectionState) => {
         authenticated = connectionState;
         options.onAuthenticated?.(connectionState);
