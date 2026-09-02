@@ -10,6 +10,9 @@ import AuthErrorAlert from './AuthErrorAlert';
 import AuthInputField from './AuthInputField';
 import AuthScreenLayout from './AuthScreenLayout';
 
+// Mirrors server/shared/password-policy.ts; the server enforces it, this only saves a round trip.
+const MIN_PASSWORD_LENGTH = 12;
+
 type SetupFormState = {
   username: string;
   password: string;
@@ -36,8 +39,8 @@ function validateSetupForm(formState: SetupFormState, t: TFunction<'auth'>): str
     return t('register.errors.usernameTooShort');
   }
 
-  if (formState.password.length < 6) {
-    return t('register.errors.passwordTooShort');
+  if (formState.password.length < MIN_PASSWORD_LENGTH) {
+    return t('register.errors.passwordTooShort', { min: MIN_PASSWORD_LENGTH });
   }
 
   if (formState.password !== formState.confirmPassword) {

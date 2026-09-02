@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync  } from 'node:fs';
 import test from 'node:test';
 
-import { validateCommand } from '../utils/commandParser.js';
 
 test('TaskMaster routes and background mounts stay removed', () => {
   const serverIndex = readFileSync(new URL('../index.js', import.meta.url), 'utf8');
@@ -24,7 +23,8 @@ test('TaskMaster UI and server modules stay absent', () => {
   assert.equal(existsSync(new URL('../utils/mcp-detector.js', import.meta.url)), false);
 });
 
-test('task-master is rejected while generic safe commands remain allowed', () => {
-  assert.equal(validateCommand('task-master --version').allowed, false);
-  assert.equal(validateCommand('find . -maxdepth 1').allowed, true);
+test('the legacy command allowlist parser stays removed', () => {
+  // It was dead code, but its allowlist (node, git, find, npm) read like a
+  // sandbox; nothing may bring it back without a gate in front of it.
+  assert.equal(existsSync(new URL('../utils/commandParser.js', import.meta.url)), false);
 });
