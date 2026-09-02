@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   AUTH_TOKEN_STORAGE_KEY,
   clearSession,
+  confirmSession,
   forgetLegacyStoredToken,
   getSessionSnapshot,
   isCurrentSessionSnapshot,
@@ -32,6 +33,18 @@ test('a response captured before logout or re-login is recognized as stale', () 
   markSessionActive();
   assert.equal(isCurrentSessionSnapshot(requestSnapshot), false, 'a new login is a new generation, not a resumption');
   assert.equal(isCurrentSessionSnapshot(getSessionSnapshot()), true);
+});
+
+test('confirming an existing cookie session keeps the generation, so bootstrap work stays current', () => {
+  clearSession();
+  const beforeProbe = getSessionSnapshot();
+  const confirmed = confirmSession();
+  assert.equal(confirmed.active, true);
+  assert.equal(confirmed.generation, beforeProbe.generation, 'no user action happened, so no new generation');
+  assert.equal(isCurrentSessionSnapshot(beforeProbe), true, 'the probe that produced the confirmation is still current');
+  assert.equal(markSessionActive().generation, confirmed.generation, 'already active: login marking is a no-op');
+  clearSession();
+  assert.equal(isCurrentSessionSnapshot(beforeProbe), false, 'logout is a user action and starts a new generation');
 });
 
 test('subscribers see the current snapshot immediately and every change afterwards', () => {

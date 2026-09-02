@@ -3,6 +3,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { api } from '../../../utils/api';
 import {
   clearSession as clearSessionMarker,
+  confirmSession,
   forgetLegacyStoredToken,
   getSessionSnapshot,
   isCurrentSessionSnapshot,
@@ -175,7 +176,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
         }
 
         setUser(userPayload.user);
-        markSessionActive();
+        // Confirming, not logging in: the generation stays put so this effect
+        // does not re-run against itself and probe the server a second time.
+        confirmSession();
         await checkOnboardingStatus(getSessionSnapshot(), mutation);
       } catch (caughtError) {
         if (!isCurrent(snapshot, mutation) || controller.signal.aborted) return;

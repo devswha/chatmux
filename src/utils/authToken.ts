@@ -43,16 +43,31 @@ const notify = () => {
 
 export const getSessionSnapshot = (): SessionSnapshot => ({ active, generation });
 
-export const isCurrentSessionSnapshot = (snapshot: SessionSnapshot): boolean => {
-  const current = getSessionSnapshot();
-  return current.generation === snapshot.generation && current.active === snapshot.active;
-};
+/**
+ * Only a login or logout event invalidates in-flight work, so the generation
+ * alone decides. Confirming that the cookie session already existed changes
+ * `active` without starting a new generation and keeps earlier work current.
+ */
+export const isCurrentSessionSnapshot = (snapshot: SessionSnapshot): boolean =>
+  getSessionSnapshot().generation === snapshot.generation;
 
-/** Records that the server confirmed a session (login, register, or a successful bootstrap probe). */
+/** Records a new session the user just created (login or register): a new generation. */
 export const markSessionActive = (): SessionSnapshot => {
   if (active) return getSessionSnapshot();
   active = true;
   generation += 1;
+  notify();
+  return getSessionSnapshot();
+};
+
+/**
+ * Records that the bootstrap probe found the cookie session still valid. Not
+ * a new generation: nothing the user did happened, so work started before the
+ * probe stays current and the bootstrap does not re-trigger itself.
+ */
+export const confirmSession = (): SessionSnapshot => {
+  if (active) return getSessionSnapshot();
+  active = true;
   notify();
   return getSessionSnapshot();
 };
