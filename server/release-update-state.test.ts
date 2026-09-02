@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import nodeFs, { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -118,6 +118,28 @@ test('state lock records an owner PID and only recovers a proven-dead owner', ()
     assert.equal(store.get(id(1)), null);
     writeFileSync(path.join(directory, 'release-update-state.lock'), '');
     assert.throws(() => store.get(id(1)), ReleaseUpdateStateError);
+  } finally { cleanup(directory); }
+});
+
+test('dead-lock recovery unlinks only the inspected file, never a lock re-created by another contender', () => {
+  const directory = root();
+  try {
+    const lockPath = path.join(directory, 'release-update-state.lock');
+    let raced = false;
+    const racingFs: StateFileSystem = {
+      ...nodeFs,
+      lstatSync: (target: string) => {
+        const stat = nodeFs.lstatSync(target);
+        // Between the inspection and the unlink another contender replaced the lock.
+        if (target === lockPath && !raced) { raced = true; return { ...stat, ino: stat.ino + 1 } as typeof stat; }
+        return stat;
+      },
+    };
+    const store = new ReleaseUpdateStateStore(directory, { isProcessAlive: () => false, fs: racingFs, sleepMs: () => {} });
+    store.initialize();
+    writeFileSync(lockPath, '999999\n');
+    assert.equal(store.get(id(1)), null, 'the second inspection sees the same inode and recovers');
+    assert.equal(raced, true);
   } finally { cleanup(directory); }
 });
 
@@ -277,12 +299,25 @@ test('dead-worker recovery fails closed after cutover and retains durable manual
       cutoverState: 'prepared', rollbackState: 'not_started',
     });
     assert.equal(store.failIfInactive(post.id, () => false)?.phase, 'manual_required');
+
     const statePath = path.join(directory, 'release-update-state.json');
     const state = JSON.parse(readFileSync(statePath, 'utf8'));
     state.jobs[post.id].completedAt = 0;
     writeFileSync(statePath, JSON.stringify(state));
     new ReleaseUpdateStateStore(directory, { now: () => now }).initialize();
     assert.equal(new ReleaseUpdateStateStore(directory, { now: () => now }).get(post.id)?.phase, 'manual_required');
+    // A worker that died after the restart, while the server it started is
+    // the target release, completed the update; the server recognises that.
+    const swapped = descriptor(3); store.create(swapped); store.transition(swapped.id, 'restarting');
+    const swappedRelease = { priorRelease: { path: '/srv/chatmux/releases/1.0.0', version: '1.0.0' }, targetRelease: { path: '/srv/chatmux/releases/1.0.3', version: '1.0.3' } };
+    store.persistRecoveryCheckpoint(swapped.id, { ...swappedRelease, cutoverState: 'prepared', rollbackState: 'not_started' });
+    store.persistRecoveryCheckpoint(swapped.id, { ...swappedRelease, cutoverState: 'live_link_swapped', rollbackState: 'not_started' });
+    assert.equal(store.failIfInactive(swapped.id, () => false, { runningVersion: '1.0.3' })?.phase, 'succeeded');
+    const notRunning = descriptor(4); store.create(notRunning); store.transition(notRunning.id, 'restarting');
+    const notRunningRelease = { priorRelease: { path: '/srv/chatmux/releases/1.0.0', version: '1.0.0' }, targetRelease: { path: '/srv/chatmux/releases/1.0.4', version: '1.0.4' } };
+    store.persistRecoveryCheckpoint(notRunning.id, { ...notRunningRelease, cutoverState: 'prepared', rollbackState: 'not_started' });
+    store.persistRecoveryCheckpoint(notRunning.id, { ...notRunningRelease, cutoverState: 'live_link_swapped', rollbackState: 'not_started' });
+    assert.equal(store.failIfInactive(notRunning.id, () => false, { runningVersion: '1.0.0' })?.phase, 'manual_required', 'the link points at a release that is not the one running');
   } finally { cleanup(directory); }
 });
 
@@ -300,6 +335,14 @@ test('manual_required and failed_rollback records are exempt from count pruning 
     writeFileSync(statePath, JSON.stringify(state));
     new ReleaseUpdateStateStore(directory, { now: () => UPDATE_STATE_RETENTION_MS + 100 }).initialize();
     for (let index = 1; index <= UPDATE_STATE_TERMINAL_CAP + 2; index += 1) assert.ok(store.get(id(index)));
+
+    // Once a later update succeeds the install has evidently recovered, and
+    // the operator records age out like any other terminal job.
+    const later = new ReleaseUpdateStateStore(directory, { now: () => UPDATE_STATE_RETENTION_MS + 100 });
+    later.create(descriptor(UPDATE_STATE_TERMINAL_CAP + 3));
+    later.transition(id(UPDATE_STATE_TERMINAL_CAP + 3), 'succeeded');
+    new ReleaseUpdateStateStore(directory, { now: () => 3 * UPDATE_STATE_RETENTION_MS }).initialize();
+    for (let index = 1; index <= UPDATE_STATE_TERMINAL_CAP + 2; index += 1) assert.equal(later.get(id(index)), null, `record ${index} ages out after a later success`);
   } finally { cleanup(directory); }
 });
 

@@ -505,7 +505,7 @@ export function createSystemRouter(options: SystemRouterOptions): Router {
   // and update request, not just once at router construction.
   const reconcileInactiveWorker = (): void => {
     const active = state.publicActiveStatus();
-    if (active) state.failIfInactive(active.id, () => (options.isReleaseUpdateUnitLive ?? isReleaseUpdateUnitLive)(`chatmux-release-update-${active.id}`));
+    if (active) state.failIfInactive(active.id, () => (options.isReleaseUpdateUnitLive ?? isReleaseUpdateUnitLive)(`chatmux-release-update-${active.id}`), { runningVersion });
   };
   if (mode === 'release' && !releaseVersionUnavailable) {
     try {

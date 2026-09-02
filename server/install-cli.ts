@@ -622,6 +622,9 @@ export async function runInstallCli(args: string[], context: InstallContext): Pr
   await fs.mkdir(dataPath, { recursive: true, mode: 0o700 });
   await fs.mkdir(path.dirname(unitPath), { recursive: true });
   await fs.mkdir(path.dirname(binPath), { recursive: true });
+  // Remember what `current` pointed at so a release that never becomes
+  // healthy can be backed out instead of leaving the service down.
+  const previousRelease = await fs.readlink(currentPath).catch(() => null);
   await replaceManagedSymlink(currentPath, sourceRoot, 'dir');
   await fs.writeFile(configPath, environment, { mode: 0o600 });
   await fs.writeFile(unitPath, unit, 'utf8');
@@ -646,7 +649,15 @@ export async function runInstallCli(args: string[], context: InstallContext): Pr
   await run('systemctl', ['--user', 'daemon-reload']);
   await run('systemctl', ['--user', 'enable', 'chatmux.service']);
   await run('systemctl', ['--user', 'restart', 'chatmux.service']);
-  await (context.healthCheck ?? waitForHealth)(options.serverPort, context.version);
+  try {
+    await (context.healthCheck ?? waitForHealth)(options.serverPort, context.version);
+  } catch (error) {
+    if (previousRelease === null || path.resolve(path.dirname(currentPath), previousRelease) === sourceRoot) throw error;
+    await replaceManagedSymlink(currentPath, previousRelease, 'dir');
+    await run('systemctl', ['--user', 'restart', 'chatmux.service']);
+    closeConnection();
+    throw new Error(`${error instanceof Error ? error.message : String(error)}; restored the previous release at ${previousRelease}`);
+  }
 
   let tailscaleUrl: string | null = null;
   if (useTailscale) {
