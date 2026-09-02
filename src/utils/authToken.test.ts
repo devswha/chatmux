@@ -2,37 +2,77 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-  applyRefreshedAuthToken,
-  clearAuthToken,
-  getAuthTokenSnapshot,
-  setAuthToken,
+  AUTH_TOKEN_STORAGE_KEY,
+  clearSession,
+  confirmSession,
+  forgetLegacyStoredToken,
+  getSessionSnapshot,
+  isCurrentSessionSnapshot,
+  markSessionActive,
+  subscribeSession,
 } from './authToken';
 
-test('late refresh cannot restore a token after logout', () => {
-  clearAuthToken();
-  setAuthToken('before-logout');
-  const requestSnapshot = getAuthTokenSnapshot();
-  clearAuthToken();
+test('the browser keeps only a session marker and a generation, never a credential', () => {
+  clearSession();
+  const before = getSessionSnapshot();
+  assert.equal(before.active, false);
+  assert.equal(Object.keys(before).sort().join(','), 'active,generation', 'no token field exists to leak');
 
-  assert.equal(applyRefreshedAuthToken(requestSnapshot, 'late-refresh'), false);
-  assert.equal(getAuthTokenSnapshot().token, null);
+  const activated = markSessionActive();
+  assert.equal(activated.active, true);
+  assert.equal(activated.generation, before.generation + 1);
+  assert.equal(markSessionActive().generation, activated.generation, 'repeat activation is idempotent');
 });
 
-test('refresh rotates only the token captured by its request', () => {
-  clearAuthToken();
-  setAuthToken('original');
-  const requestSnapshot = getAuthTokenSnapshot();
-
-  assert.equal(applyRefreshedAuthToken(requestSnapshot, 'rotated'), true);
-  assert.equal(getAuthTokenSnapshot().token, 'rotated');
+test('a response captured before logout or re-login is recognized as stale', () => {
+  clearSession();
+  markSessionActive();
+  const requestSnapshot = getSessionSnapshot();
+  clearSession();
+  assert.equal(isCurrentSessionSnapshot(requestSnapshot), false, 'logout invalidates in-flight work');
+  markSessionActive();
+  assert.equal(isCurrentSessionSnapshot(requestSnapshot), false, 'a new login is a new generation, not a resumption');
+  assert.equal(isCurrentSessionSnapshot(getSessionSnapshot()), true);
 });
 
-test('a newer token prevents an earlier request from overwriting it', () => {
-  clearAuthToken();
-  setAuthToken('first');
-  const requestSnapshot = getAuthTokenSnapshot();
-  setAuthToken('newer');
+test('confirming an existing cookie session keeps the generation, so bootstrap work stays current', () => {
+  clearSession();
+  const beforeProbe = getSessionSnapshot();
+  const confirmed = confirmSession();
+  assert.equal(confirmed.active, true);
+  assert.equal(confirmed.generation, beforeProbe.generation, 'no user action happened, so no new generation');
+  assert.equal(isCurrentSessionSnapshot(beforeProbe), true, 'the probe that produced the confirmation is still current');
+  assert.equal(markSessionActive().generation, confirmed.generation, 'already active: login marking is a no-op');
+  clearSession();
+  assert.equal(isCurrentSessionSnapshot(beforeProbe), false, 'logout is a user action and starts a new generation');
+});
 
-  assert.equal(applyRefreshedAuthToken(requestSnapshot, 'stale'), false);
-  assert.equal(getAuthTokenSnapshot().token, 'newer');
+test('subscribers see the current snapshot immediately and every change afterwards', () => {
+  clearSession();
+  const seen: boolean[] = [];
+  const unsubscribe = subscribeSession((snapshot) => { seen.push(snapshot.active); });
+  markSessionActive();
+  clearSession();
+  unsubscribe();
+  markSessionActive();
+  assert.deepEqual(seen, [false, true, false]);
+});
+
+test('a legacy stored token is removed and nothing is written back', () => {
+  const store = new Map<string, string>();
+  (globalThis as { localStorage?: unknown }).localStorage = {
+    getItem: (key: string) => store.get(key) ?? null,
+    setItem: (key: string, value: string) => { store.set(key, value); },
+    removeItem: (key: string) => { store.delete(key); },
+  };
+  try {
+    store.set(AUTH_TOKEN_STORAGE_KEY, 'header.payload.signature');
+    forgetLegacyStoredToken();
+    markSessionActive();
+    assert.equal(store.has(AUTH_TOKEN_STORAGE_KEY), false, 'the old JWT copy is gone');
+    assert.equal(store.size, 0, 'no marker or token is persisted');
+  } finally {
+    delete (globalThis as { localStorage?: unknown }).localStorage;
+    clearSession();
+  }
 });
