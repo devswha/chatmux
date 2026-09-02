@@ -11,7 +11,7 @@ import type {
   LLMProvider,
   NormalizedMessage,
 } from '@/shared/types.js';
-import { AppError } from '@/shared/utils.js';
+import { AppError, validateWorkspacePath } from '@/shared/utils.js';
 
 type CreateAppSessionResult = {
   sessionId: string;
@@ -188,11 +188,32 @@ export const sessionsService = {
    * for the lifetime of the conversation. The provider-native id is mapped to
    * this row later, when the provider runtime announces it mid-run.
    */
-  createAppSession(provider: LLMProvider, projectPath: string): CreateAppSessionResult {
+  async createAppSession(
+    provider: LLMProvider,
+    projectPath: string,
+    deps: { validate?: typeof validateWorkspacePath; isDirectory?: (candidate: string) => Promise<boolean> } = {},
+  ): Promise<CreateAppSessionResult> {
     const normalizedProjectPath = projectPath.trim();
     if (!normalizedProjectPath) {
       throw new AppError('projectPath is required.', {
         code: 'PROJECT_PATH_REQUIRED',
+        statusCode: 400,
+      });
+    }
+    // Registering a directory as a project hands every file and git route its
+    // root, so the browser only gets to register existing directories that the
+    // workspace policy allows (under WORKSPACES_ROOT, never a system path).
+    const validation = await (deps.validate ?? validateWorkspacePath)(normalizedProjectPath);
+    if (!validation.valid) {
+      throw new AppError(validation.error ?? 'projectPath is not allowed.', {
+        code: 'INVALID_PROJECT_PATH',
+        statusCode: 400,
+      });
+    }
+    const isDirectory = deps.isDirectory ?? (async (candidate: string) => { try { return (await fsp.stat(candidate)).isDirectory(); } catch { return false; } });
+    if (!(await isDirectory(normalizedProjectPath))) {
+      throw new AppError('projectPath must be an existing directory.', {
+        code: 'PROJECT_PATH_NOT_FOUND',
         statusCode: 400,
       });
     }

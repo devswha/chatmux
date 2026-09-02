@@ -5,8 +5,11 @@ import test from 'node:test';
 
 import {
   buildStoredImageRecords,
+  imageContentTypeForStoredName,
   isAllowedImageMimeType,
   resolveImageAssetFile,
+  sanitizedImageBaseName,
+  storedImageExtension,
 } from '@/modules/assets/services/image-assets.service.js';
 
 const ASSETS_DIR = path.join(os.homedir(), '.chatmux', 'assets');
@@ -43,4 +46,21 @@ test('resolveImageAssetFile rejects traversal and separator attempts', () => {
   assert.equal(resolveImageAssetFile('sub/dir.png'), null);
   assert.equal(resolveImageAssetFile('sub\\dir.png'), null);
   assert.equal(resolveImageAssetFile('a..b/../c.png'), null);
+});
+
+test('stored image names take their extension from the accepted mime type, never from the upload name', () => {
+  assert.equal(storedImageExtension('image/png'), '.png');
+  assert.equal(storedImageExtension('image/jpeg'), '.jpg');
+  assert.equal(storedImageExtension('image/svg+xml'), '.svg');
+  assert.equal(storedImageExtension('text/html'), null);
+  assert.equal(sanitizedImageBaseName('evil<script>.html'), 'evil_script_', 'the original extension is dropped and unsafe characters neutralized');
+  assert.equal(sanitizedImageBaseName('.html'), 'image');
+});
+
+test('only allowlisted stored extensions are served as images; anything else is an opaque download', () => {
+  assert.equal(imageContentTypeForStoredName('/assets/123-shot.png'), 'image/png');
+  assert.equal(imageContentTypeForStoredName('/assets/123-shot.JPG'), 'image/jpeg');
+  assert.equal(imageContentTypeForStoredName('/assets/123-shot.svg'), 'image/svg+xml');
+  assert.equal(imageContentTypeForStoredName('/assets/123-page.html'), null, 'a legacy upload that kept an html name never renders as a document');
+  assert.equal(imageContentTypeForStoredName('/assets/123-noext'), null);
 });

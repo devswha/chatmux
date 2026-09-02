@@ -38,6 +38,42 @@ export function isAllowedImageMimeType(mimeType: string): boolean {
   return ALLOWED_IMAGE_MIME_TYPES.has(mimeType);
 }
 
+/**
+ * Stored extension for an accepted mime type. The upload's original extension
+ * is never trusted: multer's `mimetype` is the client-declared part header,
+ * and a `.html` name behind an `image/png` declaration would otherwise be
+ * served back as text/html on the app origin.
+ */
+const STORED_IMAGE_EXTENSIONS: Readonly<Record<string, string>> = {
+  'image/jpeg': '.jpg',
+  'image/png': '.png',
+  'image/gif': '.gif',
+  'image/webp': '.webp',
+  'image/svg+xml': '.svg',
+};
+
+export function storedImageExtension(mimeType: string): string | null {
+  return STORED_IMAGE_EXTENSIONS[mimeType] ?? null;
+}
+
+/** Content type to serve a stored asset with, from its stored extension only; null for anything else. */
+export function imageContentTypeForStoredName(filename: string): string | null {
+  const extension = path.extname(filename).toLowerCase();
+  const entry = Object.entries(STORED_IMAGE_EXTENSIONS).find(([, storedExtension]) => storedExtension === extension);
+  return entry?.[0] ?? null;
+}
+
+/** Display-safe base name: the original name without its extension, sanitized. */
+export function sanitizedImageBaseName(originalName: string): string {
+  const raw = path.basename(originalName);
+  const extension = path.extname(raw);
+  // A name that is only an extension (".html") has no base; basename() would keep it whole.
+  // extname() reports no extension for a bare ".html", so a leading-dot-only name is also extension-only.
+  const stem = extension ? raw.slice(0, -extension.length) : (raw.startsWith('.') ? '' : raw);
+  const base = stem.replace(/[^a-zA-Z0-9.-]/g, '_');
+  return base || 'image';
+}
+
 /** Creates the global `~/.chatmux/assets` folder if needed and returns it. */
 export async function ensureImageAssetsDir(): Promise<string> {
   const assetsDir = getGlobalImageAssetsDir();
