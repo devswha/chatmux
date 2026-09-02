@@ -169,13 +169,27 @@ export class FleetAuthDeadline {
   }
 }
 
+/**
+ * Remembers recently accepted challenge ids so an identical proof cannot be
+ * accepted twice. The set is a bounded window of the newest ids: an endpoint
+ * that reaches capacity forgets the oldest entry rather than refusing every
+ * later handshake, which a flaky link or a laptop that sleeps would otherwise
+ * trigger after a few thousand reconnects. Replay of an old id past the window
+ * is still impossible because both fresh nonces are part of the signed
+ * transcript.
+ */
 export class FleetChallengeReplayGuard {
   private readonly seen = new Set<string>();
 
   constructor(private readonly capacity = 4_096) {}
 
   reserve(challengeId: string): boolean {
-    if (this.seen.has(challengeId) || this.seen.size >= this.capacity) return false;
+    if (this.seen.has(challengeId)) return false;
+    while (this.seen.size >= this.capacity) {
+      const oldest = this.seen.values().next().value;
+      if (oldest === undefined) break;
+      this.seen.delete(oldest);
+    }
     this.seen.add(challengeId);
     return true;
   }

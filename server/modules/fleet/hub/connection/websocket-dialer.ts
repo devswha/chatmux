@@ -1,11 +1,13 @@
 import { WebSocket, type RawData } from 'ws';
 
+import { FLEET_MAX_FRAME_BYTES } from '../../protocol/codec.js';
+
 import type { HubPeerSocket } from './types.js';
 
 const MAX_BUFFERED_BYTES = 64 * 1024;
 
 export function dialFleetWebSocket(target: URL): HubPeerSocket {
-  const socket = new WebSocket(target, { followRedirects: false, perMessageDeflate: false });
+  const socket = new WebSocket(target, { followRedirects: false, perMessageDeflate: false, maxPayload: FLEET_MAX_FRAME_BYTES });
   return {
     onOpen: (listener) => { socket.on('open', listener); },
     onMessage: (listener) => {
