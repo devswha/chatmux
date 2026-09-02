@@ -45,6 +45,7 @@ export {
   type CurrentTmuxPaneIdentity,
 } from './services/external-cli-sessions.service.js';
 export {
+  createVerifiedTmuxActionTarget,
   assertFreshExternalTmuxTarget,
   type VerifiedTmuxActionTarget,
 } from './services/tmux-fresh-verifier.service.js';

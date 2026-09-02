@@ -314,6 +314,12 @@ app.use('/api/auth', express.json({
     type: (req) => (req.headers['content-type'] || '').includes('json')
 }));
 app.use('/api/auth', express.urlencoded({ limit: '64kb', extended: true }));
+// Machine pairing endpoints are reachable without browser auth and carry a
+// signed identity plus a token; they never need the upload budget below.
+app.use('/api/fleet/pairing', express.json({
+    limit: '64kb',
+    type: (req) => (req.headers['content-type'] || '').includes('json')
+}));
 
 app.use(express.json({
     limit: '50mb',

@@ -164,3 +164,31 @@ test('Given a live peer endpoint, when authenticated requests are allowed or mal
   assert.equal(localCalls, 1);
   assert.equal(trustLookups, 2);
 });
+
+test('Given a live peer endpoint, when an unauthenticated client sends a message over the frame bound, then ws closes it before assembly', async (context) => {
+  const peer = identity();
+  const server = createServer();
+  const endpoint = createFleetPeerEndpoint({
+    server,
+    browserUpgradeListeners: [],
+    local: { role: 'peer', signer: peer.signer, processEpoch: 'peer-epoch', capabilities: ['catalog.read'], transportMode: 'direct-wss' },
+    trust: { find: async () => undefined },
+    registry: new FleetConnectionRegistry(new Generations()),
+    dispatch: createPeerOperationDispatcher(peer.signer.installationId, {}),
+  });
+  endpoint.start();
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  if (address === null || typeof address === 'string') throw new TypeError('test server address is unavailable');
+  const socket = new WebSocket(`ws://127.0.0.1:${address.port}/fleet-ws`);
+  context.after(async () => {
+    socket.terminate();
+    await endpoint.stop();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+  await once(socket, 'open');
+  const closed = once(socket, 'close');
+  socket.send('x'.repeat(64 * 1024 + 1));
+  const [code] = await bounded(closed, 'oversized frame close') as [number];
+  assert.equal(code, 1009, 'the payload bound is enforced by ws itself, so nothing is buffered past 64 KiB before authentication');
+});
