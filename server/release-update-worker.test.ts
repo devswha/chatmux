@@ -29,6 +29,10 @@ test('tar pre-enumeration rejects traversal, writable entries, and device types'
     '-rw-rw-r-- owner/group 1 2026-01-01 00:00 package/package.json',
     'crw-r--r-- owner/group 1 2026-01-01 00:00 package/device',
     'lrwxrwxrwx owner/group 0 2026-01-01 00:00 package/escape -> ../../outside',
+    // A name carrying the link separator cannot be split without guessing.
+    'lrwxrwxrwx owner/group 0 2026-01-01 00:00 package/a -> b -> ../../outside',
+    '-rw-r--r-- owner/group 1 2026-01-01 00:00 package/notes -> plain.txt',
+    'hrw-r--r-- owner/group 0 2026-01-01 00:00 package/x link to y link to z',
   ]) assert.throws(() => validateTarListing(listing), ReleaseUpdateWorkerError);
 });
 

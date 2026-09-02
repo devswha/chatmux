@@ -99,7 +99,12 @@ export function validateTarListing(listing: string): void {
     const match = /^(\S)([rwxstST-]{9})\s+\S+\s+(\d+)\s+\S+\s+\S+\s+(.*)$/.exec(line);
     if (!match) throw new ReleaseUpdateWorkerError('Archive listing is malformed.');
     const [, kind, , sizeText, rawName] = match;
-    const [name, link] = rawName.split(kind === 'l' ? ' -> ' : kind === 'h' ? ' link to ' : '\u0000', 2);
+    // A name that itself contains the link separator cannot be split without
+    // guessing; a release archive never needs such a name, so refuse it.
+    const separator = kind === 'l' ? ' -> ' : kind === 'h' ? ' link to ' : null;
+    if (separator !== null && rawName.split(separator).length !== 2) throw new ReleaseUpdateWorkerError('Archive listing is malformed.');
+    if (separator === null && (rawName.includes(' -> ') || rawName.includes(' link to '))) throw new ReleaseUpdateWorkerError('Archive listing is malformed.');
+    const [name, link] = separator === null ? [rawName] : rawName.split(separator, 2);
     if (!safeRelative(name) || !['-', 'd', 'l', 'h'].includes(kind) || /[sStT]/.test(match[2]) || (kind !== 'l' && (match[2][4] === 'w' || match[2][7] === 'w'))) throw new ReleaseUpdateWorkerError('Archive contains an unsafe entry.');
     if (kind === 'l' || kind === 'h') {
       if (!link || link.startsWith('/') || link.startsWith('\\') || /^[A-Za-z]:/.test(link)) {

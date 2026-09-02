@@ -714,6 +714,39 @@ test('access password rotates the owner credential and revokes existing sessions
   closeConnection();
 });
 
+test('install restores the previous release link and restarts when the new release never becomes healthy', async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'chatmux-install-rollback-'));
+  const commands: string[] = [];
+  const base = {
+    version: 'test',
+    home,
+    platform: 'linux' as const,
+    arch: 'x64' as const,
+    nodeVersion: '22.22.2',
+    nodeBinary: '/opt/chatmux node/bin/node',
+    interfaces: () => ({ lo: [{ address: '127.0.0.1', family: 'IPv4', internal: true }] }) as never,
+    run: async (command: string, args: string[]) => {
+      commands.push([command, ...args].join(' '));
+      if (command === 'tailscale') throw new Error('not installed');
+      return { stdout: '', stderr: '' };
+    },
+  };
+  await runInstallCli(['--yes', '--port=39107'], { ...base, appRoot: process.cwd(), healthCheck: async () => {} });
+  const current = path.join(home, '.chatmux', 'current');
+  assert.equal(await fs.readlink(current), process.cwd());
+
+  // A release payload that installs cleanly but never answers the health probe.
+  const broken = await fs.mkdtemp(path.join(os.tmpdir(), 'chatmux-broken-release-'));
+  await fs.cp(path.join(process.cwd(), 'packaging'), path.join(broken, 'packaging'), { recursive: true });
+  commands.length = 0;
+  await assert.rejects(
+    runInstallCli(['--yes', '--port=39107'], { ...base, appRoot: broken, healthCheck: async () => { throw new Error('ChatMux test did not become healthy'); } }),
+    /did not become healthy; restored the previous release/u,
+  );
+  assert.equal(await fs.readlink(current), process.cwd(), 'the link points back at the release that was serving');
+  assert.equal(commands.filter((command) => command === 'systemctl --user restart chatmux.service').length, 2, 'the restored release is restarted');
+});
+
 test('the stdin secret reader refuses a terminal and joins piped chunks verbatim', async () => {
   await assert.rejects(readSecretFromStdin({ isTTY: true, async *[Symbol.asyncIterator]() { yield 'typed'; } }), /stdin is a terminal/);
   const piped = { isTTY: false, async *[Symbol.asyncIterator]() { yield Buffer.from('pass'); yield 'phrase-'; yield Buffer.from('é'); } };
