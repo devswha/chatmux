@@ -1,7 +1,9 @@
+import { spawn } from 'node:child_process';
 import { constants as fsConstants } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, isAbsolute, relative, sep, delimiter, dirname } from 'node:path';
 import { mkdir, realpath, stat, lstat, access } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 
 import { CURSOR_CLI_COMMAND_CANDIDATES } from '@/modules/providers/list/cursor/cursor-cli-command.js';
 
@@ -98,14 +100,86 @@ function expandExternalCliCwd(input: string, home: string): string | null {
   return isAbsolute(trimmed) ? trimmed : join(home, trimmed);
 }
 
+type CreateUnderRootResult =
+  | { ok: true; path: string }
+  | { ok: false; code: string };
+
 type EnsureHomeCwdIo = {
   realpath(pathname: string): Promise<string>;
   lstat(pathname: string): Promise<{ isDirectory(): boolean }>;
   mkdir(pathname: string): Promise<unknown>;
   stat(pathname: string): Promise<{ isDirectory(): boolean }>;
+  createUnderRoot(root: string, components: string[]): Promise<CreateUnderRootResult>;
 };
 
-const defaultEnsureHomeCwdIo: EnsureHomeCwdIo = { realpath, lstat, mkdir, stat };
+function coreExecutablePath(): string {
+  const executable = process.platform === 'win32' ? 'chatmux-core.exe' : 'chatmux-core';
+  const compiled = !import.meta.url.endsWith('.ts');
+  return fileURLToPath(new URL(
+    compiled
+      ? `../../../../../../dist-native/${executable}`
+      : `../../../../../dist-native/${executable}`,
+    import.meta.url,
+  ));
+}
+
+async function createUnderRoot(root: string, components: string[]): Promise<CreateUnderRootResult> {
+  return new Promise((resolve) => {
+    const child = spawn(coreExecutablePath(), ['mkdir-under', '--root', root, '--', ...components], {
+      stdio: ['ignore', 'pipe', 'ignore'],
+      windowsHide: true,
+    });
+    let stdout = '';
+    let settled = false;
+    const finish = (result: CreateUnderRootResult): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(result);
+    };
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      finish({ ok: false, code: 'TIMEOUT' });
+    }, 5_000);
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', (chunk: string) => {
+      stdout += chunk;
+      if (stdout.length > 64 * 1024) {
+        child.kill('SIGKILL');
+        finish({ ok: false, code: 'MALFORMED_OUTPUT' });
+      }
+    });
+    child.once('error', () => finish({ ok: false, code: 'SPAWN_ERROR' }));
+    child.once('close', (code) => {
+      if (code !== 0) {
+        finish({ ok: false, code: 'CORE_ERROR' });
+        return;
+      }
+      try {
+        const output: unknown = JSON.parse(stdout);
+        if (
+          typeof output === 'object' && output !== null &&
+          'ok' in output && output.ok === true &&
+          'path' in output && typeof output.path === 'string'
+        ) {
+          finish({ ok: true, path: output.path });
+          return;
+        }
+      } catch {
+        // Invalid core output is a closed failure below.
+      }
+      finish({ ok: false, code: 'MALFORMED_OUTPUT' });
+    });
+  });
+}
+
+const defaultEnsureHomeCwdIo: EnsureHomeCwdIo = {
+  realpath,
+  lstat,
+  mkdir,
+  stat,
+  createUnderRoot,
+};
 
 function hasFsErrorCode(error: unknown, code: string): boolean {
   return error instanceof Error && 'code' in error && error.code === code;
@@ -143,6 +217,13 @@ export async function ensureHomeCwd(
     if (!ancestor || !isWithinHome(homeReal, ancestor.realpath)) return null;
 
     const suffix = relative(ancestor.path, cwd).split(sep).filter(Boolean);
+    if (process.platform !== 'win32') {
+      const created = await io.createUnderRoot(ancestor.realpath, suffix);
+      return created.ok && typeof created.path === 'string' ? created.path : null;
+    }
+
+    // Windows fallback: nix does not expose the Unix openat/mkdirat contract
+    // there, so retain the existing stepwise behavior on that platform.
     let canonicalPath = ancestor.realpath;
     for (const component of suffix) {
       const expectedPath = join(canonicalPath, component);

@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 pub mod jobs;
+pub mod mkdir_under;
 pub mod pty;
 pub mod watcher;
 
@@ -19,6 +20,10 @@ pub enum Command {
     },
     Jobs {
         database: PathBuf,
+    },
+    MkdirUnder {
+        root: PathBuf,
+        relative: Vec<OsString>,
     },
     Pty {
         program: OsString,
@@ -55,6 +60,7 @@ where
         },
         Some(command) if command == "watch" => parse_watch_args(args),
         Some(command) if command == "jobs" => parse_jobs_args(args),
+        Some(command) if command == "mkdir-under" => parse_mkdir_under_args(args),
         Some(command) if command == "pty" => parse_pty_args(args),
         _ => Err(ParseError),
     }
@@ -73,6 +79,24 @@ where
         return Err(ParseError);
     }
     Ok(Command::Jobs { database })
+}
+
+fn parse_mkdir_under_args<I>(args: I) -> Result<Command, ParseError>
+where
+    I: IntoIterator<Item = OsString>,
+{
+    let mut args = args.into_iter();
+    if args.next().as_deref() != Some(std::ffi::OsStr::new("--root")) {
+        return Err(ParseError);
+    }
+    let root = args.next().map(PathBuf::from).ok_or(ParseError)?;
+    if !root.is_absolute() || args.next().as_deref() != Some(std::ffi::OsStr::new("--")) {
+        return Err(ParseError);
+    }
+    Ok(Command::MkdirUnder {
+        root,
+        relative: args.collect(),
+    })
 }
 
 fn parse_pty_args<I>(args: I) -> Result<Command, ParseError>
@@ -174,6 +198,28 @@ mod tests {
                 program: os("program name"),
                 args: vec![os("$not-expanded")],
             })
+        );
+    }
+
+    #[test]
+    fn parses_mkdir_under_root_and_opaque_components() {
+        assert_eq!(
+            parse_args([
+                os("mkdir-under"),
+                os("--root"),
+                os("/home/user"),
+                os("--"),
+                os("project name"),
+                os("child"),
+            ]),
+            Ok(Command::MkdirUnder {
+                root: "/home/user".into(),
+                relative: vec![os("project name"), os("child")],
+            })
+        );
+        assert_eq!(
+            parse_args([os("mkdir-under"), os("--root"), os("relative"), os("--")]),
+            Err(ParseError)
         );
     }
 
