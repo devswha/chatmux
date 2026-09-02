@@ -236,11 +236,38 @@ export async function killTmuxPane(
   await requireTmuxSuccess(identity, ['kill-pane', '-t', identity.paneId], run);
 }
 
+export type KillTmuxSessionOptions = Readonly<{
+  /** The caller has shown the user the other panes and they chose to close them too. */
+  readonly allowOtherPanes?: boolean;
+}>;
+
+/**
+ * Ends the whole tmux session that hosts the verified pane. Only that one pane
+ * was verified, so when the session holds other panes (other agents, editors,
+ * shells) the caller must have confirmed the wider blast radius explicitly.
+ */
 export async function killTmuxSession(
   target: VerifiedTmuxActionTarget,
   run: TmuxRunner = runTmux,
+  options: KillTmuxSessionOptions = {},
 ): Promise<void> {
   const identity = target.tmux;
+  const listed = await run(['-S', identity.socketPath, 'list-panes', '-s', '-t', identity.sessionId, '-F', '#{pane_id}']);
+  if (listed.code !== 0) {
+    throw new AppError('The selected tmux pane changed; reopen it from the session list.', {
+      code: 'TMUX_PANE_GENERATION_MISMATCH',
+      statusCode: 409,
+      details: listed.output.slice(0, 500),
+    });
+  }
+  const otherPanes = listed.output.split('\n').map((line) => line.trim()).filter((line) => line && line !== identity.paneId);
+  if (otherPanes.length > 0 && options.allowOtherPanes !== true) {
+    throw new AppError(`The tmux session holds ${otherPanes.length} other pane(s). Confirm closing them too, or terminate only this pane.`, {
+      code: 'TMUX_SESSION_HAS_OTHER_PANES',
+      statusCode: 409,
+      details: { otherPanes: otherPanes.length },
+    });
+  }
   await requireTmuxSuccess(identity, ['kill-session', '-t', identity.sessionId], run);
 }
 
