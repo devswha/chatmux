@@ -10,6 +10,27 @@ import {
 
 const OUTPUT_ENTRY_LIMIT = 512;
 const OUTPUT_BYTE_LIMIT = 1024 * 1024;
+/**
+ * Largest pane.output payload, in UTF-16 code units. JSON escaping expands a
+ * control-heavy TUI redraw up to 6x (\u001b per escape byte) and the envelope
+ * adds a few hundred bytes, so 8 KiB of data always fits the 64 KiB frame.
+ */
+export const OUTPUT_CHUNK_CHARS = 8 * 1024;
+
+/** Splits pty output into frame-sized pieces without cutting a surrogate pair. */
+export function chunkTerminalOutput(data: string, limit = OUTPUT_CHUNK_CHARS): string[] {
+  if (data.length <= limit) return [data];
+  const chunks: string[] = [];
+  let start = 0;
+  while (start < data.length) {
+    let end = Math.min(start + limit, data.length);
+    const last = data.charCodeAt(end - 1);
+    if (end < data.length && last >= 0xd800 && last <= 0xdbff) end -= 1;
+    chunks.push(data.slice(start, end));
+    start = end;
+  }
+  return chunks;
+}
 type Output = Readonly<{ readonly seq: number; readonly data: string; readonly bytes: number }>;
 export interface RemoteTerminalProcess {
   onData(listener: (data: string) => void): void;
@@ -108,12 +129,14 @@ export function createRemoteTerminalPeer(options: RemoteTerminalPeerOptions): Re
     sessions.set(session.id, session);
     process.onData((data) => {
       if (!session.open) return;
-      const output = { seq: ++session.lastSeq, data, bytes: Buffer.byteLength(data) };
-      session.output.push(output); session.outputBytes += output.bytes;
-      while (session.output.length > OUTPUT_ENTRY_LIMIT || session.outputBytes > OUTPUT_BYTE_LIMIT) {
-        const removed = session.output.shift(); if (removed !== undefined) session.outputBytes -= removed.bytes;
+      for (const piece of chunkTerminalOutput(data)) {
+        const output = { seq: ++session.lastSeq, data: piece, bytes: Buffer.byteLength(piece) };
+        session.output.push(output); session.outputBytes += output.bytes;
+        while (session.output.length > OUTPUT_ENTRY_LIMIT || session.outputBytes > OUTPUT_BYTE_LIMIT) {
+          const removed = session.output.shift(); if (removed !== undefined) session.outputBytes -= removed.bytes;
+        }
+        publish(session, output);
       }
-      publish(session, output);
     });
     process.onExit(() => { session.open = false; sessions.delete(session.id); });
     return { terminalSessionId: session.id, streamEpoch: session.streamEpoch, peerProcessEpoch: options.processEpoch, replay: 'redraw', lastSeq: 0 };
