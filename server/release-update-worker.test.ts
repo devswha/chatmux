@@ -251,6 +251,30 @@ test('worker persists durable archive download progress with and without a decla
   } finally { await unsized.cleanup(); }
 });
 
+test('worker accepts a multi-line checksum file and rejects one that names the archive twice', async () => {
+  const twoLine = await workerFixture({
+    fetch: (url) => (async function* () {
+      if (url.endsWith('.sha256')) { yield Buffer.from(`${'b'.repeat(64)}  install.sh\n${archiveHash} *chatmux-server-1.2.3-linux-x64-node22.tar.gz\n`); return; }
+      yield archive;
+    })(),
+  });
+  try {
+    await twoLine.worker.run(jobId);
+    assert.equal(twoLine.state.get(jobId)?.phase, 'succeeded');
+  } finally { await twoLine.cleanup(); }
+
+  const ambiguous = await workerFixture({
+    fetch: (url) => (async function* () {
+      if (url.endsWith('.sha256')) { yield Buffer.from(`${archiveHash}  chatmux-server-1.2.3-linux-x64-node22.tar.gz\n${'c'.repeat(64)}  chatmux-server-1.2.3-linux-x64-node22.tar.gz\n`); return; }
+      yield archive;
+    })(),
+  });
+  try {
+    await ambiguous.worker.run(jobId);
+    assert.equal(ambiguous.state.get(jobId)?.phase, 'failed');
+  } finally { await ambiguous.cleanup(); }
+});
+
 test('worker preserves native Response status, headers, and body across its bounded timer wrapper', async () => {
   const fixture = await workerFixture({ nativeResponse: true });
   try {

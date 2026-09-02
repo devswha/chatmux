@@ -773,30 +773,55 @@ test('release updates fail closed without a strict installed version before stat
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   }
 });
-test('canonical release discovery accepts only exact three-asset stable contract', async () => {
+test('canonical release discovery requires the three consumed assets once each and tolerates only archive-derived extras', async () => {
   const version = '1.2.3';
   const archive = `chatmux-server-${version}-linux-x64-node22.tar.gz`;
   const checksum = 'a'.repeat(64);
-  const fetcher = async (url: string) => ({
+  const asset = (name: string) => ({ name, browser_download_url: `https://github.com/devswha/chatmux/releases/download/v${version}/${name}` });
+  const canonical = [asset(archive), asset(`${archive}.sha256`), asset('install.sh')];
+  const fetcherFor = (assets: unknown[], checksumBody = `${checksum}  ${archive}\n`) => (async (url: string) => ({
     ok: true,
     json: async () => url.includes('/releases/latest')
-      ? { tag_name: `v${version}`, published_at: '2026-01-02T03:04:05.000Z', assets: [
-        { name: archive, browser_download_url: `https://github.com/devswha/chatmux/releases/download/v${version}/${archive}` },
-        { name: `${archive}.sha256`, browser_download_url: `https://github.com/devswha/chatmux/releases/download/v${version}/${archive}.sha256` },
-        { name: 'install.sh', browser_download_url: `https://github.com/devswha/chatmux/releases/download/v${version}/install.sh` }
-      ] }
+      ? { tag_name: `v${version}`, published_at: '2026-01-02T03:04:05.000Z', assets }
       : { schema: 1, releases: { [version]: { database: { rollbackCompatibleFrom: ['1.2.2'], schemaGeneration: 19 } } } },
-    text: async () => `${checksum}  ${archive}\n`,
+    text: async () => checksumBody,
     status: 200,
     headers: new Headers(),
-  }) as any;
-  const release = await discoverCanonicalRelease(fetcher);
+  })) as any;
+
+  const release = await discoverCanonicalRelease(fetcherFor(canonical));
   assert.equal(release.release.archiveName, archive);
+  assert.equal(release.release.archiveSha256, checksum);
   assert.deepEqual(
     release.compatibility,
     { database: { rollbackCompatibleFrom: ['1.2.2'] } },
     'a governed release declaring schemaGeneration stays discoverable and the field is stripped',
   );
+
+  // A future signature or attestation of the archive must not strand this version.
+  const signed = await discoverCanonicalRelease(fetcherFor([...canonical, asset(`${archive}.sha256.sig`), asset(`${archive}.sigstore.json`)]));
+  assert.equal(signed.release.archiveSha256, checksum);
+
+  for (const [label, assets] of [
+    ['an unrelated extra asset', [...canonical, asset('notes.txt')]],
+    ['a duplicated required asset', [...canonical, asset('install.sh')]],
+    ['a missing checksum asset', [asset(archive), asset('install.sh')]],
+    ['a checksum for a different archive', [asset(archive), asset(`chatmux-server-9.9.9-linux-x64-node22.tar.gz.sha256`), asset('install.sh')]],
+  ] as const) {
+    await assert.rejects(discoverCanonicalRelease(fetcherFor([...assets])), /assets are incomplete/, label);
+  }
+
+  // sha256sum-style bodies may carry further lines, but the archive appears exactly once.
+  const multi = await discoverCanonicalRelease(fetcherFor(canonical, `${'b'.repeat(64)}  install.sh\n${checksum} *${archive}\n`));
+  assert.equal(multi.release.archiveSha256, checksum);
+  for (const [label, body] of [
+    ['the archive named twice', `${checksum}  ${archive}\n${'c'.repeat(64)}  ${archive}\n`],
+    ['a malformed extra line', `${checksum}  ${archive}\nnot a checksum line\n`],
+    ['no line for the archive', `${'b'.repeat(64)}  install.sh\n`],
+    ['a short digest', `${'a'.repeat(63)}  ${archive}\n`],
+  ] as const) {
+    await assert.rejects(discoverCanonicalRelease(fetcherFor(canonical, body)), /checksum is invalid/, label);
+  }
 });
 function canonicalDiscoveryFetcher(checksumResponse: (url: string) => any, checksumUrl?: string, onRequest?: (url: string, init?: RequestInit) => void) {
   const version = '1.2.3';

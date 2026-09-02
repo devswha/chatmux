@@ -194,3 +194,38 @@ export function sanitizePublicUpdateError(value: unknown): string | undefined {
   if (!normalized) return undefined;
   return normalized.replace(/(?:\/[^\s]+|[A-Za-z]:\\[^\s]+|https?:\/\/[^\s]+|\b(?:token|secret|password)=\S+)/gi, '[redacted]').slice(0, 240);
 }
+
+/**
+ * The three assets the updater consumes must each be present exactly once.
+ * Additional assets are tolerated only when derived from the archive name
+ * (`<archive>.sha256.sig`, an attestation, …): a future release can ship a
+ * signature without stranding installs on this version, while an asset with an
+ * unrelated name still fails closed. The updater never downloads an extra asset.
+ */
+export function hasCanonicalReleaseAssetSet(names: readonly string[], archiveName: string): boolean {
+  const required = [archiveName, `${archiveName}.sha256`, 'install.sh'];
+  if (new Set(names).size !== names.length) return false;
+  if (required.some((name) => !names.includes(name))) return false;
+  return names.every((name) => required.includes(name) || name.startsWith(`${archiveName}.`));
+}
+
+/**
+ * Parses a `sha256sum`-style checksum file and returns the archive's digest.
+ * Every non-empty line must be `<64 hex><spaces>[*]<name>`, and exactly one
+ * line may name the archive; further lines (a bootstrap script hash, for
+ * instance) are allowed but never consumed. Shared with the update worker so
+ * discovery and apply cannot disagree about what a valid file looks like.
+ */
+export function parseReleaseChecksumFile(text: string, archiveName: string): string | null {
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter((line) => line.length > 0);
+  if (lines.length === 0) return null;
+  let digest: string | null = null;
+  for (const line of lines) {
+    const entry = /^([a-f0-9]{64})\s+\*?(\S.*)$/.exec(line);
+    if (!entry) return null;
+    if (entry[2] !== archiveName) continue;
+    if (digest !== null) return null;
+    digest = entry[1];
+  }
+  return digest;
+}
