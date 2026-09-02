@@ -164,6 +164,7 @@ export default tseslint.config(
             "server/shared/project-file-containment.ts",
             "server/shared/workspace-paths.ts",
             "server/middleware/auth.js",
+            "server/middleware/client-address.js",
             "server/tailscale-auth.ts",
             "server/tailscale-access.ts",
           ], // classify shared utility files so modules can depend on them explicitly

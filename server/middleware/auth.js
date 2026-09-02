@@ -28,9 +28,15 @@ const TOKEN_MAX_AGE_MS = TOKEN_MAX_AGE_SECONDS * 1000;
  *   'tailscale' — loopback requests act as the owner; Tailscale Serve requests
  *                 require a trusted identity header and a persisted allowlist.
  */
-const resolveAuthMode = (value) => (
-  value === 'password' || value === 'tailscale' ? value : 'none'
-);
+// An unset or empty CHATMUX_AUTH means the implicit local owner. Any other
+// value that is not a known mode is a configuration error and must not fall
+// back to 'none', where a typo such as "passwd" would silently disable login.
+const AUTH_MODES = ['none', 'password', 'tailscale'];
+const resolveAuthMode = (value) => {
+  if (value === undefined || value === null || value === '') return 'none';
+  if (AUTH_MODES.includes(value)) return value;
+  throw new Error(`CHATMUX_AUTH must be one of ${AUTH_MODES.join(', ')}; received ${JSON.stringify(String(value))}`);
+};
 const AUTH_MODE = resolveAuthMode(process.env.CHATMUX_AUTH);
 const isAuthDisabled = () => AUTH_MODE === 'none';
 const isTailscaleAuth = () => AUTH_MODE === 'tailscale';

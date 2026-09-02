@@ -89,8 +89,8 @@ test('auth mode resolution enables only explicit supported modes', () => {
   assert.equal(resolveAuthMode(undefined), 'none');
   assert.equal(resolveAuthMode(''), 'none');
   assert.equal(resolveAuthMode('none'), 'none');
-  assert.equal(resolveAuthMode('PASSWORD'), 'none');
-  assert.equal(resolveAuthMode('anything-else'), 'none');
+  assert.throws(() => resolveAuthMode('PASSWORD'), /CHATMUX_AUTH must be one of/, 'a typo must not silently disable login');
+  assert.throws(() => resolveAuthMode('anything-else'), /CHATMUX_AUTH must be one of/);
   assert.equal(resolveAuthMode('password'), 'password');
   assert.equal(resolveAuthMode('tailscale'), 'tailscale');
 });
