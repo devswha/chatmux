@@ -10,7 +10,9 @@ export function towerUrl(): string {
 
 // tmux session names are simple tokens; reject anything that could be an argv/shell
 // surprise before it reaches the tower (the tower validates too — defence in depth).
-const TMUX_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+// '.' and ':' are excluded because tmux silently rewrites them to '_', which
+// would leave every later lookup pointing at a name that does not exist.
+const TMUX_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 
 export function isValidTmuxName(name: unknown): name is string {
   return typeof name === 'string' && TMUX_NAME_RE.test(name);

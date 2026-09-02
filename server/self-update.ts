@@ -9,7 +9,7 @@ import express, { type NextFunction, type Request, type Response as ExpressRespo
 
 import { getTailscaleAccessInfo, type TailscaleAccessInfo } from './tailscale-access.js';
 import { ReleaseUpdateStateError, ReleaseUpdateStateStore } from './release-update-state.js';
-import { archiveNameForVersion, compareStrictSemVer, formatHealthProbeHost, parseStrictSemVer, resolveHealthProbeHost, validateCompatibilityMetadata, type CompatibilityMetadata, type ImmutableUpdateJobDescriptor, type ReleaseDescriptor } from './release-update-contract.js';
+import { archiveNameForVersion, compareStrictSemVer, formatHealthProbeHost, hasCanonicalReleaseAssetSet, parseReleaseChecksumFile, parseStrictSemVer, resolveHealthProbeHost, validateCompatibilityMetadata, type CompatibilityMetadata, type ImmutableUpdateJobDescriptor, type ReleaseDescriptor } from './release-update-contract.js';
 
 export type InstallMode = 'source' | 'release' | 'unknown';
 export function detectInstallMode(appRoot: string, home: string = homedir()): InstallMode {
@@ -434,20 +434,19 @@ export async function discoverCanonicalRelease(fetcher: FetchLike = fetch): Prom
   const latest = await readJson(await discoveryFetch(fetcher, 'https://api.github.com/repos/devswha/chatmux/releases/latest')) as { tag_name?: unknown; published_at?: unknown; prerelease?: unknown; draft?: unknown; assets?: unknown; body?: unknown; html_url?: unknown };
   if (latest.prerelease || latest.draft || typeof latest.tag_name !== 'string' || !latest.tag_name.startsWith('v') || !parseStrictSemVer(latest.tag_name.slice(1)) || typeof latest.published_at !== 'string' || !Array.isArray(latest.assets)) throw new Error('Canonical stable release is invalid.');
   const version = latest.tag_name.slice(1); const archiveName = archiveNameForVersion(version)!; const checksumName = `${archiveName}.sha256`;
-  const expectedNames = [archiveName, checksumName, 'install.sh'];
-  if (latest.assets.length !== expectedNames.length || latest.assets.some((asset) => !asset || typeof asset !== 'object' || typeof (asset as { name?: unknown }).name !== 'string' || typeof (asset as { browser_download_url?: unknown }).browser_download_url !== 'string')) throw new Error('Canonical release assets are incomplete.');
+  if (latest.assets.some((asset) => !asset || typeof asset !== 'object' || typeof (asset as { name?: unknown }).name !== 'string' || typeof (asset as { browser_download_url?: unknown }).browser_download_url !== 'string')) throw new Error('Canonical release assets are incomplete.');
   const names = latest.assets.map((asset) => (asset as { name: string }).name);
-  if (new Set(names).size !== names.length || names.some((name) => !expectedNames.includes(name))) throw new Error('Canonical release assets are incomplete.');
+  if (!hasCanonicalReleaseAssetSet(names, archiveName)) throw new Error('Canonical release assets are incomplete.');
   const assets = new Map(latest.assets.map((asset) => [((asset as { name: string }).name), ((asset as { browser_download_url: string }).browser_download_url)]));
   const checksumUrl = assets.get(checksumName)!;
   if (!isCanonicalChecksumAssetUrl(checksumUrl, latest.tag_name, checksumName)) throw new Error('Canonical release checksum asset is invalid.');
   const checksum = await downloadCanonicalChecksum(fetcher, checksumUrl);
-  const match = new RegExp(`^([a-f0-9]{64})  ${archiveName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'm').exec(checksum);
-  if (!match || checksum.trim().split(/\r?\n/).length !== 1) throw new Error('Canonical release checksum is invalid.');
+  const archiveSha256 = parseReleaseChecksumFile(checksum, archiveName);
+  if (archiveSha256 === null) throw new Error('Canonical release checksum is invalid.');
   const metadata = await readJson(await discoveryFetch(fetcher, `https://raw.githubusercontent.com/devswha/chatmux/${latest.tag_name}/packaging/release/update-compatibility.json`)) as { schema?: unknown; releases?: Record<string, unknown> };
   const compatibility = metadata.schema === 1 ? validateCompatibilityMetadata(metadata.releases?.[version]) : null;
   if (!compatibility) throw new Error('Canonical release compatibility metadata is invalid.');
-  return { release: { repository: 'devswha/chatmux', tag: latest.tag_name, version, archiveName, checksumName, bootstrapName: 'install.sh', archiveSha256: match[1], publishedAt: latest.published_at }, compatibility, notes: releaseNotesFromLatest(latest, latest.tag_name) };
+  return { release: { repository: 'devswha/chatmux', tag: latest.tag_name, version, archiveName, checksumName, bootstrapName: 'install.sh', archiveSha256, publishedAt: latest.published_at }, compatibility, notes: releaseNotesFromLatest(latest, latest.tag_name) };
 }
 
 export interface SystemRouterOptions {

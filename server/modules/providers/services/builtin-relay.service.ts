@@ -85,7 +85,10 @@ function runCollected(command: string, args: string[], stdin?: string): Promise<
   });
 }
 
-const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+// tmux rewrites '.' and ':' in a session name to '_' (session_check_name), so
+// a name with a dot would be created under a different name than the one the
+// duplicate check and the returned tmuxName refer to. Refuse it up front.
+const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 
 async function hasSession(name: string, run: TmuxRunner): Promise<boolean> {
   try {
@@ -130,7 +133,7 @@ export async function builtinSpawn(
   const spawnRun = deps.spawnRun ?? (deps.run === undefined ? runTmuxSpawn : deps.run);
   const fail = (detail: string): LiveSpawnResult => ({ ok: false, reachable: true, conflict: false, detail });
   if (!NAME_RE.test(name) || name.toLowerCase().startsWith('company')) {
-    return fail('잘못된 세션명 (company*는 예약됨)');
+    return fail('잘못된 세션명 (영문·숫자·_·- 만, company*는 예약됨)');
   }
   const resolvedCwd = await resolveSpawnCwd(cwd, deps.home);
   if (!resolvedCwd) {
