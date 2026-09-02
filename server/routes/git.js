@@ -1126,17 +1126,19 @@ Generate the commit message:`;
     console.log('🚀 Calling AI agent with provider:', provider);
     console.log('📝 Prompt length:', prompt.length);
 
-    // Call the appropriate agent
+    // Call the appropriate agent. The prompt embeds repository content, so
+    // this is a text-only run: no tools, no permission bypass. A file that
+    // says "run this command" must only ever influence the wording.
     if (provider === 'claude') {
       await queryClaudeSDK(prompt, {
         cwd: projectPath,
-        permissionMode: 'bypassPermissions',
-        model: 'sonnet'
+        model: 'sonnet',
+        toolAccess: 'none'
       }, writer);
     } else if (provider === 'cursor') {
       await spawnCursor(prompt, {
         cwd: projectPath,
-        skipPermissions: true
+        mode: 'ask'
       }, writer);
     }
 

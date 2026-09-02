@@ -28,8 +28,56 @@ function isWorkspaceTrustPrompt(text = '') {
   return WORKSPACE_TRUST_PATTERNS.some((pattern) => pattern.test(text));
 }
 
+const CURSOR_READ_ONLY_MODES = new Set(['ask', 'plan']);
+
+/**
+ * Builds the Cursor CLI argv for one run. Exported so the permission surface is
+ * testable: a read-only `mode` (ask/plan) never carries `-f`, because a run
+ * that is only meant to produce text must not be able to act on it.
+ */
+function buildCursorArgs({ sessionId, command, images, resolvedModel, mode, skipPermissions }) {
+  const baseArgs = [];
+
+  // Build flags allowing both resume and prompt together (reply in existing session)
+  // Treat presence of sessionId as intention to resume, regardless of resume flag
+  if (sessionId) {
+    baseArgs.push('--resume=' + sessionId);
+  }
+
+  if (command && command.trim()) {
+    // Provide a prompt (works for both new and resumed sessions). Image
+    // attachments ride along as an <images_input> path list appended to the
+    // prompt; the session history reader strips the tag back out for display.
+    // Cursor CLI is shimmed on Windows, so the whole argument must be
+    // newline-free or cmd.exe silently truncates it at the first newline.
+    baseArgs.push('-p', flattenPromptForWindowsShell(appendImagesInputTag(command, images)));
+
+    // Model overrides are applied to both new and resumed sessions so a
+    // session-scoped change request can take effect on the next turn.
+    if (resolvedModel) {
+      baseArgs.push('--model', resolvedModel);
+    }
+
+    // Request streaming JSON when we are providing a prompt
+    baseArgs.push('--output-format', 'stream-json');
+  }
+
+  const readOnly = CURSOR_READ_ONLY_MODES.has(mode);
+  if (readOnly) {
+    baseArgs.push('--mode', mode);
+  }
+
+  // Add skip permissions flag if enabled. Print mode already has every tool
+  // including shell; a read-only mode must never be combined with -f.
+  if (!readOnly && skipPermissions) {
+    baseArgs.push('-f');
+  }
+
+  return baseArgs;
+}
+
 async function spawnCursor(command, options = {}, ws) {
-  const { sessionId, projectPath, cwd, toolsSettings, skipPermissions, model, images } = options;
+  const { sessionId, projectPath, cwd, toolsSettings, skipPermissions, model, images, mode } = options;
   const resolvedModel = await providerModelsService.resolveResumeModel('cursor', sessionId, model);
   const cursorCommand = cursorCliCommandOrDefault();
 
@@ -50,36 +98,14 @@ async function spawnCursor(command, options = {}, ws) {
     };
 
     // Build Cursor CLI command
-    const baseArgs = [];
-
-    // Build flags allowing both resume and prompt together (reply in existing session)
-    // Treat presence of sessionId as intention to resume, regardless of resume flag
-    if (sessionId) {
-      baseArgs.push('--resume=' + sessionId);
-    }
-
-    if (command && command.trim()) {
-      // Provide a prompt (works for both new and resumed sessions). Image
-      // attachments ride along as an <images_input> path list appended to the
-      // prompt; the session history reader strips the tag back out for display.
-      // Cursor CLI is shimmed on Windows, so the whole argument must be
-      // newline-free or cmd.exe silently truncates it at the first newline.
-      baseArgs.push('-p', flattenPromptForWindowsShell(appendImagesInputTag(command, images)));
-
-      // Model overrides are applied to both new and resumed sessions so a
-      // session-scoped change request can take effect on the next turn.
-      if (resolvedModel) {
-        baseArgs.push('--model', resolvedModel);
-      }
-
-      // Request streaming JSON when we are providing a prompt
-      baseArgs.push('--output-format', 'stream-json');
-    }
-
-    // Add skip permissions flag if enabled
-    if (skipPermissions || settings.skipPermissions) {
-      baseArgs.push('-f');
-    }
+    const baseArgs = buildCursorArgs({
+      sessionId,
+      command,
+      images,
+      resolvedModel,
+      mode,
+      skipPermissions: Boolean(skipPermissions || settings.skipPermissions),
+    });
 
     // Use cwd (actual project directory) instead of projectPath
     const workingDir = cwd || projectPath || process.cwd();
@@ -317,6 +343,7 @@ function getActiveCursorSessions() {
 }
 
 export {
+  buildCursorArgs,
   spawnCursor,
   abortCursorSession,
   isCursorSessionActive,
