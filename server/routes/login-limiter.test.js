@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createLoginLimiter, normalizePeerAddress } from './login-limiter.js';
+import { createLoginLimiter, limiterClientAddress, normalizePeerAddress } from './login-limiter.js';
 
 test('the login limiter locks a peer and username after the configured failures, then releases after the window', () => {
   let nowMs = 1_000;
@@ -40,4 +40,12 @@ test('the limiter bounds its memory and normalizes IPv4-mapped peers', () => {
   const strict = createLoginLimiter({ limit: 3, windowMs: 60_000, now: () => nowMs });
   strict.recordFailure('::ffff:192.168.1.10', 'owner'); strict.recordFailure('192.168.1.10', 'owner'); strict.recordFailure('192.168.1.10', 'owner');
   assert.ok(strict.retryAfterSeconds('192.168.1.10', 'owner') > 0, 'mapped and plain forms share one bucket');
+});
+
+test('the counted address follows X-Forwarded-For only behind a loopback proxy', () => {
+  assert.equal(limiterClientAddress({ ip: '100.64.0.7', socket: { remoteAddress: '127.0.0.1' } }), '100.64.0.7', 'Tailscale Serve or nginx on this host recorded the real client');
+  assert.equal(limiterClientAddress({ ip: '::ffff:100.64.0.7', socket: { remoteAddress: '::ffff:127.0.0.1' } }), '100.64.0.7');
+  assert.equal(limiterClientAddress({ ip: '203.0.113.9', socket: { remoteAddress: '192.168.1.20' } }), '192.168.1.20', 'a direct LAN client cannot rename itself through forwarded headers');
+  assert.equal(limiterClientAddress({ ip: '203.0.113.9', socket: { remoteAddress: '127.0.0.2' } }), '127.0.0.2');
+  assert.equal(limiterClientAddress({ socket: {} }), 'unknown-peer');
 });

@@ -19,15 +19,15 @@ import {
   getTailscaleAccessConfig
 } from '../tailscale-auth.js';
 
-import { createLoginLimiter } from './login-limiter.js';
+import { createLoginLimiter, limiterClientAddress } from './login-limiter.js';
 
 const router = express.Router();
 const db = getConnection();
 
-// Keyed on the TCP peer: req.ip follows X-Forwarded-For under trust proxy and a
-// direct LAN client can rotate it freely (see login-limiter.js).
+// Keyed on the real client: X-Forwarded-For is honoured only from a loopback
+// proxy, so a direct LAN client cannot rotate it (see login-limiter.js).
 const loginLimiter = createLoginLimiter();
-const peerAddress = (req) => req.socket?.remoteAddress;
+const peerAddress = (req) => limiterClientAddress(req);
 
 const clearAuthCookie = (req, res) => {
   const { maxAge, ...options } = getAuthCookieOptions(req);

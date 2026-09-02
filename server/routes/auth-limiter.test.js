@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createServer } from 'node:http';
+import { createServer, request as httpRequest } from 'node:http';
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -59,10 +59,17 @@ test('a forwarded-for header cannot rotate past the lockout under trust proxy', 
   const server = createServer(app);
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const { port } = server.address();
-  const login = (forwardedFor) => fetch(`http://127.0.0.1:${port}/api/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': forwardedFor },
-    body: JSON.stringify({ username: 'rotating-user', password: 'wrong-password' }),
+  // Connect from 127.0.0.2 so the server sees a non-loopback-looking direct
+  // peer (Linux binds the whole 127/8 range to lo): forwarded headers from
+  // such a client are its own to forge and must be ignored.
+  const login = (forwardedFor) => new Promise((resolve, reject) => {
+    const body = JSON.stringify({ username: 'rotating-user', password: 'wrong-password' });
+    const request = httpRequest({
+      host: '127.0.0.1', port, path: '/api/auth/login', method: 'POST', localAddress: '127.0.0.2',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body), 'X-Forwarded-For': forwardedFor },
+    }, (response) => { response.resume(); response.on('end', () => resolve({ status: response.statusCode })); });
+    request.on('error', reject);
+    request.end(body);
   });
   t.after(async () => {
     await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));

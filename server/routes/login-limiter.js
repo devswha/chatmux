@@ -11,11 +11,9 @@ export const LOGIN_USERNAME_FAILURE_LIMIT = 40;
 export const LOGIN_FAILURE_WINDOW_MS = 15 * 60 * 1000;
 export const LOGIN_LIMITER_MAX_ENTRIES = 10_000;
 
-/** @param {unknown} address */
-export function normalizePeerAddress(address) {
-  if (typeof address !== 'string' || !address) return 'unknown-peer';
-  return address.startsWith('::ffff:') ? address.slice('::ffff:'.length) : address;
-}
+import { limiterClientAddress, normalizePeerAddress } from '../middleware/client-address.js';
+
+export { limiterClientAddress, normalizePeerAddress };
 
 /**
  * @param {{ limit?: number, usernameLimit?: number, windowMs?: number, maxEntries?: number, now?: () => number }} options
