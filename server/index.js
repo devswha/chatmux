@@ -612,7 +612,7 @@ app.get('/api/projects/:projectId/sessions/:sessionId/token-usage', authenticate
             fileContent = await fsPromises.readFile(jsonlPath, 'utf8');
         } catch (error) {
             if (error.code === 'ENOENT') {
-                return res.status(404).json({ error: 'Session file not found', path: jsonlPath });
+                return res.status(404).json({ error: 'Session file not found' });
             }
             throw error; // Re-throw other errors to be caught by outer try-catch
         }
@@ -704,9 +704,10 @@ app.get('*', (req, res) => {
         res.setHeader('Expires', '0');
         res.sendFile(indexPath);
     } else {
-        // In development, redirect to Vite dev server only if dist doesn't exist
-        const redirectHost = getConnectableHost(req.hostname);
-        res.redirect(`${req.protocol}://${redirectHost}:${VITE_PORT}`);
+        // In development, redirect to the Vite dev server only if dist doesn't
+        // exist. The target is derived from our own bind address, never from the
+        // request's Host header, so this cannot become an open redirect.
+        res.redirect(`http://${getConnectableHost(HOST)}:${VITE_PORT}`);
     }
 });
 

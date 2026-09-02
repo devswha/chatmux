@@ -69,8 +69,8 @@ access. Either mode can be changed or re-run at any time:
 
 ```sh
 # Rotate (or recover) the owner password; signs out every session
-chatmux access password
-chatmux access password my-chosen-secret
+chatmux access password                                  # generates and prints a new one
+printf '%s' 'my-chosen-passphrase' | chatmux access password --stdin   # never on the command line
 
 # Rebind or tune password mode: restrict to one address, extend the session
 chatmux access enable password 127.0.0.1
@@ -211,6 +211,8 @@ chatmux access allow family@example.com
 chatmux access revoke family@example.com
 chatmux access owner new-owner@example.com
 ```
+
+An allowlisted login is not a guest: it receives the owner's identity for almost every route, including the terminal, so it is host shell access for that person. Allow only people you would hand an SSH key to.
 
 Only the Tailscale owner or a local server operator can change the allowlist.
 The owner cannot be revoked; transfer ownership explicitly with

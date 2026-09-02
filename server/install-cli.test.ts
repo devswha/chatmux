@@ -16,8 +16,7 @@ import {
   runAccessCli,
   selectAvailableServerPort,
   renderSystemdUnit,
-  runInstallCli,
-} from './install-cli.js';
+  runInstallCli, readSecretFromStdin } from './install-cli.js';
 import { chooseServePort, parseServePorts } from './tailscale-access.js';
 import { getTailscaleAccessConfig } from './tailscale-auth.js';
 
@@ -699,14 +698,17 @@ test('access password rotates the owner credential and revokes existing sessions
   closeConnection();
 
   const run = async () => ({ stdout: '', stderr: '' });
-  await assert.rejects(runAccessCli(['password', 'short'], { home, run }), /at least 6 characters/);
-  await runAccessCli(['password', 'rotated-secret'], { home, run });
+  // argv is visible in ps and shell history, so a positional password is refused outright.
+  await assert.rejects(runAccessCli(['password', 'rotated-secret-passphrase'], { home, run }), /visible in ps/);
+  await assert.rejects(runAccessCli(['password', '--stdin'], { home, run, readSecret: async () => 'short' }), /at least 12 characters/);
+  // One trailing newline (what `printf '%s\n'` or a heredoc leaves) is not part of the password.
+  await runAccessCli(['password', '--stdin'], { home, run, readSecret: async () => 'rotated-secret-passphrase\n' });
 
   await initializeDatabase();
   const row = userDb.getUserByUsername('owner');
   assert.ok(row);
   assert.notEqual(row.password_hash, 'sentinel-hash');
-  assert.equal(await bcrypt.compare('rotated-secret', row.password_hash), true);
+  assert.equal(await bcrypt.compare('rotated-secret-passphrase', row.password_hash), true);
   // The token-version bump signs out every session issued before the change.
   assert.equal(appConfigDb.get(`auth_token_version:${created.id}`), '1');
   closeConnection();
@@ -743,4 +745,10 @@ test('install restores the previous release link and restarts when the new relea
   );
   assert.equal(await fs.readlink(current), process.cwd(), 'the link points back at the release that was serving');
   assert.equal(commands.filter((command) => command === 'systemctl --user restart chatmux.service').length, 2, 'the restored release is restarted');
+});
+
+test('the stdin secret reader refuses a terminal and joins piped chunks verbatim', async () => {
+  await assert.rejects(readSecretFromStdin({ isTTY: true, async *[Symbol.asyncIterator]() { yield 'typed'; } }), /stdin is a terminal/);
+  const piped = { isTTY: false, async *[Symbol.asyncIterator]() { yield Buffer.from('pass'); yield 'phrase-'; yield Buffer.from('é'); } };
+  assert.equal(await readSecretFromStdin(piped), 'passphrase-é');
 });

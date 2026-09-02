@@ -228,6 +228,30 @@ export async function validateWorkspacePath(requestedPath: string): Promise<Work
  * path traversal and accidental nested paths. The returned string is trimmed but
  * otherwise unchanged so callers can still match the provider's on-disk naming.
  */
+/**
+ * Resolves a directory the caller only wants to *read* project-local files
+ * from (skills, commands, MCP config listings). Unlike validateWorkspacePath
+ * this creates nothing, so it skips the system-directory blocklist and asks
+ * only that the real path is an existing directory inside WORKSPACES_ROOT.
+ * Returns the real path, or null when the request must be refused.
+ */
+export async function resolveWorkspaceDirectoryWithinRoot(requestedPath: string): Promise<string | null> {
+  const normalizedRequestedPath = normalizeProjectPath(requestedPath);
+  if (!normalizedRequestedPath || normalizedRequestedPath.includes('\0')) return null;
+  try {
+    const [resolvedPath, resolvedRoot] = await Promise.all([
+      realpath(path.resolve(normalizedRequestedPath)),
+      realpath(WORKSPACES_ROOT),
+    ]);
+    const normalizedResolved = normalizeProjectPath(resolvedPath);
+    const normalizedRoot = normalizeProjectPath(resolvedRoot);
+    if (normalizedResolved !== normalizedRoot && !normalizedResolved.startsWith(`${normalizedRoot}${path.sep}`)) return null;
+    return (await lstat(resolvedPath)).isDirectory() ? normalizedResolved : null;
+  } catch {
+    return null;
+  }
+}
+
 export function sanitizeLeafDirectoryName(inputName: string, label = 'directory name'): string {
   const normalized = inputName.trim();
   if (!normalized) {

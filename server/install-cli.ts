@@ -9,6 +9,7 @@ import type { Stats } from 'node:fs';
 import bcrypt from 'bcrypt';
 
 import { closeConnection, initializeDatabase, userDb } from '@/modules/database/index.js';
+import { MIN_PASSWORD_LENGTH, isAcceptablePassword } from '@/shared/password-policy.js';
 import { appConfigDb } from '@/modules/database/repositories/app-config.js';
 import {
   allowTailscaleUser,
@@ -868,9 +869,29 @@ async function printAccessQr(run: CommandRunner, url: string): Promise<void> {
   }
 }
 
-export async function runAccessCli(args: string[], context: Pick<InstallContext, 'home' | 'run' | 'interfaces'> = {}): Promise<void> {
+type SecretInput = AsyncIterable<Buffer | string> & { readonly isTTY?: boolean };
+
+/**
+ * Reads a secret from a piped stdin so a password never appears in argv. A
+ * terminal is refused: reading it to EOF would echo every keystroke into the
+ * screen and scrollback, which is the leak this path exists to avoid.
+ */
+export async function readSecretFromStdin(input: SecretInput = process.stdin): Promise<string> {
+  if (input.isTTY) {
+    throw new Error("stdin is a terminal; pipe the password in instead: printf '%s' '<password>' | chatmux access password --stdin");
+  }
+  const chunks: Buffer[] = [];
+  for await (const chunk of input) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+export async function runAccessCli(
+  args: string[],
+  context: Pick<InstallContext, 'home' | 'run' | 'interfaces'> & { readSecret?: () => Promise<string> } = {},
+): Promise<void> {
   const home = context.home ?? os.homedir();
   const run = context.run ?? runCommand;
+  const readSecret = context.readSecret ?? readSecretFromStdin;
   const [command, ...rest] = args;
   const configPath = await initializeManagedDatabase(home);
   try {
@@ -988,9 +1009,14 @@ export async function runAccessCli(args: string[], context: Pick<InstallContext,
       if (!owner) {
         throw new Error('No account exists yet; run "chatmux install" first');
       }
-      const provided = rest[0];
-      if (provided !== undefined && provided.length < 6) {
-        throw new Error('Password must be at least 6 characters');
+      // A password on the command line lands in `ps` output and shell history;
+      // accept it only through stdin, or generate one.
+      if (rest[0] !== undefined && rest[0] !== '--stdin') {
+        throw new Error("Do not pass the password as an argument (it is visible in ps and shell history). Use: printf '%s' '<password>' | chatmux access password --stdin, or omit it to generate one");
+      }
+      const provided = rest[0] === '--stdin' ? (await readSecret()).replace(/\r?\n$/u, '') : undefined;
+      if (provided !== undefined && !isAcceptablePassword(provided)) {
+        throw new Error(`Password must be at least ${MIN_PASSWORD_LENGTH} characters`);
       }
       const nextPassword = provided ?? generateInitialPassword();
       userDb.updatePasswordHash(owner.id, await bcrypt.hash(nextPassword, PASSWORD_HASH_ROUNDS));
@@ -1003,7 +1029,7 @@ export async function runAccessCli(args: string[], context: Pick<InstallContext,
       console.log('Every existing session has been signed out.');
       return;
     }
-    throw new Error('Usage: chatmux access users | owner [login] | allow <login> | revoke <login> | password [new-password] | enable tailscale [owner] | enable vpn <address> | enable password [address] [--session-days <n>]');
+    throw new Error('Usage: chatmux access users | owner [login] | allow <login> | revoke <login> | password [--stdin] | enable tailscale [owner] | enable vpn <address> | enable password [address] [--session-days <n>]');
   } finally {
     closeConnection();
   }

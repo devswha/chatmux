@@ -76,6 +76,7 @@ import type {
   ProviderSkillCreateInput,
   UpsertProviderMcpServerInput,
 } from '@/shared/types.js';
+import { resolveWorkspaceDirectoryWithinRoot } from '@/shared/workspace-paths.js';
 import { AppError, asyncHandler, createApiSuccessResponse } from '@/shared/utils.js';
 
 import { attachCapabilityService } from './services/attach-capability.service.js';
@@ -374,6 +375,25 @@ const readOptionalQueryString = (value: unknown): string | undefined => {
 
   const normalized = value.trim();
   return normalized.length > 0 ? normalized : undefined;
+};
+
+/**
+ * A workspace path from the query string scopes which project-local command,
+ * skill, and MCP files are listed. Without containment it would enumerate file
+ * names and descriptions under any directory on the host, so it is held to
+ * the same rules as project registration.
+ */
+const resolveWorkspaceQuery = async (value: unknown): Promise<string | undefined> => {
+  const requested = readOptionalQueryString(value);
+  if (requested === undefined) return undefined;
+  const resolved = await resolveWorkspaceDirectoryWithinRoot(requested);
+  if (resolved === null) {
+    throw new AppError('workspacePath must be an existing directory inside the workspace root.', {
+      code: 'INVALID_WORKSPACE_PATH',
+      statusCode: 400,
+    });
+  }
+  return resolved;
 };
 
 const parseOptionalBooleanQuery = (value: unknown, name: string): boolean | undefined => {
@@ -731,7 +751,7 @@ router.get(
   '/:provider/skills',
   asyncHandler(async (req: Request, res: Response) => {
     const provider = parseProvider(req.params.provider);
-    const workspacePath = readOptionalQueryString(req.query.workspacePath);
+    const workspacePath = await resolveWorkspaceQuery(req.query.workspacePath);
     const skills = await providerSkillsService.listProviderSkills(provider, { workspacePath });
     res.json(createApiSuccessResponse({ provider, skills }));
   }),
@@ -763,7 +783,7 @@ router.get(
   '/:provider/mcp/servers',
   asyncHandler(async (req: Request, res: Response) => {
     const provider = parseProvider(req.params.provider);
-    const workspacePath = readOptionalQueryString(req.query.workspacePath);
+    const workspacePath = await resolveWorkspaceQuery(req.query.workspacePath);
     const scope = parseMcpScope(req.query.scope);
 
     if (scope) {
@@ -792,7 +812,7 @@ router.delete(
   asyncHandler(async (req: Request, res: Response) => {
     const provider = parseProvider(req.params.provider);
     const scope = parseMcpScope(req.query.scope);
-    const workspacePath = readOptionalQueryString(req.query.workspacePath);
+    const workspacePath = await resolveWorkspaceQuery(req.query.workspacePath);
     const result = await providerMcpService.removeProviderMcpServer(provider, {
       name: readPathParam(req.params.name, 'name'),
       scope,
@@ -1402,7 +1422,7 @@ router.get(
     // Slash commands a live tmux gjc session can execute — native
     // (`~/.gjc/agent/commands`), project (`<workspace>/.gjc/commands`), and
     // installed skills. Read-only; powers the live relay composer's palette.
-    const workspacePath = readOptionalQueryString(req.query.workspacePath);
+    const workspacePath = await resolveWorkspaceQuery(req.query.workspacePath);
     const commands = await listLiveGjcCommands(workspacePath);
     res.json(createApiSuccessResponse({ commands }));
   }),
