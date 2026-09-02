@@ -487,6 +487,25 @@ test('runtime transcript evidence overrides stale tags but fallback inference do
   );
 });
 
+test('applied ids carry a binding grade: process-scoped sources are observed, cwd/time guesses are inferred', () => {
+  const session = { tmuxName: 'omp', tmux: tmux('$106', '@106', '%106'), kind: 'omp' as const, cwd: '/workspace' };
+  const targetKey = tmuxTargetKey(session.tmux);
+  const observed = applyInferredProviderSessionIds([session], new Map([[targetKey, 'open-transcript']]), new Set([targetKey]))[0];
+  assert.equal(observed.providerSessionId, 'open-transcript');
+  assert.equal(observed.binding, 'observed');
+  const inferred = applyInferredProviderSessionIds([session], new Map([[targetKey, 'recent-in-cwd']]))[0];
+  assert.equal(inferred.providerSessionId, 'recent-in-cwd');
+  assert.equal(inferred.binding, 'inferred');
+  // A runtime observation upgrades an inferred link; a later guess never downgrades an observed one.
+  const upgraded = applyInferredProviderSessionIds([inferred], new Map([[targetKey, 'open-transcript']]), new Set([targetKey]))[0];
+  assert.equal(upgraded.binding, 'observed');
+  const kept = applyInferredProviderSessionIds([observed], new Map([[targetKey, 'recent-in-cwd']]))[0];
+  assert.deepEqual([kept.providerSessionId, kept.binding], ['open-transcript', 'observed']);
+  // A connection issue strips the id and its grade together.
+  const broken = applyInferredProviderSessionIds([{ ...inferred, connectionIssue: 'socket_unreachable' as never }], new Map())[0];
+  assert.equal('providerSessionId' in broken || 'binding' in broken, false);
+});
+
 test('assignFreshIndexedProviderSessionIds pairs unique disk transcripts newest-first', () => {
   const assigned = assignFreshIndexedProviderSessionIds(
     [
@@ -811,7 +830,7 @@ test('classifyExternalSessions auto-links a native Codex resume process to its t
     tmuxName: 'native',
     tmux: tmux('$700', '@700', '%700'),
     kind: 'codex',
-    providerSessionId: '019f7b07-3def-7501-a53f-f519c88dd722',
+    providerSessionId: '019f7b07-3def-7501-a53f-f519c88dd722', binding: 'observed',
     agentPid: 701,
   }]);
 });
@@ -833,9 +852,9 @@ test('classifyExternalSessions recognizes Cursor, OpenCode, and Oh My Pi process
     ],
   });
   assert.deepEqual(result, [
-    { tmuxName: 'cursor-work', tmux: tmux('$800', '@800', '%800'), kind: 'cursor', providerSessionId: 'cursor-session-123', cwd: '/cursor', agentPid: 801 },
-    { tmuxName: 'omp-work', tmux: tmux('$1000', '@1000', '%1000'), kind: 'omp', providerSessionId: 'omp_session_123', cwd: '/omp', agentPid: 1001 },
-    { tmuxName: 'opencode-work', tmux: tmux('$900', '@900', '%900'), kind: 'opencode', providerSessionId: 'ses_open_123', cwd: '/opencode', agentPid: 901 },
+    { tmuxName: 'cursor-work', tmux: tmux('$800', '@800', '%800'), kind: 'cursor', providerSessionId: 'cursor-session-123', binding: 'observed', cwd: '/cursor', agentPid: 801 },
+    { tmuxName: 'omp-work', tmux: tmux('$1000', '@1000', '%1000'), kind: 'omp', providerSessionId: 'omp_session_123', binding: 'observed', cwd: '/omp', agentPid: 1001 },
+    { tmuxName: 'opencode-work', tmux: tmux('$900', '@900', '%900'), kind: 'opencode', providerSessionId: 'ses_open_123', binding: 'observed', cwd: '/opencode', agentPid: 901 },
   ]);
 });
 
@@ -866,7 +885,7 @@ test('classifyExternalSessions recognizes the node-launched omo shell wrapper', 
     tmuxName: 'omo-work',
     tmux: tmux('$1100', '@1100', '%1100'),
     kind: 'omo',
-    providerSessionId: '019ff9a1-dc29-73bc-89a0-2435c969dc1b',
+    providerSessionId: '019ff9a1-dc29-73bc-89a0-2435c969dc1b', binding: 'observed',
     cwd: '/omo',
     agentPid: 1101,
   }]);
@@ -918,7 +937,7 @@ test('classifyExternalSessions trusts a valid ChatMux spawn tag through a node l
     tmuxName: 'omp-fresh',
     tmux: tmux('$1100', '@1100', '%1100'),
     kind: 'omp',
-    providerSessionId: 'omp_tagged_123',
+    providerSessionId: 'omp_tagged_123', binding: 'tagged',
     cwd: '/workspace',
   }]);
 });
@@ -961,7 +980,7 @@ test('classifyExternalSessions: tagged Codex pane exposes its transcript thread 
     tmuxName: 'mobile',
     tmux: tmux('$700', '@700', '%700'),
     kind: 'codex',
-    providerSessionId: '019f848f-ff71-77f0-8623-08625d24f037',
+    providerSessionId: '019f848f-ff71-77f0-8623-08625d24f037', binding: 'tagged',
     agentPid: 701,
   }]);
 });
