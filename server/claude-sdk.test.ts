@@ -115,3 +115,40 @@ test('Claude SDK keeps rejected notification publication fail-soft and observabl
   assert.ok(errors.some(([message, error]) => message === '[Claude SDK] Notification publication failed:' && (error as Error).message === 'publication rejected'));
   assert.equal((ws.messages.at(-1) as { exitCode?: number }).exitCode, 0);
 });
+
+test('a text-only run reaches the SDK with no tools, no MCP servers, one turn and no permission bypass', async () => {
+  const captured: Array<Record<string, unknown>> = [];
+  const capturingRuntime = (extra: Record<string, unknown> = {}) => ({
+    ...runtime(() => stream([{ type: 'result', subtype: 'success', uuid: 'completion-1', session_id: 'provider-1' }]), { stopped: [], failed: [] }),
+    query: (input: { options: Record<string, unknown> }) => {
+      captured.push(input.options);
+      return stream([{ type: 'result', subtype: 'success', uuid: 'completion-1', session_id: 'provider-1' }]);
+    },
+    loadMcpConfig: async () => ({ filesystem: { command: 'mcp-fs' } }),
+    ...extra,
+  });
+
+  await queryClaudeSDK('write a commit message', {
+    cwd: '/repo',
+    model: 'sonnet',
+    toolAccess: 'none',
+    // Even an operator-wide bypass setting must not leak into a text-only run.
+    toolsSettings: { allowedTools: ['Bash'], disallowedTools: [], skipPermissions: true },
+  }, writer('app-1'), capturingRuntime());
+
+  const textOnly = captured.at(-1)!;
+  assert.deepEqual(textOnly.tools, []);
+  assert.deepEqual(textOnly.allowedTools, []);
+  assert.equal(textOnly.maxTurns, 1);
+  assert.deepEqual(textOnly.settingSources, []);
+  assert.equal(textOnly.permissionMode, undefined);
+  assert.equal(textOnly.mcpServers, undefined, 'MCP servers are tools too');
+
+  // Control: an interactive run keeps the preset tools, MCP servers and the requested mode.
+  await queryClaudeSDK('hello', { cwd: '/repo', permissionMode: 'acceptEdits' }, writer('app-2'), capturingRuntime());
+  const interactive = captured.at(-1)!;
+  assert.deepEqual(interactive.tools, { type: 'preset', preset: 'claude_code' });
+  assert.equal(interactive.permissionMode, 'acceptEdits');
+  assert.deepEqual(interactive.mcpServers, { filesystem: { command: 'mcp-fs' } });
+  assert.equal(interactive.maxTurns, undefined);
+});
