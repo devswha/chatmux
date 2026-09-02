@@ -358,20 +358,20 @@ export async function stopAgentProcessInPane(
     });
   }
 
-  const readGroup = deps.processGroupId ?? processGroupId;
-  const [paneGroup, agentGroup] = await Promise.all([readGroup(panePid), readGroup(target.process.pid)]);
-  if (agentGroup === null) {
-    throw new AppError('The tmux pane now belongs to a different agent process. Reopen it from the session list.', {
-      code: 'TMUX_PROCESS_GENERATION_MISMATCH',
-      statusCode: 409,
-    });
-  }
-  if (panePid === target.process.pid || paneGroup === agentGroup) {
-    await requireTmuxSuccess(identity, [
-      'respawn-pane', '-k', '-t', identity.paneId, '-c', cwd, shell,
-    ], run);
+  if (panePid === target.process.pid) {
+    // The agent is the pane's root process: nothing else lives in the pane.
+    await respawnPaneShell(identity, cwd, shell, run);
   } else {
-    await signalVerifiedProcessGroup(target.process, agentGroup, deps);
+    const readGroup = deps.processGroupId ?? processGroupId;
+    const [paneGroup, agentGroup] = await Promise.all([readGroup(panePid), readGroup(target.process.pid)]);
+    if (agentGroup === null) {
+      throw new AppError('The tmux pane now belongs to a different agent process. Reopen it from the session list.', {
+        code: 'TMUX_PROCESS_GENERATION_MISMATCH',
+        statusCode: 409,
+      });
+    }
+    if (paneGroup === agentGroup) await respawnPaneShell(identity, cwd, shell, run);
+    else await signalVerifiedProcessGroup(target.process, agentGroup, deps);
   }
 
   for (const option of [
@@ -383,6 +383,12 @@ export async function stopAgentProcessInPane(
       'set-option', '-p', '-t', identity.paneId, option, '',
     ], run);
   }
+}
+
+async function respawnPaneShell(identity: TmuxPaneIdentity, cwd: string, shell: string, run: TmuxRunner): Promise<void> {
+  await requireTmuxSuccess(identity, [
+    'respawn-pane', '-k', '-t', identity.paneId, '-c', cwd, shell,
+  ], run);
 }
 
 async function signalVerifiedProcessGroup(
