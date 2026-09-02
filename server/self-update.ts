@@ -9,7 +9,7 @@ import express, { type NextFunction, type Request, type Response as ExpressRespo
 
 import { getTailscaleAccessInfo, type TailscaleAccessInfo } from './tailscale-access.js';
 import { ReleaseUpdateStateError, ReleaseUpdateStateStore } from './release-update-state.js';
-import { archiveNameForVersion, compareStrictSemVer, parseStrictSemVer, validateCompatibilityMetadata, type CompatibilityMetadata, type ImmutableUpdateJobDescriptor, type ReleaseDescriptor } from './release-update-contract.js';
+import { archiveNameForVersion, compareStrictSemVer, formatHealthProbeHost, parseStrictSemVer, resolveHealthProbeHost, validateCompatibilityMetadata, type CompatibilityMetadata, type ImmutableUpdateJobDescriptor, type ReleaseDescriptor } from './release-update-contract.js';
 
 export type InstallMode = 'source' | 'release' | 'unknown';
 export function detectInstallMode(appRoot: string, home: string = homedir()): InstallMode {
@@ -452,15 +452,20 @@ export async function discoverCanonicalRelease(fetcher: FetchLike = fetch): Prom
 
 export interface SystemRouterOptions {
   appRoot: string; serverPort: number; bootId: string; runningVersion?: string; mode?: InstallMode; authMode?: 'none' | 'password' | 'tailscale';
+  /** The HOST the server listens on; the update health probe must target it (wildcards map to loopback). */
+  serverHost?: string;
   launch?: (unitName: string, script: string) => Promise<void>;
   launchRelease?: (unitName: string, workerPath: string, jobId: string) => Promise<void>;
   now?: () => number; home?: string; discoverRelease?: () => Promise<Discovery>; discoverSource?: () => Promise<SourceUpdateDescriptor>; inspectSourceClean?: () => Promise<void>; prepareSourceUpdate?: () => Promise<SourceUpdateDescriptor>; isReleaseUpdateUnitLive?: (unitName: string) => boolean; state?: Pick<ReleaseUpdateStateStore, 'initialize' | 'createIfNoActive' | 'publicStatus' | 'publicActiveStatus' | 'transition' | 'failIfInactive'>;
 }
 async function launchViaSystemdRun(unitName: string, script: string): Promise<void> { await new Promise<void>((resolve, reject) => { const child = spawn('systemd-run', buildSystemdRunArgs(unitName, script, process.env.PATH ?? ''), { stdio: ['ignore', 'ignore', 'pipe'] }); let stderr = ''; child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString('utf8'); }); child.on('error', (error) => reject(error)); child.on('close', (code) => code === 0 ? resolve() : reject(new Error(stderr.trim() || `systemd-run exited with ${code}`))); }); }
-export function buildReleaseSystemdRunArgs(unitName: string, workerPath: string, jobId: string, home: string, serverPort: number, environmentPath: string): string[] {
-  return ['--user', '--collect', `--unit=${unitName}`, `--setenv=HOME=${home}`, `--setenv=SERVER_PORT=${serverPort}`, `--setenv=PATH=${environmentPath}`, process.execPath, workerPath, jobId];
+export function buildReleaseSystemdRunArgs(unitName: string, workerPath: string, jobId: string, home: string, serverPort: number, environmentPath: string, healthHost = '127.0.0.1'): string[] {
+  // CHATMUX_HEALTH_HOST tells the worker where /health answers after the
+  // restart: the server binds to HOST only, and the descriptor cannot carry the
+  // address without breaking the prior release's state parser after a rollback.
+  return ['--user', '--collect', `--unit=${unitName}`, `--setenv=HOME=${home}`, `--setenv=SERVER_PORT=${serverPort}`, `--setenv=CHATMUX_HEALTH_HOST=${resolveHealthProbeHost(healthHost)}`, `--setenv=PATH=${environmentPath}`, process.execPath, workerPath, jobId];
 }
-async function launchReleaseViaSystemdRun(unitName: string, workerPath: string, jobId: string, home: string, serverPort: number): Promise<void> { await new Promise<void>((resolve, reject) => { const child = spawn('systemd-run', buildReleaseSystemdRunArgs(unitName, workerPath, jobId, home, serverPort, process.env.PATH ?? ''), { stdio: ['ignore', 'ignore', 'pipe'] }); let stderr = ''; child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString('utf8'); }); child.on('error', reject); child.on('close', (code) => code === 0 ? resolve() : reject(new Error(stderr.trim() || `systemd-run exited with ${code}`))); }); }
+async function launchReleaseViaSystemdRun(unitName: string, workerPath: string, jobId: string, home: string, serverPort: number, healthHost: string): Promise<void> { await new Promise<void>((resolve, reject) => { const child = spawn('systemd-run', buildReleaseSystemdRunArgs(unitName, workerPath, jobId, home, serverPort, process.env.PATH ?? '', healthHost), { stdio: ['ignore', 'ignore', 'pipe'] }); let stderr = ''; child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString('utf8'); }); child.on('error', reject); child.on('close', (code) => code === 0 ? resolve() : reject(new Error(stderr.trim() || `systemd-run exited with ${code}`))); }); }
 export type SystemdUnitLiveness = 'live' | 'inactive' | 'uncertain';
 export function mapSystemctlIsActiveResult(result: { status: number | null; error?: unknown }): SystemdUnitLiveness {
   if (result.error || result.status === null) return 'uncertain';
@@ -494,7 +499,7 @@ export function createSystemRouter(options: SystemRouterOptions): Router {
       if (makesReleaseStateUnavailable(error)) releaseStateUnavailable = true;
     }
   }
-  const sourceLaunch = options.launch ?? launchViaSystemdRun; const releaseLaunch = options.launchRelease ?? ((unitName, workerPath, jobId) => launchReleaseViaSystemdRun(unitName, workerPath, jobId, home, options.serverPort)); const discover = options.discoverRelease ?? (() => discoverCanonicalRelease()); const discoverSource = options.discoverSource ?? (() => discoverSourceUpdate(options.appRoot)); const inspectSource = options.inspectSourceClean ?? (() => inspectSourceClean(options.appRoot)); const prepareSource = options.prepareSourceUpdate ? async () => { await inspectSource(); return options.prepareSourceUpdate!(); } : () => prepareSourceUpdate(options.appRoot, async () => inspectSource());
+  const sourceLaunch = options.launch ?? launchViaSystemdRun; const releaseLaunch = options.launchRelease ?? ((unitName, workerPath, jobId) => launchReleaseViaSystemdRun(unitName, workerPath, jobId, home, options.serverPort, resolveHealthProbeHost(options.serverHost))); const discover = options.discoverRelease ?? (() => discoverCanonicalRelease()); const discoverSource = options.discoverSource ?? (() => discoverSourceUpdate(options.appRoot)); const inspectSource = options.inspectSourceClean ?? (() => inspectSourceClean(options.appRoot)); const prepareSource = options.prepareSourceUpdate ? async () => { await inspectSource(); return options.prepareSourceUpdate!(); } : () => prepareSourceUpdate(options.appRoot, async () => inspectSource());
   let inFlight: SelfUpdateState = null; let discoveryCache: { at: number; value: Discovery } | null = null; let sourceDiscoveryCache: { at: number; value: SourceUpdateDescriptor } | null = null; let accessCache: { at: number; info: TailscaleAccessInfo } | null = null;
   const owner = (req: Request) => canUpdate(req, options.authMode);
   const cachedDiscovery = async () => { if (!discoveryCache || now() - discoveryCache.at > DISCOVERY_CACHE_MS) discoveryCache = { at: now(), value: await discover() }; return discoveryCache.value; };
@@ -545,7 +550,7 @@ export function createSystemRouter(options: SystemRouterOptions): Router {
         if (sourceTarget.relation === 'diverged') throw new SourceUpdateError(409, 'SOURCE_HISTORY_DIVERGED', 'Source history has diverged from origin/main.');
         if (sourceTarget.relation !== 'behind') throw new SourceUpdateError(409, 'SOURCE_UPDATE_NOT_AVAILABLE', 'No newer source revision is available.');
         const unit = `chatmux-self-update-${startedAt}`;
-        await sourceLaunch(unit, buildSelfUpdateScript(options.appRoot, sourceTarget.targetRevision, `http://127.0.0.1:${options.serverPort}/`, path.join(home, '.chatmux', 'self-update.log')));
+        await sourceLaunch(unit, buildSelfUpdateScript(options.appRoot, sourceTarget.targetRevision, `http://${formatHealthProbeHost(resolveHealthProbeHost(options.serverHost))}:${options.serverPort}/`, path.join(home, '.chatmux', 'self-update.log')));
         inFlight = { state: 'in_flight', unit, startedAt, operationId, initialBootId: options.bootId };
         return res.json({ started: true, mode, bootId: options.bootId, operationId, initialBootId: options.bootId, targetVersion: sourceTarget.targetVersion });
       } catch (error) {

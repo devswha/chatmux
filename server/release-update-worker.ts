@@ -13,6 +13,9 @@ import {
   type CompatibilityMetadata,
   type ImmutableUpdateJobDescriptor,
   type ReleaseUpdatePhase,
+  formatHealthProbeHost,
+  isHealthProbeHost,
+  resolveHealthProbeHost,
 } from './release-update-contract.js';
 import { ReleaseUpdateStateStore } from './release-update-state.js';
 
@@ -59,7 +62,9 @@ export interface ReleaseUpdateWorkerOptions {
   store?: Pick<ReleaseUpdateStateStore, 'get' | 'transition' | 'persistRecoveryCheckpoint' | 'recordDownloadProgress'>;
   fetch?: (url: string, options: { signal: AbortSignal; redirect: 'manual' }) => Promise<HttpResponse>;
   run?: WorkerProcess;
-  health?: (expectedVersion: string, serverPort: number, sourceBootId: string) => Promise<boolean>;
+  health?: (expectedVersion: string, serverPort: number, sourceBootId: string, serverHost: string) => Promise<boolean>;
+  /** Address to probe after the restart; defaults to CHATMUX_HEALTH_HOST as set by the router, else loopback. */
+  healthHost?: string;
   now?: () => number;
   healthTiming?: { fetch?: typeof fetch; sleep?: (milliseconds: number) => Promise<void> };
   requestTimeoutMs?: number;
@@ -135,7 +140,8 @@ export class ReleaseUpdateWorker {
   private readonly store: Pick<ReleaseUpdateStateStore, 'get' | 'transition' | 'persistRecoveryCheckpoint' | 'recordDownloadProgress'>;
   private readonly fetcher: NonNullable<ReleaseUpdateWorkerOptions['fetch']>;
   private readonly runProcess: WorkerProcess;
-  private readonly health: (expectedVersion: string, serverPort: number, sourceBootId: string) => Promise<boolean>;
+  private readonly health: (expectedVersion: string, serverPort: number, sourceBootId: string, serverHost: string) => Promise<boolean>;
+  private readonly healthHost: string;
   private readonly requestTimeoutMs: number;
   private readonly onDurableBoundary: NonNullable<ReleaseUpdateWorkerOptions['onDurableBoundary']>;
 
@@ -147,7 +153,10 @@ export class ReleaseUpdateWorker {
     this.store = options.store ?? new ReleaseUpdateStateStore(nodePath.join(this.root, 'update'));
     this.fetcher = options.fetch ?? defaultFetch;
     this.runProcess = options.run ?? fixedRun;
-    this.health = options.health ?? ((expectedVersion, serverPort, sourceBootId) => defaultHealth(expectedVersion, serverPort, sourceBootId, options.healthTiming));
+    this.health = options.health ?? ((expectedVersion, serverPort, sourceBootId, serverHost) => defaultHealth(expectedVersion, serverPort, sourceBootId, options.healthTiming, serverHost));
+    // The server listens on HOST only; the router passes that address through
+    // CHATMUX_HEALTH_HOST because the persisted descriptor must keep its shape.
+    this.healthHost = resolveHealthProbeHost(options.healthHost ?? process.env.CHATMUX_HEALTH_HOST);
     this.requestTimeoutMs = options.requestTimeoutMs ?? REQUEST_TIMEOUT_MS;
     this.onDurableBoundary = options.onDurableBoundary ?? (() => undefined);
   }
@@ -205,7 +214,7 @@ export class ReleaseUpdateWorker {
       this.transition(jobId, 'restarting');
       await this.exec(SYSTEMCTL, ['--user', 'restart', 'chatmux.service']);
       this.transition(jobId, 'verifying_health');
-      if (!await this.health(descriptor.release.version, descriptor.serverPort, descriptor.sourceBootId)) throw new ReleaseUpdateWorkerError('Updated release failed exact-target health verification.');
+      if (!await this.health(descriptor.release.version, descriptor.serverPort, descriptor.sourceBootId, this.healthHost)) throw new ReleaseUpdateWorkerError('Updated release failed exact-target health verification.');
       this.transition(jobId, 'succeeded');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Update failed.';
@@ -245,7 +254,7 @@ export class ReleaseUpdateWorker {
       this.store.persistRecoveryCheckpoint(id, recovery);
       this.boundary('rollback_link_restored');
       await this.exec(SYSTEMCTL, ['--user', 'restart', 'chatmux.service']);
-      if (!await this.health(prior.version, descriptor.serverPort, descriptor.sourceBootId)) {
+      if (!await this.health(prior.version, descriptor.serverPort, descriptor.sourceBootId, this.healthHost)) {
         this.store.persistRecoveryCheckpoint(id, { ...recovery, rollbackState: 'failed' });
         this.fail(id, 'failed_rollback', 'Rollback health verification failed.');
         this.boundary('terminalized');
@@ -437,13 +446,17 @@ export function createFixedRun(limits: FixedRunLimits = {
 }
 export const fixedRun = createFixedRun();
 const sleep = (milliseconds: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, milliseconds));
-export async function pollHealth(expectedVersion: string, serverPort: number, sourceBootId: string, timing: { fetch?: typeof fetch; sleep?: (milliseconds: number) => Promise<void> } = {}): Promise<boolean> {
-  if (!Number.isInteger(serverPort) || serverPort < 1 || serverPort > 65535 || !sourceBootId) return false;
+export async function pollHealth(expectedVersion: string, serverPort: number, sourceBootId: string, timing: { fetch?: typeof fetch; sleep?: (milliseconds: number) => Promise<void> } = {}, serverHost = '127.0.0.1'): Promise<boolean> {
+  if (!Number.isInteger(serverPort) || serverPort < 1 || serverPort > 65535 || !sourceBootId || !isHealthProbeHost(serverHost)) return false;
+  // The server listens on HOST only, so the probe must target the same address
+  // (see resolveHealthProbeHost); a loopback probe against a LAN bind never
+  // connects and would roll back a healthy release.
+  const healthUrl = `http://${formatHealthProbeHost(serverHost)}:${serverPort}/health`;
   const healthFetch = timing.fetch ?? fetch;
   const healthSleep = timing.sleep ?? sleep;
   for (let attempt = 0; attempt < HEALTH_ATTEMPTS; attempt += 1) {
     try {
-      const response = await healthFetch(`http://127.0.0.1:${serverPort}/health`, { signal: AbortSignal.timeout(HEALTH_REQUEST_TIMEOUT_MS) });
+      const response = await healthFetch(healthUrl, { signal: AbortSignal.timeout(HEALTH_REQUEST_TIMEOUT_MS) });
       if (response.status === 200) {
         const body = await response.json() as { product?: unknown; status?: unknown; version?: unknown; bootId?: unknown };
         if (body.product === 'chatmux' && body.status === 'ok' && body.version === expectedVersion && typeof body.bootId === 'string' && body.bootId.length > 0 && body.bootId !== sourceBootId) return true;
@@ -453,7 +466,7 @@ export async function pollHealth(expectedVersion: string, serverPort: number, so
   }
   return false;
 }
-async function defaultHealth(expectedVersion: string, serverPort: number, sourceBootId: string, timing?: { fetch?: typeof fetch; sleep?: (milliseconds: number) => Promise<void> }): Promise<boolean> { return pollHealth(expectedVersion, serverPort, sourceBootId, timing); }
+async function defaultHealth(expectedVersion: string, serverPort: number, sourceBootId: string, timing: { fetch?: typeof fetch; sleep?: (milliseconds: number) => Promise<void> } | undefined, serverHost: string): Promise<boolean> { return pollHealth(expectedVersion, serverPort, sourceBootId, timing, serverHost); }
 
 const invokedPath = process.argv[1] ? nodePath.resolve(process.argv[1]) : '';
 if (invokedPath === fileURLToPath(import.meta.url)) {

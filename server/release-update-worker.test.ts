@@ -106,7 +106,7 @@ async function releaseTree(directory: string, version: string, compatibility = [
   await fs.writeFile(path.join(directory, 'dist-server', 'server', 'release-update-worker.js'), '', { mode: 0o644 });
 }
 
-async function workerFixture(options: {
+async function workerFixture(options: { healthHost?: string;
   sourceVersion?: string;
   compatibleFrom?: string[];
   health?: (version: string) => boolean;
@@ -146,7 +146,7 @@ async function workerFixture(options: {
   const phases: string[] = [];
   const commands: Array<[string, readonly string[]]> = [];
   const commandEnvironments: NodeJS.ProcessEnv[] = [];
-  const healthArgs: Array<[string, number, string]> = [];
+  const healthArgs: Array<[string, number, string, string]> = [];
   let restartCount = 0;
   const progressWrites: Array<{ downloadedBytes: number; totalBytes?: number }> = [];
   const worker = new ReleaseUpdateWorker({
@@ -192,8 +192,9 @@ async function workerFixture(options: {
       }
       return { code: 0, stdout: command === '/usr/bin/tar' ? tarListing : '', stderr: '' };
     },
-    health: async (version, port, bootId) => {
-      healthArgs.push([version, port, bootId]);
+    healthHost: options.healthHost,
+    health: async (version, port, bootId, host) => {
+      healthArgs.push([version, port, bootId, host]);
       return options.health?.(version) ?? true;
     },
     requestTimeoutMs: options.requestTimeoutMs,
@@ -213,7 +214,7 @@ test('worker performs a complete staged cutover with exact health descriptor arg
     await fixture.worker.run(jobId);
     assert.deepEqual(fixture.phases, ['downloading', 'verifying', 'staging', 'cutting_over', 'restarting', 'verifying_health', 'succeeded']);
     assert.equal(await fs.readlink(path.join(fixture.root, 'current')), path.join(fixture.releases, '1.2.3'));
-    assert.deepEqual(fixture.healthArgs, [['1.2.3', fixture.descriptor.serverPort, fixture.descriptor.sourceBootId]]);
+    assert.deepEqual(fixture.healthArgs, [['1.2.3', fixture.descriptor.serverPort, fixture.descriptor.sourceBootId, '127.0.0.1']], 'descriptors without a host probe loopback');
     assert.deepEqual(fixture.commands.filter(([command]) => command === '/usr/bin/systemctl'), [
       ['/usr/bin/systemctl', ['--user', 'restart', 'chatmux.service']],
     ]);
@@ -400,4 +401,27 @@ test('health polling tolerates startup and malformed responses before requiring 
   assert.equal(healthy, true);
   assert.equal(attempts, 3);
   assert.deepEqual(sleeps, [1_000, 1_000]);
+});
+
+test('health polling targets the descriptor host, formats IPv6 literals, and refuses malformed hosts', async () => {
+  const urls: string[] = [];
+  const fetchOk = async (url: string) => { urls.push(url); return { status: 200, json: async () => ({ product: 'chatmux', status: 'ok', version: '1.2.3', bootId: 'new-boot' }) } as unknown as Response; };
+  assert.equal(await pollHealth('1.2.3', 43123, 'old-boot', { fetch: fetchOk as unknown as typeof fetch }, '192.168.1.10'), true);
+  assert.equal(await pollHealth('1.2.3', 43123, 'old-boot', { fetch: fetchOk as unknown as typeof fetch }, 'fd7a:115c:a1e0::1'), true);
+  assert.equal(await pollHealth('1.2.3', 43123, 'old-boot', { fetch: fetchOk as unknown as typeof fetch }), true);
+  assert.deepEqual(urls, [
+    'http://192.168.1.10:43123/health',
+    'http://[fd7a:115c:a1e0::1]:43123/health',
+    'http://127.0.0.1:43123/health',
+  ]);
+  assert.equal(await pollHealth('1.2.3', 43123, 'old-boot', { fetch: fetchOk as unknown as typeof fetch }, 'evil host/../'), false);
+  assert.equal(urls.length, 3, 'a malformed host never reaches fetch');
+});
+
+test('worker probes the address it was launched for, for the update and for the rollback', async () => {
+  const fixture = await workerFixture({ healthHost: '192.168.1.10' });
+  try {
+    await fixture.worker.run(jobId);
+    assert.deepEqual(fixture.healthArgs, [['1.2.3', fixture.descriptor.serverPort, fixture.descriptor.sourceBootId, '192.168.1.10']]);
+  } finally { await fixture.cleanup(); }
 });
