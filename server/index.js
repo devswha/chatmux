@@ -374,6 +374,9 @@ app.use('/api/providers', authenticateToken, providerRoutes);
 app.use('/api/system', authenticateToken, createSystemRouter({
     appRoot: APP_ROOT,
     serverPort: Number(process.env.SERVER_PORT || 3001),
+    // The updater probes /health on this address after the restart; the
+    // server binds to HOST only, so a LAN bind is unreachable on loopback.
+    serverHost: process.env.HOST || '127.0.0.1',
     bootId: SERVER_BOOT_ID,
     runningVersion: RUNNING_VERSION,
     authMode: AUTH_MODE,
