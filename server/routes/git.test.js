@@ -1,7 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { parseGitLogWithStats, parseGitStatusOutput } from './git.js';
+import {
+  assertSafeRepositoryRelativePath,
+  normalizeRepositoryRelativeFilePath,
+  parseGitLogWithStats,
+  parseGitStatusOutput,
+  parseStatusEntriesZ,
+  resolvePathInsideProject,
+  selectExactStatusEntry,
+} from './git.js';
 
 // Builds `git status --porcelain=v1 -z` output: NUL-separated entries with a
 // trailing NUL, exactly as git emits it.
@@ -103,4 +111,47 @@ test('parseGitLogWithStats parses commits with parents, refs, and shortstat line
 
 test('parseGitLogWithStats handles empty output', () => {
   assert.deepEqual(parseGitLogWithStats(''), []);
+});
+
+test('assertSafeRepositoryRelativePath refuses the repository root and traversal', () => {
+  for (const bad of ['', '.', './', '/', 'src/..', '../etc/passwd', 'a/./b', 'a//b']) {
+    assert.throws(() => assertSafeRepositoryRelativePath(normalizeRepositoryRelativeFilePath(bad)), /Invalid file path/, `should reject ${JSON.stringify(bad)}`);
+  }
+  assert.equal(assertSafeRepositoryRelativePath(normalizeRepositoryRelativeFilePath('./src/a.ts')), 'src/a.ts');
+  assert.equal(assertSafeRepositoryRelativePath(normalizeRepositoryRelativeFilePath('newdir/')), 'newdir');
+  assert.equal(assertSafeRepositoryRelativePath(normalizeRepositoryRelativeFilePath('sp ace.txt')), 'sp ace.txt');
+  // Leading slashes have always been stripped: the value is repository-relative, never absolute.
+  assert.equal(assertSafeRepositoryRelativePath(normalizeRepositoryRelativeFilePath('/abs/path')), 'abs/path');
+});
+
+test('parseStatusEntriesZ reads porcelain -z output including renames, directories and unquoted names', () => {
+  // Captured from `git status --porcelain=v1 -z -- .` in a scratch repository.
+  const output = 'R  src/renamed.txt\0src/keep.txt\0 M tracked.txt\0?? newdir/\0?? quo"te.txt\0?? sp ace.txt\0';
+  assert.deepEqual(parseStatusEntriesZ(output), [
+    { code: 'R ', path: 'src/renamed.txt', isDirectory: false },
+    { code: ' M', path: 'tracked.txt', isDirectory: false },
+    { code: '??', path: 'newdir', isDirectory: true },
+    { code: '??', path: 'quo"te.txt', isDirectory: false },
+    { code: '??', path: 'sp ace.txt', isDirectory: false },
+  ]);
+  assert.deepEqual(parseStatusEntriesZ(''), []);
+});
+
+test('selectExactStatusEntry only yields the single entry that is the requested path', () => {
+  assert.equal(selectExactStatusEntry('', 'missing.txt'), null);
+  assert.deepEqual(selectExactStatusEntry(' M tracked.txt\0', 'tracked.txt'), { code: ' M', path: 'tracked.txt', isDirectory: false });
+  assert.deepEqual(selectExactStatusEntry('?? newdir/\0', 'newdir'), { code: '??', path: 'newdir', isDirectory: true });
+
+  const wholeTree = 'R  src/renamed.txt\0src/keep.txt\0 M tracked.txt\0?? newdir/\0';
+  assert.throws(() => selectExactStatusEntry(wholeTree, '.'), /git reports 3 entries/, 'a pathspec that fans out is refused before any rm or restore');
+  assert.throws(() => selectExactStatusEntry(' M src/a.ts\0 M src/b.ts\0', 'src'), /git reports 2 entries/);
+  assert.throws(() => selectExactStatusEntry(' M src/a.ts\0', 'src'), /reports "src\/a.ts" instead/, 'a directory holding tracked changes is not itself an entry');
+});
+
+test('resolvePathInsideProject keeps destructive targets strictly inside the project directory', () => {
+  const root = '/repo';
+  assert.equal(resolvePathInsideProject(root, 'app/src/a.ts', '/repo/app'), '/repo/app/src/a.ts');
+  assert.throws(() => resolvePathInsideProject(root, 'other/a.ts', '/repo/app'), /outside the project directory/, 'a sibling directory under the same toplevel is off limits');
+  assert.throws(() => resolvePathInsideProject(root, 'app', '/repo/app'), /outside the project directory/, 'the project directory itself is never a target');
+  assert.throws(() => resolvePathInsideProject(root, 'application/a.ts', '/repo/app'), /outside the project directory/, 'prefix collisions do not count as inside');
 });
