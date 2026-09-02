@@ -191,13 +191,15 @@ test('selector actions reject empty and oversized internally constructed sequenc
   assert.equal(recordingRunner().calls.length, 0);
 });
 
-test('default process stop respawns a shell in the same pane', async () => {
-  const { calls, run } = recordingRunner(['$7\t@8\t%9\t/workspace/project\n']);
-  await stopAgentProcessInPane(target, run, '/bin/bash');
+test('process stop respawns a shell only when the agent is the pane root process', async () => {
+  const { calls, run } = recordingRunner(['$7\t@8\t%9\t/workspace/project\t42\n']);
+  const signals: string[] = [];
+  await stopAgentProcessInPane(target, run, '/bin/bash', { kill: (_pid, signal) => { signals.push(signal); } });
+  assert.deepEqual(signals, [], 'the pane root is replaced, not signalled');
   assert.deepEqual(calls[0]?.args, [
     '-S', identity.socketPath,
     'display-message', '-p', '-t', identity.paneId,
-    '#{session_id}\t#{window_id}\t#{pane_id}\t#{pane_current_path}',
+    '#{session_id}\t#{window_id}\t#{pane_id}\t#{pane_current_path}\t#{pane_pid}',
   ]);
   assert.deepEqual(calls[1]?.args, [
     '-S', identity.socketPath,
@@ -209,6 +211,49 @@ test('default process stop respawns a shell in the same pane', async () => {
     ['set-option', '-p', '-t', identity.paneId, '@chatmux_provider_session_id', ''],
     ['set-option', '-p', '-t', identity.paneId, '@chatmux_codex_thread_id', ''],
   ]);
+});
+
+test('process stop signals a child agent, confirms its exit against the verified generation, and keeps the shell', async () => {
+  const { calls, run } = recordingRunner(['$7\t@8\t%9\t/workspace/project\t41\n']);
+  const signals: string[] = [];
+  let alive = true;
+  await stopAgentProcessInPane(target, run, '/bin/bash', {
+    kill: (pid, signal) => { assert.equal(pid, 42); signals.push(signal); if (signal === 'SIGTERM') alive = false; },
+    startedAtMs: async (pid) => (pid === 42 && alive ? 1234 : null),
+    sleep: async () => {},
+  });
+  assert.deepEqual(signals, ['SIGTERM']);
+  assert.equal(calls.some(({ args }) => args.includes('respawn-pane')), false, 'the user shell in the pane survives');
+  assert.deepEqual(calls.slice(1).map(({ args }) => args[2]), ['set-option', 'set-option', 'set-option']);
+});
+
+test('process stop escalates to SIGKILL and reports an agent that will not die', async () => {
+  const stubborn = recordingRunner(['$7\t@8\t%9\t/workspace/project\t41\n']);
+  const signals: string[] = [];
+  let alive = true;
+  await stopAgentProcessInPane(target, stubborn.run, '/bin/bash', {
+    kill: (_pid, signal) => { signals.push(signal); if (signal === 'SIGKILL') alive = false; },
+    startedAtMs: async () => (alive ? 1234 : null),
+    sleep: async () => {},
+  });
+  assert.deepEqual(signals, ['SIGTERM', 'SIGKILL']);
+
+  const immortal = recordingRunner(['$7\t@8\t%9\t/workspace/project\t41\n']);
+  await assert.rejects(
+    stopAgentProcessInPane(target, immortal.run, '/bin/bash', { kill: () => {}, startedAtMs: async () => 1234, sleep: async () => {} }),
+    (error: unknown) => error instanceof AppError && error.code === 'AGENT_PROCESS_STILL_RUNNING',
+  );
+  assert.equal(immortal.calls.some(({ args }) => args.includes('set-option')), false, 'tags stay while the agent is still there');
+});
+
+test('process stop never signals a pid whose start time no longer matches the verified generation', async () => {
+  const { run } = recordingRunner(['$7\t@8\t%9\t/workspace/project\t41\n']);
+  const signals: string[] = [];
+  await assert.rejects(
+    stopAgentProcessInPane(target, run, '/bin/bash', { kill: (_pid, signal) => { signals.push(signal); }, startedAtMs: async () => 9999, sleep: async () => {} }),
+    (error: unknown) => error instanceof AppError && error.code === 'TMUX_PROCESS_GENERATION_MISMATCH',
+  );
+  assert.deepEqual(signals, []);
 });
 
 test('pane and session termination recheck the exact pane, then use distinct immutable ids', async () => {
