@@ -5,6 +5,7 @@ import path from 'node:path';
 
 import { recordHostCommand } from './host-command-metrics.service.js';
 import type { LiveSpawnResult } from './live-send.service.js';
+import { resolveTmuxSpawnLaunch } from './tmux-spawn-scope.service.js';
 
 /**
  * Built-in tmux session creation used when the optional control tower is
@@ -28,6 +29,7 @@ export type TmuxRunner = (args: string[], stdin?: string) => Promise<TmuxRunResu
 function tmuxSubcommand(args: readonly string[]): string {
   for (let index = 0; index < args.length; index += 1) {
     if (args[index] === '-S') { index += 1; continue; }
+    if (args[index] === 'tmux') continue; // systemd-run prefix ends with the tmux binary
     if (!args[index].startsWith('-')) return args[index];
   }
   return 'unknown';
@@ -35,9 +37,23 @@ function tmuxSubcommand(args: readonly string[]): string {
 
 
 export function runTmux(args: string[], stdin?: string): Promise<TmuxRunResult> {
+  return runCollected('tmux', args, stdin);
+}
+
+/**
+ * Runs `tmux new-session` (and only that) through a transient systemd scope
+ * when ChatMux itself is a systemd service, so a tmux server forked by this
+ * spawn does not land in chatmux.service's cgroup and die with it.
+ */
+export async function runTmuxSpawn(args: string[]): Promise<TmuxRunResult> {
+  const launch = await resolveTmuxSpawnLaunch();
+  return runCollected(launch.command, [...launch.prefixArgs, ...args]);
+}
+
+function runCollected(command: string, args: string[], stdin?: string): Promise<TmuxRunResult> {
   recordHostCommand('tmux', [tmuxSubcommand(args)]);
   return new Promise((resolve, reject) => {
-    const child = spawn('tmux', args, { stdio: [stdin === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'] });
+    const child = spawn(command, args, { stdio: [stdin === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'] });
     let output = '';
     const timer = setTimeout(() => {
       child.kill('SIGKILL');
@@ -106,9 +122,12 @@ export async function resolveSpawnCwd(cwd: string, home: string = homedir()): Pr
 export async function builtinSpawn(
   name: string,
   cwd: string,
-  deps: { run?: TmuxRunner; home?: string } = {},
+  deps: { run?: TmuxRunner; spawnRun?: TmuxRunner; home?: string } = {},
 ): Promise<LiveSpawnResult> {
   const run = deps.run ?? runTmux;
+  // Session creation may fork the tmux server, so it goes through the
+  // cgroup-isolating runner; every other command talks to an existing server.
+  const spawnRun = deps.spawnRun ?? (deps.run === undefined ? runTmuxSpawn : deps.run);
   const fail = (detail: string): LiveSpawnResult => ({ ok: false, reachable: true, conflict: false, detail });
   if (!NAME_RE.test(name) || name.toLowerCase().startsWith('company')) {
     return fail('잘못된 세션명 (company*는 예약됨)');
@@ -124,7 +143,7 @@ export async function builtinSpawn(
     // Start the agent as the pane command. Creating an interactive shell and
     // immediately typing into it races shell initialization and can lose the
     // boot command while still reporting a successful spawn.
-    const created = await run(['new-session', '-d', '-s', name, '-c', resolvedCwd, 'gjc']);
+    const created = await spawnRun(['new-session', '-d', '-s', name, '-c', resolvedCwd, 'gjc']);
     if (created.code !== 0) {
       return fail(`tmux 세션 생성 실패: ${created.output.slice(0, 200)}`);
     }
