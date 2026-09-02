@@ -108,6 +108,10 @@ test('external kill protects company-prefixed sessions', async () => {
 });
 
 test('external and live spawn create missing HOME cwd paths while retaining safety rejections', async () => {
+  assertError(await request('/sessions/external/spawn', { name: 'company', cwd: '~' }), 400, 'INVALID_SPAWN_NAME');
+  assertError(await request('/sessions/external/spawn', { name: 'contract', cwd: ' ' }), 400, 'EMPTY_CWD');
+  assertError(await request('/sessions/live/spawn', { name: 'contract', cwd: ' ' }), 400, 'EMPTY_CWD');
+
   // Given: an isolated HOME and paths which must remain outside it.
   const home = await mkdtemp(path.join(os.tmpdir(), 'chatmux-spawn-home-'));
   const outside = await mkdtemp(path.join(os.tmpdir(), 'chatmux-spawn-outside-'));

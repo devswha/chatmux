@@ -1,7 +1,7 @@
 import { constants as fsConstants } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, isAbsolute, relative, sep, delimiter, dirname } from 'node:path';
-import { mkdir, realpath, stat, access } from 'node:fs/promises';
+import { mkdir, realpath, stat, lstat, access } from 'node:fs/promises';
 
 import { CURSOR_CLI_COMMAND_CANDIDATES } from '@/modules/providers/list/cursor/cursor-cli-command.js';
 
@@ -98,12 +98,29 @@ function expandExternalCliCwd(input: string, home: string): string | null {
   return isAbsolute(trimmed) ? trimmed : join(home, trimmed);
 }
 
-async function realpathExistingAncestor(target: string): Promise<string | null> {
+type EnsureHomeCwdIo = {
+  realpath(pathname: string): Promise<string>;
+  lstat(pathname: string): Promise<{ isDirectory(): boolean }>;
+  mkdir(pathname: string): Promise<unknown>;
+  stat(pathname: string): Promise<{ isDirectory(): boolean }>;
+};
+
+const defaultEnsureHomeCwdIo: EnsureHomeCwdIo = { realpath, lstat, mkdir, stat };
+
+function hasFsErrorCode(error: unknown, code: string): boolean {
+  return error instanceof Error && 'code' in error && error.code === code;
+}
+
+async function realpathExistingAncestor(
+  target: string,
+  io: EnsureHomeCwdIo,
+): Promise<{ path: string; realpath: string } | null> {
   let ancestor = target;
   while (true) {
     try {
-      return await realpath(ancestor);
-    } catch {
+      return { path: ancestor, realpath: await io.realpath(ancestor) };
+    } catch (error) {
+      if (!hasFsErrorCode(error, 'ENOENT')) return null;
       const parent = dirname(ancestor);
       if (parent === ancestor) return null;
       ancestor = parent;
@@ -112,19 +129,43 @@ async function realpathExistingAncestor(target: string): Promise<string | null> 
 }
 
 /** Creates a missing absolute cwd only after its existing ancestor is proven inside HOME. */
-export async function ensureHomeCwd(cwd: string, home = homedir()): Promise<string | null> {
+export async function ensureHomeCwd(
+  cwd: string,
+  home = homedir(),
+  io: EnsureHomeCwdIo = defaultEnsureHomeCwdIo,
+): Promise<string | null> {
   if (cwd.includes('\0') || !isAbsolute(cwd)) return null;
   try {
-    const [homeReal, ancestorReal] = await Promise.all([
-      realpath(home),
-      realpathExistingAncestor(cwd),
+    const [homeReal, ancestor] = await Promise.all([
+      io.realpath(home),
+      realpathExistingAncestor(cwd, io),
     ]);
-    if (!ancestorReal || !isWithinHome(homeReal, ancestorReal)) return null;
+    if (!ancestor || !isWithinHome(homeReal, ancestor.realpath)) return null;
 
-    await mkdir(cwd, { recursive: true });
-    const resolved = await realpath(cwd);
-    if (!isWithinHome(homeReal, resolved)) return null;
-    return (await stat(resolved)).isDirectory() ? resolved : null;
+    const suffix = relative(ancestor.path, cwd).split(sep).filter(Boolean);
+    let canonicalPath = ancestor.realpath;
+    for (const component of suffix) {
+      const expectedPath = join(canonicalPath, component);
+      try {
+        const entry = await io.lstat(expectedPath);
+        if (!entry.isDirectory()) return null;
+      } catch (error) {
+        if (!hasFsErrorCode(error, 'ENOENT')) return null;
+        try {
+          await io.mkdir(expectedPath);
+        } catch (mkdirError) {
+          if (!hasFsErrorCode(mkdirError, 'EEXIST')) return null;
+          const racedEntry = await io.lstat(expectedPath);
+          if (!racedEntry.isDirectory()) return null;
+        }
+      }
+
+      const resolved = await io.realpath(expectedPath);
+      if (resolved !== expectedPath) return null;
+      canonicalPath = resolved;
+    }
+
+    return (await io.stat(canonicalPath)).isDirectory() ? canonicalPath : null;
   } catch {
     return null;
   }
