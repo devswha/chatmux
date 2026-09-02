@@ -66,6 +66,8 @@ export interface ReleaseUpdateStateStoreOptions {
   fs?: StateFileSystem;
   now?: () => number;
   isProcessAlive?: (pid: number) => boolean;
+  /** Test seam for the synchronous lock wait. */
+  sleepMs?: (milliseconds: number) => void;
 }
 
 export class ReleaseUpdateStateError extends Error {}
@@ -116,6 +118,13 @@ function parseState(text: string): PersistedState {
   return { schemaVersion: 1, jobs };
 }
 
+const LOCK_RETRY_ATTEMPTS = 40;
+const LOCK_RETRY_INTERVAL_MS = 50;
+/** Synchronous wait for the synchronous store; contention holds are milliseconds long. */
+function blockingSleep(milliseconds: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
+}
+
 /** A small synchronous store: every externally visible mutation is a durable atomic replace. */
 export class ReleaseUpdateStateStore {
   private readonly fs: StateFileSystem;
@@ -124,6 +133,7 @@ export class ReleaseUpdateStateStore {
   private readonly allocatorPath: string;
   private readonly lockPath: string;
   private readonly isProcessAlive: (pid: number) => boolean;
+  private readonly sleepMs: (milliseconds: number) => void;
   private readonly progressPath: string;
 
   constructor(private readonly root: string, options: ReleaseUpdateStateStoreOptions = {}) {
@@ -132,6 +142,7 @@ export class ReleaseUpdateStateStore {
     this.isProcessAlive = options.isProcessAlive ?? ((pid) => {
       try { process.kill(pid, 0); return true; } catch (error) { return !(error && typeof error === 'object' && 'code' in error && error.code === 'ESRCH'); }
     });
+    this.sleepMs = options.sleepMs ?? blockingSleep;
     this.statePath = path.join(root, 'release-update-state.json');
     this.allocatorPath = path.join(root, 'release-update-completion-ordinal.json');
     this.lockPath = path.join(root, 'release-update-state.lock');
@@ -374,14 +385,20 @@ export class ReleaseUpdateStateStore {
 
   private withExclusiveLock<T>(operation: () => T): T {
     this.ensureSafeRoot();
-    let fd: number;
-    try {
-      fd = this.fs.openSync(this.lockPath, 'wx');
-    } catch {
-      if (!this.recoverDeadLock()) throw new ReleaseUpdateStateError('Update state is locked or unavailable.');
-      try { fd = this.fs.openSync(this.lockPath, 'wx'); }
-      catch { throw new ReleaseUpdateStateError('Update state is locked or unavailable.'); }
+    // The server's status poll and the worker's transitions contend for this
+    // lock for milliseconds at a time. A live holder is waited out for a
+    // bounded interval rather than reported as a failure, which after cutover
+    // would roll back a healthy release.
+    let fd: number | undefined;
+    for (let attempt = 0; attempt < LOCK_RETRY_ATTEMPTS && fd === undefined; attempt += 1) {
+      try {
+        fd = this.fs.openSync(this.lockPath, 'wx');
+      } catch {
+        if (this.recoverDeadLock()) continue;
+        if (attempt + 1 < LOCK_RETRY_ATTEMPTS) this.sleepMs(LOCK_RETRY_INTERVAL_MS);
+      }
     }
+    if (fd === undefined) throw new ReleaseUpdateStateError('Update state is locked or unavailable.');
     try {
       try { this.fs.writeFileSync(this.lockPath, `${process.pid}\n`, { encoding: 'utf8', mode: 0o600, flag: 'w' }); }
       catch (error) { throw new ReleaseUpdateStateError(`Unable to persist update state lock: ${error instanceof Error ? error.message : 'unknown error'}`); }
