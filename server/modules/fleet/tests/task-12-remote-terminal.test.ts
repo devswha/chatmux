@@ -225,3 +225,39 @@ test('authorization failures and disconnect between verification and spawn have 
     now += 1;
   }
 });
+
+test('pane output larger than one frame is published as consecutive chunks that never split a surrogate pair', async () => {
+  const { chunkTerminalOutput, OUTPUT_CHUNK_CHARS } = await import('../terminal/peer.js');
+  assert.deepEqual(chunkTerminalOutput('short'), ['short']);
+  const big = 'a'.repeat(OUTPUT_CHUNK_CHARS * 2 + 10);
+  assert.deepEqual(chunkTerminalOutput(big).map((piece) => piece.length), [OUTPUT_CHUNK_CHARS, OUTPUT_CHUNK_CHARS, 10]);
+  const emoji = 'x'.repeat(OUTPUT_CHUNK_CHARS - 1) + String.fromCodePoint(0x1f600) + 'y';
+  const pieces = chunkTerminalOutput(emoji);
+  assert.deepEqual(pieces.map((piece) => piece.length), [OUTPUT_CHUNK_CHARS - 1, 3], 'the boundary moves back rather than cutting the pair');
+  assert.equal(pieces.join(''), emoji);
+
+  let now = 1_000;
+  const spawned: FakeProcess[] = [];
+  const events: Array<Readonly<{ event: FleetEvent; body: JsonValue }>> = [];
+  const peer = createRemoteTerminalPeer({
+    hostId: HOST_A, processEpoch: 'peer-process-1', now: () => now,
+    isConnectionCurrent: (generation) => generation === 7,
+    verifyTarget: async (target) => target,
+    spawn: async () => { const process = new FakeProcess(); spawned.push(process); return process; },
+    publish: (event, eventBody) => events.push({ event, body: eventBody }),
+  });
+  await peer.handlers['pane.attach']?.({
+    kind: 'request', protocolVersion: 'fleet/1', connectionGeneration: 7,
+    requestId: 'attach-big', operation: 'pane.attach', target: pane,
+    body: { deadlineAtMs: 1_500, lease, cols: 80, rows: 24, resume: null },
+  });
+  now += 1;
+  const escape = String.fromCharCode(27);
+  const redraw = (escape + '[31m').repeat(OUTPUT_CHUNK_CHARS);
+  spawned[0]?.output(redraw);
+  const outputs = events.filter((entry) => entry.event === 'pane.output').map((entry) => body(entry.body));
+  assert.equal(outputs.length, Math.ceil(redraw.length / OUTPUT_CHUNK_CHARS));
+  assert.deepEqual(outputs.map((output) => output.seq), outputs.map((_output, index) => index + 1), 'chunks carry consecutive sequence numbers');
+  assert.equal(outputs.map((output) => output.data).join(''), redraw);
+  for (const output of outputs) assert.ok(JSON.stringify(output).length < 64 * 1024, 'each chunk fits one frame after JSON escaping');
+});

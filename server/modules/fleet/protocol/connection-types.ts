@@ -40,6 +40,8 @@ export type FleetProtocolConnectionOptions = Readonly<{
   readonly onAuthenticated?: (connection: FleetAuthenticatedConnection) => void;
   readonly onResponse?: (response: FleetResponseEnvelope) => void;
   readonly onError?: (code: FleetProtocolErrorCode) => void;
+  /** A frame that could not be sent without closing the connection (too large for the wire). */
+  readonly onDroppedFrame?: (code: FleetProtocolErrorCode, frameKind: string) => void;
   readonly scheduler?: FleetProtocolScheduler;
   readonly writer?: FleetWriterOptions;
   readonly requestCapacity?: number;
