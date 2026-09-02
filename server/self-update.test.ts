@@ -9,6 +9,7 @@ import test from 'node:test';
 import express from 'express';
 
 import {
+  buildReleaseSystemdRunArgs,
   buildSelfUpdateScript,
   buildSystemdRunArgs,
   detectInstallMode,
@@ -534,10 +535,11 @@ test('source POST serializes preparation and clears a failed reservation for ret
   let launches = 0;
   let failClean = false;
   const target = { available: true, currentRevision: '1'.repeat(40), targetRevision: '2'.repeat(40), targetVersion: `main@${'2'.repeat(12)}`, relation: 'behind' as const };
+  const launchedScripts: string[] = [];
   const app = express();
   app.use(exactUpdateRequestGuard);
   app.use(createSystemRouter({
-    appRoot: tempRoot(), home: tempRoot(), serverPort: 3000, bootId: 'boot', mode: 'source',
+    appRoot: tempRoot(), home: tempRoot(), serverPort: 3000, serverHost: '10.0.0.5', bootId: 'boot', mode: 'source',
     inspectSourceClean: async () => { if (failClean) throw new Error('dirty'); },
     prepareSourceUpdate: async () => {
       preparations += 1;
@@ -545,7 +547,7 @@ test('source POST serializes preparation and clears a failed reservation for ret
       await new Promise<void>((resolve) => { releasePreparation = resolve; });
       return target;
     },
-    launch: async () => { launches += 1; },
+    launch: async (_unit, script) => { launches += 1; launchedScripts.push(script); },
   }));
   const server = createServer(app);
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -568,6 +570,7 @@ test('source POST serializes preparation and clears a failed reservation for ret
     releasePreparation?.();
     assert.equal((await first).status, 200);
     assert.equal(launches, 1);
+    assert.ok(launchedScripts[0].includes("DEPLOY_HEALTH_URL='http://10.0.0.5:3000/'"), 'the source updater probes the bound address, not loopback');
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   }
@@ -697,7 +700,7 @@ test('mounted release update exposes only sanitized job state and fixed launcher
   app.use((req, _res, next) => { (req as any).user = {}; next(); });
   app.use(exactUpdateRequestGuard);
   app.use(createSystemRouter({
-    appRoot: home, home, serverPort: 3000, bootId: 'boot', runningVersion: '1.0.0', mode: 'release', authMode: 'password', state, now: () => 1,
+    appRoot: home, home, serverPort: 3000, serverHost: '192.168.1.10', bootId: 'boot', runningVersion: '1.0.0', mode: 'release', authMode: 'password', state, now: () => 1,
     discoverRelease: async () => ({ release: releaseJob(9).release, compatibility: releaseJob(9).compatibility, notes: { body: null, url: null } }),
     launchRelease: async (unit, receivedWorkerPath, id) => { launches.push([unit, receivedWorkerPath, id]); },
   }));
@@ -713,6 +716,7 @@ test('mounted release update exposes only sanitized job state and fixed launcher
     const start = await started.json() as { jobId: string };
     assert.match(start.jobId, /^[A-Za-z0-9_-]{22}$/);
     assert.deepEqual(launches, [[`chatmux-release-update-${start.jobId}`, workerPath, start.jobId]]);
+    assert.equal((state.get(start.jobId)?.descriptor as { serverHost?: string } | undefined)?.serverHost, undefined, 'the descriptor shape stays parseable by the prior release');
 
     const known = await fetch(`${baseUrl}/update/jobs/${start.jobId}`);
     assert.equal(known.status, 200);
@@ -908,4 +912,12 @@ test('release notes are captured, bounded, and only trust the canonical release 
 
   assert.deepEqual(releaseNotesFromLatest({}, tag), { body: null, url: null });
   assert.deepEqual(releaseNotesFromLatest({ body: '   ', html_url: 'https://attacker.example/notes' }, tag), { body: null, url: null });
+});
+
+test('the release worker is launched with the bound address to probe, wildcards mapped to loopback', () => {
+  const args = buildReleaseSystemdRunArgs('chatmux-release-update-x', '/srv/worker.js', 'abcdefghijklmnopqrstuv', '/home/u', 3001, '/usr/bin', '192.168.1.10');
+  assert.ok(args.includes('--setenv=CHATMUX_HEALTH_HOST=192.168.1.10'));
+  assert.ok(args.includes('--setenv=SERVER_PORT=3001'));
+  assert.ok(buildReleaseSystemdRunArgs('u', '/w.js', 'abcdefghijklmnopqrstuv', '/home/u', 3001, '/usr/bin', '0.0.0.0').includes('--setenv=CHATMUX_HEALTH_HOST=127.0.0.1'));
+  assert.ok(buildReleaseSystemdRunArgs('u', '/w.js', 'abcdefghijklmnopqrstuv', '/home/u', 3001, '/usr/bin').includes('--setenv=CHATMUX_HEALTH_HOST=127.0.0.1'), 'callers without a bind address keep the loopback probe');
 });
