@@ -158,3 +158,35 @@ test('Given pinned identity and superseded generations, when an impostor or old 
   assert.equal(third.closes.at(-1)?.reason, 'fleet authentication rejected');
   assert.equal(connection.currentStatus().state, 'offline');
 });
+
+test('Given an authenticated peer socket, when a second auth.proof arrives, then it is rejected and the accepted generation survives', async () => {
+  const clock = new Clock();
+  const hub = identity();
+  const peer = identity();
+  const socket = new Socket();
+  const statuses: HubPeerStatus[] = [];
+  const connection = new HubPeerConnection({
+    peer: peerRecord(peer.signer.installationId, peer.publicKey),
+    local: { signer: hub.signer, processEpoch: 'hub-epoch', capabilities: ['catalog.read'] },
+    scheduler: clock,
+    random: () => 0.5,
+    dial: () => socket,
+    onStatus: (status) => { statuses.push(status); },
+    onFrame: () => {},
+  });
+  connection.start();
+  await authenticate(connection, socket, peer);
+  assert.equal(statuses.at(-1)?.state, 'online');
+  assert.equal(statuses.at(-1)?.generation, 1);
+
+  const hubHello = decodeFleetFrame(Buffer.from(socket.sent[0] ?? ''));
+  if (hubHello.kind !== 'auth.hello') throw new TypeError('hub hello expected');
+  const peerHello = createFleetHello({ role: 'peer', signer: peer.signer, processEpoch: 'peer-epoch', capabilities: ['catalog.read'], transportMode: hubHello.transportMode, connectionId: hubHello.connectionId });
+  const negotiation = negotiateFleetChallenge(hubHello, peerHello, peer.signer.installationId);
+  const replayedProof = await createFleetProof({ signer: peer.signer, role: 'peer', connectionId: hubHello.connectionId, challenge: negotiation.challenge });
+  socket.receive(encodeFleetFrame(replayedProof)); await connection.whenIdle();
+
+  assert.ok(socket.closes.length >= 1, 'the socket is closed as a protocol violation');
+  assert.equal(statuses.some((status) => status.state === 'syncing' && status.generation === null && statuses.indexOf(status) > 2), false, 'the accepted generation is never reset in place');
+  connection.stop();
+});

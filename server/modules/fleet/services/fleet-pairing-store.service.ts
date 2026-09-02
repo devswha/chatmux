@@ -18,6 +18,20 @@ export class SqliteFleetPairingStore implements AtomicPairingStore {
 
   consumeAndPin(token: Uint8Array, grant: HubGrantPin, nowMs: number): PairingStoreResult {
     return this.db.transaction((): PairingStoreResult => {
+      // The token is checked first, without consuming it: an unauthenticated
+      // caller must not learn whether this installation already acts as a hub
+      // (role_conflict) or holds a grant unless it presents a valid token.
+      const inspected = this.tokens.inspect(token, nowMs);
+      switch (inspected.kind) {
+        case 'not_found': return { kind: 'not_found' };
+        case 'expired': return { kind: 'expired' };
+        case 'already_consumed': return { kind: 'already_consumed' };
+        case 'available': break;
+        default: {
+          const exhaustive: never = inspected;
+          return exhaustive;
+        }
+      }
       const enrolledPeers = this.db.prepare<[], CountRow>(`SELECT COUNT(*) AS count
         FROM fleet_peers WHERE enrollment_state = 'enrolled'`).get();
       if (enrolledPeers === undefined) throw new TypeError('enrolled fleet peer count is missing');
@@ -25,19 +39,7 @@ export class SqliteFleetPairingStore implements AtomicPairingStore {
       const active = this.db.prepare<[string], CountRow>(`SELECT COUNT(*) AS count
         FROM fleet_hub_grants WHERE peer_id = ? AND grant_state = 'active'`).get(grant.peerId);
       if (active === undefined) throw new TypeError('active fleet grant count is missing');
-      if (active.count > 0) {
-        const inspected = this.tokens.inspect(token, nowMs);
-        switch (inspected.kind) {
-          case 'not_found': return { kind: 'not_found' };
-          case 'expired': return { kind: 'expired' };
-          case 'already_consumed': return { kind: 'already_consumed' };
-          case 'available': return { kind: 'active_grant_exists' };
-          default: {
-            const exhaustive: never = inspected;
-            return exhaustive;
-          }
-        }
-      }
+      if (active.count > 0) return { kind: 'active_grant_exists' };
       const consumed = this.tokens.consume(token, nowMs);
       switch (consumed.kind) {
         case 'not_found': return { kind: 'not_found' };
