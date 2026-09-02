@@ -302,3 +302,31 @@ test('manual_required and failed_rollback records are exempt from count pruning 
     for (let index = 1; index <= UPDATE_STATE_TERMINAL_CAP + 2; index += 1) assert.ok(store.get(id(index)));
   } finally { cleanup(directory); }
 });
+
+test('a live lock holder is waited out with bounded retries instead of failing the caller', () => {
+  const stateRoot = root();
+  let contended = 3;
+  const sleeps: number[] = [];
+  const contendingFs = new Proxy(fs, {
+    get(target, property, receiver) {
+      if (property === 'openSync') {
+        return (filePath: string, flags: string) => {
+          if (flags === 'wx' && filePath.endsWith('release-update-state.lock') && contended > 0) {
+            contended -= 1;
+            const error = new Error('EEXIST: file already exists') as NodeJS.ErrnoException; error.code = 'EEXIST'; throw error;
+          }
+          return fs.openSync(filePath, flags);
+        };
+      }
+      return Reflect.get(target, property, receiver);
+    },
+  }) as typeof fs;
+  const state = new ReleaseUpdateStateStore(stateRoot, { fs: contendingFs as never, now: () => 10, isProcessAlive: () => true, sleepMs: (ms) => { sleeps.push(ms); } });
+  state.initialize();
+  assert.deepEqual(sleeps, [50, 50, 50], 'three contended attempts, three short waits, then success');
+  assert.equal(state.publicActiveStatus(), null);
+
+  contended = Number.POSITIVE_INFINITY;
+  assert.throws(() => state.publicActiveStatus(), /locked or unavailable/, 'a holder that never releases is still reported, after the bounded wait');
+  assert.ok(sleeps.length >= 3 + 39, 'the bounded wait ran to its limit');
+});
