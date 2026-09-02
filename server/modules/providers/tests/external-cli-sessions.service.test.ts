@@ -8,6 +8,7 @@ import {
   assignUniqueIndexedProviderSessionIds,
   classifyExternalSessions,
   buildExternalCliTmuxSpawnArgs,
+  spawnExternalCliSession,
   buildExternalCliRuntimePath,
   createExternalCliSessionDiscovery,
   createExternalCliSessionInferenceRetryBackoff,
@@ -1104,4 +1105,16 @@ test('classifyExternalSessions: sorted by tmux name for stable rendering', () =>
     ],
   });
   assert.deepEqual(result.map((s) => s.tmuxName), ['alpha', 'zeta']);
+});
+
+test('external CLI spawns run tmux new-session through the resolved launch command', async () => {
+  const calls: Array<{ command: string; args: string[] }> = [];
+  await spawnExternalCliSession('codex', 'scoped', '/workspace', {
+    launch: async () => ({ command: 'systemd-run', prefixArgs: ['--user', '--scope', '--collect', '--quiet', '--', 'tmux'] }),
+    run: async (command, args) => { calls.push({ command, args }); return ''; },
+  });
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].command, 'systemd-run');
+  assert.deepEqual(calls[0].args.slice(0, 8), ['--user', '--scope', '--collect', '--quiet', '--', 'tmux', 'new-session', '-d'], 'session creation is wrapped in a transient scope');
+  assert.deepEqual([calls[1].command, calls[1].args.slice(0, 3)], ['tmux', ['set-option', '-t', 'scoped']], 'tagging talks to the now-running server directly');
 });

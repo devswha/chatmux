@@ -7,6 +7,7 @@ import { CURSOR_CLI_COMMAND_CANDIDATES } from '@/modules/providers/list/cursor/c
 
 import type { TmuxPaneIdentity } from '../../../../../shared/tmux.js';
 import { tmuxPaneIdentityKey } from '../../../../../shared/tmux.js';
+import { resolveTmuxSpawnLaunch } from '../tmux-spawn-scope.service.js';
 
 import type { ExternalCliSession, ExternalLocalCliKind, ExternalPane, ProcessTreeEntry } from './contracts-and-resume.js';
 import type { ExternalProviderSessionInference } from './provider-runtime-inference.js';
@@ -205,18 +206,25 @@ export function buildExternalCliTmuxSpawnArgs(
   ];
 }
 
-/** Boots and tags a native CLI in a fresh detached tmux session. */
+/**
+ * Boots and tags a native CLI in a fresh detached tmux session. Session
+ * creation may fork the tmux server, so under systemd it runs in a transient
+ * scope instead of chatmux.service's cgroup (see tmux-spawn-scope.service).
+ */
 export async function spawnExternalCliSession(
   cli: ExternalSpawnCli,
   tmuxName: string,
   cwd: string,
+  deps: { launch?: typeof resolveTmuxSpawnLaunch; run?: typeof runCommand } = {},
 ): Promise<void> {
+  const run = deps.run ?? runCommand;
   const executable = await resolveExternalCliExecutable(cli);
-  await runCommand('tmux', buildExternalCliTmuxSpawnArgs(executable, tmuxName, cwd));
+  const launch = await (deps.launch ?? resolveTmuxSpawnLaunch)();
+  await run(launch.command, [...launch.prefixArgs, ...buildExternalCliTmuxSpawnArgs(executable, tmuxName, cwd)]);
   try {
-    await runCommand('tmux', ['set-option', '-t', tmuxName, '@chatmux_cli_kind', cli]);
+    await run('tmux', ['set-option', '-t', tmuxName, '@chatmux_cli_kind', cli]);
   } catch (error) {
-    await runCommand('tmux', ['kill-session', '-t', `=${tmuxName}`]).catch(() => undefined);
+    await run('tmux', ['kill-session', '-t', `=${tmuxName}`]).catch(() => undefined);
     throw error;
   }
 }
