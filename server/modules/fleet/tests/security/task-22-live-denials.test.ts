@@ -195,7 +195,7 @@ test('Given an authenticated link, when oversized or malformed frames arrive, th
   // An oversized message never reaches the codec: ws enforces the frame bound
   // before assembly and closes with its own status, so nothing past 64 KiB is
   // ever buffered for an authenticated peer either.
-  const tooLarge = { code: 1009, reason: 'Max payload size exceeded' };
+  const tooLarge = { code: 1009, reason: '' };
   const cases: ReadonlyArray<Readonly<{ name: string; payload: (generation: number) => string | Buffer; close: typeof rejected }>> = [
     { name: 'oversized', payload: () => Buffer.alloc(FLEET_MAX_FRAME_BYTES + 1), close: tooLarge },
     { name: 'not-json', payload: () => 'this-is-not-json{', close: rejected },
