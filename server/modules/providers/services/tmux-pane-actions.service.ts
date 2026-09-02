@@ -130,17 +130,35 @@ export async function assertTmuxPaneIdentity(
   }
 }
 
+/**
+ * Text pasted into a pane travels inside a bracketed paste (`paste-buffer -p`),
+ * which the application reads as literal input only until it sees the end
+ * marker ESC [ 201 ~. A message carrying that sequence would end the paste
+ * early and turn the remainder into key input. No chat message needs terminal
+ * control characters, so every C0 control except tab and newline, DEL, and the
+ * C1 range (0x9B is an 8-bit CSI) are removed; CR and CRLF become LF.
+ */
+export function sanitizeTmuxPasteText(message: string): string {
+  return message
+    .replace(/\r\n?/g, '\n')
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u0080-\u009F]/g, '');
+}
+
 export async function pasteToTmuxPane(
   target: VerifiedTmuxActionTarget,
   message: string,
   run: TmuxRunner = runTmux,
 ): Promise<void> {
+  const text = sanitizeTmuxPasteText(message);
+  if (!text.trim()) {
+    throw new AppError('message is required.', { code: 'EMPTY_MESSAGE', statusCode: 400 });
+  }
   const identity = target.tmux;
   const bufferName = `chatmux-pane-${process.pid}-${++pasteBufferSequence}`;
   // Recheck before the first write so a stale pane receives no bytes. tmux cannot
   // make load/paste/Enter atomic, so replacement after this point is accepted TOCTOU.
   await assertTmuxPaneIdentity(identity, run);
-  const load = await run(['-S', identity.socketPath, 'load-buffer', '-b', bufferName, '-'], message);
+  const load = await run(['-S', identity.socketPath, 'load-buffer', '-b', bufferName, '-'], text);
   if (load.code !== 0) {
     throw new AppError('tmux could not stage the message.', {
       code: 'TMUX_PANE_SEND_FAILED',
@@ -228,11 +246,18 @@ export async function captureTmuxPane(
   return result.output;
 }
 
+/**
+ * Pane ids never repeat within a tmux server, so `%N` cannot name a different
+ * pane later; it can only have moved (join-pane, break-pane) out of the
+ * verified window or session. Recheck all four coordinates right before the
+ * kill, as the send path does, so a moved pane is refused rather than killed.
+ */
 export async function killTmuxPane(
   target: VerifiedTmuxActionTarget,
   run: TmuxRunner = runTmux,
 ): Promise<void> {
   const identity = target.tmux;
+  await assertTmuxPaneIdentity(identity, run);
   await requireTmuxSuccess(identity, ['kill-pane', '-t', identity.paneId], run);
 }
 
@@ -252,6 +277,8 @@ export async function killTmuxSession(
   options: KillTmuxSessionOptions = {},
 ): Promise<void> {
   const identity = target.tmux;
+  // The verified pane must still live in this session before the session dies.
+  await assertTmuxPaneIdentity(identity, run);
   const listed = await run(['-S', identity.socketPath, 'list-panes', '-s', '-t', identity.sessionId, '-F', '#{pane_id}']);
   if (listed.code !== 0) {
     throw new AppError('The selected tmux pane changed; reopen it from the session list.', {

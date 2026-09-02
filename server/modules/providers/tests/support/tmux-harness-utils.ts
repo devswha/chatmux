@@ -11,7 +11,7 @@ import type { FakeTmuxAgent, FakeTranscriptTmuxAgent } from './tmux-e2e-types.js
 const execFileAsync = promisify(execFile);
 const REPOSITORY_ROOT = path.resolve(fileURLToPath(new URL('../../../../../', import.meta.url)));
 const DISCOVERY_MARKER = '__CHATMUX_TMUX_E2E_SESSIONS__=';
-const SESSION_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+const SESSION_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 const SESSION_ID_RE = /^[0-9a-fA-F][0-9a-fA-F-]{7,}$/;
 
 export class TmuxHarnessContractError extends Error {
