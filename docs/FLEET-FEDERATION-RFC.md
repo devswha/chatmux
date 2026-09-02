@@ -73,11 +73,13 @@ under "Closed protocol". Everything else is unchanged from revision 1.
   Events are limited to catalog snapshot/delta, host state, chat delta,
   prompt/approval change, pane output, and completion ready.
 - Catalog frames MUST fit the frame bound like every other frame. A peer MUST
-  publish a bounded catalog rather than its whole session table: it keeps every
-  present pane, then the most recently active sessions together with the projects
-  those sessions and starred projects belong to, and drops the least recently
-  active sessions first, then projects no kept session references, then stale
-  panes, until the snapshot fits. When any row was dropped the snapshot MUST carry
+  publish a bounded catalog rather than its whole session table. Priority, highest
+  first: present panes; the most recently active sessions with the projects they
+  belong to; starred projects. Rows MUST leave in this order until the snapshot
+  fits: projects no session references and nobody starred, stale panes, the least
+  recently active sessions (a project whose last kept session leaves goes with it
+  unless starred), starred projects without sessions, and present panes only as a
+  last resort. When any row was dropped the snapshot MUST carry
   `omitted` with per-entity counts; when nothing was dropped the field MUST be
   absent so `fleet/1` hubs that predate it stay compatible. Omitted rows are
   reachable only through the owning peer's own UI; the hub MUST NOT infer, page, or
