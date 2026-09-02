@@ -44,16 +44,34 @@ node_is_supported() {
   [ "$minor" -gt 22 ] || { [ "$minor" -eq 22 ] && [ "$patch" -ge 2 ]; }
 }
 
-# Every download is HTTPS end to end: no plaintext, no downgrade through a
-# redirect, and a bounded wait so a stalled mirror cannot hang the installer.
-curl_fetch() {
-  curl -fSL --proto '=https' --proto-redir '=https' "$@"
-}
-require_https_url() {
+# Downloads never travel in plaintext over a network: the default sources are
+# HTTPS, redirects may only lead to HTTPS, and a base-URL override is accepted
+# only when it is HTTPS, a loopback http:// address, or a file:// path (the
+# last two exist for local mirrors and tests). Every transfer has a bounded wait.
+allowed_base_url() {
   case "$1" in
-    https://*) ;;
-    *) fail "$2 must be an https:// URL" ;;
+    https://*) return 0 ;;
+    file:///*) return 0 ;;
+    http://127.0.0.1/*|http://127.0.0.1:*|http://localhost/*|http://localhost:*|http://\[::1\]/*|http://\[::1\]:*) return 0 ;;
+    *) return 1 ;;
   esac
+}
+require_allowed_base_url() {
+  allowed_base_url "$1" || fail "$2 must be an https:// URL (loopback http:// and file:// are accepted for local mirrors)"
+}
+# curl_fetch URL [curl options...]: the protocol allowed for the transfer is the
+# URL's own scheme, so an https source cannot be downgraded and a loopback
+# override cannot be redirected off the machine.
+curl_fetch() {
+  url=$1
+  shift
+  case "$url" in
+    https://*) proto='=https' ;;
+    http://*) proto='=http,https' ;;
+    file://*) proto='=file' ;;
+    *) fail "unsupported download URL scheme" ;;
+  esac
+  curl -fSL --proto "$proto" --proto-redir '=https' "$@" "$url"
 }
 
 verify_checksum() {
@@ -124,12 +142,12 @@ install_node() {
 
   node_archive="node-v$NODE_VERSION-linux-x64.tar.xz"
   node_base="${CHATMUX_NODE_BASE_URL:-https://nodejs.org/dist/v$NODE_VERSION}"
-  require_https_url "$node_base" CHATMUX_NODE_BASE_URL
+  require_allowed_base_url "$node_base" CHATMUX_NODE_BASE_URL
   node_stage="$TEMP_DIR/node"
   mkdir -p "$node_stage" "$INSTALL_ROOT/runtime"
   log "Node.js 22 was not found; installing a private runtime"
-  curl_fetch --progress-bar --max-time 900 "$node_base/$node_archive" -o "$TEMP_DIR/$node_archive"
-  curl_fetch -s --max-time 60 "$node_base/SHASUMS256.txt" -o "$TEMP_DIR/SHASUMS256.txt"
+  curl_fetch "$node_base/$node_archive" --progress-bar --max-time 900 -o "$TEMP_DIR/$node_archive"
+  curl_fetch "$node_base/SHASUMS256.txt" -s --max-time 60 -o "$TEMP_DIR/SHASUMS256.txt"
   verify_checksum "$TEMP_DIR/SHASUMS256.txt" "$TEMP_DIR/$node_archive"
   tar -xJf "$TEMP_DIR/$node_archive" -C "$node_stage"
   [ -x "$node_stage/node-v$NODE_VERSION-linux-x64/bin/node" ] || fail "downloaded Node.js runtime is incomplete"
@@ -155,7 +173,8 @@ if [ -n "${CHATMUX_VERSION:-}" ]; then
   VERSION=${CHATMUX_VERSION#v}
 else
   log "Resolving the latest ChatMux release"
-  latest_url=$(curl_fetch -s --max-time 60 -o /dev/null -w '%{url_effective}' "$REPOSITORY/releases/latest")
+  require_allowed_base_url "$REPOSITORY" CHATMUX_REPOSITORY
+  latest_url=$(curl_fetch "$REPOSITORY/releases/latest" -s --max-time 60 -o /dev/null -w '%{url_effective}')
   tag=${latest_url%/}
   tag=${tag##*/}
   VERSION=${tag#v}
@@ -178,14 +197,14 @@ else
   [ ! -e "$RELEASE_DIR" ] || fail "$RELEASE_DIR exists but is not a complete release"
   artifact="chatmux-server-$VERSION-linux-x64-node22.tar.gz"
   release_base="${CHATMUX_RELEASE_BASE_URL:-$REPOSITORY/releases/download}/v$VERSION"
-  require_https_url "$release_base" CHATMUX_RELEASE_BASE_URL
+  require_allowed_base_url "$release_base" CHATMUX_RELEASE_BASE_URL
   archive="$TEMP_DIR/$artifact"
   checksum="$archive.sha256"
   stage="$INSTALL_ROOT/releases/.install-$VERSION-$$"
 
   log "Downloading ChatMux $VERSION"
-  curl_fetch --progress-bar --max-time 900 "$release_base/$artifact" -o "$archive"
-  curl_fetch -s --max-time 60 "$release_base/$artifact.sha256" -o "$checksum"
+  curl_fetch "$release_base/$artifact" --progress-bar --max-time 900 -o "$archive"
+  curl_fetch "$release_base/$artifact.sha256" -s --max-time 60 -o "$checksum"
   verify_checksum "$checksum" "$archive"
 
   mkdir -p "$INSTALL_ROOT/releases" "$stage"
