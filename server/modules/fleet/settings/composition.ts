@@ -4,6 +4,7 @@ import { fleetInstallationRole, fleetPeersDb, getConnection } from '@/modules/da
 import { createFleetPairingRouter } from '@/modules/fleet/fleet-pairing.routes.js';
 import { fleetBrowserDiscoveryGateway } from '@/modules/fleet/browser-discovery/index.js';
 import { loadFleetSignedIdentity } from '@/modules/fleet/peer/persistence.js';
+import { fleetPeerRevocationGateway } from '@/modules/fleet/peer/revocation-gateway.js';
 import { FleetHubPairingService } from '@/modules/fleet/services/fleet-hub-pairing.service.js';
 import { FleetPairingFailureLimiter } from '@/modules/fleet/services/fleet-pairing-limiter.service.js';
 import { FleetPairingService } from '@/modules/fleet/services/fleet-pairing.service.js';
@@ -58,7 +59,13 @@ export function createLocalFleetSettingsRouter(authMode: AuthMode): express.Rout
     pairing: {
       issueToken: async () => (await services()).pairing.issueToken(),
       redeem: async (input) => (await services()).pairing.redeem(input),
-      revokeHubGrant: async (hub) => (await services()).pairing.revokeHubGrant(hub),
+      revokeHubGrant: async (hub) => {
+        const revoked = (await services()).pairing.revokeHubGrant(hub);
+        // The durable grant is gone; drop the live hub connection as well so
+        // reads, terminal streams and events stop now, not at the next tick.
+        if (revoked) fleetPeerRevocationGateway.notifyRevoked();
+        return revoked;
+      },
     },
     hubPairing: {
       enroll: async (input) => {

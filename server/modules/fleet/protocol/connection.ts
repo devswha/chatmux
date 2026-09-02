@@ -238,26 +238,38 @@ export class FleetProtocolConnection {
     }
   }
 
+  /**
+   * Ends the connection because the remote installation's grant was revoked.
+   * Used by the owner's in-process revoke so reads, terminal streams and
+   * events stop immediately instead of at the next lease tick.
+   */
+  revoke(): void {
+    this.reject(new FleetProtocolError('AUTH_PEER_UNAUTHORIZED', 'fleet peer grant revoked'));
+  }
+
   private scheduleLease(): void {
     this.leaseTimer = this.scheduler.schedule(10_000, () => {
-      try {
-        this.checkLease();
-      } catch (error) {
-        this.reject(error);
-      }
+      void this.checkLease().catch((error: unknown) => this.reject(error));
     });
   }
 
-  private checkLease(): void {
+  private async checkLease(): Promise<void> {
     if (this.state.kind !== 'authenticated') return;
-    const result = this.state.lease.poll(this.scheduler.now());
+    const state = this.state;
+    const result = state.lease.poll(this.scheduler.now());
     if (result.kind === 'expired') {
       this.reject(new FleetProtocolError('PROTOCOL_LEASE_EXPIRED', 'fleet heartbeat lease expired'));
       return;
     }
+    // The trust store was consulted at hello; re-check it on every lease tick
+    // so a grant the owner revoked (in this process or from the CLI) cuts off
+    // reads, terminal streams and events within one interval, not at the next
+    // reconnect. Mutations already re-check the grant per request.
+    await requireAuthorizedFleetPeer(this.options.trust, state.remoteInstallationId);
+    if (this.state !== state) return;
     if (result.kind === 'heartbeat_due') {
-      this.send({ kind: 'heartbeat', connectionGeneration: this.state.generation, sentAtMs: Math.max(1, this.scheduler.now()) });
-      this.state.lease.markSent(this.scheduler.now());
+      this.send({ kind: 'heartbeat', connectionGeneration: state.generation, sentAtMs: Math.max(1, this.scheduler.now()) });
+      state.lease.markSent(this.scheduler.now());
     }
     this.scheduleLease();
   }

@@ -271,3 +271,43 @@ test('Given a saturated writer, when publishing continues, then the connection c
   assert.deepEqual(subject.transport.closes[0], { code: 4008, reason: 'fleet writer capacity exceeded' });
   assert.ok(errors.includes('PROTOCOL_QUEUE_FULL'));
 });
+
+
+test('Given an authenticated hub, when its grant is revoked, then the next lease tick closes the connection', async () => {
+  const errors: string[] = [];
+  const hub = identity();
+  let grantState: 'active' | 'revoked' = 'active';
+  const subject = fixture({
+    trust: { find: async (installationId) => ({ installationId, pinnedPublicKey: hub.publicKey, state: grantState }) },
+    onError: (code) => { errors.push(code); },
+  }, hub);
+  await authenticate(subject);
+  assert.deepEqual(subject.transport.closes, []);
+
+  // An active grant keeps the connection through a lease tick.
+  subject.scheduler.advance(10_000);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(subject.transport.closes, []);
+
+  grantState = 'revoked';
+  subject.scheduler.advance(10_000);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(subject.transport.closes, [{ code: 4002, reason: 'fleet protocol rejected' }]);
+  assert.deepEqual(errors, ['AUTH_PEER_UNAUTHORIZED']);
+  await subject.connection.receive(Buffer.from(encodeFleetFrame(request(1))));
+  assert.equal(subject.dispatchCount(), 0, 'a revoked hub gets no dispatch afterwards');
+});
+
+test('Given an authenticated hub, when the owner revokes in-process, then the connection closes immediately', async () => {
+  const errors: string[] = [];
+  const subject = fixture({ onError: (code) => { errors.push(code); } });
+  await authenticate(subject);
+
+  subject.connection.revoke();
+
+  assert.deepEqual(subject.transport.closes, [{ code: 4002, reason: 'fleet protocol rejected' }]);
+  assert.deepEqual(errors, ['AUTH_PEER_UNAUTHORIZED']);
+  subject.connection.revoke();
+  assert.equal(subject.transport.closes.length, 1, 'revoking a closed connection is a no-op');
+});

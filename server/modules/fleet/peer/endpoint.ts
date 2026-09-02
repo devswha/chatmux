@@ -43,6 +43,8 @@ export function createFleetPeerEndpoint(options: FleetPeerEndpointOptions): Read
   readonly publish: FleetPeerEventPublisher;
   readonly start: () => void;
   readonly stop: () => Promise<void>;
+  /** Closes every live hub connection after the local grant was revoked. */
+  readonly revokeConnections: () => void;
 }> {
   const wss = new WebSocketServer({ noServer: true });
   const replayGuard = new FleetChallengeReplayGuard();
@@ -121,5 +123,9 @@ export function createFleetPeerEndpoint(options: FleetPeerEndpointOptions): Read
     for (const connection of connections) connection.publish(event, eventId, body);
   };
 
-  return { capabilities: options.local.capabilities, publish, start, stop };
+  const revokeConnections = (): void => {
+    for (const connection of [...connections]) connection.revoke();
+  };
+
+  return { capabilities: options.local.capabilities, publish, start, stop, revokeConnections };
 }
