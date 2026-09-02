@@ -2,12 +2,13 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 
 import { api } from '../../../utils/api';
 import {
-  clearAuthToken,
-  getAuthTokenSnapshot,
-  isCurrentAuthTokenSnapshot,
-  setAuthToken,
-  subscribeAuthToken,
-  type TokenSnapshot,
+  clearSession as clearSessionMarker,
+  forgetLegacyStoredToken,
+  getSessionSnapshot,
+  isCurrentSessionSnapshot,
+  markSessionActive,
+  subscribeSession,
+  type SessionSnapshot,
 } from '../../../utils/authToken';
 import { AUTH_ERROR_MESSAGES } from '../constants';
 import type {
@@ -25,6 +26,10 @@ import { parseJsonSafely, resolveApiErrorMessage } from '../utils';
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+// Builds before cookie-only sessions kept the JWT in localStorage; drop that
+// copy on first load. The cookie set at the same login keeps the user signed in.
+forgetLegacyStoredToken();
+
 export function useAuth(): AuthContextValue {
   const context = useContext(AuthContext);
   if (!context) {
@@ -36,7 +41,7 @@ export function useAuth(): AuthContextValue {
 
 export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<AuthUser | null>(null);
-  const [token, setToken] = useState<string | null>(() => getAuthTokenSnapshot().token);
+  const [sessionGeneration, setSessionGeneration] = useState<number>(() => getSessionSnapshot().generation);
   const [authMode, setAuthMode] = useState<AuthMode | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [needsSetup, setNeedsSetup] = useState(false);
@@ -46,8 +51,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const onboardingAbortRef = useRef<AbortController | null>(null);
   const bootstrapAbortRef = useRef<AbortController | null>(null);
 
-  const isCurrent = useCallback((snapshot: TokenSnapshot, mutation: number) =>
-    mutationRef.current === mutation && isCurrentAuthTokenSnapshot(snapshot), []);
+  const isCurrent = useCallback((snapshot: SessionSnapshot, mutation: number) =>
+    mutationRef.current === mutation && isCurrentSessionSnapshot(snapshot), []);
 
   const resetOnboarding = useCallback(() => {
     onboardingAbortRef.current?.abort();
@@ -55,25 +60,27 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setHasCompletedOnboarding(true);
   }, []);
 
-  const setSession = useCallback((nextUser: AuthUser, nextToken: string) => {
+  // The server confirmed a session: the httpOnly cookie is the credential, the
+  // browser only records that it exists.
+  const setSession = useCallback((nextUser: AuthUser) => {
     resetOnboarding();
     setUser(nextUser);
-    setAuthToken(nextToken);
+    markSessionActive();
   }, [resetOnboarding]);
 
   const clearSession = useCallback(() => {
     resetOnboarding();
     setUser(null);
-    clearAuthToken();
+    clearSessionMarker();
   }, [resetOnboarding]);
 
-  useEffect(() => subscribeAuthToken((snapshot) => {
-    setToken(snapshot.token);
+  useEffect(() => subscribeSession((snapshot) => {
+    setSessionGeneration(snapshot.generation);
     resetOnboarding();
   }), [resetOnboarding]);
 
-  const checkOnboardingStatus = useCallback(async (snapshot = getAuthTokenSnapshot(), mutation = mutationRef.current) => {
-    if (!snapshot.token) return;
+  const checkOnboardingStatus = useCallback(async (snapshot = getSessionSnapshot(), mutation = mutationRef.current) => {
+    if (!snapshot.active) return;
     onboardingAbortRef.current?.abort();
     const controller = new AbortController();
     onboardingAbortRef.current = controller;
@@ -101,7 +108,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   useEffect(() => {
     const controller = new AbortController();
     bootstrapAbortRef.current = controller;
-    const snapshot = getAuthTokenSnapshot();
+    const snapshot = getSessionSnapshot();
     const mutation = mutationRef.current;
 
     const checkAuthStatus = async () => {
@@ -149,8 +156,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
           return;
         }
         setNeedsSetup(false);
-        if (!snapshot.token) return;
 
+        // Password mode: the only credential is the httpOnly cookie, which this
+        // code cannot see, so ask the server whether it still names a user. A
+        // 401 simply means "signed out"; it is not an error to surface.
         const userResponse = await api.auth.user({ signal: controller.signal });
         if (!isCurrent(snapshot, mutation) || controller.signal.aborted) return;
         if (!userResponse.ok) {
@@ -166,7 +175,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
         }
 
         setUser(userPayload.user);
-        await checkOnboardingStatus(snapshot, mutation);
+        markSessionActive();
+        await checkOnboardingStatus(getSessionSnapshot(), mutation);
       } catch (caughtError) {
         if (!isCurrent(snapshot, mutation) || controller.signal.aborted) return;
         console.error('[Auth] Auth status check failed:', caughtError);
@@ -186,7 +196,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         bootstrapAbortRef.current = null;
       }
     };
-  }, [checkOnboardingStatus, clearSession, isCurrent, token]);
+  }, [checkOnboardingStatus, clearSession, isCurrent, sessionGeneration]);
 
   const authenticate = useCallback(async (
     request: () => Promise<Response>,
@@ -197,21 +207,23 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setIsLoading(false);
     const mutation = mutationRef.current + 1;
     mutationRef.current = mutation;
-    const snapshot = getAuthTokenSnapshot();
+    const snapshot = getSessionSnapshot();
     try {
       setError(null);
       const response = await request();
       const payload = await parseJsonSafely<AuthSessionPayload>(response);
       if (!isCurrent(snapshot, mutation)) return { success: false, error: fallbackMessage };
-      if (!response.ok || !payload?.token || !payload.user) {
+      // The response body still carries a token for API clients; the browser
+      // ignores it and relies on the Set-Cookie the same response delivered.
+      if (!response.ok || !payload?.user) {
         const message = resolveApiErrorMessage(payload, fallbackMessage);
         setError(message);
         return { success: false, error: message };
       }
 
-      setSession(payload.user, payload.token);
+      setSession(payload.user);
       setNeedsSetup(false);
-      await checkOnboardingStatus(getAuthTokenSnapshot(), mutation);
+      await checkOnboardingStatus(getSessionSnapshot(), mutation);
       return { success: true };
     } catch (caughtError) {
       if (!isCurrent(snapshot, mutation)) return { success: false, error: fallbackMessage };
@@ -228,10 +240,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
     authenticate(() => api.auth.register(username, password), AUTH_ERROR_MESSAGES.registrationFailed), [authenticate]);
 
   const logout = useCallback(() => {
-    const tokenToInvalidate = getAuthTokenSnapshot().token;
-    const logoutRequest = tokenToInvalidate
-      ? api.auth.logout({ headers: { Authorization: `Bearer ${tokenToInvalidate}` } })
-      : null;
+    // The cookie goes with the request; the server bumps the token version so
+    // every copy of this session, cookie or otherwise, stops working.
+    const logoutRequest = getSessionSnapshot().active ? api.auth.logout() : null;
 
     mutationRef.current += 1;
     bootstrapAbortRef.current?.abort();
@@ -248,7 +259,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const contextValue = useMemo<AuthContextValue>(() => ({
     user,
-    token,
     authMode,
     isLoading,
     needsSetup,
@@ -258,7 +268,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     register,
     logout,
     refreshOnboardingStatus,
-  }), [authMode, error, hasCompletedOnboarding, isLoading, login, logout, needsSetup, refreshOnboardingStatus, register, token, user]);
+  }), [authMode, error, hasCompletedOnboarding, isLoading, login, logout, needsSetup, refreshOnboardingStatus, register, user]);
 
   return <AuthContext.Provider value={contextValue}>{children}</AuthContext.Provider>;
 }

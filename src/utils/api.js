@@ -1,17 +1,3 @@
-import {
-  applyRefreshedAuthToken,
-  getAuthTokenSnapshot,
-} from './authToken';
-// Only accept a refreshed token that has this app's issued JWT shape
-// (three base64url segments). An attacker-injected/malformed header value
-// must never overwrite the stored auth token.
-/**
- * @param {unknown} token
- * @returns {token is string}
- */
-export const isValidRefreshedToken = (token) =>
-  typeof token === 'string' &&
-  /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(token);
 const AUTH_BOOTSTRAP_TIMEOUT_MS = 10_000;
 
 const withBootstrapTimeout = (request, externalSignal) => {
@@ -27,20 +13,15 @@ const withBootstrapTimeout = (request, externalSignal) => {
   });
 };
 
-// Utility function for authenticated API calls
+// Authenticated API calls carry the httpOnly session cookie (same-origin) and
+// nothing else: the browser never holds the JWT, so there is no Bearer header
+// to attach and the server slides the cookie itself while it is used.
 export const authenticatedFetch = (url, options = {}) => {
-  const tokenSnapshot = getAuthTokenSnapshot();
-  const token = tokenSnapshot.token;
-
   const defaultHeaders = {};
 
   // Add JSON content type only when a JSON-compatible body is actually present.
   if (options.body !== undefined && !(options.body instanceof FormData)) {
     defaultHeaders['Content-Type'] = 'application/json';
-  }
-
-  if (token) {
-    defaultHeaders['Authorization'] = `Bearer ${token}`;
   }
 
   return fetch(url, {
@@ -50,12 +31,6 @@ export const authenticatedFetch = (url, options = {}) => {
       ...defaultHeaders,
       ...options.headers,
     },
-  }).then((response) => {
-    const refreshedToken = response.headers.get('X-Refreshed-Token');
-    if (isValidRefreshedToken(refreshedToken)) {
-      applyRefreshedAuthToken(tokenSnapshot, refreshedToken);
-    }
-    return response;
   });
 };
 
