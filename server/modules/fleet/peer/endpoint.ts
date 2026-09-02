@@ -10,6 +10,7 @@ import type {
 } from '../../../../shared/fleet.js';
 import { FleetChallengeReplayGuard } from '../protocol/auth.js';
 import type { FleetWritableTransport } from '../protocol/bounded-writer.js';
+import { FLEET_MAX_FRAME_BYTES } from '../protocol/codec.js';
 import { FleetProtocolConnection } from '../protocol/connection.js';
 import type { FleetProtocolConnectionOptions } from '../protocol/connection-types.js';
 import { validateFleetUpgrade } from '../protocol/transport-policy.js';
@@ -46,7 +47,9 @@ export function createFleetPeerEndpoint(options: FleetPeerEndpointOptions): Read
   /** Closes every live hub connection after the local grant was revoked. */
   readonly revokeConnections: () => void;
 }> {
-  const wss = new WebSocketServer({ noServer: true });
+  // ws would otherwise assemble up to 100 MiB per message before the codec's
+  // 64 KiB check runs, and /fleet-ws needs no credentials to upgrade.
+  const wss = new WebSocketServer({ noServer: true, maxPayload: FLEET_MAX_FRAME_BYTES });
   const replayGuard = new FleetChallengeReplayGuard();
   const connections = new Set<FleetProtocolConnection>();
   const catalogReleases = new Map<FleetProtocolConnection, () => void>();
@@ -75,6 +78,13 @@ export function createFleetPeerEndpoint(options: FleetPeerEndpointOptions): Read
       },
     });
     connections.add(connection);
+    // ws reports a payload over maxPayload (and transport faults) as an 'error'
+    // event before closing; without a listener Node would throw it as an
+    // unhandled error event and take the process down.
+    socket.on('error', (error: Error) => {
+      console.warn(`[Fleet Peer] Socket error, closing: ${error.message}`);
+      connection.stop();
+    });
     socket.on('message', (raw: RawData) => { void connection.receive(raw); });
     socket.on('close', () => {
       catalogReleases.get(connection)?.(); catalogReleases.delete(connection); connection.stop(); connections.delete(connection);

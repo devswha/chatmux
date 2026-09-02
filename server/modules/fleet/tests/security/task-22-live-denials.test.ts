@@ -191,11 +191,16 @@ test('Given browser upgrade metadata, when the fleet endpoint is dialed, then th
 test('Given an authenticated link, when oversized or malformed frames arrive, then the socket closes and dispatch stays zero', async (context) => {
   // Given
   const world = await startWorld(context);
-  const cases: ReadonlyArray<Readonly<{ name: string; payload: (generation: number) => string | Buffer }>> = [
-    { name: 'oversized', payload: () => Buffer.alloc(FLEET_MAX_FRAME_BYTES + 1) },
-    { name: 'not-json', payload: () => 'this-is-not-json{' },
-    { name: 'unknown-kind', payload: () => JSON.stringify({ kind: 'mystery' }) },
-    { name: 'extra-field', payload: (generation) => JSON.stringify({ kind: 'request', protocolVersion: 'fleet/1', connectionGeneration: generation, requestId: 'x', operation: 'catalog.snapshot', target: { kind: 'host', hostId: world.a.hostId }, body: null, extra: true }) },
+  const rejected = { code: 4002, reason: 'fleet protocol rejected' };
+  // An oversized message never reaches the codec: ws enforces the frame bound
+  // before assembly and closes with its own status, so nothing past 64 KiB is
+  // ever buffered for an authenticated peer either.
+  const tooLarge = { code: 1009, reason: '' };
+  const cases: ReadonlyArray<Readonly<{ name: string; payload: (generation: number) => string | Buffer; close: typeof rejected }>> = [
+    { name: 'oversized', payload: () => Buffer.alloc(FLEET_MAX_FRAME_BYTES + 1), close: tooLarge },
+    { name: 'not-json', payload: () => 'this-is-not-json{', close: rejected },
+    { name: 'unknown-kind', payload: () => JSON.stringify({ kind: 'mystery' }), close: rejected },
+    { name: 'extra-field', payload: (generation) => JSON.stringify({ kind: 'request', protocolVersion: 'fleet/1', connectionGeneration: generation, requestId: 'x', operation: 'catalog.snapshot', target: { kind: 'host', hostId: world.a.hostId }, body: null, extra: true }), close: rejected },
   ];
   for (const entry of cases) {
     // When: each hostile frame crosses an authenticated real socket.
@@ -204,11 +209,11 @@ test('Given an authenticated link, when oversized or malformed frames arrive, th
     const closed = session.link.closed();
     session.link.sendRaw(entry.payload(session.generation));
     // Then: the connection fails closed with the redacted reason.
-    assert.deepEqual(await closed, { code: 4002, reason: 'fleet protocol rejected' }, entry.name);
+    assert.deepEqual(await closed, entry.close, entry.name);
   }
   assert.deepEqual(world.a.chain.dispatchLog, []);
   assert.deepEqual(world.a.chain.actionLog, []);
-  recordTrace({ case: 'live.oversized-malformed-frames', surface: 'websocket', request: 'oversized/not-json/unknown-kind/extra-field frames', outcome: 'close 4002 fleet protocol rejected x4', sideEffects: 'dispatch=0 actions=0' });
+  recordTrace({ case: 'live.oversized-malformed-frames', surface: 'websocket', request: 'oversized/not-json/unknown-kind/extra-field frames', outcome: 'close 1009 max payload (oversized) + close 4002 fleet protocol rejected x3', sideEffects: 'dispatch=0 actions=0' });
 });
 
 test('Given a catalog-only peer, when a chat mutation arrives, then capability denial precedes dispatch', async (context) => {
