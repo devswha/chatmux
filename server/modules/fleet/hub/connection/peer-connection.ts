@@ -156,6 +156,9 @@ export class HubPeerConnection {
 
   private acceptProof(proof: FleetProofFrame): void {
     if (this.handshake === undefined) throw new FleetProtocolError('PROTOCOL_FRAME_INVALID', 'authentication hello required');
+    // A second proof after verification would re-enter 'syncing' and drop the
+    // accepted generation; authentication happens once per socket.
+    if (this.proofVerified) throw new FleetProtocolError('PROTOCOL_FRAME_INVALID', 'duplicate authentication proof');
     verifyFleetProof({ proof, remoteHello: this.handshake.remoteHello, pinnedPublicKey: this.options.peer.pinnedPublicKey, challenge: this.handshake.negotiation.challenge });
     this.proofVerified = true;
     this.authTask?.cancel();

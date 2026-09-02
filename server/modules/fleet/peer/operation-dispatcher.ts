@@ -103,12 +103,29 @@ function sideEffectFor(operation: FleetOperation): 'none' | 'applied' {
 function failure(
   request: FleetRequestEnvelope,
   error: Extract<FleetResponseEnvelope, { readonly status: 'failure' }>['error'],
+  sideEffect: 'none' | 'possible' = 'none',
 ): FleetResponseEnvelope {
   return {
     kind: 'response', protocolVersion: request.protocolVersion,
     connectionGeneration: request.connectionGeneration, requestId: request.requestId,
-    target: request.target, status: 'failure', sideEffect: 'none', error, body: null,
+    target: request.target, status: 'failure', sideEffect, error, body: null,
   };
+}
+
+/**
+ * RFC rev.3: a handler failure with no closed mapping is this request's
+ * outcome, not the connection's. A mutation may have partially run, so its
+ * outcome is unknown; a read had no side effect. The exception is logged with
+ * request coordinates only, never the body, so a real bug still leaves a trace.
+ */
+function unmappedFailure(request: FleetRequestEnvelope, error: unknown): FleetResponseEnvelope {
+  const mutation = sideEffectFor(request.operation) === 'applied';
+  console.error(
+    `[fleet] ${request.operation} ${request.requestId} failed without a mapped error: ${error instanceof Error ? error.message : String(error)}`,
+  );
+  return mutation
+    ? failure(request, 'HOST_COMMAND_OUTCOME_UNKNOWN', 'possible')
+    : failure(request, 'FLEET_UNKNOWN_ERROR', 'none');
 }
 
 export function createPeerOperationDispatcher(
@@ -132,7 +149,7 @@ export function createPeerOperationDispatcher(
       // and disguise a request-local state conflict as a host outage.
       if (error instanceof AppError && error.statusCode === 409) return failure(request, 'FLEET_STALE_GENERATION');
       if (error instanceof AppError && error.statusCode === 400) return failure(request, 'FLEET_MALFORMED_FRAME');
-      throw error;
+      return unmappedFailure(request, error);
     }
     const sideEffect = sideEffectFor(request.operation);
     return {

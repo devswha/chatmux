@@ -67,6 +67,26 @@ test('Given an active inbound hub grant, when outbound enrollment starts, then n
   assert.deepEqual({ transportCalls, persistenceCalls }, { transportCalls: 0, persistenceCalls: 0 });
 });
 
+test('Given an enrolled outbound peer, when redemption carries an unknown token, then the role is not revealed', () => {
+  const db = new Database(':memory:');
+  db.exec(FLEET_PERSISTENCE_SCHEMA_SQL);
+  const store = new SqliteFleetPairingStore(db);
+  store.issue(TOKEN, NOW + 600_000, NOW);
+  enrollmentRow(db);
+  const guess = new Uint8Array(TOKEN.length).fill(0x42);
+
+  const result = store.consumeAndPin(guess, {
+    peerId: HUB_ID,
+    hubInstallationId: PEER_ID,
+    pinnedPublicKey: 'hub-key',
+    pinnedPublicKeyFingerprint: 'hub-fingerprint',
+    revokedAtMs: null,
+  }, NOW + 1);
+
+  assert.deepEqual(result, { kind: 'not_found' }, 'an unauthenticated probe sees the same answer as on any installation');
+  assert.deepEqual(db.prepare('SELECT consumed_at_ms FROM fleet_pairing_tokens').get(), { consumed_at_ms: null });
+});
+
 test('Given an enrolled outbound peer, when inbound redemption starts, then the token and grant remain untouched', () => {
   // Given
   const db = new Database(':memory:');
