@@ -125,6 +125,30 @@ function isSameOrigin(headers: RequestLike['headers'], host: string, protocol: '
   }
 }
 
+/**
+ * Header names that only appear when a proxy sat between the client and this
+ * server. Tailscale Serve stamps `x-forwarded-for`, `x-forwarded-host`,
+ * `x-forwarded-proto` and `tailscale-*` on every request it forwards and
+ * overwrites any copies the client sent, while a direct loopback client (the
+ * browser on this machine, an SSH-forwarded port) carries none of them. Their
+ * presence is therefore proof that a loopback socket peer is not the local
+ * owner, even when the client rewrote `Host` to a loopback name: Serve routes
+ * TLS by SNI and forwards the request's `Host` header verbatim.
+ */
+const PROXY_HEADER_PREFIXES = ['x-forwarded-', 'tailscale-'];
+const PROXY_HEADER_NAMES = new Set(['forwarded', 'via']);
+
+export function hasProxyHeaders(headers: RequestLike['headers']): boolean {
+  if (!headers) return false;
+  for (const rawName of Object.keys(headers)) {
+    if (headers[rawName] === undefined) continue;
+    const name = rawName.toLowerCase();
+    if (PROXY_HEADER_NAMES.has(name)) return true;
+    if (PROXY_HEADER_PREFIXES.some((prefix) => name.startsWith(prefix))) return true;
+  }
+  return false;
+}
+
 export type TailscaleRequestIdentity = {
   login: string | null;
   name: string | null;
@@ -145,6 +169,11 @@ export function authenticateTailscaleRequest(
   if (!host || (!isLocalHost && !isServeHost)) return null;
   if (!isSameOrigin(request.headers, host, isServeHost ? 'https:' : 'http:')) return null;
   if (isLocalHost) {
+    // A loopback Host proves nothing on its own: Tailscale Serve proxies to
+    // this same loopback port and passes the client's Host through, so a
+    // tailnet peer could send `Host: localhost` to skip the identity check.
+    // Only a request that no proxy touched is the local owner recovery path.
+    if (hasProxyHeaders(request.headers)) return null;
     return { login: null, name: null, role: 'local', source: 'local' };
   }
 
