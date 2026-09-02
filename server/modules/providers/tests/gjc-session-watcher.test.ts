@@ -35,14 +35,16 @@ class FakeChild extends EventEmitter {
 
 type SpawnCall = { command: string; args: string[]; options: unknown };
 
-function setup(overrides: Partial<GjcSessionWatcherOptions> = {}): { watcher: GjcSessionWatcher; child: FakeChild; calls: SpawnCall[]; events: { kind: 'add' | 'change'; path: string }[]; failures: Error[] } {
+function setup(overrides: Partial<GjcSessionWatcherOptions> = {}): { watcher: GjcSessionWatcher; child: FakeChild; calls: SpawnCall[]; events: { kind: 'add' | 'change'; path: string }[]; resyncs: number[]; failures: Error[] } {
   const child = new FakeChild();
   const calls: SpawnCall[] = [];
   const events: { kind: 'add' | 'change'; path: string }[] = [];
+  const resyncs: number[] = [];
   const failures: Error[] = [];
   const watcher = new GjcSessionWatcher({
     roots: ['/one', '/two'],
     onEvent: (event) => events.push(event),
+    onResync: () => resyncs.push(events.length),
     onFailure: (error) => failures.push(error),
     spawn: ((command: string, args: string[], options: unknown) => {
       calls.push({ command, args, options });
@@ -53,7 +55,7 @@ function setup(overrides: Partial<GjcSessionWatcherOptions> = {}): { watcher: Gj
     closeExitTimeoutMs: 10,
     ...overrides,
   });
-  return { watcher, child, calls, events, failures };
+  return { watcher, child, calls, events, resyncs, failures };
 }
 
 async function ready(watcher: GjcSessionWatcher, child: FakeChild): Promise<void> {
@@ -151,10 +153,16 @@ test('contains callback diagnostics and continues without exposing event paths',
   assert.doesNotMatch(diagnostics.join(' '), /secret-path|sensitive/u);
 });
 
-test('fails closed when distinct queued paths exceed the fixed bound', async () => {
+test('degrades to one resync when distinct queued paths exceed the fixed bound, without failing or naming paths', async () => {
   let release!: () => void;
   const hold = new Promise<void>((resolve) => { release = resolve; });
-  const { watcher, child, failures } = setup({ onEvent: () => hold });
+  const diagnostics: string[] = [];
+  const events: string[] = [];
+  const { watcher, child, failures } = setup({
+    onEvent: async (event) => { events.push(event.path); if (event.path === 'blocking') await hold; },
+    onResync: () => { events.push('<rescan>'); },
+    diagnostic: (message) => diagnostics.push(message),
+  });
   await ready(watcher, child);
   child.output('{"protocolVersion":1,"kind":"event","event":"add","path":"blocking"}\n');
   await Promise.resolve();
@@ -162,10 +170,53 @@ test('fails closed when distinct queued paths exceed the fixed bound', async () 
   child.output(Array.from({ length: 4097 }, (_, index) => (
     `{"protocolVersion":1,"kind":"event","event":"change","path":"queued-${index}"}\n`
   )).join(''));
-
-  assert.equal(failures.length, 1);
-  assert.doesNotMatch(failures[0].message, /queued-/u);
+  // Events after the overflow are queued behind the rescan and still delivered.
+  child.output('{"protocolVersion":1,"kind":"event","event":"add","path":"after-gap"}\n');
   release();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(failures, []);
+  assert.deepEqual(events, ['blocking', '<rescan>', 'after-gap'], 'one rescan after the blocking callback; the superseded backlog is dropped');
+  assert.ok(diagnostics.some((message) => /overflowed/u.test(message)));
+  assert.ok(diagnostics.every((message) => !/queued-|blocking|after-gap/u.test(message)));
+});
+
+test('a native resync frame drops the queued backlog, rescans once, then resumes ordinary events', async () => {
+  let release!: () => void;
+  const hold = new Promise<void>((resolve) => { release = resolve; });
+  const events: string[] = [];
+  const { watcher, child, failures } = setup({
+    onEvent: async (event) => { events.push(event.path); if (event.path === 'blocking') await hold; },
+    onResync: () => { events.push('<rescan>'); },
+  });
+  await ready(watcher, child);
+  child.output('{"protocolVersion":1,"kind":"event","event":"add","path":"blocking"}\n');
+  await Promise.resolve();
+  child.output('{"protocolVersion":1,"kind":"event","event":"change","path":"stale"}\n');
+  child.output('{"protocolVersion":1,"kind":"resync"}\n{"protocolVersion":1,"kind":"resync"}\n');
+  child.output('{"protocolVersion":1,"kind":"event","event":"add","path":"fresh"}\n');
+  release();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(failures, []);
+  assert.deepEqual(events, ['blocking', '<rescan>', 'fresh'], 'back-to-back resync frames collapse into one rescan');
+});
+
+test('a resync frame before readiness or with extra keys is a protocol violation', async () => {
+  for (const [frame, primeReady] of [
+    ['{"protocolVersion":1,"kind":"resync"}\n', false],
+    ['{"protocolVersion":1,"kind":"resync","path":"secret-path"}\n', true],
+  ] as const) {
+    const { watcher, child, resyncs, failures } = setup();
+    if (primeReady) await ready(watcher, child);
+    else void watcher.start().catch(() => {});
+    child.output(frame);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(failures.length, 1, frame);
+    assert.equal(failures[0].cause, 'protocol-violation');
+    assert.doesNotMatch(failures[0].message, /secret-path/u);
+    assert.deepEqual(resyncs, []);
+  }
 });
 
 test('close cancels queued callbacks at its deadline and reaps a non-exiting child', async () => {

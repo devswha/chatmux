@@ -5,6 +5,8 @@ const MAX_FRAME_BYTES = 64 * 1024;
 const MAX_QUEUED_PATHS = 4096;
 const FAILURE_MESSAGE = 'GJC session watcher failed.';
 const CALLBACK_FAILURE_MESSAGE = 'GJC session watcher callback failed.';
+const RESYNC_FAILURE_MESSAGE = 'GJC session watcher resync failed.';
+const QUEUE_OVERFLOW_MESSAGE = 'GJC session watcher queue overflowed; rescanning transcripts.';
 const STDERR_MESSAGE = 'GJC session watcher emitted diagnostics.';
 
 /**
@@ -23,8 +25,7 @@ export type GjcSessionWatcherFailureReason =
   | 'oversized-frame'
   | 'invalid-utf8'
   | 'malformed-json'
-  | 'protocol-violation'
-  | 'queue-overflow';
+  | 'protocol-violation';
 
 /** Exit status is numeric/signal-name only, so it is safe to attach to a reason. */
 function exitDetail(code: unknown, signal: unknown): string {
@@ -65,6 +66,13 @@ type Spawn = (
 export type GjcSessionWatcherOptions = {
   roots: readonly string[];
   onEvent: (event: GjcSessionWatchEvent, signal: AbortSignal) => unknown;
+  /**
+   * Individual events were lost, either because the native watcher's queue
+   * overflowed (it then emits a resync frame) or because this client's own
+   * queue did. The owner rescans the roots; events queued before the gap are
+   * dropped because the rescan supersedes them.
+   */
+  onResync?: (signal: AbortSignal) => unknown;
   onFailure: (error: Error) => unknown;
   corePath?: string;
   spawn?: Spawn;
@@ -104,7 +112,7 @@ function safeCall(callback: () => unknown): void {
 
 /** Watches GJC transcript files through the mandatory native Protocol v1 host. */
 export class GjcSessionWatcher {
-  private readonly options: Required<Pick<GjcSessionWatcherOptions, 'spawn' | 'platform' | 'environment' | 'readyTimeoutMs' | 'closeDrainTimeoutMs' | 'closeExitTimeoutMs' | 'diagnostic'>> & Pick<GjcSessionWatcherOptions, 'corePath' | 'compiled' | 'roots' | 'onEvent' | 'onFailure'>;
+  private readonly options: Required<Pick<GjcSessionWatcherOptions, 'spawn' | 'platform' | 'environment' | 'readyTimeoutMs' | 'closeDrainTimeoutMs' | 'closeExitTimeoutMs' | 'diagnostic'>> & Pick<GjcSessionWatcherOptions, 'corePath' | 'compiled' | 'roots' | 'onEvent' | 'onResync' | 'onFailure'>;
   private child?: Child;
   private starting?: Promise<void>;
   private closing?: Promise<void>;
@@ -117,6 +125,7 @@ export class GjcSessionWatcher {
   private exitedOnce = false;
   private input = Buffer.alloc(0);
   private readonly pending = new Map<string, GjcSessionWatchEvent>();
+  private resyncRequested = false;
   private draining = false;
   private drainDone = deferred();
   private drainCancelled = false;
@@ -126,6 +135,7 @@ export class GjcSessionWatcher {
     this.options = {
       roots: options.roots,
       onEvent: options.onEvent,
+      onResync: options.onResync,
       onFailure: options.onFailure,
       corePath: options.corePath,
       compiled: options.compiled,
@@ -228,6 +238,11 @@ export class GjcSessionWatcher {
       this.started.resolve();
       return;
     }
+    if (record.kind === 'resync') {
+      if (!this.ready || keys.length !== 2 || !keys.includes('protocolVersion') || !keys.includes('kind')) return this.fail('protocol-violation');
+      this.requestResync();
+      return;
+    }
     if (
       record.kind !== 'event' ||
       (record.event !== 'add' && record.event !== 'change') ||
@@ -243,8 +258,20 @@ export class GjcSessionWatcher {
     ) {
       return this.fail('protocol-violation');
     }
-    if (!this.pending.has(record.path) && this.pending.size >= MAX_QUEUED_PATHS) return this.fail('queue-overflow');
+    if (!this.pending.has(record.path) && this.pending.size >= MAX_QUEUED_PATHS) {
+      // Same shape as the native side's overflow: a burst is a gap for the
+      // owner to reconcile, not a reason to restart and lose live tracking.
+      this.diagnose(QUEUE_OVERFLOW_MESSAGE);
+      this.requestResync();
+      return;
+    }
     this.pending.set(record.path, { kind: record.event, path: record.path });
+    void this.drain();
+  }
+
+  private requestResync(): void {
+    this.pending.clear();
+    this.resyncRequested = true;
     void this.drain();
   }
 
@@ -253,7 +280,16 @@ export class GjcSessionWatcher {
     this.drainDone = deferred();
     this.draining = true;
     try {
-      while (!this.failed && !this.drainCancelled && this.pending.size > 0) {
+      while (!this.failed && !this.drainCancelled && (this.resyncRequested || this.pending.size > 0)) {
+        if (this.resyncRequested) {
+          this.resyncRequested = false;
+          try {
+            await this.options.onResync?.(this.drainAbort.signal);
+          } catch {
+            if (!this.drainCancelled) this.diagnose(RESYNC_FAILURE_MESSAGE);
+          }
+          continue;
+        }
         const event = this.pending.values().next().value as GjcSessionWatchEvent;
         this.pending.delete(event.path);
         try {
@@ -264,7 +300,7 @@ export class GjcSessionWatcher {
       }
     } finally {
       this.draining = false;
-      if (this.pending.size === 0 || this.drainCancelled) this.drainDone.resolve();
+      if ((this.pending.size === 0 && !this.resyncRequested) || this.drainCancelled) this.drainDone.resolve();
     }
   }
 
@@ -282,6 +318,7 @@ export class GjcSessionWatcher {
     this.failed = true;
     this.drainCancelled = true;
     this.pending.clear();
+    this.resyncRequested = false;
     this.drainAbort.abort();
     this.drainDone.resolve();
     const cause = detail === undefined ? reason : `${reason} ${detail}`;

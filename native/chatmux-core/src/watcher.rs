@@ -1,18 +1,25 @@
+use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::io::{self, Read, Write};
 use std::path::{Component, Path, PathBuf};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, RecvTimeoutError, TrySendError};
+use std::sync::mpsc;
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread;
 use std::time::Duration;
 
+use notify::event::{ModifyKind, RenameMode};
 use notify::{Config, ErrorKind, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 
 const READY_FRAME: &[u8] = b"{\"protocolVersion\":1,\"kind\":\"ready\"}\n";
+const RESYNC_FRAME: &[u8] = b"{\"protocolVersion\":1,\"kind\":\"resync\"}\n";
 const WATCH_ERROR: &[u8] = b"chatmux-core: watcher failed\n";
 const MAX_FRAME_BYTES: usize = 64 * 1024;
-const EVENT_CHANNEL_CAPACITY: usize = 256;
+// Distinct paths the drain loop may fall behind by before the queue stops
+// remembering individual events. Past this the host is asked to rescan instead
+// of the watcher dying: a burst (a bulk checkout, a cache purge under a root)
+// is a gap to reconcile, not a reason to restart and lose live tracking.
+const MAX_PENDING_PATHS: usize = 4096;
+const DRAIN_IDLE_WAIT: Duration = Duration::from_millis(100);
 
 // inotify has no kernel-side recursion: every watched directory costs one
 // entry in the per-user watch table (fs.inotify.max_user_watches, 65536 by
@@ -24,7 +31,7 @@ const EVENT_CHANNEL_CAPACITY: usize = 256;
 // whole user and starved other watchers on the machine.
 const MAX_WATCH_DIR_DEPTH: usize = 2;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum OutputEvent {
     Add,
     Change,
@@ -39,18 +46,117 @@ impl OutputEvent {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct PendingPath {
+    /// Latest event kind to report for the path; none when only the watch set
+    /// may need extending.
+    output: Option<OutputEvent>,
+    /// The path may be a directory that appeared at an observable depth.
+    may_be_directory: bool,
+}
+
+/// Path-keyed coalescing queue between the notify callback and the drain loop.
+/// The callback only records; every blocking filesystem call (canonicalize,
+/// read_dir, watch installation) happens on the drain side, so a slow drain
+/// can never stall the notify thread or lose events to a full channel.
+#[derive(Debug, Default)]
+struct PendingEvents {
+    order: Vec<PathBuf>,
+    paths: HashMap<PathBuf, PendingPath>,
+    /// More than `MAX_PENDING_PATHS` distinct paths were pending: the backlog
+    /// was dropped and the host must rescan.
+    overflowed: bool,
+    /// The backend reported an error; the watch set can no longer be trusted.
+    failed: bool,
+}
+
+impl PendingEvents {
+    fn is_idle(&self) -> bool {
+        self.order.is_empty() && !self.overflowed && !self.failed
+    }
+
+    fn push(&mut self, event: Event) {
+        let may_be_directory = matches!(
+            event.kind,
+            EventKind::Create(_)
+                | EventKind::Modify(ModifyKind::Name(RenameMode::Both | RenameMode::To))
+        );
+        let output = output_event(event.kind);
+        if output.is_none() && !may_be_directory {
+            return;
+        }
+        let destination_only = output.is_some_and(|(_, destination_only)| destination_only);
+        let last = event.paths.len().saturating_sub(1);
+        for (index, path) in event.paths.into_iter().enumerate() {
+            let kind =
+                output.and_then(|(kind, _)| (!destination_only || index == last).then_some(kind));
+            self.record(path, kind, may_be_directory);
+        }
+    }
+
+    fn record(&mut self, path: PathBuf, output: Option<OutputEvent>, may_be_directory: bool) {
+        if self.overflowed {
+            // The rescan the host performs after the resync frame covers this.
+            return;
+        }
+        if !self.paths.contains_key(&path) {
+            if self.paths.len() >= MAX_PENDING_PATHS {
+                self.order.clear();
+                self.paths.clear();
+                self.overflowed = true;
+                return;
+            }
+            self.order.push(path.clone());
+        }
+        let entry = self.paths.entry(path).or_default();
+        if output.is_some() {
+            entry.output = output;
+        }
+        entry.may_be_directory |= may_be_directory;
+    }
+}
+
+#[derive(Default)]
+struct EventQueue {
+    pending: Mutex<PendingEvents>,
+    wake: Condvar,
+}
+
+impl EventQueue {
+    fn lock(&self) -> MutexGuard<'_, PendingEvents> {
+        self.pending.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn record(&self, result: notify::Result<Event>) {
+        let mut pending = self.lock();
+        match result {
+            Ok(event) => pending.push(event),
+            Err(_) => pending.failed = true,
+        }
+        drop(pending);
+        self.wake.notify_one();
+    }
+
+    /// Takes everything recorded so far, waiting briefly first when idle.
+    fn take(&self) -> PendingEvents {
+        let mut pending = self.lock();
+        if pending.is_idle() {
+            pending = self
+                .wake
+                .wait_timeout(pending, DRAIN_IDLE_WAIT)
+                .unwrap_or_else(PoisonError::into_inner)
+                .0;
+        }
+        std::mem::take(&mut *pending)
+    }
+}
+
 /// Runs a parent-owned depth-bounded watcher until stdin reaches EOF.
 pub fn run(roots: Vec<PathBuf>) -> bool {
-    let (events_tx, events_rx) = mpsc::sync_channel(EVENT_CHANNEL_CAPACITY);
-    let failed = Arc::new(AtomicBool::new(false));
-    let callback_failed = Arc::clone(&failed);
+    let queue = Arc::new(EventQueue::default());
+    let callback_queue = Arc::clone(&queue);
     let mut watcher = match RecommendedWatcher::new(
-        move |result: notify::Result<Event>| match events_tx.try_send(result.map_err(|_| ())) {
-            Ok(()) => {}
-            Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {
-                callback_failed.store(true, Ordering::Release);
-            }
-        },
+        move |result: notify::Result<Event>| callback_queue.record(result),
         Config::default(),
     ) {
         Ok(watcher) => watcher,
@@ -85,9 +191,6 @@ pub fn run(roots: Vec<PathBuf>) -> bool {
     }
 
     loop {
-        if failed.load(Ordering::Acquire) {
-            return fail();
-        }
         match shutdown_rx.try_recv() {
             Ok(true) => return true,
             Ok(false) => return fail(),
@@ -95,19 +198,43 @@ pub fn run(roots: Vec<PathBuf>) -> bool {
             Err(mpsc::TryRecvError::Empty) => {}
         }
 
-        match events_rx.recv_timeout(Duration::from_millis(100)) {
-            Ok(Ok(event)) => {
-                if !watch_created_directories(&mut stdout, &mut watcher, &roots, &event) {
-                    return fail();
-                }
-                if !write_event_frames(&mut stdout, &roots, event) {
-                    return fail();
+        let batch = queue.take();
+        if batch.failed {
+            return fail();
+        }
+        if batch.overflowed && !resync(&mut stdout, &mut watcher, &roots) {
+            return fail();
+        }
+        for path in &batch.order {
+            let Some(entry) = batch.paths.get(path) else {
+                continue;
+            };
+            if entry.may_be_directory
+                && !watch_created_directory(&mut stdout, &mut watcher, &roots, path)
+            {
+                return fail();
+            }
+            if let Some(kind) = entry.output {
+                if let Some(frame) = frame_for_path(kind, path, &roots) {
+                    if stdout.write_all(&frame).is_err() || stdout.flush().is_err() {
+                        return fail();
+                    }
                 }
             }
-            Ok(Err(())) | Err(RecvTimeoutError::Disconnected) => return fail(),
-            Err(RecvTimeoutError::Timeout) => {}
         }
     }
+}
+
+/// The queue dropped events. Directories created meanwhile may lack watches,
+/// so re-walk the roots (claiming watches only), then tell the host to rescan:
+/// it owns the transcript index and reconciles far cheaper than a restart.
+fn resync<W: Watcher>(stdout: &mut impl Write, watcher: &mut W, roots: &[PathBuf]) -> bool {
+    for root in roots {
+        if !watch_directory_tree(watcher, stdout, roots, root, 0, false) {
+            return false;
+        }
+    }
+    stdout.write_all(RESYNC_FRAME).is_ok() && stdout.flush().is_ok()
 }
 
 fn wait_for_stdin_eof() -> bool {
@@ -184,41 +311,25 @@ fn is_vanished_directory_error(error: &notify::Error) -> bool {
 
 /// Extends the watch set when a directory appears inside a root at an
 /// observable depth, whether freshly created or moved in.
-fn watch_created_directories<W: Watcher>(
+fn watch_created_directory<W: Watcher>(
     stdout: &mut impl Write,
     watcher: &mut W,
     roots: &[PathBuf],
-    event: &Event,
+    path: &Path,
 ) -> bool {
-    let relevant = matches!(
-        event.kind,
-        EventKind::Create(_)
-            | EventKind::Modify(notify::event::ModifyKind::Name(
-                notify::event::RenameMode::Both | notify::event::RenameMode::To
-            ))
-    );
-    if !relevant {
+    let Ok(resolved) = std::fs::canonicalize(path) else {
+        return true;
+    };
+    if !resolved.is_dir() {
         return true;
     }
-
-    for path in &event.paths {
-        let Ok(resolved) = std::fs::canonicalize(path) else {
-            continue;
-        };
-        if !resolved.is_dir() {
-            continue;
-        }
-        let Some(depth) = directory_depth(&resolved, roots) else {
-            continue;
-        };
-        if depth == 0 || depth > MAX_WATCH_DIR_DEPTH {
-            continue;
-        }
-        if !watch_directory_tree(watcher, stdout, roots, &resolved, depth, true) {
-            return false;
-        }
+    let Some(depth) = directory_depth(&resolved, roots) else {
+        return true;
+    };
+    if depth == 0 || depth > MAX_WATCH_DIR_DEPTH {
+        return true;
     }
-    true
+    watch_directory_tree(watcher, stdout, roots, &resolved, depth, true)
 }
 
 /// Depth of `path` below the closest containing root (the root itself is 0).
@@ -238,33 +349,13 @@ fn directory_depth(path: &Path, roots: &[PathBuf]) -> Option<usize> {
         .min()
 }
 
-fn write_event_frames(stdout: &mut impl Write, roots: &[PathBuf], event: Event) -> bool {
-    let Some((kind, destination_only)) = output_event(event.kind) else {
-        return true;
-    };
-
-    let paths: &[PathBuf] = if destination_only {
-        event.paths.last().map_or(&[], std::slice::from_ref)
-    } else {
-        &event.paths
-    };
-    for path in paths {
-        if let Some(frame) = frame_for_path(kind, path, roots) {
-            if stdout.write_all(&frame).is_err() || stdout.flush().is_err() {
-                return false;
-            }
-        }
-    }
-    true
-}
-
+/// Frame kind for an event, and whether only the last (destination) path of
+/// the event names the file to report.
 fn output_event(kind: EventKind) -> Option<(OutputEvent, bool)> {
     match kind {
         EventKind::Create(_) => Some((OutputEvent::Add, false)),
-        EventKind::Modify(notify::event::ModifyKind::Name(notify::event::RenameMode::From)) => None,
-        EventKind::Modify(notify::event::ModifyKind::Name(notify::event::RenameMode::Both)) => {
-            Some((OutputEvent::Change, true))
-        }
+        EventKind::Modify(ModifyKind::Name(RenameMode::From)) => None,
+        EventKind::Modify(ModifyKind::Name(RenameMode::Both)) => Some((OutputEvent::Change, true)),
         EventKind::Modify(_) => Some((OutputEvent::Change, false)),
         _ => None,
     }
@@ -341,11 +432,130 @@ fn fail() -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        OutputEvent, directory_depth, frame_for_path, frame_for_resolved_path, watch_directory_tree,
+        EventQueue, MAX_PENDING_PATHS, OutputEvent, PendingEvents, PendingPath, directory_depth,
+        frame_for_path, frame_for_resolved_path, watch_directory_tree,
     };
-    use notify::{Config, EventHandler, RecursiveMode, Watcher, WatcherKind};
+    use notify::event::{CreateKind, DataChange, ModifyKind, RemoveKind, RenameMode};
+    use notify::{Config, Event, EventHandler, EventKind, RecursiveMode, Watcher, WatcherKind};
     use std::fs;
     use std::path::{Path, PathBuf};
+
+    fn event(kind: EventKind, paths: &[&str]) -> Event {
+        paths.iter().fold(Event::new(kind), |event, path| {
+            event.add_path(PathBuf::from(path))
+        })
+    }
+
+    fn change(path: &str) -> Event {
+        event(
+            EventKind::Modify(ModifyKind::Data(DataChange::Any)),
+            &[path],
+        )
+    }
+
+    #[test]
+    fn coalesces_events_per_path_in_arrival_order_keeping_the_latest_kind() {
+        let mut pending = PendingEvents::default();
+        pending.push(event(EventKind::Create(CreateKind::File), &["/r/a.jsonl"]));
+        pending.push(change("/r/b.jsonl"));
+        pending.push(change("/r/a.jsonl"));
+        assert_eq!(
+            pending.order,
+            [PathBuf::from("/r/a.jsonl"), PathBuf::from("/r/b.jsonl")]
+        );
+        assert_eq!(
+            pending.paths[Path::new("/r/a.jsonl")],
+            PendingPath {
+                output: Some(OutputEvent::Change),
+                may_be_directory: true,
+            }
+        );
+        assert_eq!(
+            pending.paths[Path::new("/r/b.jsonl")],
+            PendingPath {
+                output: Some(OutputEvent::Change),
+                may_be_directory: false,
+            }
+        );
+
+        // A rename reports only its destination, but either side may be a
+        // directory the watch set has to follow.
+        pending.push(event(
+            EventKind::Modify(ModifyKind::Name(RenameMode::Both)),
+            &["/r/old", "/r/new"],
+        ));
+        assert_eq!(
+            pending.paths[Path::new("/r/old")],
+            PendingPath {
+                output: None,
+                may_be_directory: true,
+            }
+        );
+        assert_eq!(
+            pending.paths[Path::new("/r/new")],
+            PendingPath {
+                output: Some(OutputEvent::Change),
+                may_be_directory: true,
+            }
+        );
+
+        // Removals and rename sources carry nothing the host acts on.
+        pending.push(event(EventKind::Remove(RemoveKind::File), &["/r/gone"]));
+        pending.push(event(
+            EventKind::Modify(ModifyKind::Name(RenameMode::From)),
+            &["/r/moved-away"],
+        ));
+        assert!(!pending.paths.contains_key(Path::new("/r/gone")));
+        assert!(!pending.paths.contains_key(Path::new("/r/moved-away")));
+        assert!(!pending.overflowed);
+    }
+
+    #[test]
+    fn overflow_drops_the_backlog_and_asks_for_a_resync_instead_of_failing() {
+        let mut pending = PendingEvents::default();
+        for index in 0..MAX_PENDING_PATHS {
+            pending.push(change(&format!("/r/{index}.jsonl")));
+        }
+        assert!(!pending.overflowed);
+        assert_eq!(pending.paths.len(), MAX_PENDING_PATHS);
+
+        // Re-touching a known path is coalesced, never counted again.
+        pending.push(change("/r/0.jsonl"));
+        assert!(!pending.overflowed);
+
+        pending.push(change("/r/one-too-many.jsonl"));
+        assert!(pending.overflowed);
+        assert!(!pending.failed);
+        assert!(pending.order.is_empty());
+        assert!(pending.paths.is_empty());
+
+        // Until the drain takes the batch, later events are not remembered:
+        // the rescan the resync frame triggers covers them.
+        pending.push(change("/r/later.jsonl"));
+        assert!(pending.paths.is_empty());
+
+        let taken = std::mem::take(&mut pending);
+        assert!(taken.overflowed);
+        assert!(pending.is_idle());
+    }
+
+    #[test]
+    fn queue_hands_over_batches_and_flags_backend_errors() {
+        let queue = EventQueue::default();
+        queue.record(Ok(event(
+            EventKind::Create(CreateKind::File),
+            &["/r/a.jsonl"],
+        )));
+        let batch = queue.take();
+        assert_eq!(batch.order, [PathBuf::from("/r/a.jsonl")]);
+        assert!(!batch.failed);
+
+        queue.record(Err(notify::Error::generic("backend")));
+        assert!(queue.take().failed);
+
+        // An idle queue yields an empty batch after the bounded wait.
+        assert!(queue.take().is_idle());
+    }
     struct FailingWatcher {
         error: Option<notify::Error>,
     }
