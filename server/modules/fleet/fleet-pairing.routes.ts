@@ -6,6 +6,7 @@ import { FleetHubPairingError, type FleetPairingTransportMode } from '@/modules/
 import type { FleetPairingFailureLimiter } from '@/modules/fleet/services/fleet-pairing-limiter.service.js';
 import { FleetPairingError, type SignedInstallationIdentity } from '@/modules/fleet/services/fleet-pairing.service.js';
 import type { FleetRemovalResult } from '@/modules/fleet/services/fleet-revocation.service.js';
+import { limiterClientAddress } from '@/middleware/client-address.js';
 
 import { parseFleetInstallationDescriptor } from '../../../shared/fleet.js';
 
@@ -179,7 +180,9 @@ export function createFleetPairingRouter(dependencies: PairingRoutesDependencies
     }
   });
   router.post('/pairing/redeem', async (request, response, next) => {
-    const limiterKey = request.ip ?? request.socket.remoteAddress ?? 'unknown-client';
+    // X-Forwarded-For counts only when a loopback proxy recorded it; a direct
+    // client is counted by its socket address (see routes/login-limiter.js).
+    const limiterKey = limiterClientAddress(request);
     const admission = dependencies.limiter.admit(limiterKey);
     if (!admission.allowed) {
       response.set('Retry-After', String(admission.retryAfterSeconds));
