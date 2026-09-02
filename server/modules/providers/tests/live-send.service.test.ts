@@ -9,20 +9,22 @@ import {
 } from '@/modules/providers/services/live-send.service.js';
 
 test('isValidTmuxName accepts simple session tokens, rejects unsafe ones', () => {
-  for (const ok of ['omg', 'magi-stock', 'flask', 'company-gjc', 'a.b_c-1']) {
+  for (const ok of ['omg', 'magi-stock', 'flask', 'company-gjc', 'ab_c-1']) {
     assert.equal(isValidTmuxName(ok), true, ok);
   }
-  for (const bad of ['', ' omg', 'a b', 'a;b', 'a/b', '$(x)', '-lead', 42, null, undefined]) {
+  // tmux rewrites '.' and ':' to '_' when creating a session, so such a name
+  // would never match the session that actually exists.
+  for (const bad of ['', ' omg', 'a b', 'a;b', 'a/b', '$(x)', '-lead', 'my.proj', 'a:b', 42, null, undefined]) {
     assert.equal(isValidTmuxName(bad as unknown), false, String(bad));
   }
 });
 
 
 test('isValidSpawnName accepts safe names but rejects the reserved "company"', () => {
-  for (const ok of ['patina', 'magi-stock', 'feat_x', 'a.b_c-1']) {
+  for (const ok of ['patina', 'magi-stock', 'feat_x', 'ab_c-1']) {
     assert.equal(isValidSpawnName(ok), true, ok);
   }
-  for (const bad of ['company', 'Company', 'COMPANY', '', ' x', 'a b', 'a/b', 42, null]) {
+  for (const bad of ['company', 'Company', 'COMPANY', '', ' x', 'a b', 'a/b', 'my.proj', 42, null]) {
     assert.equal(isValidSpawnName(bad as unknown), false, String(bad));
   }
 });
