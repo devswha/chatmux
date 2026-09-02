@@ -1,14 +1,16 @@
 import fsSync, { promises as fs } from 'node:fs';
 
 import express from 'express';
-import mime from 'mime-types';
 import multer from 'multer';
 
 import {
   buildStoredImageRecords,
   ensureImageAssetsDir,
+  imageContentTypeForStoredName,
   isAllowedImageMimeType,
   resolveImageAssetFile,
+  sanitizedImageBaseName,
+  storedImageExtension,
 } from '@/modules/assets/services/image-assets.service.js';
 
 const router = express.Router();
@@ -23,8 +25,13 @@ const storage = multer.diskStorage({
   },
   filename: (req, file, cb) => {
     const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-    const sanitizedName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
-    cb(null, `${uniqueSuffix}-${sanitizedName}`);
+    // The extension comes from the accepted mime type, never from the upload name.
+    const extension = storedImageExtension(file.mimetype);
+    if (extension === null) {
+      cb(new Error('Invalid file type. Only JPEG, PNG, GIF, WebP, and SVG are allowed.'), '');
+      return;
+    }
+    cb(null, `${uniqueSuffix}-${sanitizedImageBaseName(file.originalname)}${extension}`);
   },
 });
 
@@ -79,7 +86,12 @@ router.get('/images/:filename', async (req, res) => {
     return res.status(404).json({ error: 'Asset not found' });
   }
 
-  const contentType = mime.lookup(resolved) || 'application/octet-stream';
+  // Only the allowlisted image types are ever served inline; a stored name
+  // with any other extension (legacy uploads kept their original names) is
+  // handed over as an opaque download so nothing renders as a document on
+  // the app origin.
+  const imageType = imageContentTypeForStoredName(resolved);
+  const contentType = imageType ?? 'application/octet-stream';
   res.setHeader('Content-Type', contentType);
   // Stored-XSS hardening: never let the browser sniff a different type, and
   // force SVGs (which can carry scripts when rendered as a document) to
@@ -87,7 +99,7 @@ router.get('/images/:filename', async (req, res) => {
   // fetches assets as blobs and shows them through <img>, where SVG scripts
   // never execute.
   res.setHeader('X-Content-Type-Options', 'nosniff');
-  if (contentType === 'image/svg+xml') {
+  if (imageType === null || contentType === 'image/svg+xml') {
     res.setHeader('Content-Disposition', 'attachment');
   }
   const fileStream = fsSync.createReadStream(resolved);
