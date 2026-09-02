@@ -1,8 +1,16 @@
 import assert from 'node:assert/strict';
+import { promises as fsPromises } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 
 import {
+  assertNotOptionLike,
   assertSafeRepositoryRelativePath,
+  readProjectFileForDisplay,
+  validateBranchName,
+  validateCommitRef,
+  validateRemoteName,
   normalizeRepositoryRelativeFilePath,
   parseGitLogWithStats,
   parseGitStatusOutput,
@@ -154,4 +162,40 @@ test('resolvePathInsideProject keeps destructive targets strictly inside the pro
   assert.throws(() => resolvePathInsideProject(root, 'other/a.ts', '/repo/app'), /outside the project directory/, 'a sibling directory under the same toplevel is off limits');
   assert.throws(() => resolvePathInsideProject(root, 'app', '/repo/app'), /outside the project directory/, 'the project directory itself is never a target');
   assert.throws(() => resolvePathInsideProject(root, 'application/a.ts', '/repo/app'), /outside the project directory/, 'prefix collisions do not count as inside');
+});
+
+test('ref-like git arguments never start like an option', () => {
+  for (const bad of ['-f', '-p', '--detach', '--do-walk', '--ext-diff', '-']) {
+    assert.throws(() => validateBranchName(bad), /Invalid branch name/, `branch ${bad}`);
+    assert.throws(() => validateCommitRef(bad), /Invalid commit reference/, `commit ${bad}`);
+    assert.throws(() => validateRemoteName(bad), /Invalid remote name/, `remote ${bad}`);
+  }
+  assert.equal(validateBranchName('feature/x-1'), 'feature/x-1');
+  assert.equal(validateCommitRef('HEAD~2'), 'HEAD~2');
+  assert.equal(validateCommitRef('v1.8.15'), 'v1.8.15');
+  assert.equal(validateRemoteName('origin'), 'origin');
+  assert.throws(() => validateBranchName(42), /Invalid branch name/);
+  assert.throws(() => assertNotOptionLike('--force', 'thing'), /Invalid thing/);
+});
+
+test('readProjectFileForDisplay stays inside the project after symlink resolution', async () => {
+  const root = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'git-read-'));
+  const project = path.join(root, 'repo', 'app');
+  const outside = path.join(root, 'secret.txt');
+  try {
+    await fsPromises.mkdir(path.join(project, 'src'), { recursive: true });
+    await fsPromises.writeFile(path.join(project, 'src', 'a.txt'), 'inside');
+    await fsPromises.writeFile(outside, 'outside');
+    await fsPromises.symlink(outside, path.join(project, 'escape.txt'));
+    await fsPromises.writeFile(path.join(root, 'repo', 'sibling.txt'), 'sibling');
+    const toplevel = path.join(root, 'repo');
+
+    assert.equal(await readProjectFileForDisplay(toplevel, 'app/src/a.txt', project), 'inside');
+    assert.equal(await readProjectFileForDisplay(toplevel, 'app/src', project), null, 'directories yield null');
+    await assert.rejects(readProjectFileForDisplay(toplevel, 'app/escape.txt', project), /outside the project directory/, 'a symlink out of the project is refused');
+    await assert.rejects(readProjectFileForDisplay(toplevel, 'sibling.txt', project), /outside the project directory/, 'a sibling under the same toplevel is refused');
+    await assert.rejects(readProjectFileForDisplay(toplevel, 'app/missing.txt', project), /ENOENT/);
+  } finally {
+    await fsPromises.rm(root, { recursive: true, force: true });
+  }
 });

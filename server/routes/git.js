@@ -11,30 +11,59 @@ import { spawnCursor } from '../cursor-cli.js';
 
 const router = express.Router();
 const COMMIT_DIFF_CHARACTER_LIMIT = 500_000;
+// A git child that asks for credentials or a pager, or streams an unbounded
+// history, would otherwise hold the request open forever and leak a process.
+const GIT_TIMEOUT_MS = 5 * 60 * 1000;
+const GIT_MAX_OUTPUT_BYTES = 32 * 1024 * 1024;
 
 function spawnAsync(command, args, options = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       ...options,
+      // stdin is never a terminal here: an interactive subcommand (checkout -p,
+      // a credential prompt) must fail instead of waiting on a pipe nobody writes.
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, ...options.env, GIT_TERMINAL_PROMPT: '0', GIT_PAGER: 'cat', PAGER: 'cat' },
       shell: false,
     });
 
     let stdout = '';
     let stderr = '';
+    let settled = false;
+    let outputBytes = 0;
+    const fail = (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      child.kill('SIGKILL');
+      reject(error);
+    };
+    const timer = setTimeout(() => {
+      fail(new Error(`Command timed out after ${GIT_TIMEOUT_MS / 1000}s: ${command} ${args.join(' ')}`));
+    }, GIT_TIMEOUT_MS);
+    const guard = (chunk) => {
+      outputBytes += chunk.length;
+      if (outputBytes > GIT_MAX_OUTPUT_BYTES) fail(new Error(`Command output exceeded ${GIT_MAX_OUTPUT_BYTES} bytes: ${command} ${args.join(' ')}`));
+    };
 
     child.stdout.on('data', (data) => {
+      guard(data);
       stdout += data.toString();
     });
 
     child.stderr.on('data', (data) => {
+      guard(data);
       stderr += data.toString();
     });
 
     child.on('error', (error) => {
-      reject(error);
+      fail(error);
     });
 
     child.on('close', (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
       if (code === 0) {
         resolve({ stdout, stderr });
         return;
@@ -50,19 +79,32 @@ function spawnAsync(command, args, options = {}) {
 }
 
 // Input validation helpers (defense-in-depth)
-function validateCommitRef(commit) {
-  // Allow hex hashes, HEAD, HEAD~N, HEAD^N, tag names, branch names
-  if (!/^[a-zA-Z0-9._~^{}@\/-]+$/.test(commit)) {
-    throw new Error('Invalid commit reference');
+/**
+ * A value that reaches git as a positional argument must never look like an
+ * option: `-f`, `-p`, `--detach`, `--do-walk`, `--ext-diff` all pass the
+ * character allowlists below and would be honored by `git checkout`, `git
+ * show` and `git branch`.
+ */
+export function assertNotOptionLike(value, label) {
+  if (typeof value !== 'string' || value.startsWith('-')) {
+    throw new Error(`Invalid ${label}`);
   }
-  return commit;
+  return value;
 }
 
-function validateBranchName(branch) {
-  if (!/^[a-zA-Z0-9._\/-]+$/.test(branch)) {
+export function validateCommitRef(commit) {
+  // Allow hex hashes, HEAD, HEAD~N, HEAD^N, tag names, branch names
+  if (typeof commit !== 'string' || !/^[a-zA-Z0-9._~^{}@\/-]+$/.test(commit)) {
+    throw new Error('Invalid commit reference');
+  }
+  return assertNotOptionLike(commit, 'commit reference');
+}
+
+export function validateBranchName(branch) {
+  if (typeof branch !== 'string' || !/^[a-zA-Z0-9._\/-]+$/.test(branch)) {
     throw new Error('Invalid branch name');
   }
-  return branch;
+  return assertNotOptionLike(branch, 'branch name');
 }
 
 function validateFilePath(file, projectPath) {
@@ -81,11 +123,11 @@ function validateFilePath(file, projectPath) {
   return file;
 }
 
-function validateRemoteName(remote) {
-  if (!/^[a-zA-Z0-9._-]+$/.test(remote)) {
+export function validateRemoteName(remote) {
+  if (typeof remote !== 'string' || !/^[a-zA-Z0-9._-]+$/.test(remote)) {
     throw new Error('Invalid remote name');
   }
-  return remote;
+  return assertNotOptionLike(remote, 'remote name');
 }
 
 function validateProjectPath(projectPath) {
@@ -291,6 +333,24 @@ export function selectExactStatusEntry(statusOutput, relativePath) {
     throw new Error(`Refusing to act on "${relativePath}": git reports "${entry.path}" instead.`);
   }
   return entry;
+}
+
+/**
+ * Reads a worktree file for display. The path must sit inside the project both
+ * lexically and after symlink resolution, so a repository whose toplevel is
+ * above the project, or a symlink an agent dropped into it, cannot expose
+ * files outside the project directory. Returns null for a directory.
+ */
+export async function readProjectFileForDisplay(repositoryRootPath, relativePath, projectPath, io = fs) {
+  const absolutePath = resolvePathInsideProject(repositoryRootPath, relativePath, projectPath);
+  const [realFile, realProject] = await Promise.all([io.realpath(absolutePath), io.realpath(path.resolve(projectPath))]);
+  if (realFile !== realProject && !realFile.startsWith(realProject + path.sep)) {
+    throw new Error('Invalid file path: resolves outside the project directory');
+  }
+  const stats = await io.stat(realFile);
+  if (stats.isDirectory()) return null;
+  if (!stats.isFile()) throw new Error('Invalid file path: not a regular file');
+  return io.readFile(realFile, 'utf-8');
 }
 
 /** Absolute location of a repository-relative path, required to sit strictly inside the project. */
@@ -515,14 +575,12 @@ router.get('/diff', async (req, res) => {
     let diff;
     if (isUntracked) {
       // For untracked files, show the entire file content as additions
-      const filePath = path.join(repositoryRootPath, repositoryRelativeFilePath);
-      const stats = await fs.stat(filePath);
+      const fileContent = await readProjectFileForDisplay(repositoryRootPath, repositoryRelativeFilePath, projectPath);
 
-      if (stats.isDirectory()) {
+      if (fileContent === null) {
         // For directories, show a simple message
         diff = `Directory: ${repositoryRelativeFilePath}\n(Cannot show diff for directories)`;
       } else {
-        const fileContent = await fs.readFile(filePath, 'utf-8');
         const lines = fileContent.split('\n');
         diff = `--- /dev/null\n+++ b/${repositoryRelativeFilePath}\n@@ -0,0 +1,${lines.length} @@\n` +
                lines.map(line => `+${line}`).join('\n');
@@ -608,16 +666,15 @@ router.get('/file-with-diff', async (req, res) => {
       oldContent = headContent;
       currentContent = headContent; // Show the deleted content in editor
     } else {
-      // Get current file content
-      const filePath = path.join(repositoryRootPath, repositoryRelativeFilePath);
-      const stats = await fs.stat(filePath);
+      // Get current file content, contained to the project directory
+      const fileContent = await readProjectFileForDisplay(repositoryRootPath, repositoryRelativeFilePath, projectPath);
 
-      if (stats.isDirectory()) {
+      if (fileContent === null) {
         // Cannot show content for directories
         return res.status(400).json({ error: 'Cannot show diff for directories' });
       }
 
-      currentContent = await fs.readFile(filePath, 'utf-8');
+      currentContent = fileContent;
 
       if (!isUntracked) {
         // Get the old content from HEAD for tracked files
@@ -884,7 +941,9 @@ router.post('/checkout', async (req, res) => {
     
     // Checkout the branch
     validateBranchName(branch);
-    const { stdout } = await spawnAsync('git', ['checkout', branch], { cwd: projectPath });
+    // The trailing "--" makes git read the argument as a ref, never as a
+    // pathspec that would restore a same-named file from the index.
+    const { stdout } = await spawnAsync('git', ['checkout', branch, '--'], { cwd: projectPath });
     
     res.json({ success: true, output: stdout });
   } catch (error) {
@@ -926,6 +985,7 @@ router.post('/delete-branch', async (req, res) => {
   try {
     const projectPath = await getActualProjectPath(project);
     await validateGitRepository(projectPath);
+    validateBranchName(branch);
 
     // Safety: cannot delete the currently checked-out branch
     const { stdout: currentBranch } = await spawnAsync('git', ['branch', '--show-current'], { cwd: projectPath });
@@ -1047,7 +1107,7 @@ router.get('/commit-diff', async (req, res) => {
 
     // Get diff for the commit
     const { stdout } = await spawnAsync(
-      'git', ['show', commit],
+      'git', ['show', '--end-of-options', commit],
       { cwd: projectPath }
     );
 
@@ -1104,11 +1164,9 @@ router.post('/generate-commit-message', async (req, res) => {
       for (const file of files) {
         try {
           const { repositoryRelativeFilePath } = await resolveRepositoryFilePath(projectPath, file);
-          const filePath = path.join(repositoryRootPath, repositoryRelativeFilePath);
-          const stats = await fs.stat(filePath);
+          const content = await readProjectFileForDisplay(repositoryRootPath, repositoryRelativeFilePath, projectPath);
 
-          if (!stats.isDirectory()) {
-            const content = await fs.readFile(filePath, 'utf-8');
+          if (content !== null) {
             diffContext += `\n--- ${repositoryRelativeFilePath} (new file) ---\n${content.substring(0, 1000)}\n`;
           } else {
             diffContext += `\n--- ${repositoryRelativeFilePath} (new directory) ---\n`;
