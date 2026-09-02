@@ -8,7 +8,6 @@ import os from 'os';
 import http from 'http';
 
 import express from 'express';
-import cors from 'cors';
 import compression from 'compression';
 import Database from 'better-sqlite3';
 
@@ -107,6 +106,7 @@ import {
 import { filesRoutes } from './modules/files/index.js';
 import { configureWebPush } from './services/vapid-keys.js';
 import { authenticateToken, authenticateWebSocket, AUTH_MODE } from './middleware/auth.js';
+import { createCrossSiteGuard, parseAllowedHostList } from './middleware/cross-site-guard.js';
 import { c } from './utils/colors.js';
 import { evaluateExposure } from './utils/exposure-guard.js';
 
@@ -157,6 +157,16 @@ const app = express();
 app.set('trust proxy', 1);
 const server = http.createServer(app);
 
+// Browser API and WebSocket upgrades are same-site only. Origin must name this
+// deployment in every auth mode; in mode 'none' the Host header must as well,
+// because nothing else binds authority there (DNS rebinding otherwise turns a
+// loopback bind into remote shell access). CHATMUX_ALLOWED_HOSTS adds names.
+const crossSiteGuard = createCrossSiteGuard({
+    authMode: AUTH_MODE,
+    bindHost: process.env.HOST || '127.0.0.1',
+    allowedHosts: parseAllowedHostList(process.env.CHATMUX_ALLOWED_HOSTS),
+});
+
 // The collector is inert until the first authenticated discovery subscription.
 const discoveryCollector = createDiscoveryCollector();
 app.locals.discoveryCollector = discoveryCollector;
@@ -174,6 +184,7 @@ const stopTranscriptDiscoveryRefresh = onTranscriptChanged(() => {
 const wss = createWebSocketServer(server, {
     verifyClient: {
         authenticateWebSocket,
+        checkCrossSite: crossSiteGuard.check,
     },
     serverInfo: {
         version: RUNNING_VERSION,
@@ -280,7 +291,10 @@ app.use((req, res, next) => {
     }
     next();
 });
-app.use(cors());
+// No CORS: the app is same-origin (the Vite dev server proxies /api and every
+// WebSocket path), and a wildcard Access-Control-Allow-Origin would let any web
+// page read API responses from an unauthenticated (auth mode 'none') install.
+app.use('/api', crossSiteGuard.middleware);
 
 // Compress API responses (the project index alone is multi-megabyte JSON).
 // Event streams are excluded because compression buffering breaks incremental
