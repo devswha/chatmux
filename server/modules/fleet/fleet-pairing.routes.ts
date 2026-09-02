@@ -179,7 +179,8 @@ export function createFleetPairingRouter(dependencies: PairingRoutesDependencies
     }
   });
   router.post('/pairing/redeem', async (request, response, next) => {
-    const limiterKey = request.ip ?? request.socket.remoteAddress ?? 'unknown-client';
+    // The TCP peer, never req.ip: X-Forwarded-For is client-controlled for a direct connection.
+    const limiterKey = request.socket.remoteAddress ?? 'unknown-client';
     const admission = dependencies.limiter.admit(limiterKey);
     if (!admission.allowed) {
       response.set('Retry-After', String(admission.retryAfterSeconds));

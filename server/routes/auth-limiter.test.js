@@ -50,3 +50,27 @@ test('login blocks an IP and username after ten failed attempts', async (t) => {
   assert.equal(blocked.status, 429);
   assert.match(blocked.headers.get('retry-after') ?? '', /^\d+$/);
 });
+
+test('a forwarded-for header cannot rotate past the lockout under trust proxy', async (t) => {
+  const app = express();
+  app.set('trust proxy', 1);
+  app.use(express.json());
+  app.use('/api/auth', authRoutes);
+  const server = createServer(app);
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address();
+  const login = (forwardedFor) => fetch(`http://127.0.0.1:${port}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': forwardedFor },
+    body: JSON.stringify({ username: 'rotating-user', password: 'wrong-password' }),
+  });
+  t.after(async () => {
+    await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  });
+
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    assert.equal((await login(`203.0.113.${attempt}`)).status, 401);
+  }
+  const blocked = await login('203.0.113.250');
+  assert.equal(blocked.status, 429, 'the socket address is the key, not the spoofable req.ip');
+});
