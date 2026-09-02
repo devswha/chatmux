@@ -40,7 +40,6 @@ export type ApiErrorPayload = {
 
 export type AuthContextValue = {
   user: AuthUser | null;
-  token: string | null;
   authMode: AuthMode | null;
   isLoading: boolean;
   needsSetup: boolean;

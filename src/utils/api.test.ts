@@ -2,12 +2,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { api, authenticatedFetch } from './api.js';
-import { clearAuthToken } from './authToken.js';
+import { clearSession, markSessionActive } from './authToken.js';
 
 test('authenticatedFetch omits content-type when a request has no body', async () => {
   const originalFetch = globalThis.fetch;
   let captured: RequestInit | undefined;
-  clearAuthToken();
+  clearSession();
   globalThis.fetch = async (_input, init) => {
     captured = init;
     return new Response(null, { status: 204 });
@@ -29,7 +29,7 @@ test('authenticatedFetch omits content-type when a request has no body', async (
 test('authenticatedFetch keeps JSON content-type for requests with a JSON body', async () => {
   const originalFetch = globalThis.fetch;
   let captured: RequestInit | undefined;
-  clearAuthToken();
+  clearSession();
   globalThis.fetch = async (_input, init) => {
     captured = init;
     return new Response(null, { status: 204 });
@@ -47,7 +47,7 @@ test('authenticatedFetch keeps JSON content-type for requests with a JSON body',
 test('live roster requests forward optional abort signals without changing zero-argument calls', async () => {
   const originalFetch = globalThis.fetch;
   const captured: Array<RequestInit | undefined> = [];
-  clearAuthToken();
+  clearSession();
   globalThis.fetch = async (_input, init) => {
     captured.push(init);
     return new Response('{}', { status: 200 });
@@ -63,5 +63,24 @@ test('live roster requests forward optional abort signals without changing zero-
     assert.equal(captured[2]?.signal, undefined);
   } finally {
     globalThis.fetch = originalFetch;
+  }
+});
+
+test('authenticatedFetch never attaches a bearer header, even while a session is active; the cookie is the credential', async () => {
+  const originalFetch = globalThis.fetch;
+  let captured: RequestInit | undefined;
+  markSessionActive();
+  globalThis.fetch = async (_input, init) => {
+    captured = init;
+    return new Response(null, { status: 204, headers: { 'X-Refreshed-Token': 'a.b.c' } });
+  };
+  try {
+    await authenticatedFetch('/api/projects');
+    const headers = new Headers(captured?.headers);
+    assert.equal(headers.has('authorization'), false);
+    assert.equal(captured?.credentials, 'same-origin');
+  } finally {
+    globalThis.fetch = originalFetch;
+    clearSession();
   }
 });
