@@ -483,6 +483,17 @@ function makesReleaseStateUnavailable(error: unknown): boolean {
   return error instanceof ReleaseUpdateStateError && /(?:corrupt|unsafe|ambiguous)/i.test(error.message);
 }
 
+/**
+ * The worker refuses a target whose metadata does not name the running version
+ * as rollback-compatible, but only after downloading and extracting it, and it
+ * records that refusal as a permanent manual_required job. The router already
+ * holds the same metadata, so it decides first and tells the UI why.
+ */
+export function rollbackBlockedReason(target: Discovery, runningVersion: string): string | undefined {
+  if (target.compatibility.database.rollbackCompatibleFrom.includes(runningVersion)) return undefined;
+  return `Release ${target.release.version} does not declare rollback compatibility from ${runningVersion}; reinstall with install.sh to move to it.`;
+}
+
 export function createSystemRouter(options: SystemRouterOptions): Router {
   const router = express.Router(); const mode = options.mode ?? detectInstallMode(options.appRoot); const now = options.now ?? Date.now; const home = options.home ?? homedir();
   const runningVersion = options.runningVersion;
@@ -490,11 +501,17 @@ export function createSystemRouter(options: SystemRouterOptions): Router {
   const releaseVersionUnavailable = mode === 'release' && !releaseVersion;
   const state = options.state ?? new ReleaseUpdateStateStore(path.join(home, '.chatmux', 'update'), { now });
   let releaseStateUnavailable = false;
+  // A worker that died before cutover leaves a nonterminal job behind. Only the
+  // updater restarts a release install, so this must run on every status read
+  // and update request, not just once at router construction.
+  const reconcileInactiveWorker = (): void => {
+    const active = state.publicActiveStatus();
+    if (active) state.failIfInactive(active.id, () => (options.isReleaseUpdateUnitLive ?? isReleaseUpdateUnitLive)(`chatmux-release-update-${active.id}`));
+  };
   if (mode === 'release' && !releaseVersionUnavailable) {
     try {
       state.initialize();
-      const active = state.publicActiveStatus();
-      if (active) state.failIfInactive(active.id, () => (options.isReleaseUpdateUnitLive ?? isReleaseUpdateUnitLive)(`chatmux-release-update-${active.id}`));
+      reconcileInactiveWorker();
     } catch (error) {
       if (makesReleaseStateUnavailable(error)) releaseStateUnavailable = true;
     }
@@ -522,13 +539,15 @@ export function createSystemRouter(options: SystemRouterOptions): Router {
     if (mode !== 'release') return res.json({ ...base, source, release: null, activeJob: null });
     if (releaseStateUnavailable) return res.json({ ...base, source, release: null, activeJob: null, updateUnavailable: 'Release update state is unavailable. Repair the updater state before retrying.' });
     let activeJob;
-    try { activeJob = state.publicActiveStatus(); } catch (error) {
+    try { reconcileInactiveWorker(); activeJob = state.publicActiveStatus(); } catch (error) {
       if (makesReleaseStateUnavailable(error)) releaseStateUnavailable = true;
       return res.json({ ...base, source, release: null, activeJob: null, ...(releaseStateUnavailable ? { updateUnavailable: 'Release update state is unavailable. Repair the updater state before retrying.' } : {}) });
     }
     try {
       const target = await cachedDiscovery();
-      return res.json({ ...base, source, release: { available: compareStrictSemVer(target.release.version, releaseVersion!.version) === 1, targetVersion: target.release.version, notes: target.notes.body, url: target.notes.url }, activeJob });
+      const blockedReason = rollbackBlockedReason(target, releaseVersion!.version);
+      const newer = compareStrictSemVer(target.release.version, releaseVersion!.version) === 1;
+      return res.json({ ...base, source, release: { available: newer && blockedReason === undefined, targetVersion: target.release.version, notes: target.notes.body, url: target.notes.url, ...(newer && blockedReason !== undefined ? { blockedReason } : {}) }, activeJob });
     } catch {
       return res.json({ ...base, source, release: null, activeJob });
     }
@@ -563,6 +582,8 @@ export function createSystemRouter(options: SystemRouterOptions): Router {
     if (releaseVersionUnavailable) return res.status(503).json({ error: 'Release updates require a valid installed version.', mode });
     if (releaseStateUnavailable) return res.status(503).json({ error: 'Release updates are unavailable until updater state is repaired.', mode });
     const target = await discover(); const comparison = compareStrictSemVer(target.release.version, releaseVersion!.version); if (comparison !== 1) return res.status(409).json({ error: 'No newer release is available.', mode });
+    const blockedReason = rollbackBlockedReason(target, releaseVersion!.version); if (blockedReason !== undefined) return res.status(409).json({ error: blockedReason, code: 'RELEASE_ROLLBACK_INCOMPATIBLE', mode });
+    try { reconcileInactiveWorker(); } catch (error) { if (makesReleaseStateUnavailable(error)) { releaseStateUnavailable = true; return res.status(503).json({ error: 'Release updates are unavailable until updater state is repaired.', mode }); } throw error; }
     const oldRelease = realpathSync(options.appRoot); const workerPath = path.join(oldRelease, 'dist-server', 'server', 'release-update-worker.js'); if (!existsSync(workerPath)) throw new Error('Release update worker is unavailable.');
     const id = randomBytes(16).toString('base64url').slice(0, 22); const descriptor: ImmutableUpdateJobDescriptor = { id, release: target.release, compatibility: target.compatibility, createdAt: now(), installMode: 'release', sourceVersion: releaseVersion!.version, sourceBootId: options.bootId, serverPort: options.serverPort };
     if (!state.createIfNoActive(descriptor)) return res.status(409).json({ error: 'An update is already in progress.', mode });

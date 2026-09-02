@@ -1000,6 +1000,7 @@ router.post(
       tmux?: unknown;
       process?: unknown;
       mode?: unknown;
+      confirmOtherPanes?: unknown;
     };
     const mode = readTerminationMode(body.mode);
     const target = await assertFreshExternalTmuxTarget(body.tmux, body.process);
@@ -1009,7 +1010,7 @@ router.post(
     } else if (mode === 'pane') {
       await killTmuxPane(target);
     } else {
-      await killTmuxSession(target);
+      await killTmuxSession(target, undefined, { allowOtherPanes: body.confirmOtherPanes === true });
     }
     res.json(createApiSuccessResponse({ ok: true, mode }));
   }),
@@ -1371,6 +1372,7 @@ router.post(
       tmux?: unknown;
       process?: unknown;
       mode?: unknown;
+      confirmOtherPanes?: unknown;
     };
     const tmux = readTmuxPaneIdentity(body.tmux);
     const processGeneration = readTmuxProcessGeneration(body.process);
@@ -1382,7 +1384,7 @@ router.post(
     } else if (mode === 'pane') {
       await killTmuxPane(target);
     } else {
-      await killTmuxSession(target);
+      await killTmuxSession(target, undefined, { allowOtherPanes: body.confirmOtherPanes === true });
     }
     res.json(createApiSuccessResponse({ ok: true, mode }));
   }),

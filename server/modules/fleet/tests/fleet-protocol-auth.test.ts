@@ -3,6 +3,7 @@ import { generateKeyPairSync, randomUUID, sign, type KeyObject } from 'node:cryp
 import test from 'node:test';
 
 import {
+  FleetChallengeReplayGuard,
   createFleetHello,
   createFleetProof,
   FleetAuthDeadline,
@@ -122,4 +123,16 @@ test('Given unknown or revoked installation trust, when auth admission runs, the
     () => requireAuthorizedFleetPeer(revoked, randomUUID()),
     (error: unknown) => error instanceof Error && !error.message.includes('sensitive-key'),
   );
+});
+
+test('the challenge replay guard refuses repeats but keeps accepting fresh ids past its window', () => {
+  const guard = new FleetChallengeReplayGuard(3);
+  assert.equal(guard.reserve('c1'), true);
+  assert.equal(guard.reserve('c1'), false, 'an identical challenge is a replay');
+  assert.equal(guard.reserve('c2'), true);
+  assert.equal(guard.reserve('c3'), true);
+  assert.equal(guard.reserve('c4'), true, 'capacity evicts the oldest id instead of refusing the handshake');
+  assert.equal(guard.reserve('c4'), false);
+  assert.equal(guard.reserve('c3'), false, 'recent ids stay remembered');
+  for (let index = 0; index < 10_000; index += 1) assert.equal(guard.reserve(`later-${index}`), true, `reconnect ${index} is still accepted`);
 });

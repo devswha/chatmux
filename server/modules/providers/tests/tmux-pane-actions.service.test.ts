@@ -199,9 +199,26 @@ test('pane and session termination use distinct immutable ids', async () => {
     '-S', identity.socketPath, 'kill-pane', '-t', identity.paneId,
   ]);
 
-  const session = recordingRunner();
+  const session = recordingRunner([`${identity.paneId}\n`]);
   await killTmuxSession(target, session.run);
   assert.deepEqual(session.calls[0]?.args, [
+    '-S', identity.socketPath, 'list-panes', '-s', '-t', identity.sessionId, '-F', '#{pane_id}',
+  ]);
+  assert.deepEqual(session.calls[1]?.args, [
     '-S', identity.socketPath, 'kill-session', '-t', identity.sessionId,
   ]);
+});
+
+test('session termination refuses to take other panes down without explicit confirmation', async () => {
+  const crowded = recordingRunner([`${identity.paneId}\n%10\n%11\n`]);
+  await assert.rejects(killTmuxSession(target, crowded.run), (error: unknown) => error instanceof AppError && error.code === 'TMUX_SESSION_HAS_OTHER_PANES');
+  assert.equal(crowded.calls.length, 1, 'nothing is killed after the refusal');
+
+  const confirmed = recordingRunner([`${identity.paneId}\n%10\n`]);
+  await killTmuxSession(target, confirmed.run, { allowOtherPanes: true });
+  assert.deepEqual(confirmed.calls[1]?.args, ['-S', identity.socketPath, 'kill-session', '-t', identity.sessionId]);
+
+  const gone = recordingRunner();
+  gone.run = async () => ({ code: 1, output: "can't find session" });
+  await assert.rejects(killTmuxSession(target, gone.run), (error: unknown) => error instanceof AppError && error.code === 'TMUX_PANE_GENERATION_MISMATCH');
 });

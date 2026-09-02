@@ -51,7 +51,9 @@ function releaseJob(index: number): ImmutableUpdateJobDescriptor {
   return {
     id, createdAt: 1, installMode: 'release', sourceVersion: '1.0.0', sourceBootId: 'boot', serverPort: 3000,
     release: { repository: 'devswha/chatmux', tag: `v${version}`, version, archiveName, checksumName: `${archiveName}.sha256`, bootstrapName: 'install.sh', archiveSha256: 'a'.repeat(64), publishedAt: '2026-01-01T00:00:00.000Z' },
-    compatibility: { database: { rollbackCompatibleFrom: [] } },
+    // The running version in these tests is 1.0.0; a target must name it as
+    // rollback-compatible or the router refuses it before any download.
+    compatibility: { database: { rollbackCompatibleFrom: ['1.0.0'] } },
   };
 }
 
@@ -920,4 +922,81 @@ test('the release worker is launched with the bound address to probe, wildcards 
   assert.ok(args.includes('--setenv=SERVER_PORT=3001'));
   assert.ok(buildReleaseSystemdRunArgs('u', '/w.js', 'abcdefghijklmnopqrstuv', '/home/u', 3001, '/usr/bin', '0.0.0.0').includes('--setenv=CHATMUX_HEALTH_HOST=127.0.0.1'));
   assert.ok(buildReleaseSystemdRunArgs('u', '/w.js', 'abcdefghijklmnopqrstuv', '/home/u', 3001, '/usr/bin').includes('--setenv=CHATMUX_HEALTH_HOST=127.0.0.1'), 'callers without a bind address keep the loopback probe');
+});
+
+test('release status and start refuse a target that does not declare rollback compatibility from the running version', async () => {
+  const home = tempRoot();
+  const state = new ReleaseUpdateStateStore(path.join(home, '.chatmux', 'update'), { now: () => 1 });
+  let launches = 0;
+  const incompatible = { ...releaseJob(9), compatibility: { database: { rollbackCompatibleFrom: ['1.0.8'] } } };
+  const app = express();
+  app.use((req, _res, next) => { (req as any).user = {}; next(); });
+  app.use(exactUpdateRequestGuard);
+  app.use(createSystemRouter({
+    appRoot: home, home, serverPort: 3000, bootId: 'boot', runningVersion: '1.0.0', mode: 'release', authMode: 'password', state, now: () => 1,
+    discoverRelease: async () => ({ release: incompatible.release, compatibility: incompatible.compatibility, notes: { body: null, url: null } }),
+    launchRelease: async () => { launches += 1; },
+  }));
+  const server = createServer(app);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  assert.ok(address && typeof address !== 'string');
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+  try {
+    const status = await (await fetch(`${baseUrl}/update/status`)).json() as { release: { available: boolean; targetVersion: string; blockedReason?: string } };
+    assert.equal(status.release.available, false, 'a newer but incompatible release is not offered');
+    assert.equal(status.release.targetVersion, '1.0.9');
+    assert.match(status.release.blockedReason ?? '', /does not declare rollback compatibility from 1\.0\.0/);
+
+    const started = await fetch(`${baseUrl}/update`, { method: 'POST', headers: { origin: baseUrl, 'x-chatmux-update-intent': 'start' } });
+    assert.equal(started.status, 409);
+    assert.equal((await started.json() as { code?: string }).code, 'RELEASE_ROLLBACK_INCOMPATIBLE');
+    assert.equal(launches, 0, 'nothing is downloaded for a release the worker would refuse anyway');
+    assert.equal(state.publicActiveStatus(), null, 'no job record is created');
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
+test('a worker that dies before cutover is reconciled on the next status read or update request, not only at router start', async () => {
+  const home = tempRoot();
+  const workerPath = path.join(home, 'dist-server', 'server', 'release-update-worker.js');
+  mkdirSync(path.dirname(workerPath), { recursive: true });
+  writeFileSync(workerPath, '');
+  const state = new ReleaseUpdateStateStore(path.join(home, '.chatmux', 'update'), { now: () => 1 });
+  let unitLive = true;
+  const launches: string[] = [];
+  const app = express();
+  app.use((req, _res, next) => { (req as any).user = {}; next(); });
+  app.use(exactUpdateRequestGuard);
+  app.use(createSystemRouter({
+    appRoot: home, home, serverPort: 3000, bootId: 'boot', runningVersion: '1.0.0', mode: 'release', authMode: 'password', state, now: () => 1,
+    isReleaseUpdateUnitLive: () => unitLive,
+    discoverRelease: async () => ({ release: releaseJob(9).release, compatibility: releaseJob(9).compatibility, notes: { body: null, url: null } }),
+    launchRelease: async (_unit, _worker, id) => { launches.push(id); },
+  }));
+  const server = createServer(app);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  assert.ok(address && typeof address !== 'string');
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const headers = { origin: baseUrl, 'x-chatmux-update-intent': 'start' };
+  try {
+    const first = await fetch(`${baseUrl}/update`, { method: 'POST', headers });
+    assert.equal(first.status, 202);
+    const firstJob = (await first.json() as { jobId: string }).jobId;
+    assert.equal((await fetch(`${baseUrl}/update`, { method: 'POST', headers })).status, 409, 'the live worker keeps single flight');
+
+    // The worker dies (OOM, session teardown) before cutover; the server does not restart.
+    unitLive = false;
+    const status = await (await fetch(`${baseUrl}/update/status`)).json() as { activeJob: unknown };
+    assert.equal(status.activeJob, null, 'the status read reconciles the dead worker');
+    assert.equal(state.publicStatus(firstJob)?.phase, 'failed');
+
+    const second = await fetch(`${baseUrl}/update`, { method: 'POST', headers });
+    assert.equal(second.status, 202, 'a new update can start without a server restart');
+    assert.equal(launches.length, 2);
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
 });

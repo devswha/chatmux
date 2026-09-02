@@ -27,7 +27,10 @@ const REQUEST_TIMEOUT_MS = 300_000;
 const PROCESS_TIMEOUT_MS = 120_000;
 const MAX_PROCESS_STDOUT_BYTES = 16 * 1024 * 1024;
 const MAX_PROCESS_STDERR_BYTES = 1 * 1024 * 1024;
-const HEALTH_ATTEMPTS = 12;
+// A fresh release runs schema migrations and loads native modules on first
+// boot; the installer allows 30 s and deploy.sh 60 s, and a miss here rolls
+// back and deletes the download. Poll for 90 s before giving up.
+const HEALTH_ATTEMPTS = 90;
 const HEALTH_INTERVAL_MS = 1_000;
 const HEALTH_REQUEST_TIMEOUT_MS = 5_000;
 const RELEASE_HOSTS = new Set(['github.com', 'objects.githubusercontent.com', 'release-assets.githubusercontent.com']);
