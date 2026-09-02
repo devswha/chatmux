@@ -56,6 +56,26 @@ export function parseProcStatStartTicks(stat: string): number | null {
   return Number.isSafeInteger(ticks) && ticks >= 0 ? ticks : null;
 }
 
+/** Fields after the comm of /proc/<pid>/stat, counted from field 3 (state). */
+function procStatFieldsAfterComm(stat: string): string[] | null {
+  const close = stat.lastIndexOf(')');
+  if (close < 0) return null;
+  return stat.slice(close + 1).trim().split(/\s+/);
+}
+
+/** Field 3 of /proc/<pid>/stat: the one-letter scheduler state ('Z' = zombie). */
+export function parseProcStatState(stat: string): string | null {
+  const fields = procStatFieldsAfterComm(stat);
+  return fields && /^[A-Za-z]$/.test(fields[0] ?? '') ? fields[0] : null;
+}
+
+/** Field 5 of /proc/<pid>/stat: the process group id. */
+export function parseProcStatProcessGroupId(stat: string): number | null {
+  const fields = procStatFieldsAfterComm(stat);
+  const pgid = Number(fields?.[2]);
+  return Number.isSafeInteger(pgid) && pgid > 0 ? pgid : null;
+}
+
 export function parseBootTimeMs(procStat: string): number | null {
   const match = /^btime (\d+)$/m.exec(procStat);
   if (!match) return null;
@@ -86,6 +106,39 @@ async function defaultClockTicksPerSecond(run: NonNullable<ProcessStartTimeDeps[
  * portable `ps lstart` is parsed in the C locale, because the default locale
  * (Korean on the reference host) produced text Date.parse cannot read.
  */
+/**
+ * Process group of a pid. An interactive shell with job control runs each
+ * foreground job in its own group, while a pane whose root *is* the agent
+ * keeps its wrappers and binary in the root's group; that difference decides
+ * whether a shell is there to preserve when an agent is stopped.
+ */
+export async function processGroupId(pid: number, deps: ProcessStartTimeDeps = {}): Promise<number | null> {
+  const read = deps.readFile ?? defaultReadFile;
+  const run = deps.run ?? runCommand;
+  try {
+    const pgid = parseProcStatProcessGroupId(await read(`/proc/${pid}/stat`));
+    if (pgid !== null) return pgid;
+  } catch {
+    // Not Linux, or the pid vanished: fall through to the portable form.
+  }
+  try {
+    const pgid = Number((await run('ps', ['-p', String(pid), '-o', 'pgid='], { env: { ...process.env, LC_ALL: 'C' } })).trim());
+    return Number.isSafeInteger(pgid) && pgid > 0 ? pgid : null;
+  } catch {
+    return null;
+  }
+}
+
+/** True when /proc reports the pid as a zombie: exited, waiting to be reaped, no longer running anything. */
+export async function isZombieProcess(pid: number, deps: ProcessStartTimeDeps = {}): Promise<boolean> {
+  const read = deps.readFile ?? defaultReadFile;
+  try {
+    return parseProcStatState(await read(`/proc/${pid}/stat`)) === 'Z';
+  } catch {
+    return false;
+  }
+}
+
 export async function processStartMs(pid: number, deps: ProcessStartTimeDeps = {}): Promise<number | null> {
   const read = deps.readFile ?? defaultReadFile;
   const run = deps.run ?? runCommand;

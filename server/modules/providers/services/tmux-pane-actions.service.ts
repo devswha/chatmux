@@ -5,7 +5,7 @@ import { AppError } from '@/shared/utils.js';
 import type { TmuxPaneIdentity, TmuxProcessGeneration } from '../../../../shared/tmux.js';
 
 import { runTmux, type TmuxRunner } from './builtin-relay.service.js';
-import { processStartMs } from './process-start-time.service.js';
+import { isZombieProcess, processGroupId, processStartMs } from './process-start-time.service.js';
 import type { VerifiedTmuxActionTarget } from './tmux-fresh-verifier.service.js';
 
 const SESSION_ID_RE = /^\$\d+$/;
@@ -300,10 +300,14 @@ export async function killTmuxSession(
 }
 
 export type StopAgentProcessDeps = Readonly<{
-  /** Sends a signal to a pid; defaults to process.kill. */
+  /** Sends a signal to a pid, or to a whole group when pid is negative; defaults to process.kill. */
   readonly kill?: (pid: number, signal: NodeJS.Signals) => void;
   /** Reads a pid's start time; defaults to the /proc-backed processStartMs. */
   readonly startedAtMs?: (pid: number) => Promise<number | null>;
+  /** Reads a pid's process group; defaults to the /proc-backed processGroupId. */
+  readonly processGroupId?: (pid: number) => Promise<number | null>;
+  /** True when the pid is a zombie (exited, unreaped); defaults to /proc. */
+  readonly isZombie?: (pid: number) => Promise<boolean>;
   readonly sleep?: (ms: number) => Promise<void>;
 }>;
 
@@ -314,12 +318,15 @@ const STOP_POLL_MS = 100;
 /**
  * Stops the verified agent process and confirms that it is gone.
  *
- * When the agent is a child of the pane's shell it is signalled directly
- * (SIGTERM, then SIGKILL) and its exit is confirmed against the verified
- * start time, so the user's shell, history, and virtualenv survive. Only when
- * the agent *is* the pane's root process, where its exit would close the
- * pane, is the pane respawned with a shell as before. A pid whose start time
- * no longer matches the verified generation is never signalled.
+ * An interactive shell with job control runs the agent (and any launcher
+ * wrappers around it) in its own process group, distinct from the pane's
+ * root. That group is signalled as a whole (SIGTERM, then SIGKILL) and the
+ * agent's exit is confirmed against its verified start time, so the user's
+ * shell, history, and virtualenv survive. When the agent shares the pane
+ * root's group there is no shell to preserve: the pane command is the agent
+ * or its wrapper, its exit would close the pane, and the pane is respawned
+ * with a shell as before. A pid whose start time no longer matches the
+ * verified generation is never signalled.
  */
 export async function stopAgentProcessInPane(
   target: VerifiedTmuxActionTarget,
@@ -351,12 +358,20 @@ export async function stopAgentProcessInPane(
     });
   }
 
-  if (panePid === target.process.pid) {
+  const readGroup = deps.processGroupId ?? processGroupId;
+  const [paneGroup, agentGroup] = await Promise.all([readGroup(panePid), readGroup(target.process.pid)]);
+  if (agentGroup === null) {
+    throw new AppError('The tmux pane now belongs to a different agent process. Reopen it from the session list.', {
+      code: 'TMUX_PROCESS_GENERATION_MISMATCH',
+      statusCode: 409,
+    });
+  }
+  if (panePid === target.process.pid || paneGroup === agentGroup) {
     await requireTmuxSuccess(identity, [
       'respawn-pane', '-k', '-t', identity.paneId, '-c', cwd, shell,
     ], run);
   } else {
-    await signalVerifiedProcess(target.process, deps);
+    await signalVerifiedProcessGroup(target.process, agentGroup, deps);
   }
 
   for (const option of [
@@ -370,14 +385,18 @@ export async function stopAgentProcessInPane(
   }
 }
 
-async function signalVerifiedProcess(
+async function signalVerifiedProcessGroup(
   generation: Readonly<TmuxProcessGeneration>,
+  group: number,
   deps: StopAgentProcessDeps,
 ): Promise<void> {
   const kill = deps.kill ?? ((pid, signal) => process.kill(pid, signal));
   const startedAtMs = deps.startedAtMs ?? processStartMs;
+  const isZombie = deps.isZombie ?? isZombieProcess;
   const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
-  const stillVerified = async (): Promise<boolean> => (await startedAtMs(generation.pid)) === generation.startedAtMs;
+  // A zombie keeps its /proc entry (and start tick) until its parent reaps it,
+  // but it runs nothing any more, so it counts as exited.
+  const stillVerified = async (): Promise<boolean> => (await startedAtMs(generation.pid)) === generation.startedAtMs && !await isZombie(generation.pid);
   const waitForExit = async (graceMs: number): Promise<boolean> => {
     for (let waited = 0; waited < graceMs; waited += STOP_POLL_MS) {
       await sleep(STOP_POLL_MS);
@@ -393,7 +412,8 @@ async function signalVerifiedProcess(
     });
   }
   const signal = (name: NodeJS.Signals): void => {
-    try { kill(generation.pid, name); } catch (error) {
+    // Negative pid: the whole group, so launcher wrappers go with the binary.
+    try { kill(-group, name); } catch (error) {
       // ESRCH means it exited between the check and the signal; anything else is a real refusal.
       if (!(error && typeof error === 'object' && 'code' in error && error.code === 'ESRCH')) throw error;
     }
