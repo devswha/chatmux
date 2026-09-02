@@ -27,16 +27,16 @@ class Connection implements FleetSupersedableConnection {
 function request(body: unknown = null) {
   return parseFleetRequestEnvelope({
     kind: 'request', protocolVersion: 'fleet/1', connectionGeneration: 1,
-    requestId: 'request-1', operation: 'catalog.snapshot',
-    target: { kind: 'host', hostId: HOST_ID }, body,
+    requestId: 'request-1', operation: 'chat.send',
+    target: { kind: 'session', hostId: HOST_ID, localId: 'session-1' }, body,
   });
 }
 
 function response() {
   return parseFleetResponseEnvelope({
     kind: 'response', protocolVersion: 'fleet/1', connectionGeneration: 1,
-    requestId: 'request-1', target: { kind: 'host', hostId: HOST_ID },
-    status: 'success', sideEffect: 'none', body: null,
+    requestId: 'request-1', target: { kind: 'session', hostId: HOST_ID, localId: 'session-1' },
+    status: 'success', sideEffect: 'applied', body: null,
   });
 }
 
@@ -116,7 +116,7 @@ test('Given a negotiated capability intersection, when an unsupported operation 
 
   assert.throws(() => assertFleetCapability([], required), /capability is unavailable/);
   assert.equal(dispatcherCount, 0);
-  assertFleetCapability(['catalog.read'], required);
+  assertFleetCapability(['chat.control'], required);
   dispatcherCount += 1;
   assert.equal(dispatcherCount, 1);
 });

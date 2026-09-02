@@ -85,13 +85,13 @@ test('Given a real WebSocket pair, when the composed boundary authenticates then
       close: (code, reason) => socket.close(code, reason),
     };
     const connection = new FleetProtocolConnection({
-      local: { role: 'peer', signer: peer.signer, processEpoch: 'peer-epoch', capabilities: ['catalog.read'], transportMode: 'direct-wss' },
+      local: { role: 'peer', signer: peer.signer, processEpoch: 'peer-epoch', capabilities: ['catalog.read', 'chat.control'], transportMode: 'direct-wss' },
       trust: { find: async (installationId) => ({ installationId, pinnedPublicKey: hub.publicKey, state: 'active' }) },
       replayGuard, registry, transport,
       createHello: (connectionId) => {
         retainedPeerHello ??= createFleetHello({
           role: 'peer', signer: peer.signer, processEpoch: 'peer-epoch',
-          capabilities: ['catalog.read'], transportMode: 'direct-wss', connectionId,
+          capabilities: ['catalog.read', 'chat.control'], transportMode: 'direct-wss', connectionId,
         });
         return retainedPeerHello;
       },
@@ -113,7 +113,7 @@ test('Given a real WebSocket pair, when the composed boundary authenticates then
   const endpoint = `ws://127.0.0.1:${address.port}/fleet-ws`;
   const connectionId = randomUUID();
   const hubHello = createFleetHello({
-    role: 'hub', signer: hub.signer, processEpoch: 'hub-epoch', capabilities: ['catalog.read'],
+    role: 'hub', signer: hub.signer, processEpoch: 'hub-epoch', capabilities: ['catalog.read', 'chat.control'],
     transportMode: 'direct-wss', connectionId,
   });
   let savedProof: Awaited<ReturnType<typeof createFleetProof>> | undefined;
@@ -146,7 +146,7 @@ test('Given a real WebSocket pair, when the composed boundary authenticates then
   await withTimeout(authenticated.promise, 'auth');
   const canonical = parseFleetRequestEnvelope({
     kind: 'request', protocolVersion: 'fleet/1', connectionGeneration: 1, requestId: 'live-request',
-    operation: 'catalog.snapshot', target: { kind: 'host', hostId: peer.signer.installationId }, body: { value: 'one' },
+    operation: 'chat.send', target: { kind: 'session', hostId: peer.signer.installationId, localId: 'live-session' }, body: { value: 'one' },
   });
   active.send(encodeFleetFrame(canonical));
   active.send(encodeFleetFrame(canonical));
