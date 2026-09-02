@@ -265,6 +265,11 @@ updater, and direct browser UI. The hub stores routing/catalog metadata; it is n
 relay, replicated database, consensus member, failover controller, or cloud-sync
 service.
 
+The hub shows a bounded view of each peer: every live pane plus the peer's most
+recently active sessions and their projects, as much as one fleet frame carries. Older
+sessions stay available on that peer's own ChatMux address, and a peer that left rows
+out says so in its catalog (`omitted`).
+
 ### 8.1 Owner-only enrollment
 
 Only the authenticated owner can open **Settings → Hosts**, generate a code, enroll a

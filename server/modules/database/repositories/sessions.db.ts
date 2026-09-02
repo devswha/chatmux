@@ -434,6 +434,27 @@ export const sessionsDb = {
     })) as ProjectSessionPageRow[];
   },
 
+  /** Most recently active sessions across every project, newest first. */
+  getRecentSessions(limit: number): SessionRow[] {
+    const db = getConnection();
+    const rows = db
+      .prepare(
+        `SELECT ${SESSION_ROW_COLUMNS}
+         FROM sessions
+         ORDER BY datetime(COALESCE(updated_at, created_at)) DESC, session_id DESC
+         LIMIT ?`
+      )
+      .all(Math.max(0, Math.floor(limit))) as SessionRow[];
+
+    return normalizeSessionRows(rows);
+  },
+
+  countSessions(): number {
+    const db = getConnection();
+    const row = db.prepare('SELECT COUNT(*) AS count FROM sessions').get() as { count: number } | undefined;
+    return Number(row?.count ?? 0);
+  },
+
   countSessionsByProjectPath(projectPath: string): number {
     const db = getConnection();
     const normalizedProjectPath = normalizeProjectPath(projectPath);

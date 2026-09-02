@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { FleetCatalogAggregator } from '../catalog/aggregator.js';
+import { parseFleetCatalogSnapshot } from '../catalog/schema.js';
 import type { FleetCatalogDelta, FleetCatalogMaterial, FleetCatalogSnapshot } from '../catalog/types.js';
 import { PeerCatalogPublisher } from '../peer/catalog-publisher.js';
 
@@ -149,5 +150,40 @@ test('Given publisher material at the current revision, when conflict or gap ent
   const alteredRows = { ...authoritative, projects: current.projects.map((row, index) => index === 0 ? { ...row, displayName: 'altered' } : row) };
   assert.equal(catalog.snapshot(A, 1, 'epoch', alteredRows).kind, 'resync_required');
   assert.deepEqual(catalog.admitWrite(A), { ok: false, error: 'HOST_SYNCING' });
+  release(); publisher.stop();
+});
+
+test('Given material larger than the budget, when published, then the snapshot is bounded and an oversized delta becomes a replacement snapshot', async () => {
+  const wide = (offset: number, summary: string, idPrefix: string): FleetCatalogMaterial => ({
+    ...material(),
+    projects: Array.from({ length: 40 }, (_row, index) => ({ localId: `${idPrefix}-project-${index}`, path: `/p/${idPrefix}/${index}`, displayName: `p${index}`, isStarred: false })),
+    sessions: Array.from({ length: 40 }, (_row, index) => ({ localId: `${idPrefix}-session-${index}`, projectLocalId: `${idPrefix}-project-${index}`, provider: 'codex', summary: `${summary}-${index}`, lastActivityMs: offset + index })),
+  });
+  let current = wide(1_000, 'first-summary-text', 'a');
+  const publisher = new PeerCatalogPublisher({ epoch: 'peer-epoch', budgetBytes: 2_500, read: async () => current, subscribe: () => () => undefined });
+  const events: Array<Readonly<{ event: string; body: unknown }>> = [];
+  const release = await publisher.accept((event, body) => events.push({ event, body }));
+
+  const first = parseFleetCatalogSnapshot(events[0]?.body);
+  assert.equal(events[0]?.event, 'catalog.snapshot');
+  assert.ok(first.omitted !== undefined && first.omitted.sessions > 0, 'the bounded snapshot says what it left out');
+  assert.ok(first.sessions.length < 40 && first.sessions[0]?.localId === 'a-session-39', 'newest sessions survive');
+  assert.ok(JSON.stringify(events[0]?.body).length <= 2_500);
+
+  // Every kept row is replaced by a new one: the delta (removes plus upserts) is about twice the
+  // bounded snapshot and cannot fit, so a snapshot at the next revision ships instead.
+  current = wide(5_000, 'second-summary-text', 'b');
+  await publisher.refresh();
+  assert.equal(events.length, 2);
+  assert.equal(events[1]?.event, 'catalog.snapshot');
+  const second = parseFleetCatalogSnapshot(events[1]?.body);
+  assert.equal(second.revision, first.revision + 1);
+  assert.ok(JSON.stringify(events[1]?.body).length <= 2_500);
+
+  const aggregator = new FleetCatalogAggregator(() => undefined);
+  assert.equal(aggregator.snapshot(A, 1, 'peer-epoch', events[0]?.body).kind, 'applied');
+  assert.equal(aggregator.snapshot(A, 1, 'peer-epoch', events[1]?.body).kind, 'applied', 'a same-epoch snapshot at the next revision replaces the view');
+  assert.equal(aggregator.host(A)?.revision, second.revision);
+  assert.ok(aggregator.rows().sessions.every((row) => row.row.summary.startsWith('second')), 'the replacement is authoritative');
   release(); publisher.stop();
 });

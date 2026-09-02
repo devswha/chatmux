@@ -6,7 +6,14 @@ import { chatRunRegistry } from '@/modules/websocket/index.js';
 
 import type { FleetCapability } from '../../../../shared/fleet.js';
 import { fleetCatalogPaneKey } from '../catalog/keys.js';
-import type { FleetCatalogMaterial, FleetCatalogSession } from '../catalog/types.js';
+import type { FleetCatalogSession, FleetCatalogSourceMaterial } from '../catalog/types.js';
+
+/**
+ * Sessions read per refresh. Far more than one frame carries (rows measure a
+ * few hundred bytes), so the frame bound decides what ships, while the read
+ * itself stays one query instead of one per project on every collector tick.
+ */
+export const CATALOG_SOURCE_SESSION_LIMIT = 512;
 
 type CatalogSourceOptions = Readonly<{
   readonly hostId: string;
@@ -16,10 +23,10 @@ type CatalogSourceOptions = Readonly<{
 }>;
 function activityMs(value: string): number { const parsed = Date.parse(value); return Number.isFinite(parsed) ? parsed : 0; }
 type ProjectRow = Readonly<{ readonly project_id: string; readonly project_path: string; readonly custom_project_name?: string | null; readonly isStarred?: number }>;
-type SessionRow = Readonly<{ readonly session_id: string; readonly provider: string; readonly custom_name?: string | null; readonly updated_at?: string | null; readonly created_at?: string | null }>;
+type SessionRow = Readonly<{ readonly session_id: string; readonly provider: string; readonly project_path: string | null; readonly custom_name?: string | null; readonly updated_at?: string | null; readonly created_at?: string | null }>;
 
 export function createPeerCatalogSource(options: CatalogSourceOptions): Readonly<{
-  readonly read: () => Promise<FleetCatalogMaterial>;
+  readonly read: () => Promise<FleetCatalogSourceMaterial>;
   readonly subscribe: (listener: () => void) => () => void;
 }> {
   return {
@@ -46,12 +53,18 @@ export function createPeerCatalogSource(options: CatalogSourceOptions): Readonly
       await options.discovery.ensureFresh(2_000);
       const discovery = options.discovery.currentSnapshot();
       const projectRows: ProjectRow[] = projectsDb.getProjectPaths();
+      const projectIdByPath = new Map(projectRows.map((project) => [project.project_path, project.project_id]));
+      const totalSessions = sessionsDb.countSessions();
+      const recent: SessionRow[] = sessionsDb.getRecentSessions(CATALOG_SOURCE_SESSION_LIMIT);
       const sessions: FleetCatalogSession[] = [];
-      for (const project of projectRows) {
-        const rows: SessionRow[] = sessionsDb.getSessionsByProjectPath(project.project_path);
-        sessions.push(...rows.map((session) => ({ localId: session.session_id, projectLocalId: project.project_id, provider: session.provider, summary: session.custom_name ?? '', lastActivityMs: activityMs(session.updated_at ?? session.created_at ?? '') })));
+      for (const session of recent) {
+        const projectLocalId = session.project_path === null ? undefined : projectIdByPath.get(session.project_path);
+        if (projectLocalId === undefined) continue;
+        sessions.push({ localId: session.session_id, projectLocalId, provider: session.provider, summary: session.custom_name ?? '', lastActivityMs: activityMs(session.updated_at ?? session.created_at ?? '') });
       }
+      const omittedSessions = Math.max(0, totalSessions - sessions.length);
       return {
+        ...(omittedSessions === 0 ? {} : { omitted: { projects: 0, sessions: omittedSessions, panes: 0 } }),
         host: { hostId: options.hostId, displayLabel: options.displayLabel, capabilities: options.capabilities },
         projects: projectRows.map((project) => ({ localId: project.project_id, path: project.project_path, displayName: project.custom_project_name?.trim() || path.basename(project.project_path) || project.project_path, isStarred: Boolean(project.isStarred) })),
         sessions,
