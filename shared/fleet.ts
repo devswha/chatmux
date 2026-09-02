@@ -85,7 +85,10 @@ function json(value: unknown): JsonValue {
   if (Array.isArray(value)) return value.map(json);
   const object = record(value, 'body');
   const result: Record<string, JsonValue> = {};
-  for (const [key, item] of Object.entries(object)) result[key] = key === 'capabilities' ? capabilities(item) : json(item);
+  // Bodies are opaque: a provider's own "capabilities" (an MCP initialize
+  // result inside chat.delta, for instance) must not be read as the fleet enum.
+  // Descriptor fields named by the RFC are validated by their own parsers.
+  for (const [key, item] of Object.entries(object)) result[key] = json(item);
   return result;
 }
 function hostTarget(value: unknown): FleetHostReference {
