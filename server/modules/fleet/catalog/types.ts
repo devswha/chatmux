@@ -54,9 +54,24 @@ export type FleetCatalogMaterial = Readonly<{
   readonly health: FleetCatalogHealth;
   readonly processing: readonly FleetCatalogProcessing[];
 }>;
+/**
+ * Rows the peer left out so the snapshot fits one frame (RFC rev.2). Present
+ * only when at least one count is non-zero; absent snapshots parse unchanged
+ * on hubs that predate the field.
+ */
+export type FleetCatalogOmitted = Readonly<{
+  readonly projects: number;
+  readonly sessions: number;
+  readonly panes: number;
+}>;
+/** What the peer-side source hands the publisher: material plus rows it already left out. */
+export type FleetCatalogSourceMaterial = FleetCatalogMaterial & Readonly<{
+  readonly omitted?: FleetCatalogOmitted;
+}>;
 export type FleetCatalogSnapshot = FleetCatalogMaterial & Readonly<{
   readonly epoch: string;
   readonly revision: number;
+  readonly omitted?: FleetCatalogOmitted;
 }>;
 type UpsertChange =
   | Readonly<{ readonly op: 'upsert'; readonly entity: 'project'; readonly row: FleetCatalogProject }>

@@ -87,3 +87,15 @@ test('sessionsDb uses the explicit DATABASE_PATH override', async () => {
     assert.equal(sessionsDb.getSessionById('explicit-path')?.custom_name, 'Explicit Path');
   });
 });
+
+test('session repository lists the newest sessions across projects and counts them all', async () => {
+  await withIsolatedDatabase(() => {
+    sessionsDb.createSession('session-early', 'claude', '/workspace/a', 'Early', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
+    sessionsDb.createSession('session-middle', 'codex', '/workspace/b', 'Middle', '2026-01-02T00:00:00.000Z', '2026-01-02T00:00:00.000Z');
+    sessionsDb.createSession('session-late', 'claude', '/workspace/a', 'Late', '2026-01-03T00:00:00.000Z', '2026-01-03T00:00:00.000Z');
+
+    assert.deepEqual(sessionsDb.getRecentSessions(2).map((session) => session.session_id), ['session-late', 'session-middle']);
+    assert.deepEqual(sessionsDb.getRecentSessions(0), []);
+    assert.equal(sessionsDb.countSessions(), 3);
+  });
+});

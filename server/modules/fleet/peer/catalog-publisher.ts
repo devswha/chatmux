@@ -1,9 +1,16 @@
 import { randomUUID } from 'node:crypto';
 
 import type { FleetEvent, JsonValue } from '../../../../shared/fleet.js';
-import type { FleetCatalogChange, FleetCatalogDelta, FleetCatalogMaterial, FleetCatalogSnapshot } from '../catalog/types.js';
+import { boundCatalogMaterial, CATALOG_BODY_BUDGET_BYTES, measureCatalogBody } from '../catalog/bounds.js';
+import type { FleetCatalogChange, FleetCatalogDelta, FleetCatalogSnapshot, FleetCatalogSourceMaterial } from '../catalog/types.js';
 
-type PublisherOptions = Readonly<{ readonly epoch: string; readonly read: () => Promise<FleetCatalogMaterial>; readonly subscribe: (listener: () => void) => () => void }>;
+type PublisherOptions = Readonly<{
+  readonly epoch: string;
+  readonly read: () => Promise<FleetCatalogSourceMaterial>;
+  readonly subscribe: (listener: () => void) => () => void;
+  /** Largest catalog body put on the wire; tests lower it to exercise the bound. */
+  readonly budgetBytes?: number;
+}>;
 export type CatalogPublish = (event: Extract<FleetEvent, 'catalog.snapshot' | 'catalog.delta'>, body: JsonValue, eventId: string) => void;
 function toJson(value: unknown): JsonValue {
   if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
@@ -30,10 +37,14 @@ export class PeerCatalogPublisher {
   currentSnapshot(): FleetCatalogSnapshot | undefined { return this.snapshot; }
   stop(): void { this.unsubscribe?.(); this.unsubscribe = undefined; this.sinks.clear(); }
   private async drain(): Promise<void> { while (this.pending) { this.pending = false; await this.update(await this.options.read()); } }
-  private update(material: FleetCatalogMaterial): void {
+  private update(source: FleetCatalogSourceMaterial): void {
     this.refreshError = undefined;
+    const budget = this.options.budgetBytes ?? CATALOG_BODY_BUDGET_BYTES;
+    // RFC rev.2: the catalog is bounded to one frame before anything else looks at it.
+    const { material, omitted } = boundCatalogMaterial(source, { budgetBytes: budget });
+    const compose = (revision: number): FleetCatalogSnapshot => ({ epoch: this.options.epoch, revision, ...material, ...(omitted === undefined ? {} : { omitted }) });
     const previous = this.snapshot;
-    if (previous === undefined) { this.revision = 1; this.snapshot = { epoch: this.options.epoch, revision: this.revision, ...material }; return; }
+    if (previous === undefined) { this.revision = 1; this.snapshot = compose(this.revision); return; }
     const changes = [
       ...changed(previous.projects, material.projects, (op, row) => ({ op, entity: 'project', row })),
       ...changed(previous.sessions, material.sessions, (op, row) => ({ op, entity: 'session', row })),
@@ -44,8 +55,16 @@ export class PeerCatalogPublisher {
     const healthChanged = JSON.stringify(previous.health) !== JSON.stringify(material.health);
     if (changes.length === 0 && !hostChanged && !healthChanged) return;
     const prevRevision = this.revision; this.revision += 1;
-    this.snapshot = { epoch: this.options.epoch, revision: this.revision, ...material };
+    this.snapshot = compose(this.revision);
     const delta: FleetCatalogDelta = { epoch: this.options.epoch, prevRevision, revision: this.revision, ...(hostChanged ? { host: material.host } : {}), changes, health: material.health };
-    for (const sink of this.sinks) sink('catalog.delta', toJson(delta), randomUUID());
+    const deltaBody = toJson(delta);
+    if (measureCatalogBody(deltaBody) > budget) {
+      // A delta that cannot fit is replaced by a full snapshot at the same
+      // epoch and this revision; the hub applies it as a replacement.
+      const snapshotBody = toJson(this.snapshot);
+      for (const sink of this.sinks) sink('catalog.snapshot', snapshotBody, randomUUID());
+      return;
+    }
+    for (const sink of this.sinks) sink('catalog.delta', deltaBody, randomUUID());
   }
 }
