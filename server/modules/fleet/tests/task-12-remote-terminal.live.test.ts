@@ -23,6 +23,21 @@ function armCreated(directory: string, expected: string): Promise<void> {
     }, 5_000);
   });
 }
+/**
+ * Captures a pane only once it shows `marker`: the readiness file is touched
+ * before bash prints its prompt, so an immediate capture races the shell and
+ * the "unchanged" comparison later flakes on whether the prompt arrived.
+ */
+async function settledCapture(socketPath: string, paneId: string, marker: string): Promise<string> {
+  const deadline = Date.now() + 5_000;
+  let screen = tmux(socketPath, ['capture-pane', '-p', '-t', paneId]);
+  while (!screen.includes(marker) && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    screen = tmux(socketPath, ['capture-pane', '-p', '-t', paneId]);
+  }
+  if (!screen.includes(marker)) throw new TypeError(`fixture pane never showed ${marker}`);
+  return screen;
+}
 function controllerState(): string {
   const result = spawnSync('tmux', [
     'list-sessions', '-F', '#{socket_path}\t#{pid}\t#{session_id}\t#{session_name}',
@@ -46,7 +61,7 @@ test('real peer-owned PTY attaches peer A, accepts input and resize, and leaves 
     const peerBReady = armCreated(root, 'peer-b-ready');
     tmux(socketB, ['new-session', '-d', '-s', 'peer-b', `touch '${path.join(root, 'peer-b-ready')}'; exec bash --noprofile --norc`]);
     await peerBReady;
-    const peerBPipeBefore = tmux(socketB, ['capture-pane', '-p', '-t', '%0']);
+    const peerBPipeBefore = await settledCapture(socketB, '%0', 'bash-');
     const identity = tmux(socketA, ['display-message', '-p', '-t', '%0', '#{session_id}\t#{window_id}\t#{pane_id}']).trim().split('\t');
     const [sessionId, windowId, paneId] = identity;
     if (sessionId === undefined || windowId === undefined || paneId === undefined) throw new TypeError('tmux identity fixture is invalid');
