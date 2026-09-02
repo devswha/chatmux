@@ -19,6 +19,7 @@ import {
   type DiscoveryCollector,
   type DiscoveryRow,
   type VerifiedTmuxActionTarget,
+  isInferredSessionBinding,
 } from '@/modules/providers/index.js';
 
 import type { FleetPaneReference } from '../../../../../shared/fleet.js';
@@ -69,7 +70,10 @@ export function createLocalFleetMutationServices(localHostId: string, discovery:
   const verifySession = async (localId: string): Promise<MutationActionTarget> => {
     const session = sessionsDb.getSessionById(localId); if (session === null) throw new FleetMutationRpcError('HOST_NOT_FOUND', 'session was not found');
     await discovery.ensureFresh(0, true); const nativeId = session.provider_session_id ?? session.session_id; const rows = discovery.currentSnapshot().rows.filter((row) => row.providerSessionId === nativeId && row.process !== null);
-    if (rows.length !== 1 || rows[0] === undefined) throw new FleetMutationRpcError('FLEET_STALE_GENERATION', 'session has no unique current pane'); return wrap(await verifyRow(rows[0]));
+    if (rows.length !== 1 || rows[0] === undefined) throw new FleetMutationRpcError('FLEET_STALE_GENERATION', 'session has no unique current pane');
+    // A session id may drive a pane only when the link is process-bound; a cwd/time guess is refused and the hub falls back to attach (M5B).
+    if (isInferredSessionBinding(rows[0].binding)) throw new FleetMutationRpcError('FLEET_CAPABILITY_UNAVAILABLE', 'session is linked to its pane by folder and timing only; attach to the terminal instead');
+    return wrap(await verifyRow(rows[0]));
   };
   const finalCheck = async (request: FleetMutationRequest, value: MutationActionTarget | VerifiedSpawn): Promise<void> => {
     if ('token' in value) { const mode = protectionMode(request.operation); if (mode !== null) await assertProtection(unwrap(value), mode); }

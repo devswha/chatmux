@@ -2,6 +2,7 @@ import {
   getExternalCliSessionsFresh,
   type ExternalCliKind,
   type ExternalCliSession,
+  type ExternalSessionBinding,
 } from '@/modules/providers/services/external-cli-sessions.service.js';
 import { AppError } from '@/shared/utils.js';
 
@@ -22,6 +23,8 @@ export type VerifiedTmuxActionTarget = Readonly<{
   kind: ExternalCliKind | 'gjc';
   tmuxName: string | null;
   providerSessionId: string | null;
+  /** How `providerSessionId` was tied to this process; null when unknown or not applicable (gjc). */
+  binding: ExternalSessionBinding | null;
   readonly [verifiedTmuxActionTarget]: true;
 }>;
 
@@ -40,6 +43,7 @@ export function createVerifiedTmuxActionTarget(
   kind: ExternalCliKind | 'gjc',
   tmuxName: string | null,
   providerSessionId: string | null = null,
+  binding: ExternalSessionBinding | null = null,
 ): VerifiedTmuxActionTarget {
   return Object.freeze({
     tmux: Object.freeze({ ...tmux }),
@@ -47,6 +51,7 @@ export function createVerifiedTmuxActionTarget(
     kind,
     tmuxName,
     providerSessionId,
+    binding: providerSessionId === null ? null : binding,
     [verifiedTmuxActionTarget]: true as const,
   });
 }
@@ -87,5 +92,6 @@ export async function assertFreshExternalTmuxTarget(
     target.kind,
     target.tmuxName,
     target.providerSessionId ?? null,
+    target.binding ?? null,
   );
 }

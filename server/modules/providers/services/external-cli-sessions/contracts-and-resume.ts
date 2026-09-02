@@ -44,11 +44,26 @@ export type ExternalLocalCliKind = 'claude' | 'codex' | 'cursor' | 'opencode' | 
 
 export type ExternalCliKind = ExternalLocalCliKind | 'ssh' | 'shell';
 
+/**
+ * How strongly a pane's `providerSessionId` is tied to the process in it.
+ *   'tagged'   — ChatMux wrote the id onto the pane when it spawned the agent.
+ *   'observed' — the running process itself names the session: a resume id in
+ *                its argv, a per-pid runtime receipt, or a transcript it holds
+ *                open (read through /proc).
+ *   'inferred' — the id was guessed from cwd plus a time window and can point
+ *                at a different TUI in the same folder. Approvals and other
+ *                session-addressed actions must not act on such a link; the
+ *                user answers in the terminal (attach) instead.
+ */
+export type ExternalSessionBinding = 'tagged' | 'observed' | 'inferred';
+
 export type ExternalCliSession = {
   tmuxName: string;
   tmux: TmuxPaneIdentity;
   kind: ExternalCliKind;
   providerSessionId?: string;
+  /** Present exactly when `providerSessionId` is. */
+  binding?: ExternalSessionBinding;
   cwd?: string;
   agentPid?: number;
   startedAtMs?: number;
