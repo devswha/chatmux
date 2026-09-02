@@ -48,17 +48,23 @@ export function findLiveTmuxPaneForSession(
  * fail closed only when resuming a provider-native session could create a
  * duplicate writer.
  */
-export async function findLiveTmuxSpawnBlock(
+export function createFindLiveTmuxSpawnBlock(
+  discover = getExternalCliSessionsDetailedFresh,
+): (
   provider: LLMProvider | string,
   providerSessionId: string | null | undefined,
-): Promise<LiveTmuxSpawnGuardResult> {
-  if (!providerSessionId || !GUARDED_PROVIDERS.has(provider)) return CLEAR_RESULT;
-  try {
-    const detailed = await getExternalCliSessionsDetailedFresh();
-    if (!detailed.ok) return DISCOVERY_UNAVAILABLE_RESULT;
-    const owner = findLiveTmuxPaneForSession(provider, providerSessionId, detailed.sessions);
-    return owner ? { kind: 'blocked', tmuxName: owner.tmuxName } : CLEAR_RESULT;
-  } catch {
-    return DISCOVERY_UNAVAILABLE_RESULT;
-  }
+) => Promise<LiveTmuxSpawnGuardResult> {
+  return async (provider, providerSessionId) => {
+    if (!providerSessionId || !GUARDED_PROVIDERS.has(provider)) return CLEAR_RESULT;
+    try {
+      const detailed = await discover();
+      if (!detailed.ok) return DISCOVERY_UNAVAILABLE_RESULT;
+      const owner = findLiveTmuxPaneForSession(provider, providerSessionId, detailed.sessions);
+      return owner ? { kind: 'blocked', tmuxName: owner.tmuxName } : CLEAR_RESULT;
+    } catch {
+      return DISCOVERY_UNAVAILABLE_RESULT;
+    }
+  };
 }
+
+export const findLiveTmuxSpawnBlock = createFindLiveTmuxSpawnBlock();

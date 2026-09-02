@@ -32,12 +32,14 @@ function fakeSessionStore(withMessage = false) {
     content: 'keep this viewport under user control',
   }] : [];
   let pendingExternalContent: string | null = null;
+  const refreshRequests: string[] = [];
   const store = {
     setActiveSession() {},
     getMessages: () => messages,
     has: () => withMessage,
     fetchFromServer: async () => ({ hasMore: false, total: messages.length }),
-    refreshFromServer: async () => {
+    refreshFromServer: async (sessionId: string) => {
+      refreshRequests.push(sessionId);
       if (pendingExternalContent !== null) {
         messages = [...messages, {
           id: `message-${messages.length + 1}`,
@@ -59,6 +61,7 @@ function fakeSessionStore(withMessage = false) {
     queueExternalMessage: (content: string) => {
       pendingExternalContent = content;
     },
+    refreshRequests,
   };
 }
 
@@ -219,10 +222,10 @@ async function mountScrollHarness({ withMessage = false } = {}) {
     pollExternalMessage: async (content: string) => {
       sessionStoreHarness.queueExternalMessage(content);
       await act(async () => {
-        await sessionStore.refreshFromServer('session-1');
-        renderer?.update(createElement(Probe));
+        await latest?.refreshCurrentMessages();
       });
     },
+    refreshRequests: sessionStoreHarness.refreshRequests,
     dispose: async () => {
       if (renderer) await act(async () => renderer?.unmount());
       browser.restore();
@@ -348,6 +351,7 @@ test('Given a followed live CLI transcript, when polling reconciles a new messag
 
     await harness.pollExternalMessage('arrived through external live polling');
 
+    assert.deepEqual(harness.refreshRequests, ['session-1']);
     assert.equal(harness.container.scrollTop, 1_100);
     assert.equal(harness.browser.pendingFrames(), 1, 'the polled render keeps correcting painted layout');
 
@@ -369,6 +373,7 @@ test('Given a detached live CLI transcript, when polling updates and the user re
     harness.container.scrollHeight = 1_100;
     await harness.pollExternalMessage('new output while reviewing older text');
 
+    assert.deepEqual(harness.refreshRequests, ['session-1']);
     assert.equal(harness.container.scrollTop, 200);
     assert.equal(harness.latest().hasNewMessagesBelow, true);
 
@@ -379,6 +384,7 @@ test('Given a detached live CLI transcript, when polling updates and the user re
 
     harness.container.scrollHeight = 1_300;
     await harness.pollExternalMessage('new output after returning to the tail');
+    assert.deepEqual(harness.refreshRequests, ['session-1', 'session-1']);
     assert.equal(harness.container.scrollTop, 1_300);
   } finally {
     await harness.dispose();
