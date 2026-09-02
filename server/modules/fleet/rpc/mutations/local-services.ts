@@ -84,6 +84,10 @@ export function createLocalFleetMutationServices(localHostId: string, discovery:
     verifySession, verifyPane,
     verifySpawn: async (projectLocalId, cwd) => { if (projectsDb.getProjectById(projectLocalId) === null) throw new FleetMutationRpcError('HOST_NOT_FOUND', 'project was not found'); const resolved = await resolveExternalCliCwd(cwd); if (resolved === null) throw new FleetMutationRpcError('FLEET_UNAUTHORIZED', 'spawn cwd is outside peer home'); return { cwd: resolved }; },
     finalCheck, send: (key, message) => sendToTmuxPane(unwrap(key), message), abort: (key) => sendTmuxProcessAction(unwrap(key), 'interrupt'), interrupt: (key) => sendTmuxProcessAction(unwrap(key), 'interrupt'), escape: (key) => sendTmuxProcessAction(unwrap(key), 'escape'), respondPrompt: prompt,
-    respondApproval: (key, decision) => answerTmuxApproval(unwrap(key), decision), spawn: async (value, name) => spawnLiveSession(name, value.cwd), terminateProcess: (key) => stopAgentProcessInPane(unwrap(key)), terminatePane: (key) => killTmuxPane(unwrap(key)), terminateSession: (key) => killTmuxSession(unwrap(key)),
+    respondApproval: (key, decision) => answerTmuxApproval(unwrap(key), decision), spawn: async (value, name) => spawnLiveSession(name, value.cwd), terminateProcess: (key) => stopAgentProcessInPane(unwrap(key)), terminatePane: (key) => killTmuxPane(unwrap(key)), // The hub UI's session kill is confirmed by the user against the wording
+    // "Destroy this tmux session, all panes, and all processes inside it", so
+    // the wider blast radius is already an explicit choice here; the direct
+    // provider route, which has no such prompt, keeps requiring confirmOtherPanes.
+    terminateSession: (key) => killTmuxSession(unwrap(key), undefined, { allowOtherPanes: true }),
   };
 }
