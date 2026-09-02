@@ -1,7 +1,7 @@
 import { constants as fsConstants } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, isAbsolute, relative, sep, delimiter, dirname } from 'node:path';
-import { realpath, stat, access } from 'node:fs/promises';
+import { mkdir, realpath, stat, access } from 'node:fs/promises';
 
 import { CURSOR_CLI_COMMAND_CANDIDATES } from '@/modules/providers/list/cursor/cursor-cli-command.js';
 
@@ -85,28 +85,70 @@ export function normalizeExternalPaneOutput(output: string, maxChars = 32_768): 
   return plain.length > maxChars ? plain.slice(-maxChars) : plain;
 }
 
-/** Resolves a web spawn cwd and rejects traversal/symlink escape outside HOME. */
-export async function resolveExternalCliCwd(input: string): Promise<string | null> {
-  const home = await realpath(homedir()).catch(() => null);
-  if (!home || input.includes('\0')) return null;
+function isWithinHome(home: string, target: string): boolean {
+  const rel = relative(home, target);
+  return rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
+}
+
+function expandExternalCliCwd(input: string, home: string): string | null {
+  if (input.includes('\0')) return null;
   const trimmed = input.trim();
-  const expanded = trimmed === '~'
-    ? homedir()
-    : trimmed.startsWith('~/')
-      ? join(homedir(), trimmed.slice(2))
-      : isAbsolute(trimmed)
-        ? trimmed
-        : join(homedir(), trimmed);
-  try {
-    const resolved = await realpath(expanded);
-    const rel = relative(home, resolved);
-    if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
-      return null;
+  if (trimmed === '~') return home;
+  if (trimmed.startsWith('~/')) return join(home, trimmed.slice(2));
+  return isAbsolute(trimmed) ? trimmed : join(home, trimmed);
+}
+
+async function realpathExistingAncestor(target: string): Promise<string | null> {
+  let ancestor = target;
+  while (true) {
+    try {
+      return await realpath(ancestor);
+    } catch {
+      const parent = dirname(ancestor);
+      if (parent === ancestor) return null;
+      ancestor = parent;
     }
+  }
+}
+
+/** Creates a missing absolute cwd only after its existing ancestor is proven inside HOME. */
+export async function ensureHomeCwd(cwd: string, home = homedir()): Promise<string | null> {
+  if (cwd.includes('\0') || !isAbsolute(cwd)) return null;
+  try {
+    const [homeReal, ancestorReal] = await Promise.all([
+      realpath(home),
+      realpathExistingAncestor(cwd),
+    ]);
+    if (!ancestorReal || !isWithinHome(homeReal, ancestorReal)) return null;
+
+    await mkdir(cwd, { recursive: true });
+    const resolved = await realpath(cwd);
+    if (!isWithinHome(homeReal, resolved)) return null;
     return (await stat(resolved)).isDirectory() ? resolved : null;
   } catch {
     return null;
   }
+}
+
+/** Resolves a web spawn cwd and rejects traversal/symlink escape outside HOME. */
+export async function resolveExternalCliCwd(input: string): Promise<string | null> {
+  const home = homedir();
+  const expanded = expandExternalCliCwd(input, home);
+  if (!expanded) return null;
+  try {
+    const [homeReal, resolved] = await Promise.all([realpath(home), realpath(expanded)]);
+    if (!isWithinHome(homeReal, resolved)) return null;
+    return (await stat(resolved)).isDirectory() ? resolved : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Resolves a web spawn cwd, creating a missing directory only after containment is proven. */
+export async function ensureExternalCliCwd(input: string): Promise<string | null> {
+  const home = homedir();
+  const expanded = expandExternalCliCwd(input, home);
+  return expanded ? ensureHomeCwd(expanded, home) : null;
 }
 
 export type ExternalSpawnCli = ExternalLocalCliKind;

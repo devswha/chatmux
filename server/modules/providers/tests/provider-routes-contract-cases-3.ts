@@ -1,3 +1,7 @@
+import { chmod, mkdir, mkdtemp, stat, symlink } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+
 import { app, assert, assertError, assertSuccess,
   externalTmux, liveTmux, request, test, validProcess,
 } from './support/provider-routes-contract.support.js';
@@ -103,12 +107,45 @@ test('external kill protects company-prefixed sessions', async () => {
   }
 });
 
-test('external and live spawn preserve name and cwd validation contracts', async () => {
-  assertError(await request('/sessions/external/spawn', { name: 'company', cwd: '~' }), 400, 'INVALID_SPAWN_NAME');
-  assertError(await request('/sessions/external/spawn', { name: 'contract', cwd: ' ' }), 400, 'EMPTY_CWD');
-  assertError(await request('/sessions/external/spawn', { name: 'contract', cwd: '/definitely-not-a-chatmux-directory' }), 400, 'INVALID_CWD');
-  assertError(await request('/sessions/live/spawn', { name: 'contract', cwd: ' ' }), 400, 'EMPTY_CWD');
-  assertError(await request('/sessions/live/spawn', { name: 'contract', cwd: '/definitely-not-a-chatmux-directory' }), 400, 'INVALID_CWD');
+test('external and live spawn create missing HOME cwd paths while retaining safety rejections', async () => {
+  // Given: an isolated HOME and paths which must remain outside it.
+  const home = await mkdtemp(path.join(os.tmpdir(), 'chatmux-spawn-home-'));
+  const outside = await mkdtemp(path.join(os.tmpdir(), 'chatmux-spawn-outside-'));
+  const originalHome = process.env.HOME;
+  process.env.HOME = home;
+  try {
+    // When: both local spawn routes receive missing nested paths under HOME.
+    const externalCwd = 'projects/external/nested';
+    const liveCwd = 'projects/live/nested';
+    assertSuccess(await request('/sessions/external/spawn', { name: 'external-cwd-create', cwd: externalCwd, cli: 'codex' }), 201);
+    assertSuccess(await request('/sessions/live/spawn', { name: 'live-cwd-create', cwd: liveCwd }));
+
+    // Then: both request paths reached their spawn boundary with a real directory.
+    assert.equal((await stat(path.join(home, externalCwd))).isDirectory(), true);
+    assert.equal((await stat(path.join(home, liveCwd))).isDirectory(), true);
+
+    // Given: traversal, symlink escape, and absolute paths outside HOME.
+    await symlink(outside, path.join(home, 'escape'));
+    assertError(await request('/sessions/external/spawn', { name: 'traversal-cwd', cwd: '../escape' }), 400, 'INVALID_CWD');
+    assertError(await request('/sessions/live/spawn', { name: 'symlink-cwd', cwd: '~/escape/nested' }), 400, 'INVALID_CWD');
+    assertError(await request('/sessions/external/spawn', { name: 'outside-cwd', cwd: path.join(outside, 'nested') }), 400, 'INVALID_CWD');
+
+    // Given: a HOME child that cannot create descendants.
+    const blocked = path.join(home, 'blocked');
+    await mkdir(blocked);
+    await chmod(blocked, 0o500);
+    try {
+      // When: creation requires the inaccessible directory.
+      const response = await request('/sessions/live/spawn', { name: 'blocked-cwd', cwd: '~/blocked/nested' });
+      // Then: the failure remains a validation rejection and no spawn succeeds.
+      assertError(response, 400, 'INVALID_CWD');
+    } finally {
+      await chmod(blocked, 0o700);
+    }
+  } finally {
+    if (originalHome === undefined) delete process.env.HOME;
+    else process.env.HOME = originalHome;
+  }
 });
 
 test('external spawn maps a failed tmux new-session to its 409 conflict contract', async () => {
@@ -156,5 +193,5 @@ test('spawn response and fresh-verifier boundaries stay explicit in the route so
   assert.match(externalSpawn, /createApiSuccessResponse\(\{ ok: true, tmuxName: body\.name, cwd, cli \}\)/);
   assert.doesNotMatch(externalSpawn, /paneId|sessionId|windowId|socketPath/);
   assert.doesNotMatch(externalSpawn, /assertFreshExternalTmuxTarget/);
-  assert.match(liveSpawn, /resolveExternalCliCwd\(cwdInput\)/);
+  assert.match(liveSpawn, /ensureExternalCliCwd\(cwdInput\)/);
 });

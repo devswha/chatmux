@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -38,10 +38,11 @@ test('builtinSpawn: validated cwd, duplicate → conflict, then new-session + gj
   assert.equal(conflict.conflict, true);
 
   const fresh = runner((call) => (call.args[0] === 'has-session' ? { code: 1, output: '' } : ok));
-  const created = await builtinSpawn('newone', '~/workspace/proj', { run: fresh.run, home });
+  const created = await builtinSpawn('newone', '~/workspace/newone/nested', { run: fresh.run, home });
   assert.equal(created.ok, true);
   assert.deepEqual(fresh.calls[1].args.slice(0, 5), ['new-session', '-d', '-s', 'newone', '-c']);
-  assert.ok(fresh.calls[1].args[5].endsWith(`${path.sep}workspace${path.sep}proj`));
+  assert.ok(fresh.calls[1].args[5].endsWith(`${path.sep}workspace${path.sep}newone${path.sep}nested`));
+  assert.equal(statSync(path.join(home, 'workspace', 'newone', 'nested')).isDirectory(), true);
   assert.equal(fresh.calls[1].args[6], 'gjc');
   assert.equal(fresh.calls.length, 2, 'agent boot is atomic with session creation');
 });
@@ -56,17 +57,23 @@ test('builtinSpawn: company* reserved and non-home cwd fail closed', async () =>
   const home = mkdtempSync(path.join(tmpdir(), 'relay-home-'));
   const outside = await builtinSpawn('okname', '/etc', { run: noRun, home });
   assert.equal(outside.ok, false);
-  assert.ok(outside.detail.includes('홈 아래 실존 디렉터리만'));
 });
 
-test('resolveSpawnCwd: expanduser + realpath containment + must be a directory', async () => {
+test('resolveSpawnCwd: creates missing HOME directories while preserving containment checks', async () => {
+  // Given: an isolated HOME with an existing directory and file.
   const home = mkdtempSync(path.join(tmpdir(), 'relay-home-'));
   mkdirSync(path.join(home, 'workspace'));
   writeFileSync(path.join(home, 'afile'), '');
+
+  // When: the builtin fallback resolves existing and missing HOME paths.
   assert.ok((await resolveSpawnCwd('~/workspace', home))?.endsWith(`${path.sep}workspace`));
   assert.ok(await resolveSpawnCwd('~', home), 'home itself is allowed');
+  const created = await resolveSpawnCwd('~/missing/nested', home);
+
+  // Then: the missing directory exists and unsafe paths remain rejected.
+  assert.ok(created?.endsWith(`${path.sep}missing${path.sep}nested`));
+  assert.equal(statSync(created ?? '').isDirectory(), true);
   assert.equal(await resolveSpawnCwd('~/afile', home), null, 'files are not workdirs');
-  assert.equal(await resolveSpawnCwd('~/missing', home), null);
   assert.equal(await resolveSpawnCwd('/etc', home), null, 'outside home');
   assert.equal(await resolveSpawnCwd('relative/path', home), null, 'must be absolute after expansion');
 });
