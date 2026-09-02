@@ -4,6 +4,8 @@ import type { AuthenticatedWebSocketRequest } from '@/shared/types.js';
 import { AUTH_COOKIE_NAME, getBearerToken, parseCookieHeader } from '@/middleware/auth.js';
 
 type WebSocketAuthDependencies = {
+  /** Same-site guard shared with the HTTP API; runs before any credential is read. */
+  checkCrossSite?: (request: AuthenticatedWebSocketRequest) => { ok: true } | { ok: false; error: string };
   authenticateWebSocket: (
     token: string | null,
     request: AuthenticatedWebSocketRequest,
@@ -25,6 +27,12 @@ export function verifyWebSocketClient(
   const request = info.req as AuthenticatedWebSocketRequest;
   const upgradeUrl = new URL(request.url ?? '/', 'http://localhost');
   console.log('WebSocket connection attempt to:', upgradeUrl.pathname);
+
+  const crossSite = dependencies.checkCrossSite?.(request);
+  if (crossSite && !crossSite.ok) {
+    console.log('[WARN] WebSocket upgrade rejected:', crossSite.error);
+    return false;
+  }
 
   if (upgradeUrl.searchParams.has('token')) {
     console.log('[WARN] WebSocket authentication failed');
