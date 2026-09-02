@@ -37,6 +37,8 @@ case "$*" in
     case "$*" in
       *'%2'*socket_path*) printf '/tmp/chatmux-contract.sock\t$2\t@2\t%%2\n' ;;
       *socket_path*) printf '/tmp/chatmux-contract.sock\t$1\t@1\t%%1\n' ;;
+      *'%2'*pane_current_path*pane_pid*) printf '$2\t@2\t%%2\t/tmp\t%s\n' "$PPID" ;;
+      *pane_current_path*pane_pid*) printf '$1\t@1\t%%1\t/tmp\t%s\n' "$PPID" ;;
       *pane_pid*) printf '%s\n' "$PPID" ;;
       *'%2'*pane_current_path*) printf '$2\t@2\t%%2\t/tmp\n' ;;
       *pane_current_path*) printf '$1\t@1\t%%1\t/tmp\n' ;;

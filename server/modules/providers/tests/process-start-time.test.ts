@@ -2,9 +2,13 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  isZombieProcess,
   parseBootTimeMs,
+  parseProcStatProcessGroupId,
   parseProcStatStartTicks,
+  parseProcStatState,
   parseProcessStartTime,
+  processGroupId,
   processStartMs,
 } from '../services/process-start-time.service.js';
 
@@ -68,4 +72,26 @@ test('the ps lstart fallback runs in the C locale so a localized ps cannot break
   assert.equal(value, Date.parse('Wed Jul 22 23:16:35 2026'));
   assert.deepEqual(runs.map((run) => [run.command, run.lcAll]), [['ps', 'C']]);
   assert.equal(parseProcessStartTime('수  9월  2 12:00:21 2026'), null, 'the localized form the default locale produced is unparseable, hence the forced C locale');
+});
+
+test('process group and state come from /proc/<pid>/stat fields 5 and 3, counted from the last parenthesis', async () => {
+  const stat = '4242 (node (wrapped) tui) S 4100 4200 4100 34817 4242 4194560 1 0 0 0 5 1 0 0 20 0 1 0 987654 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23';
+  assert.equal(parseProcStatProcessGroupId(stat), 4200, 'pgid survives spaces and parentheses in comm');
+  assert.equal(parseProcStatState(stat), 'S');
+  assert.equal(parseProcStatState(stat.replace(') S ', ') Z ')), 'Z');
+  assert.equal(parseProcStatProcessGroupId('garbage'), null);
+
+  const read = async (path: string) => { if (path === '/proc/77/stat') return stat; throw new Error('ENOENT'); };
+  assert.equal(await processGroupId(77, { readFile: read, run: async () => { throw new Error('no ps'); } }), 4200);
+  assert.equal(await isZombieProcess(77, { readFile: read }), false);
+  assert.equal(await isZombieProcess(78, { readFile: read }), false, 'a vanished pid is not reported as a zombie');
+  // Portable fallback when /proc is absent.
+  assert.equal(await processGroupId(77, { readFile: async () => { throw new Error('ENOENT'); }, run: async (command, args) => { assert.equal(command, 'ps'); assert.deepEqual(args, ['-p', '77', '-o', 'pgid=']); return ' 4200\n'; } }), 4200);
+});
+
+test('a live process reports the same group through /proc and through ps', async () => {
+  const fromProc = await processGroupId(process.pid);
+  const fromPs = await processGroupId(process.pid, { readFile: async () => { throw new Error('ENOENT'); } });
+  assert.ok(fromProc !== null && fromProc > 0);
+  assert.equal(fromProc, fromPs);
 });

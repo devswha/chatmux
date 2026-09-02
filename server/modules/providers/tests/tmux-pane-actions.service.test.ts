@@ -191,13 +191,19 @@ test('selector actions reject empty and oversized internally constructed sequenc
   assert.equal(recordingRunner().calls.length, 0);
 });
 
-test('default process stop respawns a shell in the same pane', async () => {
-  const { calls, run } = recordingRunner(['$7\t@8\t%9\t/workspace/project\n']);
-  await stopAgentProcessInPane(target, run, '/bin/bash');
+test('process stop respawns a shell when the agent shares the pane root process group', async () => {
+  // Pane command is a node launcher (pid 40) whose codex child is the agent (42): one group, no shell to keep.
+  const { calls, run } = recordingRunner(['$7\t@8\t%9\t/workspace/project\t40\n']);
+  const signals: string[] = [];
+  await stopAgentProcessInPane(target, run, '/bin/bash', {
+    kill: (_pid, signal) => { signals.push(signal); },
+    processGroupId: async () => 40,
+  });
+  assert.deepEqual(signals, [], 'the pane root group is replaced, not signalled');
   assert.deepEqual(calls[0]?.args, [
     '-S', identity.socketPath,
     'display-message', '-p', '-t', identity.paneId,
-    '#{session_id}\t#{window_id}\t#{pane_id}\t#{pane_current_path}',
+    '#{session_id}\t#{window_id}\t#{pane_id}\t#{pane_current_path}\t#{pane_pid}',
   ]);
   assert.deepEqual(calls[1]?.args, [
     '-S', identity.socketPath,
@@ -209,6 +215,70 @@ test('default process stop respawns a shell in the same pane', async () => {
     ['set-option', '-p', '-t', identity.paneId, '@chatmux_provider_session_id', ''],
     ['set-option', '-p', '-t', identity.paneId, '@chatmux_codex_thread_id', ''],
   ]);
+});
+
+test('process stop signals the agent job group, confirms its exit against the verified generation, and keeps the shell', async () => {
+  // Interactive shell (pid 41, its own group) started the agent as a job in group 42.
+  const { calls, run } = recordingRunner(['$7\t@8\t%9\t/workspace/project\t41\n']);
+  const signals: string[] = [];
+  let alive = true;
+  await stopAgentProcessInPane(target, run, '/bin/bash', {
+    kill: (pid, signal) => { assert.equal(pid, -42, 'the whole job group, wrappers included'); signals.push(signal); if (signal === 'SIGTERM') alive = false; },
+    startedAtMs: async (pid) => (pid === 42 && alive ? 1234 : null),
+    processGroupId: async (pid) => (pid === 41 ? 41 : 42),
+    isZombie: async () => false,
+    sleep: async () => {},
+  });
+  assert.deepEqual(signals, ['SIGTERM']);
+  assert.equal(calls.some(({ args }) => args.includes('respawn-pane')), false, 'the user shell in the pane survives');
+  assert.deepEqual(calls.slice(1).map(({ args }) => args[2]), ['set-option', 'set-option', 'set-option']);
+});
+
+test('process stop escalates to SIGKILL and reports an agent that will not die', async () => {
+  const stubborn = recordingRunner(['$7\t@8\t%9\t/workspace/project\t41\n']);
+  const signals: string[] = [];
+  let alive = true;
+  const group = { processGroupId: async (pid: number) => (pid === 41 ? 41 : 42), isZombie: async () => false, sleep: async () => {} };
+  await stopAgentProcessInPane(target, stubborn.run, '/bin/bash', {
+    ...group,
+    kill: (_pid, signal) => { signals.push(signal); if (signal === 'SIGKILL') alive = false; },
+    startedAtMs: async () => (alive ? 1234 : null),
+  });
+  assert.deepEqual(signals, ['SIGTERM', 'SIGKILL']);
+
+  // A zombie still has its /proc entry and start tick, but it has exited.
+  const reaped = recordingRunner(['$7\t@8\t%9\t/workspace/project\t41\n']);
+  const zombieSignals: string[] = [];
+  await stopAgentProcessInPane(target, reaped.run, '/bin/bash', {
+    ...group,
+    kill: (_pid, signal) => { zombieSignals.push(signal); },
+    startedAtMs: async () => 1234,
+    isZombie: async () => zombieSignals.length > 0,
+  });
+  assert.deepEqual(zombieSignals, ['SIGTERM']);
+
+  const immortal = recordingRunner(['$7\t@8\t%9\t/workspace/project\t41\n']);
+  await assert.rejects(
+    stopAgentProcessInPane(target, immortal.run, '/bin/bash', { ...group, kill: () => {}, startedAtMs: async () => 1234 }),
+    (error: unknown) => error instanceof AppError && error.code === 'AGENT_PROCESS_STILL_RUNNING',
+  );
+  assert.equal(immortal.calls.some(({ args }) => args.includes('set-option')), false, 'tags stay while the agent is still there');
+});
+
+test('process stop never signals a pid whose start time no longer matches the verified generation', async () => {
+  const { run } = recordingRunner(['$7\t@8\t%9\t/workspace/project\t41\n']);
+  const signals: string[] = [];
+  await assert.rejects(
+    stopAgentProcessInPane(target, run, '/bin/bash', {
+      kill: (_pid, signal) => { signals.push(signal); },
+      startedAtMs: async () => 9999,
+      processGroupId: async (pid) => (pid === 41 ? 41 : 42),
+      isZombie: async () => false,
+      sleep: async () => {},
+    }),
+    (error: unknown) => error instanceof AppError && error.code === 'TMUX_PROCESS_GENERATION_MISMATCH',
+  );
+  assert.deepEqual(signals, []);
 });
 
 test('pane and session termination recheck the exact pane, then use distinct immutable ids', async () => {
