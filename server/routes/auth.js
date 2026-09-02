@@ -18,8 +18,13 @@ import {
   authenticateTailscaleRequest,
   getTailscaleAccessConfig
 } from '../tailscale-auth.js';
+import { MIN_PASSWORD_LENGTH, isAcceptablePassword } from '../shared/password-policy.js';
 
 import { createLoginLimiter, limiterClientAddress } from './login-limiter.js';
+
+// An unknown username must cost the same bcrypt work as a wrong password so the
+// response time does not reveal which of the two it was.
+const TIMING_EQUALIZER_HASH = bcrypt.hashSync('chatmux-unknown-user', 12);
 
 const router = express.Router();
 const db = getConnection();
@@ -81,10 +86,15 @@ router.post('/register', rejectWhenPasswordless, async (req, res) => {
       return res.status(400).json({ error: 'Username and password are required' });
     }
     
-    if (username.length < 3 || password.length < 6) {
-      return res.status(400).json({ error: 'Username must be at least 3 characters, password at least 6 characters' });
+    if (username.length < 3 || !isAcceptablePassword(password)) {
+      return res.status(400).json({ error: `Username must be at least 3 characters, password at least ${MIN_PASSWORD_LENGTH} characters` });
     }
-    
+
+    // Hash before opening the transaction: the connection is shared, and a
+    // BEGIN held across an await would pull every other request's writes into
+    // this transaction (and a concurrent register would hit a nested BEGIN).
+    const passwordHash = await bcrypt.hash(password, 12);
+
     // Use a transaction to prevent race conditions
     db.prepare('BEGIN').run();
     try {
@@ -94,11 +104,7 @@ router.post('/register', rejectWhenPasswordless, async (req, res) => {
         db.prepare('ROLLBACK').run();
         return res.status(403).json({ error: 'User already exists. This is a single-user system.' });
       }
-      
-      // Hash password
-      const saltRounds = 12;
-      const passwordHash = await bcrypt.hash(password, saltRounds);
-      
+
       // Create user
       const user = userDb.createUser(username, passwordHash);
       
@@ -150,10 +156,11 @@ router.post('/login', rejectWhenPasswordless, async (req, res) => {
     // Get user from database
     const user = userDb.getUserByUsername(username);
     if (!user) {
+      await bcrypt.compare(password, TIMING_EQUALIZER_HASH);
       loginLimiter.recordFailure(peerAddress(req), username);
       return res.status(401).json({ error: 'Invalid username or password' });
     }
-    
+
     // Verify password
     const isValidPassword = await bcrypt.compare(password, user.password_hash);
     if (!isValidPassword) {

@@ -34,6 +34,9 @@ const originalTmuxPane = process.env.TMUX_PANE;
 delete process.env.TMUX_PANE;
 process.env.CHATMUX_AUTH = 'password';
 process.env.JWT_SECRET = 'provider-skills-http-contract-secret';
+// The skills routes contain `workspacePath` to WORKSPACES_ROOT (resolved once
+// at import); the per-provider sandboxes below live under the OS temp dir.
+process.env.WORKSPACES_ROOT = os.tmpdir();
 process.env.DATABASE_PATH = path.join(
   await mkdtemp(path.join(os.tmpdir(), 'provider-skills-http-db-')),
   'auth.db',
