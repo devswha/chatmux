@@ -219,12 +219,88 @@ async function getRepositoryRootPath(projectPath) {
   return stdout.trim();
 }
 
-function normalizeRepositoryRelativeFilePath(filePath) {
+export function normalizeRepositoryRelativeFilePath(filePath) {
   return String(filePath)
     .replace(/\\/g, '/')
     .replace(/^\.\/+/, '')
     .replace(/^\/+/, '')
+    .replace(/\/+$/, '')
     .trim();
+}
+
+/**
+ * A repository-relative pathspec that may be handed to a destructive git or
+ * filesystem operation. Rejects anything that resolves to the repository root
+ * (`.`, `src/..`) or escapes it, because the discard routes would otherwise
+ * `fs.rm` the whole worktree or `git restore` every change in it.
+ */
+export function assertSafeRepositoryRelativePath(relativePath) {
+  if (typeof relativePath !== 'string' || relativePath.includes('\0')) {
+    throw new Error('Invalid file path');
+  }
+  if (relativePath === '' || relativePath === '.' || path.posix.isAbsolute(relativePath)) {
+    throw new Error('Invalid file path: expected a path inside the repository');
+  }
+  const segments = relativePath.split('/');
+  if (segments.some((segment) => segment === '' || segment === '.' || segment === '..')) {
+    throw new Error('Invalid file path: path traversal detected');
+  }
+  return relativePath;
+}
+
+/**
+ * Parses `git status --porcelain=v1 -z` into { code, path, isDirectory }.
+ * Renames carry the original path as a second NUL-terminated field, which is
+ * skipped so `path` is always the post-rename location.
+ */
+export function parseStatusEntriesZ(statusOutput) {
+  const fields = String(statusOutput).split('\0').filter((field) => field.length > 0);
+  const entries = [];
+  for (let index = 0; index < fields.length; index += 1) {
+    const field = fields[index];
+    const code = field.substring(0, 2);
+    const rawPath = field.substring(3);
+    if (code.startsWith('R') || code.startsWith('C')) {
+      index += 1; // original path follows as its own field
+    }
+    entries.push({
+      code,
+      path: normalizeRepositoryRelativeFilePath(rawPath),
+      isDirectory: rawPath.endsWith('/'),
+    });
+  }
+  return entries;
+}
+
+/**
+ * The one status entry a destructive route may act on. Fails closed unless git
+ * reports exactly one entry and it is the requested path itself (a directory
+ * only qualifies when git collapsed it to a single untracked entry, i.e. it
+ * contains nothing tracked).
+ */
+export function selectExactStatusEntry(statusOutput, relativePath) {
+  const entries = parseStatusEntriesZ(statusOutput);
+  if (entries.length === 0) {
+    return null;
+  }
+  if (entries.length !== 1) {
+    throw new Error(`Refusing to act on "${relativePath}": git reports ${entries.length} entries under that path. Act on each file individually.`);
+  }
+  const [entry] = entries;
+  if (entry.path !== relativePath) {
+    throw new Error(`Refusing to act on "${relativePath}": git reports "${entry.path}" instead.`);
+  }
+  return entry;
+}
+
+/** Absolute location of a repository-relative path, required to sit strictly inside the project. */
+export function resolvePathInsideProject(repositoryRootPath, relativePath, projectPath) {
+  const absolutePath = path.resolve(repositoryRootPath, relativePath);
+  const projectRoot = path.resolve(projectPath);
+  if (absolutePath === projectRoot || !absolutePath.startsWith(projectRoot + path.sep)) {
+    throw new Error('Invalid file path: outside the project directory');
+  }
+  return absolutePath;
 }
 
 function parseStatusFilePaths(statusOutput) {
@@ -258,6 +334,7 @@ function buildFilePathCandidates(projectPath, repositoryRootPath, filePath) {
 
 async function resolveRepositoryFilePath(projectPath, filePath) {
   validateFilePath(filePath);
+  assertSafeRepositoryRelativePath(normalizeRepositoryRelativeFilePath(filePath));
 
   const repositoryRootPath = await getRepositoryRootPath(projectPath);
   const candidateFilePaths = buildFilePathCandidates(projectPath, repositoryRootPath, filePath);
@@ -1546,23 +1623,38 @@ router.post('/discard', async (req, res) => {
       repositoryRelativeFilePath,
     } = await resolveRepositoryFilePath(projectPath, file);
 
-    // Check file status to determine correct discard command
+    // Check file status to determine correct discard command. -z keeps paths
+    // exact (no C-quoting) and the entry must be the requested path itself so
+    // a directory pathspec can never fan out into a worktree-wide discard.
     const { stdout: statusOutput } = await spawnAsync(
       'git',
-      ['status', '--porcelain', '--', repositoryRelativeFilePath],
+      ['status', '--porcelain=v1', '-z', '--', repositoryRelativeFilePath],
       { cwd: repositoryRootPath },
     );
 
-    if (!statusOutput.trim()) {
+    let entry;
+    try {
+      entry = selectExactStatusEntry(statusOutput, repositoryRelativeFilePath);
+    } catch (error) {
+      return res.status(400).json({ error: error.message });
+    }
+    if (!entry) {
       return res.status(400).json({ error: 'No changes to discard for this file' });
     }
 
-    const status = statusOutput.substring(0, 2);
+    const status = entry.code;
 
     if (status === '??') {
-      // Untracked file or directory - delete it
-      const filePath = path.join(repositoryRootPath, repositoryRelativeFilePath);
-      const stats = await fs.stat(filePath);
+      // Untracked file or directory - delete it (the directory case only
+      // reaches here when git collapsed it to one entry, i.e. nothing inside
+      // is tracked). Never follow a symlink: remove the link itself.
+      let filePath;
+      try {
+        filePath = resolvePathInsideProject(repositoryRootPath, repositoryRelativeFilePath, projectPath);
+      } catch (error) {
+        return res.status(400).json({ error: error.message });
+      }
+      const stats = await fs.lstat(filePath);
 
       if (stats.isDirectory()) {
         await fs.rm(filePath, { recursive: true, force: true });
@@ -1600,26 +1692,36 @@ router.post('/delete-untracked', async (req, res) => {
       repositoryRelativeFilePath,
     } = await resolveRepositoryFilePath(projectPath, file);
 
-    // Check if file is actually untracked
+    // Check if file is actually untracked. The entry must be the requested
+    // path itself; a directory pathspec that fans out is refused.
     const { stdout: statusOutput } = await spawnAsync(
       'git',
-      ['status', '--porcelain', '--', repositoryRelativeFilePath],
+      ['status', '--porcelain=v1', '-z', '--', repositoryRelativeFilePath],
       { cwd: repositoryRootPath },
     );
-    
-    if (!statusOutput.trim()) {
+
+    let entry;
+    try {
+      entry = selectExactStatusEntry(statusOutput, repositoryRelativeFilePath);
+    } catch (error) {
+      return res.status(400).json({ error: error.message });
+    }
+    if (!entry) {
       return res.status(400).json({ error: 'File is not untracked or does not exist' });
     }
 
-    const status = statusOutput.substring(0, 2);
-    
-    if (status !== '??') {
+    if (entry.code !== '??') {
       return res.status(400).json({ error: 'File is not untracked. Use discard for tracked files.' });
     }
 
-    // Delete the untracked file or directory
-    const filePath = path.join(repositoryRootPath, repositoryRelativeFilePath);
-    const stats = await fs.stat(filePath);
+    // Delete the untracked file or directory without following symlinks.
+    let filePath;
+    try {
+      filePath = resolvePathInsideProject(repositoryRootPath, repositoryRelativeFilePath, projectPath);
+    } catch (error) {
+      return res.status(400).json({ error: error.message });
+    }
+    const stats = await fs.lstat(filePath);
 
     if (stats.isDirectory()) {
       // Use rm with recursive option for directories
