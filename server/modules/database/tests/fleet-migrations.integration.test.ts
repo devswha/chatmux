@@ -46,6 +46,7 @@ test('creates fleet persistence when migrating a pre-fleet database twice', () =
       'fleet_hub_grants',
       'fleet_pairing_tokens',
       'fleet_peers',
+      'fleet_ssh_tunnels',
     ]);
     assert.deepEqual(
       reopened.prepare<[], VersionRow>('SELECT version FROM schema_migrations WHERE version = 17').all(),

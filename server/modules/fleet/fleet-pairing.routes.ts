@@ -6,6 +6,7 @@ import { FleetHubPairingError, type FleetPairingTransportMode } from '@/modules/
 import type { FleetPairingFailureLimiter } from '@/modules/fleet/services/fleet-pairing-limiter.service.js';
 import { FleetPairingError, type SignedInstallationIdentity } from '@/modules/fleet/services/fleet-pairing.service.js';
 import type { FleetRemovalResult } from '@/modules/fleet/services/fleet-revocation.service.js';
+import { registerSshEnrollmentRoute, type SshEnrollmentRouteService } from '@/modules/fleet/ssh-enrollment.routes.js';
 import { limiterClientAddress } from '@/middleware/client-address.js';
 
 import { parseFleetInstallationDescriptor } from '../../../shared/fleet.js';
@@ -28,6 +29,7 @@ type PairingRoutesDependencies = Readonly<{
   }>;
   hubPairing: Readonly<{ enroll(input: PeerEnrollmentInput): Promise<Readonly<{ peerId: string }>> }>;
   revocation: Readonly<{ remove(peerId: string): Promise<FleetRemovalResult> }>;
+  sshEnrollment?: SshEnrollmentRouteService;
 }>;
 
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -223,11 +225,14 @@ export function createFleetPairingRouter(dependencies: PairingRoutesDependencies
       sendBoundaryError(error, response, next);
     }
   });
+  if (dependencies.sshEnrollment !== undefined) registerSshEnrollmentRoute(router, owner, dependencies.sshEnrollment);
   router.delete('/peers/:peerId', owner, async (request, response, next) => {
     try {
       const peerId = request.params.peerId;
       if (peerId === undefined || !UUID_V4.test(peerId)) throw new FleetPairingRequestError('BODY_INVALID');
-      response.json(await dependencies.revocation.remove(peerId));
+      const result = await dependencies.revocation.remove(peerId);
+      await dependencies.sshEnrollment?.remove(peerId);
+      response.json(result);
     } catch (error) {
       sendBoundaryError(error, response, next);
     }

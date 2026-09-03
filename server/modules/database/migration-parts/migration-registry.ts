@@ -185,5 +185,6 @@ export const MIGRATIONS: Migration[] = [
   { version: 17, migrate: (db) => db.exec(FLEET_PERSISTENCE_SCHEMA_SQL) },
   { version: 18, migrate: rebuildFleetHubGrantsWithoutRegistryReference },
   { version: 19, migrate: enforceFleetRoleExclusivity },
+  { version: 20, migrate: (db) => db.exec(FLEET_PERSISTENCE_SCHEMA_SQL) },
 ];
 
