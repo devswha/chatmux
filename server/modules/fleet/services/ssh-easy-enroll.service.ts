@@ -5,7 +5,9 @@ export type SshEnrollmentInput = Readonly<{ sshTarget: string; password?: string
 type HubInput = Readonly<{ peerUrl: string; transportMode: 'ssh-loopback'; token: string; label?: string }>;
 type Dependencies = Readonly<{
   tunnels: SshTunnelManager;
-  onPersisted?: () => void;
+  onPersisted?: () => void | Promise<void>;
+  schedulePostCommitRetry?: (callback: () => void) => void;
+  reportPostCommitFailure?: (error: unknown) => void;
   hubPairing: Readonly<{
     preflight?(input: Pick<HubInput, 'peerUrl' | 'transportMode'>): void;
     enroll(input: HubInput): Promise<Readonly<{ peerId: string }>>;
@@ -43,7 +45,7 @@ export class SshEasyEnrollService {
       });
       peerId = peer.peerId;
       prepared.complete(peer.peerId);
-      this.dependencies.onPersisted?.();
+      await this.notifyPersisted();
       return { peerId: peer.peerId, port: prepared.localPort };
     } catch (error) {
       const cleanupErrors: Error[] = [];
@@ -56,7 +58,8 @@ export class SshEasyEnrollService {
       try { await prepared.abort(); }
       catch (abortError) { cleanupErrors.push(abortError instanceof Error ? abortError : new Error('SSH cleanup failed')); }
       const closed = this.closedPairingError(error);
-      if (cleanupErrors.length > 0) throw new SshEnrollmentError(closed.code, `${closed.message}; cleanup was incomplete`, cleanupErrors);
+      const combinedCleanup = [...closed.cleanupErrors, ...cleanupErrors];
+      if (combinedCleanup.length > 0) throw new SshEnrollmentError(closed.code, `${closed.message}; cleanup was incomplete`, combinedCleanup);
       throw closed;
     }
   }
@@ -69,10 +72,27 @@ export class SshEasyEnrollService {
     }
   }
 
+  private async notifyPersisted(): Promise<void> {
+    if (this.dependencies.onPersisted === undefined) return;
+    try { await this.dependencies.onPersisted(); }
+    catch (error) {
+      this.reportPostCommitFailure(error);
+      const retry = (): void => { void Promise.resolve().then(() => this.dependencies.onPersisted?.()).catch((retryError) => this.reportPostCommitFailure(retryError)); };
+      if (this.dependencies.schedulePostCommitRetry !== undefined) this.dependencies.schedulePostCommitRetry(retry);
+      else { const timer = setTimeout(retry, 1_000); timer.unref(); }
+    }
+  }
+
+  private reportPostCommitFailure(error: unknown): void {
+    if (this.dependencies.reportPostCommitFailure !== undefined) this.dependencies.reportPostCommitFailure(error);
+    else console.error('Fleet discovery reconciliation failed after committed SSH enrollment');
+  }
+
   private closedPairingError(error: unknown): SshEnrollmentError {
     if (error instanceof FleetHubPairingError && error.code === 'PEER_CAPACITY_REACHED') {
-      return new SshEnrollmentError('PEER_LIMIT_REACHED', 'Fleet peer limit reached');
+      return new SshEnrollmentError('PEER_LIMIT_REACHED', 'Fleet peer limit reached', error.cleanupErrors);
     }
+    if (error instanceof FleetHubPairingError) return new SshEnrollmentError('ENROLL_FAILED', 'Fleet peer enrollment failed', error.cleanupErrors);
     if (error instanceof SshEnrollmentError) return error;
     return new SshEnrollmentError('ENROLL_FAILED', 'Fleet peer enrollment failed');
   }

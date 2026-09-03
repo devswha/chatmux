@@ -23,6 +23,7 @@ export interface SshTunnelIo {
   run(command: string, args: readonly string[], options: SshProcessOptions): Promise<SshRunResult>;
   spawn(command: string, args: readonly string[], options: SshProcessOptions): SshProcess;
   waitUntilReady(port: number, timeoutMs: number): Promise<void>;
+  waitUntilUnavailable(port: number, controlPath: string, timeoutMs: number): Promise<void>;
   killGroup(pid: number, signal: NodeJS.Signals): void;
 }
 
@@ -85,6 +86,21 @@ function waitUntilReady(port: number, timeoutMs: number): Promise<void> {
   });
 }
 
+async function waitUntilUnavailable(port: number, controlPath: string, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (true) {
+    const socketExists = await access(controlPath).then(() => true, () => false);
+    const portListens = await new Promise<boolean>((resolve) => {
+      const socket = createConnection({ host: '127.0.0.1', port });
+      socket.once('connect', () => { socket.destroy(); resolve(true); });
+      socket.once('error', () => { socket.destroy(); resolve(false); });
+    });
+    if (!socketExists && !portListens) return;
+    if (Date.now() >= deadline) throw new Error('SSH control session did not terminate');
+    await new Promise<void>((resolve) => setTimeout(resolve, 25));
+  }
+}
+
 function run(command: string, args: readonly string[], options: SshProcessOptions): Promise<SshRunResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { env: options.env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -114,5 +130,6 @@ export const realSshTunnelIo: SshTunnelIo = {
   run,
   spawn: (command, args, options) => new RealSshProcess(spawn(command, args, { env: options.env, detached: true, stdio: 'ignore' })),
   waitUntilReady,
+  waitUntilUnavailable,
   killGroup: (pid, signal) => process.kill(process.platform === 'win32' ? pid : -pid, signal),
 };
