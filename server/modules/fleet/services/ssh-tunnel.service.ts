@@ -65,7 +65,7 @@ type SetupPhases = { masterCreated: boolean; keyInstalled: boolean; restrictedMa
 
 function shellQuote(value: string): string { return `'${value.replaceAll("'", `'"'"'`)}'`; }
 function keyRemovalCommand(publicKey: string): string {
-  return `tmp=$(mktemp) || exit 1; trap 'rm -f "$tmp"' EXIT; (grep -vF ${shellQuote(publicKey)} "$HOME/.ssh/authorized_keys" > "$tmp" || true) && cat "$tmp" > "$HOME/.ssh/authorized_keys`;
+  return `tmp=$(mktemp) || exit 1; trap 'rm -f "$tmp"' EXIT; (grep -vF ${shellQuote(publicKey)} "$HOME/.ssh/authorized_keys" > "$tmp" || true) && cat "$tmp" > "$HOME/.ssh/authorized_keys"`;
 }
 function restrictedKeyPrefix(publicKey: string): string {
   const forced = `case "$SSH_ORIGINAL_COMMAND" in ${KEY_REMOVAL_SENTINEL}) ;; *) exit 126 ;; esac; ${keyRemovalCommand(publicKey)}`;
@@ -126,8 +126,10 @@ export class SshTunnelManager {
     };
     try {
       askpass = password === undefined ? undefined : await this.createAskpass(password);
-      await this.installKeyAndOpenMaster(target, controlPath, askpass?.helper);
-      phases.masterCreated = true; phases.keyInstalled = true;
+      await this.openMaster(target, controlPath, askpass?.helper);
+      phases.masterCreated = true;
+      phases.keyInstalled = true;
+      await this.installKey(target, controlPath);
       const token = await this.mintToken(target, controlPath);
       if (askpass !== undefined) { await this.dependencies.io.rm(askpass.directory); askpass = undefined; }
       await this.reclaimMaster(target, controlPath, localPort); phases.masterCreated = false;
@@ -241,15 +243,19 @@ export class SshTunnelManager {
   private keyAuthenticationArgs(target: SshTarget): string[] { return ['-o', 'IdentitiesOnly=yes', '-o', 'BatchMode=yes', ...this.commonArgs(target)]; }
   private commandArgs(target: SshTarget): string[] { return ['-o', 'ClearAllForwardings=yes', ...this.keyAuthenticationArgs(target)]; }
   private controlArgs(target: SshTarget, controlPath: string): string[] { return [...this.commandArgs(target), '-o', `ControlPath=${controlPath}`]; }
-  private async installKeyAndOpenMaster(target: SshTarget, controlPath: string, askpass?: string): Promise<void> {
+  private async openMaster(target: SshTarget, controlPath: string, askpass?: string): Promise<void> {
+    const env = askpass === undefined ? undefined : { ...process.env, SSH_ASKPASS: askpass, SSH_ASKPASS_REQUIRE: 'force', DISPLAY: ':0' };
+    const args = ['-N', '-f', '-o', 'ClearAllForwardings=yes', '-o', 'ControlMaster=yes', '-o', `ControlPersist=${CONTROL_PERSIST_SECONDS}`, '-o', `ControlPath=${controlPath}`, ...this.commonArgs(target), target.destination];
+    const result = await this.dependencies.io.run('ssh', args, { ...(env === undefined ? {} : { env }), timeoutMs: EXEC_TIMEOUT_MS });
+    if (result.code !== 0) throw classify(result, 'TUNNEL_FAILED');
+  }
+  private async installKey(target: SshTarget, controlPath: string): Promise<void> {
     const publicKey = (await this.dependencies.io.readFile(this.dependencies.paths.publicKey)).trim();
     if (!/^ssh-ed25519 [A-Za-z0-9+/]+={0,3}(?: [A-Za-z0-9._-]+)?$/.test(publicKey)) throw new SshEnrollmentError('TUNNEL_FAILED', 'Tunnel public key is invalid');
     const entry = `${restrictedKeyPrefix(publicKey)}${publicKey}`;
     const legacy = `${LEGACY_KEY_PREFIX}${publicKey}`; const denied = `${DENY_COMMAND_KEY_PREFIX}${publicKey}`;
     const command = `mkdir -p ~/.ssh && chmod 700 ~/.ssh && touch ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys && tmp=$(mktemp) && (grep -vxF ${shellQuote(publicKey)} ~/.ssh/authorized_keys | grep -vxF ${shellQuote(legacy)} | grep -vxF ${shellQuote(denied)} | grep -vF ${shellQuote(publicKey)} > "$tmp" || true) && printf '%s\\n' ${shellQuote(entry)} >> "$tmp" && cat "$tmp" > ~/.ssh/authorized_keys && rm -f "$tmp"`;
-    const env = askpass === undefined ? undefined : { ...process.env, SSH_ASKPASS: askpass, SSH_ASKPASS_REQUIRE: 'force', DISPLAY: ':0' };
-    const args = ['-o', 'ClearAllForwardings=yes', '-o', 'ControlMaster=yes', '-o', `ControlPersist=${CONTROL_PERSIST_SECONDS}`, '-o', `ControlPath=${controlPath}`, ...this.commonArgs(target), target.destination, command];
-    const result = await this.dependencies.io.run('ssh', args, { ...(env === undefined ? {} : { env }), timeoutMs: EXEC_TIMEOUT_MS });
+    const result = await this.dependencies.io.run('ssh', [...this.controlArgs(target, controlPath), target.destination, command], { env: this.cleanEnv(), timeoutMs: EXEC_TIMEOUT_MS });
     if (result.code !== 0) throw classify(result, 'TUNNEL_FAILED');
   }
   private async mintToken(target: SshTarget, controlPath: string): Promise<string> {
@@ -285,10 +291,15 @@ export class SshTunnelManager {
     if (result.code !== 0) throw classify(result, 'TUNNEL_FAILED');
   }
   private async reclaimMaster(target: SshTarget, controlPath: string, localPort: number): Promise<void> {
+    const ownedControlPath = join(this.dependencies.paths.directory, `control-${localPort}`);
+    if (controlPath !== ownedControlPath) throw new SshEnrollmentError('TUNNEL_FAILED', 'SSH control path is outside the managed directory');
     const checked = await this.dependencies.io.run('ssh', [...this.controlArgs(target, controlPath), '-O', 'check', target.destination], { env: this.cleanEnv(), timeoutMs: EXEC_TIMEOUT_MS });
-    if (checked.code !== 0) return;
-    const exited = await this.dependencies.io.run('ssh', [...this.controlArgs(target, controlPath), '-O', 'exit', target.destination], { env: this.cleanEnv(), timeoutMs: EXEC_TIMEOUT_MS });
-    if (exited.code !== 0) throw classify(exited, 'TUNNEL_FAILED');
+    if (checked.code === 0) {
+      const exited = await this.dependencies.io.run('ssh', [...this.controlArgs(target, controlPath), '-O', 'exit', target.destination], { env: this.cleanEnv(), timeoutMs: EXEC_TIMEOUT_MS });
+      if (exited.code !== 0) throw classify(exited, 'TUNNEL_FAILED');
+    } else if (await this.dependencies.io.fileExists(controlPath)) {
+      await this.dependencies.io.rm(controlPath);
+    }
     await this.dependencies.io.waitUntilUnavailable(localPort, controlPath, this.dependencies.readinessTimeoutMs ?? 5_000);
   }
   private async cleanupSteps(steps: ReadonlyArray<() => Promise<void> | void>): Promise<Error[]> {

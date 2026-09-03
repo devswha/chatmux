@@ -56,15 +56,19 @@ class FakeIo implements SshTunnelIo {
   failRm = false;
   askpassExecutions: Array<{ output: string; helperMode: number; payloadMode: number; helperDeleted: boolean; payloadDeleted: boolean }> = [];
   ready: () => Promise<void> = async () => undefined;
+  unavailable: (port: number, controlPath: string) => Promise<void> = async () => undefined;
   onSpawn?: (child: FakeProcess) => void;
+  onRun?: (command: string, args: readonly string[], options: SshProcessOptions) => SshRunResult | undefined;
+  readonly existingPaths = new Set<string>();
+  unavailableCalls = 0;
   allocatedPorts = [41234];
   allocatePort = async (): Promise<number> => this.allocatedPorts.shift() ?? 41234;
-  fileExists = async (): Promise<boolean> => this.keyExists;
+  fileExists = async (path: string): Promise<boolean> => path.endsWith('/id_ed25519') ? this.keyExists : this.existingPaths.has(path);
   mkdir = async (): Promise<void> => undefined;
   mkdtemp = async (): Promise<string> => mkdtemp(join(tmpdir(), 'chatmux-askpass-test-'));
   readFile = async (): Promise<string> => 'ssh-ed25519 AAAATEST chatmux-fleet-tunnel\n';
   writeFile = async (path: string, data: string, mode: number): Promise<void> => { this.writes.push({ path, data, mode }); if (this.writes.length === this.failWriteAt) throw new Error('injected write failure'); await writeFile(path, data, { mode }); };
-  rm = async (path: string): Promise<void> => { this.removals.push(path); if (this.failRm) throw new Error('injected removal failure'); await rm(path, { recursive: true, force: true }); };
+  rm = async (path: string): Promise<void> => { this.removals.push(path); if (this.failRm) throw new Error('injected removal failure'); this.existingPaths.delete(path); await rm(path, { recursive: true, force: true }); };
   run = async (command: string, args: readonly string[], options: SshProcessOptions): Promise<SshRunResult> => {
     this.runs.push({ command, args, options });
     const helper = options.env?.SSH_ASKPASS;
@@ -74,14 +78,14 @@ class FakeIo implements SshTunnelIo {
       const executed = spawnSync('/bin/sh', [helper], { encoding: 'utf8' });
       this.askpassExecutions.push({ output: executed.stdout, helperMode, payloadMode, helperDeleted: !(await this.exists(helper)), payloadDeleted: !(await this.exists(payload)) });
     }
-    return this.runResults.shift() ?? { code: 0, stdout: `Pairing token: ${TOKEN}\nExpires at: 2030-01-01T00:00:00.000Z\n`, stderr: '' };
+    return this.onRun?.(command, args, options) ?? this.runResults.shift() ?? { code: 0, stdout: `Pairing token: ${TOKEN}\nExpires at: 2030-01-01T00:00:00.000Z\n`, stderr: '' };
   };
   private exists = async (path: string): Promise<boolean> => stat(path).then(() => true, () => false);
   spawn = (command: string, args: readonly string[], options: SshProcessOptions): SshProcess => {
     const child = new FakeProcess(); this.spawns.push({ command, args, options, child }); this.onSpawn?.(child); return child;
   };
   waitUntilReady = async (): Promise<void> => this.ready();
-  waitUntilUnavailable = async (): Promise<void> => undefined;
+  waitUntilUnavailable = async (port: number, controlPath: string): Promise<void> => { this.unavailableCalls += 1; await this.unavailable(port, controlPath); };
   killGroup = (pid: number, signal: NodeJS.Signals): void => { this.spawns.find(({ child }) => child.pid === pid)?.child.stop(signal); };
 }
 
@@ -122,9 +126,10 @@ test('Given an SSH host and password, when the owner enrolls it, then the stable
   assert.ok(subject.io.runs.every(({ args }) => args.includes('ClearAllForwardings=yes')), 'exec and control commands clear inherited forwards');
   assert.deepEqual(subject.io.writes.map(({ mode }) => mode), [0o600, 0o700]);
   assert.deepEqual(subject.io.askpassExecutions, [{ output: `${PASSWORD}\n`, helperMode: 0o700, payloadMode: 0o600, helperDeleted: true, payloadDeleted: true }]);
-  const authenticated = subject.io.runs.filter(({ options }) => options.env?.SSH_ASKPASS !== undefined); assert.equal(authenticated.length, 1);
-  assert.match(authenticated[0]?.args.at(-1) ?? '', /restrict,port-forwarding,permitopen="127\.0\.0\.1:3001",command="false" ssh-ed25519/);
-  assert.match(authenticated[0]?.args.at(-1) ?? '', /grep -vxF 'ssh-ed25519 AAAATEST chatmux-fleet-tunnel'/);
+  const authenticated = subject.io.runs.filter(({ options }) => options.env?.SSH_ASKPASS !== undefined); assert.equal(authenticated.length, 1); assert.ok(authenticated[0]?.args.includes('-N')); assert.ok(authenticated[0]?.args.includes('-f'));
+  const keyInstall = subject.io.runs.find(({ args }) => (args.at(-1) ?? '').includes("printf '%s\\n'")); assert.ok(keyInstall);
+  assert.match(keyInstall.args.at(-1) ?? '', /restrict,port-forwarding,permitopen="127\.0\.0\.1:3001",command="false" ssh-ed25519/);
+  assert.match(keyInstall.args.at(-1) ?? '', /grep -vxF 'ssh-ed25519 AAAATEST chatmux-fleet-tunnel'/);
   assert.equal(JSON.stringify({ argv: subject.io.runs.map(({ args }) => args), env: subject.io.spawns.map(({ options }) => options.env), records: subject.store.records, body: responseBody }).includes(PASSWORD), false);
 });
 
@@ -162,13 +167,13 @@ test('Given an unreachable SSH server, when enrollment runs, then it reports SSH
 });
 
 test('Given both remote CLI paths are missing, when minting runs, then it reports REMOTE_CLI_FAILED', async () => {
-  const missing = { code: 127, stdout: '', stderr: 'command not found' }; const subject = fixture([{ code: 0, stdout: '', stderr: '' }, missing]);
+  const missing = { code: 127, stdout: '', stderr: 'command not found' }; const subject = fixture([{ code: 0, stdout: '', stderr: '' }, { code: 0, stdout: '', stderr: '' }, missing]);
   await assert.rejects(subject.service.enroll({ sshTarget: 'alice@example.test', password: PASSWORD }), (error) => error instanceof Error && 'code' in error && error.code === 'REMOTE_CLI_FAILED');
   assert.ok(subject.io.runs.some(({ args }) => (args.at(-1) ?? '').includes('grep -vxF')), 'token-mint failure removes the installed key');
 });
 
 test('Given malformed token output, when minting runs, then no token content reaches the error', async () => {
-  const leaked = `Pairing token: ${TOKEN}extra`; const subject = fixture([{ code: 0, stdout: '', stderr: '' }, { code: 0, stdout: leaked, stderr: '' }]);
+  const leaked = `Pairing token: ${TOKEN}extra`; const subject = fixture([{ code: 0, stdout: '', stderr: '' }, { code: 0, stdout: '', stderr: '' }, { code: 0, stdout: leaked, stderr: '' }]);
   await assert.rejects(subject.service.enroll({ sshTarget: 'alice@example.test', password: PASSWORD }), (error) => error instanceof Error && 'code' in error && error.code === 'TOKEN_PARSE_FAILED' && !error.message.includes(TOKEN));
   assert.ok(subject.io.runs.some(({ args }) => (args.at(-1) ?? '').includes('grep -vxF')));
 });
@@ -233,10 +238,10 @@ test('Given malformed credential JSON aliases in production middleware order, th
 
 test('Given token-like output is not one exact unique first line, when enrollment runs, then it is rejected closed', async () => {
   for (const stdout of [`banner\nPairing token: ${TOKEN}\n`, `Pairing token: ${TOKEN}\nPairing token: ${TOKEN}\n`]) {
-    const subject = fixture([{ code: 0, stdout: '', stderr: '' }, { code: 0, stdout, stderr: '' }]);
+    const subject = fixture([{ code: 0, stdout: '', stderr: '' }, { code: 0, stdout: '', stderr: '' }, { code: 0, stdout, stderr: '' }]);
     await assert.rejects(subject.service.enroll({ sshTarget: 'alice@example.test', password: PASSWORD }), (error) => error instanceof SshEnrollmentError && error.code === 'TOKEN_PARSE_FAILED');
   }
-  const accepted = fixture([{ code: 0, stdout: '', stderr: '' }, { code: 0, stdout: `Pairing token: ${TOKEN}\nExpires later\n`, stderr: '' }]);
+  const accepted = fixture([{ code: 0, stdout: '', stderr: '' }, { code: 0, stdout: '', stderr: '' }, { code: 0, stdout: `Pairing token: ${TOKEN}\nExpires later\n`, stderr: '' }]);
   assert.equal((await accepted.service.enroll({ sshTarget: 'alice@example.test', password: PASSWORD })).peerId, PEER_ID);
 });
 
@@ -274,12 +279,8 @@ test('Given askpass directory cleanup throws, then key and master cleanup still 
 });
 
 test('Given remote key removal exits nonzero, then abort reports incomplete cleanup after exiting the master', async () => {
-  const subject = fixture([
-    { code: 0, stdout: `Pairing token: ${TOKEN}\n`, stderr: '' },
-    { code: 0, stdout: '', stderr: '' },
-    { code: 255, stdout: '', stderr: 'restricted command refused' },
-    { code: 0, stdout: '', stderr: '' },
-  ]);
+  const subject = fixture();
+  subject.io.onRun = (_command, args) => args.at(-1) === 'chatmux-fleet-remove-key-v1' ? { code: 255, stdout: '', stderr: 'restricted command refused' } : undefined;
   const service = new SshEasyEnrollService({ tunnels: subject.manager, hubPairing: { enroll: async () => { throw new Error('persistence failed'); } } });
   await assert.rejects(service.enroll({ sshTarget: 'alice@example.test', password: PASSWORD }), (error) => error instanceof SshEnrollmentError && error.message.includes('cleanup was incomplete'));
   assert.ok(subject.io.runs.some(({ args }) => args.includes('exit')));
@@ -347,11 +348,35 @@ test('Given a live master refuses exit during restore, then spawn waits for a la
   assert.equal(io.spawns.length, 1);
 });
 
-test('Given a stale control socket during restore, then failed check proceeds directly to spawn', async () => {
+test('Given an existing stale control socket during restore, then it is removed and spawn proceeds only after the port is free', async () => {
   const io = new FakeIo(); const store = new MemoryStore(); store.save({ peerId: PEER_ID, sshTarget: 'alice@example.test', localPort: 41234 });
-  io.runResults = [{ code: 255, stdout: '', stderr: 'Control socket connect: No such file or directory' }];
+  const controlPath = '/hub/fleet/control-41234'; io.existingPaths.add(controlPath);
+  io.runResults = [{ code: 255, stdout: '', stderr: 'Control socket connect: Connection refused' }];
+  io.unavailable = async (port, path) => { assert.equal(port, 41234); assert.equal(path, controlPath); assert.equal(io.existingPaths.has(controlPath), false); };
   const manager = new SshTunnelManager({ io, store, paths: { directory: '/hub/fleet', privateKey: '/hub/fleet/id_ed25519', publicKey: '/hub/fleet/id_ed25519.pub', knownHosts: '/hub/fleet/known_hosts' }, scheduler: { schedule: () => ({ cancel: () => undefined }) } });
-  await manager.restore(); assert.equal(io.spawns.length, 1); assert.ok(io.runs[0]?.args.includes('check'));
+  await manager.restore(); assert.deepEqual(io.removals, [controlPath]); assert.equal(io.unavailableCalls, 1); assert.equal(io.spawns.length, 1);
+});
+
+test('Given stale socket reclamation leaves the enrollment port occupied, then preparation returns a closed failure without spawning', async () => {
+  const subject = fixture([
+    { code: 0, stdout: '', stderr: '' },
+    { code: 0, stdout: '', stderr: '' },
+    { code: 0, stdout: `Pairing token: ${TOKEN}\n`, stderr: '' },
+    { code: 255, stdout: '', stderr: 'Control socket connect: Connection refused' },
+  ]);
+  const controlPath = '/hub/fleet/control-41234'; subject.io.existingPaths.add(controlPath);
+  subject.io.unavailable = async () => { throw new Error('local tunnel port remains occupied'); };
+  await assert.rejects(subject.manager.prepare({ sshTarget: 'alice@example.test', password: PASSWORD }), (error) => error instanceof SshEnrollmentError && error.code === 'TUNNEL_FAILED');
+  assert.deepEqual(subject.io.removals.filter((path) => path === controlPath), [controlPath]); assert.equal(subject.io.spawns.length, 0); assert.equal(subject.io.unavailableCalls, 2);
+});
+
+test('Given a reclaimed stale socket leaves its port occupied, then restore fails closed without spawning', async () => {
+  const io = new FakeIo(); const store = new MemoryStore(); store.save({ peerId: PEER_ID, sshTarget: 'alice@example.test', localPort: 41234 });
+  const controlPath = '/hub/fleet/control-41234'; io.existingPaths.add(controlPath); io.runResults = [{ code: 255, stdout: '', stderr: 'Control socket connect: Connection refused' }];
+  io.unavailable = async () => { throw new Error('SSH control session did not terminate'); };
+  let retries = 0;
+  const manager = new SshTunnelManager({ io, store, paths: { directory: '/hub/fleet', privateKey: '/hub/fleet/id_ed25519', publicKey: '/hub/fleet/id_ed25519.pub', knownHosts: '/hub/fleet/known_hosts' }, scheduler: { schedule: () => { retries += 1; return { cancel: () => undefined }; } } });
+  await manager.restore(); assert.deepEqual(io.removals, [controlPath]); assert.equal(io.unavailableCalls, 2); assert.equal(io.spawns.length, 0); assert.equal(retries, 1);
 });
 
 test('Given reconciliation throws after persistence, then enrollment remains committed and managed while reconciliation is retried', async () => {
@@ -377,21 +402,50 @@ test('Given the tunnel key is installed, then OpenSSH parses its forced command 
   const manager = new SshTunnelManager({ io, store, paths: { directory: '/hub/fleet', privateKey: '/hub/fleet/id_ed25519', publicKey: '/hub/fleet/id_ed25519.pub', knownHosts: '/hub/fleet/known_hosts' }, scheduler: { schedule: () => ({ cancel: () => undefined }) } });
   const service = new SshEasyEnrollService({ tunnels: manager, hubPairing: { enroll: async () => ({ peerId: PEER_ID }) } });
   await service.enroll({ sshTarget: 'alice@example.test', password: PASSWORD }); await manager.remove(PEER_ID);
-  const install = io.runs[0]?.args.at(-1) ?? ''; const cleanup = io.runs.find(({ args }) => args.at(-1) === 'chatmux-fleet-remove-key-v1');
+  const install = io.runs.find(({ args }) => (args.at(-1) ?? '').includes("printf '%s\\n'"))?.args.at(-1) ?? ''; const cleanup = io.runs.find(({ args }) => args.at(-1) === 'chatmux-fleet-remove-key-v1');
   assert.match(install, /command=".*SSH_ORIGINAL_COMMAND.*chatmux-fleet-remove-key-v1/); assert.ok(cleanup?.args.includes('ControlPath=/hub/fleet/control-41234'));
   assert.match(install, /permitopen="127\.0\.0\.1:3001"/); assert.match(install, /printf '%s\\n' 'command=/);
   const installed = spawnSync('/bin/sh', ['-c', install], { env: { ...process.env, HOME: remote } }); assert.equal(installed.status, 0, installed.stderr.toString());
-  const parsed = spawnSync('ssh-keygen', ['-l', '-f', join(remote, '.ssh', 'authorized_keys')]); assert.equal(parsed.status, 0, parsed.stderr.toString());
+  const authorizedKeys = join(remote, '.ssh', 'authorized_keys'); const parsed = spawnSync('ssh-keygen', ['-l', '-f', authorizedKeys]); assert.equal(parsed.status, 0, parsed.stderr.toString());
+  const originalEntry = await readFile(authorizedKeys, 'utf8');
+  const forcedMatch = /^command="((?:\\.|[^"\\])*)",restrict/.exec(originalEntry); assert.ok(forcedMatch?.[1]);
+  const forcedCommand = forcedMatch[1].replace(/\\(["\\])/g, '$1');
+  const syntax = spawnSync('/bin/sh', ['-n', '-c', forcedCommand], { encoding: 'utf8' }); assert.equal(syntax.status, 0, syntax.stderr);
+  const denied = spawnSync('/bin/sh', ['-c', forcedCommand], { env: { ...process.env, HOME: remote, SSH_ORIGINAL_COMMAND: 'anything-else' }, encoding: 'utf8' });
+  assert.equal(denied.status, 126, denied.stderr); assert.equal(await readFile(authorizedKeys, 'utf8'), originalEntry);
+  const removed = spawnSync('/bin/sh', ['-c', forcedCommand], { env: { ...process.env, HOME: remote, SSH_ORIGINAL_COMMAND: 'chatmux-fleet-remove-key-v1' }, encoding: 'utf8' });
+  assert.equal(removed.status, 0, removed.stderr); assert.equal(await readFile(authorizedKeys, 'utf8'), '');
+
+  const reinstalled = spawnSync('/bin/sh', ['-c', install], { env: { ...process.env, HOME: remote } }); assert.equal(reinstalled.status, 0, reinstalled.stderr.toString());
+  const compensationIo = new FakeIo(); compensationIo.readFile = io.readFile;
+  compensationIo.runResults = [{ code: 0, stdout: '', stderr: '' }, { code: 0, stdout: '', stderr: '' }, { code: 127, stdout: '', stderr: 'command not found' }];
+  const compensationManager = new SshTunnelManager({ io: compensationIo, store: new MemoryStore(), paths: { directory: '/hub/fleet', privateKey: '/hub/fleet/id_ed25519', publicKey: '/hub/fleet/id_ed25519.pub', knownHosts: '/hub/fleet/known_hosts' }, scheduler: { schedule: () => ({ cancel: () => undefined }) } });
+  await assert.rejects(compensationManager.prepare({ sshTarget: 'alice@example.test', password: PASSWORD }));
+  const compensation = compensationIo.runs.find(({ args }) => (args.at(-1) ?? '').includes('authorized_keys') && !(args.at(-1) ?? '').includes("printf '%s\\n'"))?.args.at(-1); assert.ok(compensation);
+  const compensated = spawnSync('/bin/sh', ['-c', compensation], { env: { ...process.env, HOME: remote }, encoding: 'utf8' }); assert.equal(compensated.status, 0, compensated.stderr);
+  assert.equal(await readFile(authorizedKeys, 'utf8'), '');
+});
+
+test('Given a remote install command exits after authentication and writing the key, then the live master and key are conservatively unwound', async () => {
+  const subject = fixture();
+  subject.io.onRun = (_command, args) => (args.at(-1) ?? '').includes("printf '%s\\n'")
+    ? { code: 1, stdout: '', stderr: 'later install step failed' }
+    : undefined;
+  await assert.rejects(subject.service.enroll({ sshTarget: 'alice@example.test', password: PASSWORD }), (error) => error instanceof SshEnrollmentError && error.code === 'TUNNEL_FAILED');
+  assert.equal(subject.io.spawns.length, 0);
+  assert.ok(subject.io.runs.some(({ args }) => (args.at(-1) ?? '').includes('authorized_keys') && !(args.at(-1) ?? '').includes("printf '%s\\n'")), 'possibly written key is removed');
+  assert.ok(subject.io.runs.some(({ args }) => args.includes('exit')), 'authenticated master is reclaimed');
 });
 
 test('Given token minting fails after key installation, then only the installed key and existing master are unwound', async () => {
-  const subject = fixture([{ code: 0, stdout: '', stderr: '' }, { code: 127, stdout: '', stderr: 'command not found' }]);
+  const subject = fixture([{ code: 0, stdout: '', stderr: '' }, { code: 0, stdout: '', stderr: '' }, { code: 127, stdout: '', stderr: 'command not found' }]);
   await assert.rejects(subject.service.enroll({ sshTarget: 'alice@example.test', password: PASSWORD }), (error) => error instanceof SshEnrollmentError && error.code === 'REMOTE_CLI_FAILED' && error.cleanupErrors.length === 0);
   assert.equal(subject.io.spawns.length, 0); assert.ok(subject.io.runs.some(({ args }) => (args.at(-1) ?? '').includes('authorized_keys'))); assert.ok(subject.io.runs.some(({ args }) => args.includes('exit')));
 });
 
 test('Given genuine mid-flow cleanup failure, then diagnostics attach without replacing the original closed code', async () => {
   const subject = fixture([
+    { code: 0, stdout: '', stderr: '' },
     { code: 0, stdout: '', stderr: '' },
     { code: 127, stdout: '', stderr: 'command not found' },
     { code: 255, stdout: '', stderr: 'key cleanup refused' },
