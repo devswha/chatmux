@@ -1,3 +1,12 @@
+export const FLEET_SSH_TUNNELS_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS fleet_ssh_tunnels (
+    peer_id TEXT PRIMARY KEY NOT NULL REFERENCES fleet_peers(peer_id) ON DELETE CASCADE,
+    ssh_target TEXT NOT NULL UNIQUE CHECK (length(ssh_target) > 0),
+    ssh_port INTEGER CHECK (ssh_port BETWEEN 1 AND 65535),
+    local_port INTEGER NOT NULL UNIQUE CHECK (local_port BETWEEN 1 AND 65535)
+);
+`;
+
 export const FLEET_PERSISTENCE_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS fleet_peers (
     peer_id TEXT PRIMARY KEY NOT NULL,
@@ -30,12 +39,7 @@ CREATE TABLE IF NOT EXISTS fleet_peers (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_fleet_peers_url ON fleet_peers(url);
 CREATE INDEX IF NOT EXISTS idx_fleet_peers_state ON fleet_peers(enrollment_state, peer_id);
 
-CREATE TABLE IF NOT EXISTS fleet_ssh_tunnels (
-    peer_id TEXT PRIMARY KEY NOT NULL REFERENCES fleet_peers(peer_id) ON DELETE CASCADE,
-    ssh_target TEXT NOT NULL UNIQUE CHECK (length(ssh_target) > 0),
-    ssh_port INTEGER CHECK (ssh_port BETWEEN 1 AND 65535),
-    local_port INTEGER NOT NULL UNIQUE CHECK (local_port BETWEEN 1 AND 65535)
-);
+${FLEET_SSH_TUNNELS_SCHEMA_SQL}
 
 CREATE TRIGGER IF NOT EXISTS fleet_peers_limit_enrolled_insert
 BEFORE INSERT ON fleet_peers

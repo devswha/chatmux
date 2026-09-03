@@ -1,5 +1,5 @@
 export { initializeDatabase } from '@/modules/database/init-db.js';
-export { FLEET_PERSISTENCE_SCHEMA_SQL } from '@/modules/database/schema-parts/fleet.js';
+export { FLEET_PERSISTENCE_SCHEMA_SQL, FLEET_SSH_TUNNELS_SCHEMA_SQL } from '@/modules/database/schema-parts/fleet.js';
 export { closeConnection, getConnection, getDatabasePath } from '@/modules/database/connection.js';
 export {
   completionAppAlias,

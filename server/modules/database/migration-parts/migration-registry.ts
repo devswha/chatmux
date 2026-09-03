@@ -26,6 +26,7 @@ import {
   COMPLETION_NOTIFICATION_GENERATION_STATE_STALE_INDEX_SQL,
   COMPLETION_NOTIFICATION_SCHEMA_SQL,
   FLEET_PERSISTENCE_SCHEMA_SQL,
+  FLEET_SSH_TUNNELS_SCHEMA_SQL,
   LAST_SCANNED_AT_SQL,
   PROJECTS_TABLE_SCHEMA_SQL,
   PUSH_SUBSCRIPTIONS_TABLE_SCHEMA_SQL,
@@ -185,6 +186,6 @@ export const MIGRATIONS: Migration[] = [
   { version: 17, migrate: (db) => db.exec(FLEET_PERSISTENCE_SCHEMA_SQL) },
   { version: 18, migrate: rebuildFleetHubGrantsWithoutRegistryReference },
   { version: 19, migrate: enforceFleetRoleExclusivity },
-  { version: 20, migrate: (db) => db.exec(FLEET_PERSISTENCE_SCHEMA_SQL) },
+  { version: 20, migrate: (db) => db.exec(FLEET_SSH_TUNNELS_SCHEMA_SQL) },
 ];
 
