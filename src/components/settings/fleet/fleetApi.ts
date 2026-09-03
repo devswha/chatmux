@@ -1,11 +1,14 @@
 import { FLEET_CAPABILITIES, FLEET_PEER_STATES, FLEET_PROTOCOL_VERSIONS } from '../../../../shared/fleet';
 import { authenticatedFetch } from '../../../utils/api';
 
+import { FLEET_SSH_ENROLLMENT_ERROR_CODES } from './types';
 import type {
   FleetEnrollmentInput,
   FleetPairingCode,
   FleetRevocationResult,
   FleetSettingsPayload,
+  FleetSshEnrollmentInput,
+  FleetSshEnrollmentResult,
 } from './types';
 
 export class FleetSettingsRequestError extends Error {
@@ -16,9 +19,12 @@ export class FleetSettingsRequestError extends Error {
 async function body(response: Response): Promise<unknown> {
   const value: unknown = await response.json();
   if (!response.ok) {
-    const code = typeof value === 'object' && value !== null && 'error' in value && typeof value.error === 'string'
-      ? value.error
-      : `HTTP_${response.status}`;
+    const error = record(value) ? value.error : undefined;
+    const code = typeof error === 'string'
+      ? error
+      : record(error) && stringIn(error.code, FLEET_SSH_ENROLLMENT_ERROR_CODES)
+        ? error.code
+        : `HTTP_${response.status}`;
     throw new FleetSettingsRequestError(code, response.status);
   }
   return value;
@@ -66,6 +72,14 @@ function pairingCode(value: unknown): FleetPairingCode {
   return { token: value.token, expiresAtMs: value.expiresAtMs };
 }
 
+function sshEnrollment(value: unknown): FleetSshEnrollmentResult {
+  if (!record(value) || typeof value.peerId !== 'string' || typeof value.port !== 'number'
+    || !Number.isInteger(value.port) || value.port < 1 || value.port > 65_535) {
+    throw new FleetSettingsRequestError('MALFORMED_RESPONSE', 502);
+  }
+  return { peerId: value.peerId, port: value.port };
+}
+
 function revocation(value: unknown): FleetRevocationResult {
   if (!record(value)
     || !stringIn(value.localRemoval, ['removed', 'not_found', 'already_removed'] as const)
@@ -85,6 +99,9 @@ export const fleetApi = {
   enroll: async (input: FleetEnrollmentInput): Promise<void> => {
     await body(await authenticatedFetch('/api/fleet/peers', { method: 'POST', body: JSON.stringify(input) }));
   },
+  sshEnroll: async (input: FleetSshEnrollmentInput): Promise<FleetSshEnrollmentResult> => sshEnrollment(await body(
+    await authenticatedFetch('/api/fleet/ssh-enroll', { method: 'POST', body: JSON.stringify(input) }),
+  )),
   reconnect: async (peerId: string): Promise<void> => {
     await body(await authenticatedFetch(`/api/fleet/peers/${encodeURIComponent(peerId)}/reconnect`, { method: 'POST' }));
   },

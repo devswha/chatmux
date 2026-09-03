@@ -1,5 +1,5 @@
 export { initializeDatabase } from '@/modules/database/init-db.js';
-export { FLEET_PERSISTENCE_SCHEMA_SQL } from '@/modules/database/schema-parts/fleet.js';
+export { FLEET_PERSISTENCE_SCHEMA_SQL, FLEET_SSH_TUNNELS_SCHEMA_SQL } from '@/modules/database/schema-parts/fleet.js';
 export { closeConnection, getConnection, getDatabasePath } from '@/modules/database/connection.js';
 export {
   completionAppAlias,
@@ -43,6 +43,11 @@ export {
   FleetPairingTokensRepository,
 } from '@/modules/database/repositories/fleet-pairing-tokens.js';
 export { fleetPeersDb, type FleetPeer } from '@/modules/database/repositories/fleet-peers.js';
+export {
+  fleetSshTunnelsDb,
+  FleetSshTunnelsRepository,
+  type FleetSshTunnelRecord,
+} from '@/modules/database/repositories/fleet-ssh-tunnels.js';
 export { projectsDb } from '@/modules/database/repositories/projects.db.js';
 export { pushSubscriptionsDb } from '@/modules/database/repositories/push-subscriptions.js';
 export { scanStateDb } from '@/modules/database/repositories/scan-state.db.js';

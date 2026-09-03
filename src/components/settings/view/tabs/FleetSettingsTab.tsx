@@ -49,7 +49,7 @@ export function FleetSettingsTab() {
         <SettingsCard className="p-4">
           {fleet.data.role === 'peer'
             ? <p role="status" className="text-sm text-muted-foreground">{t('fleet.enroll.roleConflict')}</p>
-            : <FleetEnrollmentForm pending={fleet.pending} onEnroll={fleet.enroll} />}
+            : <FleetEnrollmentForm pending={fleet.pending} onEnroll={fleet.enroll} onSshEnroll={fleet.sshEnroll} />}
         </SettingsCard>
       </SettingsSection>
 

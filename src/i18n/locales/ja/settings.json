@@ -71,6 +71,36 @@
     "appearance": "外観",
     "access": "アクセス"
   },
+  "fleet": {
+    "sshEasy": {
+      "title": "SSHでかんたん追加",
+      "description": "ChatMuxがSSHで接続し、安全なトンネルの設定とPCの登録を自動で行います。",
+      "target": "SSH接続先",
+      "targetPlaceholder": "devswha@192.168.1.50",
+      "password": "SSHパスワード",
+      "passwordHelp": "この接続にのみ使用され、保存されません。",
+      "keyDisclosure": "初回接続時に、このハブ専用のSSHキーをリモートPCへインストールします。2回目以降は自動で再接続します。",
+      "submit": "SSHで追加",
+      "success": "{{label}} がローカルポート {{port}} で接続されました。",
+      "stepConnect": "SSHで接続しています…",
+      "stepKey": "ハブ専用キーをインストールしています…",
+      "stepToken": "ペアリングトークンを発行しています…",
+      "stepEnroll": "PCを登録しています…",
+      "errors": {
+        "INVALID_SSH_TARGET": "SSH接続先を user@host[:port] の形式で入力してください。",
+        "MALFORMED_REQUEST": "The SSH enrollment request is malformed.",
+        "SSH_PASSWORD_REQUIRED": "初回接続にはSSHパスワードが必要です。",
+        "SSH_AUTH_FAILED": "SSH認証に失敗しました。ユーザー名とパスワードを確認してください。",
+        "SSH_UNREACHABLE": "SSH接続先に到達できませんでした。",
+        "HOSTKEY_REJECTED": "ホストキーが拒否されました。リモートPCの識別情報を確認してください。",
+        "REMOTE_CLI_FAILED": "リモートPCでChatMuxを実行できませんでした。",
+        "TOKEN_PARSE_FAILED": "リモートのペアリングトークンを読み取れませんでした。",
+        "ENROLL_FAILED": "PCを登録できませんでした。",
+        "PEER_LIMIT_REACHED": "このフリートは登録可能なPC数の上限に達しています。",
+        "TUNNEL_FAILED": "安全なSSHトンネルを確立できませんでした。"
+      }
+    }
+  },
   "appearanceSettings": {
     "darkMode": {
       "label": "ダークモード",

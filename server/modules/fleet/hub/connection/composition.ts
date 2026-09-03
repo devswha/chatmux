@@ -10,6 +10,7 @@ import { FleetMutationClient } from '@/modules/fleet/rpc/mutations/index.js';
 import { FleetReadClient } from '@/modules/fleet/rpc/reads/index.js';
 import { RemoteTerminalClient, remoteTerminalShellGateway } from '@/modules/fleet/terminal/index.js';
 import { wakeCompletionOutboxDispatcher } from '@/modules/notifications/index.js';
+import { fleetSshTunnelManager } from '@/modules/fleet/services/ssh-tunnel.service.js';
 
 import type { FleetCapability } from '../../../../../shared/fleet.js';
 import { createFleetCompletionHubAdapter } from '../../completion/hub-adapter.js';
@@ -37,6 +38,7 @@ export async function createLocalFleetHubRuntime(processEpoch: string): Promise<
   readonly stop: () => void;
 }>> {
   const signer = await loadFleetPeerSigner();
+  await fleetSshTunnelManager.restore();
   const peers = new SqliteHubPeerConnectionStore(getConnection());
   const capabilities: readonly FleetCapability[] = ['catalog.read', 'session.read', 'chat.control', 'prompt.respond', 'pane.read', 'terminal.attach', 'terminal.input', 'session.spawn', 'session.terminate', 'completion.event'];
   function requestSnapshot(hostId: string): void { registry.markSyncing(hostId); registry.requestCatalogSnapshot(hostId); }
@@ -74,5 +76,5 @@ export async function createLocalFleetHubRuntime(processEpoch: string): Promise<
     if (status.generation !== null && status.peerProcessEpoch !== null && catalog.host(status.peerId)?.generation !== status.generation) catalog.connected(status.peerId, status.generation, status.peerProcessEpoch);
     if (status.state === 'offline' || status.state === 'revoked' || status.state === 'incompatible') catalog.offline(status.peerId, status.state);
   });
-  return { localHostId: signer.installationId, capabilities, registry, catalog, reads, mutations, terminals, start: () => registry.start(), stop: () => { remoteTerminalShellGateway.unbind(terminals); terminals.dispose(); unsubscribe(); registry.stop(); } };
+  return { localHostId: signer.installationId, capabilities, registry, catalog, reads, mutations, terminals, start: () => registry.start(), stop: () => { fleetSshTunnelManager.stop(); remoteTerminalShellGateway.unbind(terminals); terminals.dispose(); unsubscribe(); registry.stop(); } };
 }

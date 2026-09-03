@@ -72,6 +72,36 @@
     "access": "Erişim",
     "computer": "Bilgisayar Kullanımı"
   },
+  "fleet": {
+    "sshEasy": {
+      "title": "SSH ile kolay ekleme",
+      "description": "ChatMux SSH ile bağlanır, güvenli tüneli kurar ve bilgisayarı otomatik olarak kaydeder.",
+      "target": "SSH hedefi",
+      "targetPlaceholder": "devswha@192.168.1.50",
+      "password": "SSH parolası",
+      "passwordHelp": "Yalnızca bu bağlantı için kullanılır ve kaydedilmez.",
+      "keyDisclosure": "İlk bağlantıda uzak bilgisayara yalnızca bu hub için geçerli bir SSH anahtarı yüklenir. Sonraki bağlantılar otomatik yapılır.",
+      "submit": "SSH ile ekle",
+      "success": "{{label}}, {{port}} yerel bağlantı noktasında bağlandı.",
+      "stepConnect": "SSH ile bağlanılıyor…",
+      "stepKey": "Hub anahtarı yükleniyor…",
+      "stepToken": "Eşleştirme belirteci oluşturuluyor…",
+      "stepEnroll": "Bilgisayar kaydediliyor…",
+      "errors": {
+        "INVALID_SSH_TARGET": "SSH hedefini kullanıcı@sunucu[:bağlantı_noktası] biçiminde girin.",
+        "MALFORMED_REQUEST": "The SSH enrollment request is malformed.",
+        "SSH_PASSWORD_REQUIRED": "İlk bağlantı için SSH parolası gereklidir.",
+        "SSH_AUTH_FAILED": "SSH kimlik doğrulaması başarısız. Kullanıcı adı ve parolayı denetleyin.",
+        "SSH_UNREACHABLE": "SSH hedefine ulaşılamadı.",
+        "HOSTKEY_REJECTED": "Sunucu anahtarı reddedildi. Uzak bilgisayarın kimliğini doğrulayın.",
+        "REMOTE_CLI_FAILED": "ChatMux uzak bilgisayarda çalıştırılamadı.",
+        "TOKEN_PARSE_FAILED": "Uzak eşleştirme belirteci okunamadı.",
+        "ENROLL_FAILED": "Bilgisayar kaydedilemedi.",
+        "PEER_LIMIT_REACHED": "Bu filoda izin verilen en fazla bilgisayar sayısına ulaşıldı.",
+        "TUNNEL_FAILED": "Güvenli SSH tüneli kurulamadı."
+      }
+    }
+  },
   "appearanceSettings": {
     "darkMode": {
       "label": "Koyu Mod",

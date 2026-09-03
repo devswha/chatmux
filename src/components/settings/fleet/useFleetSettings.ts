@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { fleetApi, FleetSettingsRequestError } from './fleetApi';
-import type { FleetEnrollmentInput, FleetPairingCode, FleetRevocationResult, FleetSettingsPayload } from './types';
+import type { FleetEnrollmentInput, FleetPairingCode, FleetRevocationResult, FleetSettingsPayload, FleetSshEnrollmentInput, FleetSshEnrollmentResult } from './types';
 
 type FleetSettingsState = Readonly<{
   readonly data: FleetSettingsPayload | null;
@@ -60,6 +60,19 @@ export function useFleetSettings() {
     }
   }, []);
   const enroll = useCallback((input: FleetEnrollmentInput) => run(() => fleetApi.enroll(input)), [run]);
+  const sshEnroll = useCallback(async (input: FleetSshEnrollmentInput): Promise<FleetSshEnrollmentResult> => {
+    setState((current) => ({ ...current, pending: true, error: null, lastRevocation: null }));
+    try {
+      const result = await fleetApi.sshEnroll(input);
+      await load();
+      return result;
+    } catch (error) {
+      setState((current) => ({ ...current, error: message(error) }));
+      throw error;
+    } finally {
+      setState((current) => ({ ...current, pending: false }));
+    }
+  }, [load]);
   const reconnect = useCallback((peerId: string) => run(() => fleetApi.reconnect(peerId)), [run]);
   const removeLocal = useCallback((peerId: string) => run(() => fleetApi.removeLocal(peerId)), [run]);
   const revoke = useCallback(async (peerId: string) => {
@@ -75,5 +88,5 @@ export function useFleetSettings() {
     }
   }, []);
 
-  return { ...state, load, generateCode, enroll, reconnect, revoke, removeLocal };
+  return { ...state, load, generateCode, enroll, sshEnroll, reconnect, revoke, removeLocal };
 }

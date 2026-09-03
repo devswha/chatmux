@@ -71,6 +71,36 @@
     "appearance": "Apparence",
     "access": "Accès"
   },
+  "fleet": {
+    "sshEasy": {
+      "title": "Ajout simplifié par SSH",
+      "description": "ChatMux se connecte en SSH, configure le tunnel sécurisé et inscrit automatiquement le PC.",
+      "target": "Cible SSH",
+      "targetPlaceholder": "devswha@192.168.1.50",
+      "password": "Mot de passe SSH",
+      "passwordHelp": "Utilisé uniquement pour cette connexion et jamais enregistré.",
+      "keyDisclosure": "À la première connexion, ChatMux installe sur le PC distant une clé SSH réservée à ce hub. Les reconnexions suivantes sont automatiques.",
+      "submit": "Ajouter par SSH",
+      "success": "{{label}} est connecté sur le port local {{port}}.",
+      "stepConnect": "Connexion SSH…",
+      "stepKey": "Installation de la clé du hub…",
+      "stepToken": "Création du jeton d’association…",
+      "stepEnroll": "Inscription du PC…",
+      "errors": {
+        "INVALID_SSH_TARGET": "Saisissez une cible SSH valide au format utilisateur@hôte[:port].",
+        "MALFORMED_REQUEST": "The SSH enrollment request is malformed.",
+        "SSH_PASSWORD_REQUIRED": "Le mot de passe SSH est requis pour la première connexion.",
+        "SSH_AUTH_FAILED": "Échec de l’authentification SSH. Vérifiez le nom d’utilisateur et le mot de passe.",
+        "SSH_UNREACHABLE": "La cible SSH est inaccessible.",
+        "HOSTKEY_REJECTED": "La clé de l’hôte a été refusée. Vérifiez l’identité du PC distant.",
+        "REMOTE_CLI_FAILED": "ChatMux n’a pas pu s’exécuter sur le PC distant.",
+        "TOKEN_PARSE_FAILED": "Impossible de lire le jeton d’association distant.",
+        "ENROLL_FAILED": "Impossible d’inscrire le PC.",
+        "PEER_LIMIT_REACHED": "Cette flotte contient déjà le nombre maximal de PC.",
+        "TUNNEL_FAILED": "Impossible d’établir le tunnel SSH sécurisé."
+      }
+    }
+  },
   "appearanceSettings": {
     "darkMode": {
       "label": "Mode sombre",

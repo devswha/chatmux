@@ -10,6 +10,8 @@ import { FleetPairingFailureLimiter } from '@/modules/fleet/services/fleet-pairi
 import { FleetPairingService } from '@/modules/fleet/services/fleet-pairing.service.js';
 import { SqliteFleetPairingStore } from '@/modules/fleet/services/fleet-pairing-store.service.js';
 import { FleetRevocationService } from '@/modules/fleet/services/fleet-revocation.service.js';
+import { SshEasyEnrollService } from '@/modules/fleet/services/ssh-easy-enroll.service.js';
+import { fleetSshTunnelManager } from '@/modules/fleet/services/ssh-tunnel.service.js';
 import { loadOrCreateInstallationIdentity } from '@/modules/fleet/services/installation-identity.service.js';
 
 import { createFleetPairingTransport } from './fleet-pairing-transport.js';
@@ -21,6 +23,7 @@ type Services = Readonly<{
   readonly pairing: FleetPairingService;
   readonly hubPairing: FleetHubPairingService;
   readonly revocation: FleetRevocationService;
+  readonly sshEnrollment: SshEasyEnrollService;
 }>;
 
 let servicesPromise: Promise<Services> | undefined;
@@ -29,16 +32,26 @@ async function services(): Promise<Services> {
   servicesPromise ??= (async () => {
     const identity = await loadFleetSignedIdentity();
     const transport = createFleetPairingTransport();
+    const hubPairing = new FleetHubPairingService({
+      identity,
+      peers: fleetPeersDb,
+      transport,
+      activeInboundGrant: () => fleetPeersDb.hasActiveInboundGrant(),
+    });
     return {
       pairing: new FleetPairingService({
         store: new SqliteFleetPairingStore(getConnection()),
         identity,
       }),
-      hubPairing: new FleetHubPairingService({
-        identity,
-        peers: fleetPeersDb,
-        transport,
-        activeInboundGrant: () => fleetPeersDb.hasActiveInboundGrant(),
+      hubPairing,
+      sshEnrollment: new SshEasyEnrollService({
+        tunnels: fleetSshTunnelManager,
+        onPersisted: () => fleetBrowserDiscoveryGateway.current()?.reconcile(),
+        hubPairing: {
+          preflight: (input) => hubPairing.preflight(input),
+          enroll: (input) => hubPairing.enroll(input),
+          rollback: (peerId) => hubPairing.rollback(peerId),
+        },
       }),
       revocation: new FleetRevocationService({
         identity,
@@ -73,6 +86,10 @@ export function createLocalFleetSettingsRouter(authMode: AuthMode): express.Rout
         fleetBrowserDiscoveryGateway.current()?.reconcile();
         return result;
       },
+    },
+    sshEnrollment: {
+      enroll: async (input) => (await services()).sshEnrollment.enroll(input),
+      remove: async (peerId) => (await services()).sshEnrollment.remove(peerId),
     },
     revocation: {
       remove: async (peerId) => {

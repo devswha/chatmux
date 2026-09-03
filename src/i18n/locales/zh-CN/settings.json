@@ -72,6 +72,36 @@
     "access": "访问",
     "computer": "计算机使用"
   },
+  "fleet": {
+    "sshEasy": {
+      "title": "通过 SSH 轻松添加",
+      "description": "ChatMux 将通过 SSH 连接，设置安全隧道并自动注册这台电脑。",
+      "target": "SSH 目标",
+      "targetPlaceholder": "devswha@192.168.1.50",
+      "password": "SSH 密码",
+      "passwordHelp": "仅用于本次连接，绝不会保存。",
+      "keyDisclosure": "首次连接时，ChatMux 会在远程电脑上安装仅限此中心使用的 SSH 密钥。之后将自动重新连接。",
+      "submit": "通过 SSH 添加",
+      "success": "{{label}} 已通过本地端口 {{port}} 连接。",
+      "stepConnect": "正在通过 SSH 连接…",
+      "stepKey": "正在安装中心专用密钥…",
+      "stepToken": "正在生成配对令牌…",
+      "stepEnroll": "正在注册电脑…",
+      "errors": {
+        "INVALID_SSH_TARGET": "请输入 user@host[:port] 格式的有效 SSH 目标。",
+        "MALFORMED_REQUEST": "The SSH enrollment request is malformed.",
+        "SSH_PASSWORD_REQUIRED": "首次连接需要 SSH 密码。",
+        "SSH_AUTH_FAILED": "SSH 身份验证失败，请检查用户名和密码。",
+        "SSH_UNREACHABLE": "无法访问 SSH 目标。",
+        "HOSTKEY_REJECTED": "主机密钥被拒绝，请核实远程电脑的身份。",
+        "REMOTE_CLI_FAILED": "无法在远程电脑上运行 ChatMux。",
+        "TOKEN_PARSE_FAILED": "无法读取远程配对令牌。",
+        "ENROLL_FAILED": "无法注册这台电脑。",
+        "PEER_LIMIT_REACHED": "此设备组中的电脑数量已达上限。",
+        "TUNNEL_FAILED": "无法建立安全 SSH 隧道。"
+      }
+    }
+  },
   "appearanceSettings": {
     "darkMode": {
       "label": "深色模式",

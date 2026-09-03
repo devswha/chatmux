@@ -12,6 +12,8 @@ unexpectedly (under "Side-effect safety") and clarifies that request, response, 
 event bodies are opaque JSON: only descriptor fields named by this RFC are parsed
 as fleet enums. Everything else is unchanged from revision 2.
 
+Revision 4 (2026-09-03): permits hub-managed SSH local forwards for enrollment, allowing the hub to create and supervise the tunnel while securely handling host keys and prohibiting password retention. Everything else is unchanged from revision 3.
+
 ## Topology and authority
 
 - A fleet MUST contain one designated hub and at most nine enrolled full peers (ten
@@ -31,7 +33,7 @@ as fleet enums. Everything else is unchanged from revision 2.
 
 - Direct peers MUST use HTTPS/WSS; Tailscale Serve is the default documented path.
   Plain `ws://` is valid only for a saved `ssh-loopback` peer targeting immediate
-  `127.0.0.1` or `[::1]` through an owner-managed SSH local forward. No automatic
+  `127.0.0.1` or `[::1]` through an owner-managed or hub-managed SSH local forward. No automatic
   downgrade is permitted.
 - Each installation MUST own a durable random UUID and Ed25519 key pair. Hostname,
   URL, IP, label, tmux socket, and provider ID MUST NOT identify an installation.
@@ -42,6 +44,14 @@ as fleet enums. Everything else is unchanged from revision 2.
   credentials. After transport setup, peers MUST finish a five-second mutual-key
   challenge, negotiate a protocol/capability intersection, and supersede stale
   connection generations. TLS or the explicit SSH tunnel protects transport.
+
+### Hub-managed SSH forwarding
+
+- The hub MAY create, own, and supervise an SSH local forward when the owner explicitly supplies an SSH target (`user@host[:port]`) and a one-time password through the fleet settings UI. The forward targets the remote installation's loopback fleet listener (default `127.0.0.1:3001`). Plain `ws://` remains valid ONLY for the resulting `127.0.0.1` or `[::1]` loopback URL.
+- The password is handshake-only transient input. It MUST NOT be persisted, logged, or retained beyond the SSH authentication attempt. Enrollment metadata stores only the SSH target, the stable local port, and host-key material, never credentials.
+- On first enrollment the hub installs a dedicated fleet-tunnel Ed25519 public key into the remote account's `authorized_keys` (idempotently, over the same owner-initiated SSH session), with explicit UI disclosure. Subsequent tunnel re-establishment authenticates with that key. The private key is stored only in the hub's private data directory like the installation key pair.
+- Host keys use trust-on-first-use recorded in a hub-owned `known_hosts` file dedicated to fleet tunnels. A changed host key MUST fail the tunnel. Silent acceptance is forbidden.
+- Removing the peer tears the tunnel down and best-effort removes the installed public key from the remote `authorized_keys`.
 
 ## Identity, descriptors, and keys
 
