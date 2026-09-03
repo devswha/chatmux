@@ -367,7 +367,19 @@ test('Given stale socket reclamation leaves the enrollment port occupied, then p
   const controlPath = '/hub/fleet/control-41234'; subject.io.existingPaths.add(controlPath);
   subject.io.unavailable = async () => { throw new Error('local tunnel port remains occupied'); };
   await assert.rejects(subject.manager.prepare({ sshTarget: 'alice@example.test', password: PASSWORD }), (error) => error instanceof SshEnrollmentError && error.code === 'TUNNEL_FAILED');
-  assert.deepEqual(subject.io.removals.filter((path) => path === controlPath), [controlPath]); assert.equal(subject.io.spawns.length, 0); assert.equal(subject.io.unavailableCalls, 2);
+  assert.deepEqual(subject.io.removals.filter((path) => path === controlPath), [controlPath]); assert.equal(subject.io.spawns.length, 0); assert.equal(subject.io.unavailableCalls, 1);
+});
+
+test('Given a live master exits cleanly but the port stays occupied, then the sentinel cleanup path removes the installed key', async () => {
+  const subject = fixture();
+  subject.io.unavailable = async () => { throw new Error('local tunnel port remains occupied'); };
+  await assert.rejects(subject.manager.prepare({ sshTarget: 'alice@example.test', password: PASSWORD }), (error) => error instanceof SshEnrollmentError && error.code === 'TUNNEL_FAILED');
+  const removalRuns = subject.io.runs.filter(({ args }) => args.at(-1) === 'chatmux-fleet-remove-key-v1');
+  assert.equal(removalRuns.length, 1, 'exactly one sentinel key removal after the master exited');
+  const installRun = subject.io.runs.find(({ args }) => (args.at(-1) ?? '').includes("printf '%s\\n'"));
+  assert.ok(installRun, 'key installation command ran');
+  assert.ok((installRun?.args.at(-1) ?? '').includes('SSH_ORIGINAL_COMMAND'), 'the installed entry carries the sentinel forced command that the occupied-port cleanup path executes');
+  assert.equal(subject.io.spawns.length, 0);
 });
 
 test('Given a reclaimed stale socket leaves its port occupied, then restore fails closed without spawning', async () => {

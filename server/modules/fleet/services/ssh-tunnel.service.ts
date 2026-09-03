@@ -132,7 +132,12 @@ export class SshTunnelManager {
       await this.installKey(target, controlPath);
       const token = await this.mintToken(target, controlPath);
       if (askpass !== undefined) { await this.dependencies.io.rm(askpass.directory); askpass = undefined; }
-      await this.reclaimMaster(target, controlPath, localPort); phases.masterCreated = false;
+      await this.terminateMaster(target, controlPath); phases.masterCreated = false;
+      try {
+        await this.dependencies.io.waitUntilUnavailable(localPort, controlPath, this.dependencies.readinessTimeoutMs ?? 5_000);
+      } catch {
+        throw new SshEnrollmentError('TUNNEL_FAILED', 'the local tunnel port stayed occupied after the control master exited');
+      }
       launch = this.spawnTunnel(target, localPort, controlPath, true);
       phases.masterCreated = true; phases.restrictedMaster = true;
       await this.awaitReady(launch, target, localPort, controlPath);
@@ -290,9 +295,7 @@ export class SshTunnelManager {
     const result = await this.dependencies.io.run('ssh', [...this.controlArgs(target, controlPath), target.destination, command], { env: this.cleanEnv(), timeoutMs: EXEC_TIMEOUT_MS });
     if (result.code !== 0) throw classify(result, 'TUNNEL_FAILED');
   }
-  private async reclaimMaster(target: SshTarget, controlPath: string, localPort: number): Promise<void> {
-    const ownedControlPath = join(this.dependencies.paths.directory, `control-${localPort}`);
-    if (controlPath !== ownedControlPath) throw new SshEnrollmentError('TUNNEL_FAILED', 'SSH control path is outside the managed directory');
+  private async terminateMaster(target: SshTarget, controlPath: string): Promise<void> {
     const checked = await this.dependencies.io.run('ssh', [...this.controlArgs(target, controlPath), '-O', 'check', target.destination], { env: this.cleanEnv(), timeoutMs: EXEC_TIMEOUT_MS });
     if (checked.code === 0) {
       const exited = await this.dependencies.io.run('ssh', [...this.controlArgs(target, controlPath), '-O', 'exit', target.destination], { env: this.cleanEnv(), timeoutMs: EXEC_TIMEOUT_MS });
@@ -300,6 +303,11 @@ export class SshTunnelManager {
     } else if (await this.dependencies.io.fileExists(controlPath)) {
       await this.dependencies.io.rm(controlPath);
     }
+  }
+  private async reclaimMaster(target: SshTarget, controlPath: string, localPort: number): Promise<void> {
+    const ownedControlPath = join(this.dependencies.paths.directory, `control-${localPort}`);
+    if (controlPath !== ownedControlPath) throw new SshEnrollmentError('TUNNEL_FAILED', 'SSH control path is outside the managed directory');
+    await this.terminateMaster(target, controlPath);
     await this.dependencies.io.waitUntilUnavailable(localPort, controlPath, this.dependencies.readinessTimeoutMs ?? 5_000);
   }
   private async cleanupSteps(steps: ReadonlyArray<() => Promise<void> | void>): Promise<Error[]> {
