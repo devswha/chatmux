@@ -46,12 +46,18 @@ export class SshEasyEnrollService {
       this.dependencies.onPersisted?.();
       return { peerId: peer.peerId, port: prepared.localPort };
     } catch (error) {
-      await prepared.abort();
+      const cleanupErrors: Error[] = [];
+      // Revoke remote and local grants while the forward is still usable. Tunnel
+      // teardown follows even when either compensation boundary fails.
       if (peerId !== undefined) {
         try { await this.dependencies.hubPairing.rollback?.(peerId); }
-        catch (rollbackError) { if (!(rollbackError instanceof Error)) throw rollbackError; }
+        catch (rollbackError) { cleanupErrors.push(rollbackError instanceof Error ? rollbackError : new Error('pairing rollback failed')); }
       }
-      throw this.closedPairingError(error);
+      try { await prepared.abort(); }
+      catch (abortError) { cleanupErrors.push(abortError instanceof Error ? abortError : new Error('SSH cleanup failed')); }
+      const closed = this.closedPairingError(error);
+      if (cleanupErrors.length > 0) throw new SshEnrollmentError(closed.code, `${closed.message}; cleanup was incomplete`, cleanupErrors);
+      throw closed;
     }
   }
 

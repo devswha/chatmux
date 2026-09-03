@@ -96,6 +96,16 @@ test('invokes transport once for each canonical direct and SSH enrollment target
 });
 
 
+test('revokes the remote grant after redemption when local persistence fails', async () => {
+  const peer = signedIdentity(PEER_ID); const revocations: unknown[] = [];
+  const service = new FleetHubPairingService({ identity: signedIdentity(HUB_ID),
+    transport: { redeem: async () => peer, revoke: async (request) => { revocations.push(request); return true; } },
+    peers: { find: () => undefined, list: () => [], enroll: () => ({ ok: false, reason: 'duplicate_url' as const }) },
+  });
+  await assert.rejects(service.enroll({ peerUrl: 'wss://peer.example.test/fleet-ws', transportMode: 'direct-wss', token: 'secret' }), (error) => error instanceof FleetHubPairingError && error.code === 'PEER_PERSISTENCE_CONFLICT');
+  assert.equal(revocations.length, 1);
+});
+
 test('never reports success after persistence conflict or interrupted transport', async () => {
   // Given: a valid peer whose local persistence conflicts, plus an interrupted transport.
   const peer = signedIdentity(PEER_ID); let persistenceCalls = 0;

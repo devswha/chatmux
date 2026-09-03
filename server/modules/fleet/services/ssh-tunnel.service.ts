@@ -20,7 +20,7 @@ export type SshEnrollmentErrorCode =
 
 export class SshEnrollmentError extends Error {
   readonly name = 'SshEnrollmentError';
-  constructor(readonly code: SshEnrollmentErrorCode, message: string) { super(message); }
+  constructor(readonly code: SshEnrollmentErrorCode, message: string, readonly cleanupErrors: readonly Error[] = []) { super(message); }
 }
 
 type Scheduled = Readonly<{ cancel(): void }>;
@@ -57,7 +57,8 @@ const REMOTE_FLEET_PORT = 3001;
 const TOKEN_LINE = /^Pairing token: ([A-Za-z0-9_-]{43})$/;
 const EXEC_TIMEOUT_MS = 15_000;
 const CONTROL_PERSIST_SECONDS = 60;
-const KEY_PREFIX = 'restrict,port-forwarding,no-pty ';
+const KEY_PREFIX = 'restrict,port-forwarding,permitopen="127.0.0.1:3001",command="false" ';
+const LEGACY_KEY_PREFIX = 'restrict,port-forwarding,no-pty ';
 
 function shellQuote(value: string): string { return `'${value.replaceAll("'", `'"'"'`)}'`; }
 
@@ -77,6 +78,8 @@ function parseToken(stdout: string): string {
   }
   return match[1];
 }
+
+function errorValue(value: unknown): Error { return value instanceof Error ? value : new Error('Unknown SSH cleanup failure'); }
 
 export class SshTunnelManager {
   private readonly active = new Map<string, ActiveTunnel>();
@@ -98,7 +101,7 @@ export class SshTunnelManager {
     if (this.reservedTargets.has(target.sshTarget)) throw new SshEnrollmentError('TUNNEL_FAILED', 'SSH target enrollment is already in progress');
     await this.ensureKey();
     const localPort = existing?.localPort ?? await this.allocateUniquePort();
-    const controlPath = existing?.controlPath ?? join(this.dependencies.paths.directory, `control-${localPort}`);
+    const controlPath = join(this.dependencies.paths.directory, `control-${localPort}`);
     this.reservedTargets.add(target.sshTarget); this.reservedPorts.add(localPort);
     const password = input.password === undefined || input.password.length === 0 ? undefined : input.password;
     let askpass: Askpass | undefined;
@@ -112,15 +115,16 @@ export class SshTunnelManager {
     try {
       askpass = password === undefined ? undefined : await this.createAskpass(password);
       const token = await this.installKeyAndMintToken(target, controlPath, askpass?.helper);
+      if (askpass !== undefined) { await this.dependencies.io.rm(askpass.directory); askpass = undefined; }
       launch = this.spawnTunnel(target, localPort, controlPath, false);
-      await this.awaitReady(launch, localPort);
+      await this.awaitReady(launch, target, localPort, controlPath);
       const tunnel = launch.process;
       return {
         localPort,
         token,
         complete: (peerId) => {
           if (completed) return;
-          const record: SshTunnelRecord = { peerId, sshTarget: target.sshTarget, localPort, controlPath, ...(target.sshPort === undefined ? {} : { sshPort: target.sshPort }) };
+          const record: SshTunnelRecord = { peerId, sshTarget: target.sshTarget, localPort, ...(target.sshPort === undefined ? {} : { sshPort: target.sshPort }) };
           this.dependencies.store.save(record);
           completed = true; release();
           const managed: ActiveTunnel = { process: tunnel, record, restarts: 0, stopping: false };
@@ -128,20 +132,14 @@ export class SshTunnelManager {
         },
         abort: async () => {
           if (completed) return;
-          launch?.process.stop('SIGTERM');
-          await this.removeInstalledKey(target, controlPath);
-          await this.exitMaster(target, controlPath);
-          release();
+          const errors = await this.unwind(target, controlPath, launch?.process, release);
+          if (errors.length > 0) throw new SshEnrollmentError('TUNNEL_FAILED', 'SSH enrollment cleanup was incomplete', errors);
         },
       };
     } catch (error) {
-      launch?.process.stop('SIGTERM');
-      await this.removeInstalledKey(target, controlPath).catch(() => undefined);
-      await this.exitMaster(target, controlPath).catch(() => undefined);
-      release();
+      const errors = await this.unwind(target, controlPath, launch?.process, release, askpass?.directory);
+      if (errors.length > 0) throw new SshEnrollmentError('TUNNEL_FAILED', 'SSH tunnel setup failed and cleanup was incomplete', [errorValue(error), ...errors]);
       throw error;
-    } finally {
-      if (askpass !== undefined) await this.dependencies.io.rm(askpass.directory);
     }
   }
 
@@ -154,9 +152,14 @@ export class SshTunnelManager {
     if (record === undefined) return;
     this.dependencies.store.delete(peerId);
     const target = parseSshTarget(record.sshTarget);
-    const controlPath = this.recordControlPath(record);
-    await this.removeInstalledKey(target, controlPath);
-    await this.exitMaster(target, controlPath);
+    const errors = await this.cleanupSteps([
+      () => this.removeInstalledKey(target, this.recordControlPath(record)),
+      () => this.exitMaster(target, this.recordControlPath(record)),
+    ]);
+    if (errors.length > 0) {
+      this.dependencies.report?.('TUNNEL_FAILED', peerId);
+      throw new SshEnrollmentError('TUNNEL_FAILED', 'SSH tunnel cleanup was incomplete', errors);
+    }
   }
 
   async restore(): Promise<void> {
@@ -164,15 +167,17 @@ export class SshTunnelManager {
     catch (error) { this.dependencies.report?.('TUNNEL_FAILED', 'key'); return; }
     for (const record of this.dependencies.store.list()) {
       if (this.active.has(record.peerId)) continue;
+      const target = parseSshTarget(record.sshTarget); const controlPath = this.recordControlPath(record);
+      let launch: Launch | undefined;
       try {
-        const target = parseSshTarget(record.sshTarget);
-        const controlPath = this.recordControlPath(record);
-        const checked = await this.dependencies.io.run('ssh', [...this.controlArgs(target, controlPath), '-O', 'check', target.destination], { timeoutMs: EXEC_TIMEOUT_MS });
-        const launch = this.spawnTunnel(target, record.localPort, controlPath, checked.code !== 0);
+        await this.exitMaster(target, controlPath, true);
+        launch = this.spawnTunnel(target, record.localPort, controlPath, true);
         const managed: ActiveTunnel = { process: launch.process, record, restarts: 0, stopping: false };
         this.active.set(record.peerId, managed); this.watch(record.peerId, managed);
-        await this.awaitReady(launch, record.localPort); this.scheduleHealthyReset(record.peerId, managed);
+        await this.awaitReady(launch, target, record.localPort, controlPath); this.scheduleHealthyReset(record.peerId, managed);
       } catch (error) {
+        launch?.process.stop('SIGTERM');
+        await this.exitMaster(target, controlPath, true).catch(() => undefined);
         this.active.delete(record.peerId); this.dependencies.report?.('TUNNEL_FAILED', record.peerId);
       }
     }
@@ -183,9 +188,7 @@ export class SshTunnelManager {
     this.active.clear();
   }
 
-  private recordControlPath(record: SshTunnelRecord): string {
-    return record.controlPath ?? join(this.dependencies.paths.directory, `control-${record.localPort}`);
-  }
+  private recordControlPath(record: SshTunnelRecord): string { return join(this.dependencies.paths.directory, `control-${record.localPort}`); }
   private async allocateUniquePort(): Promise<number> {
     for (let attempt = 0; attempt < 10; attempt += 1) {
       const port = await this.dependencies.io.allocatePort();
@@ -202,36 +205,45 @@ export class SshTunnelManager {
   private async createAskpass(password: string): Promise<Askpass> {
     const directory = await this.dependencies.io.mkdtemp(join(this.dependencies.paths.directory, 'askpass-'));
     const payload = join(directory, 'payload'); const helper = join(directory, 'askpass');
-    await this.dependencies.io.writeFile(payload, `${password}\n`, 0o600);
-    await this.dependencies.io.writeFile(helper, `#!/bin/sh\npayload=${shellQuote(payload)}\ntrap 'rm -f -- "$payload" "$0"' EXIT\ncat -- "$payload"\n`, 0o700);
-    return { directory, helper, payload };
+    try {
+      await this.dependencies.io.writeFile(payload, `${password}\n`, 0o600);
+      await this.dependencies.io.writeFile(helper, `#!/bin/sh\npayload=${shellQuote(payload)}\ntrap 'rm -f -- "$payload" "$0"' EXIT\ncat -- "$payload"\n`, 0o700);
+      return { directory, helper, payload };
+    } catch (error) {
+      try { await this.dependencies.io.rm(directory); }
+      catch (cleanupError) { throw new AggregateError([errorValue(error), errorValue(cleanupError)], 'SSH askpass creation and cleanup failed'); }
+      throw error;
+    }
   }
   private commonArgs(target: SshTarget): string[] {
     return ['-o', 'StrictHostKeyChecking=accept-new', '-o', `UserKnownHostsFile=${this.dependencies.paths.knownHosts}`, '-i', this.dependencies.paths.privateKey, ...(target.sshPort === undefined ? [] : ['-p', String(target.sshPort)])];
   }
-  private keyOnlyArgs(target: SshTarget): string[] {
-    return ['-o', 'IdentitiesOnly=yes', '-o', 'BatchMode=yes', '-o', 'ClearAllForwardings=yes', ...this.commonArgs(target)];
-  }
-  private controlArgs(target: SshTarget, controlPath: string): string[] { return [...this.keyOnlyArgs(target), '-o', `ControlPath=${controlPath}`]; }
+  private keyAuthenticationArgs(target: SshTarget): string[] { return ['-o', 'IdentitiesOnly=yes', '-o', 'BatchMode=yes', ...this.commonArgs(target)]; }
+  private commandArgs(target: SshTarget): string[] { return ['-o', 'ClearAllForwardings=yes', ...this.keyAuthenticationArgs(target)]; }
+  private controlArgs(target: SshTarget, controlPath: string): string[] { return [...this.commandArgs(target), '-o', `ControlPath=${controlPath}`]; }
   private async installKeyAndMintToken(target: SshTarget, controlPath: string, askpass?: string): Promise<string> {
     const publicKey = (await this.dependencies.io.readFile(this.dependencies.paths.publicKey)).trim();
     if (!/^ssh-ed25519 [A-Za-z0-9+/]+={0,3}(?: [A-Za-z0-9._-]+)?$/.test(publicKey)) throw new SshEnrollmentError('TUNNEL_FAILED', 'Tunnel public key is invalid');
-    const entry = `${KEY_PREFIX}${publicKey}`;
-    const command = `mkdir -p ~/.ssh && chmod 700 ~/.ssh && touch ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys && (grep -qxF ${shellQuote(entry)} ~/.ssh/authorized_keys || printf '%s\\n' ${shellQuote(entry)} >> ~/.ssh/authorized_keys) && if command -v chatmux >/dev/null 2>&1; then chatmux fleet token; else "$HOME/.chatmux/current/dist-server/server/cli.js" fleet token; fi`;
+    const entry = `${KEY_PREFIX}${publicKey}`; const legacy = `${LEGACY_KEY_PREFIX}${publicKey}`;
+    const command = `mkdir -p ~/.ssh && chmod 700 ~/.ssh && touch ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys && tmp=$(mktemp) && (grep -vxF ${shellQuote(publicKey)} ~/.ssh/authorized_keys | grep -vxF ${shellQuote(legacy)} | grep -vxF ${shellQuote(entry)} > "$tmp" || true) && printf '%s\\n' ${shellQuote(entry)} >> "$tmp" && cat "$tmp" > ~/.ssh/authorized_keys && rm -f "$tmp" && if command -v chatmux >/dev/null 2>&1; then chatmux fleet token; else "$HOME/.chatmux/current/dist-server/server/cli.js" fleet token; fi`;
     const env = askpass === undefined ? undefined : { ...process.env, SSH_ASKPASS: askpass, SSH_ASKPASS_REQUIRE: 'force', DISPLAY: ':0' };
-    const args = ['-o', 'ControlMaster=yes', '-o', `ControlPersist=${CONTROL_PERSIST_SECONDS}`, '-o', `ControlPath=${controlPath}`, ...this.commonArgs(target), target.destination, command];
+    const args = ['-o', 'ClearAllForwardings=yes', '-o', 'ControlMaster=yes', '-o', `ControlPersist=${CONTROL_PERSIST_SECONDS}`, '-o', `ControlPath=${controlPath}`, ...this.commonArgs(target), target.destination, command];
     const result = await this.dependencies.io.run('ssh', args, { ...(env === undefined ? {} : { env }), timeoutMs: EXEC_TIMEOUT_MS });
     if (result.code !== 0) throw classify(result, result.code === 127 || result.stderr.toLowerCase().includes('command not found') ? 'REMOTE_CLI_FAILED' : 'TUNNEL_FAILED');
     return parseToken(result.stdout);
   }
   private spawnTunnel(target: SshTarget, localPort: number, controlPath: string, createMaster: boolean): Launch {
-    const args = ['-N', '-o', 'ExitOnForwardFailure=yes', '-o', 'ServerAliveInterval=30', '-o', 'ServerAliveCountMax=3', ...(createMaster ? ['-o', 'ControlMaster=yes', '-o', `ControlPersist=${CONTROL_PERSIST_SECONDS}`] : []), ...this.controlArgs(target, controlPath), '-L', `127.0.0.1:${localPort}:127.0.0.1:${REMOTE_FLEET_PORT}`, target.destination];
+    const args = ['-N', '-o', 'ExitOnForwardFailure=yes', '-o', 'ServerAliveInterval=30', '-o', 'ServerAliveCountMax=3', ...(createMaster ? ['-o', 'ControlMaster=yes', '-o', `ControlPersist=${CONTROL_PERSIST_SECONDS}`] : []), ...this.keyAuthenticationArgs(target), '-o', `ControlPath=${controlPath}`, '-L', `127.0.0.1:${localPort}:127.0.0.1:${REMOTE_FLEET_PORT}`, target.destination];
     const process = this.dependencies.io.spawn('ssh', args, { env: this.cleanEnv() });
     const exited = new Promise<SshRunResult>((resolve) => process.once('exit', (code) => resolve({ code, stdout: '', stderr: '' })));
     return { process, exited };
   }
-  private async awaitReady(launch: Launch, localPort: number): Promise<void> {
-    const ready = this.dependencies.io.waitUntilReady(localPort, this.dependencies.readinessTimeoutMs ?? 5_000).then(() => 'ready' as const);
+  private async awaitReady(launch: Launch, target: SshTarget, localPort: number, controlPath: string): Promise<void> {
+    const ready = this.dependencies.io.waitUntilReady(localPort, this.dependencies.readinessTimeoutMs ?? 5_000).then(async () => {
+      const checked = await this.dependencies.io.run('ssh', [...this.controlArgs(target, controlPath), '-O', 'check', target.destination], { env: this.cleanEnv(), timeoutMs: EXEC_TIMEOUT_MS });
+      if (checked.code !== 0) throw classify(checked, 'TUNNEL_FAILED');
+      return 'ready' as const;
+    });
     const exited = launch.exited.then((result) => ({ result }));
     const outcome = await Promise.race([ready, exited]);
     if (outcome !== 'ready') throw classify(outcome.result, 'TUNNEL_FAILED');
@@ -242,12 +254,28 @@ export class SshTunnelManager {
   }
   private async removeInstalledKey(target: SshTarget, controlPath: string): Promise<void> {
     const publicKey = (await this.dependencies.io.readFile(this.dependencies.paths.publicKey)).trim();
-    const entry = `${KEY_PREFIX}${publicKey}`;
-    const command = `tmp=$(mktemp) && (grep -vxF ${shellQuote(entry)} ~/.ssh/authorized_keys > "$tmp" || true) && cat "$tmp" > ~/.ssh/authorized_keys && rm -f "$tmp"`;
-    await this.dependencies.io.run('ssh', [...this.controlArgs(target, controlPath), target.destination, command], { env: this.cleanEnv(), timeoutMs: EXEC_TIMEOUT_MS });
+    const entry = `${KEY_PREFIX}${publicKey}`; const legacy = `${LEGACY_KEY_PREFIX}${publicKey}`;
+    const command = `tmp=$(mktemp) && (grep -vxF ${shellQuote(entry)} ~/.ssh/authorized_keys | grep -vxF ${shellQuote(legacy)} | grep -vxF ${shellQuote(publicKey)} > "$tmp" || true) && cat "$tmp" > ~/.ssh/authorized_keys && rm -f "$tmp"`;
+    const result = await this.dependencies.io.run('ssh', [...this.controlArgs(target, controlPath), target.destination, command], { env: this.cleanEnv(), timeoutMs: EXEC_TIMEOUT_MS });
+    if (result.code !== 0) throw classify(result, 'TUNNEL_FAILED');
   }
-  private async exitMaster(target: SshTarget, controlPath: string): Promise<void> {
-    await this.dependencies.io.run('ssh', [...this.controlArgs(target, controlPath), '-O', 'exit', target.destination], { env: this.cleanEnv(), timeoutMs: EXEC_TIMEOUT_MS });
+  private async exitMaster(target: SshTarget, controlPath: string, missingIsSuccess = false): Promise<void> {
+    const result = await this.dependencies.io.run('ssh', [...this.controlArgs(target, controlPath), '-O', 'exit', target.destination], { env: this.cleanEnv(), timeoutMs: EXEC_TIMEOUT_MS });
+    if (result.code !== 0 && !missingIsSuccess) throw classify(result, 'TUNNEL_FAILED');
+  }
+  private async cleanupSteps(steps: ReadonlyArray<() => Promise<void> | void>): Promise<Error[]> {
+    const errors: Error[] = [];
+    for (const step of steps) { try { await step(); } catch (error) { errors.push(errorValue(error)); } }
+    return errors;
+  }
+  private async unwind(target: SshTarget, controlPath: string, process: SshProcess | undefined, release: () => void, askpassDirectory?: string): Promise<Error[]> {
+    return this.cleanupSteps([
+      () => { process?.stop('SIGTERM'); },
+      () => this.removeInstalledKey(target, controlPath),
+      () => this.exitMaster(target, controlPath),
+      () => { release(); },
+      ...(askpassDirectory === undefined ? [] : [() => this.dependencies.io.rm(askpassDirectory)]),
+    ]);
   }
   private watch(peerId: string, managed: ActiveTunnel): void {
     managed.process.once('exit', () => {
@@ -263,16 +291,20 @@ export class SshTunnelManager {
   private scheduleRestart(peerId: string, managed: ActiveTunnel): void {
     managed.healthyTimer?.cancel();
     const max = this.dependencies.maxRestartAttempts ?? 5;
-    if (managed.restarts >= max) { this.active.delete(peerId); this.dependencies.report?.('TUNNEL_FAILED', peerId); return; }
+    if (managed.restarts >= max) { managed.process.stop('SIGTERM'); this.active.delete(peerId); this.dependencies.report?.('TUNNEL_FAILED', peerId); return; }
     const delay = Math.min(30_000, 1_000 * (2 ** managed.restarts)); managed.restarts += 1;
     managed.restartTimer = this.dependencies.scheduler.schedule(delay, () => {
       if (managed.stopping || this.active.get(peerId) !== managed) return;
-      try {
-        const target = parseSshTarget(managed.record.sshTarget);
-        const launch = this.spawnTunnel(target, managed.record.localPort, this.recordControlPath(managed.record), true);
+      void (async () => {
+        const target = parseSshTarget(managed.record.sshTarget); const controlPath = this.recordControlPath(managed.record);
+        managed.process.stop('SIGTERM');
+        await this.exitMaster(target, controlPath, true);
+        if (managed.stopping || this.active.get(peerId) !== managed) return;
+        const launch = this.spawnTunnel(target, managed.record.localPort, controlPath, true);
         managed.process = launch.process; this.watch(peerId, managed);
-        void this.awaitReady(launch, managed.record.localPort).then(() => this.scheduleHealthyReset(peerId, managed), () => this.scheduleRestart(peerId, managed));
-      } catch (error) { this.scheduleRestart(peerId, managed); }
+        try { await this.awaitReady(launch, target, managed.record.localPort, controlPath); this.scheduleHealthyReset(peerId, managed); }
+        catch (error) { launch.process.stop('SIGTERM'); await this.exitMaster(target, controlPath, true).catch(() => undefined); this.scheduleRestart(peerId, managed); }
+      })().catch(() => this.scheduleRestart(peerId, managed));
     });
   }
 }

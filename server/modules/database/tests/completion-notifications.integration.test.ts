@@ -17,7 +17,7 @@ import {
 test('v13 clamps legacy liveStop and direct valid JSON writes while completion policy remains all-off', () => {
   withDatabase((db) => {
     assert.deepEqual(all<{ version: number }>(db, 'SELECT version FROM schema_migrations ORDER BY version').map((row) => row.version),
-      Array.from({ length: 21 }, (_, index) => index + 1));
+      Array.from({ length: 20 }, (_, index) => index + 1));
     addUser(db, 1);
     assert.deepEqual(get<Row>(db, 'SELECT desired_web_push, consent_configured, enforcement_enabled FROM completion_notification_policy WHERE user_id = 1'),
       { desired_web_push: 0, consent_configured: 0, enforcement_enabled: 1 });

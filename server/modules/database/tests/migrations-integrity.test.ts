@@ -84,12 +84,12 @@ test('replays a complete pre-journal database without changing data, schema, or 
 
     runMigrations(db);
     assert.deepEqual(snapshot(), beforeReplay);
-    assert.deepEqual(migrationVersions(db), Array.from({ length: 21 }, (_, index) => index + 1));
+    assert.deepEqual(migrationVersions(db), Array.from({ length: 20 }, (_, index) => index + 1));
 
     const afterReplay = snapshot();
     runMigrations(db);
     assert.deepEqual(snapshot(), afterReplay);
-    assert.deepEqual(migrationVersions(db), Array.from({ length: 21 }, (_, index) => index + 1));
+    assert.deepEqual(migrationVersions(db), Array.from({ length: 20 }, (_, index) => index + 1));
     assertForeignKeysValid(db);
 
   } finally {

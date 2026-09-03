@@ -50,7 +50,7 @@ async function services(): Promise<Services> {
         hubPairing: {
           preflight: (input) => hubPairing.preflight(input),
           enroll: (input) => hubPairing.enroll(input),
-          rollback: (peerId) => { fleetPeersDb.revoke(peerId, Date.now()); },
+          rollback: (peerId) => hubPairing.rollback(peerId),
         },
       }),
       revocation: new FleetRevocationService({

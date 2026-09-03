@@ -29,7 +29,7 @@ export interface SshTunnelIo {
 class RealSshProcess implements SshProcess {
   readonly pid: number;
   private exit?: readonly [number | null, NodeJS.Signals | null];
-  private exitListener?: (code: number | null, signal: NodeJS.Signals | null) => void;
+  private readonly exitListeners: Array<(code: number | null, signal: NodeJS.Signals | null) => void> = [];
   constructor(private readonly child: ReturnType<typeof spawn>) {
     if (child.pid === undefined) throw new TypeError('SSH process did not receive a pid');
     this.pid = child.pid;
@@ -39,11 +39,11 @@ class RealSshProcess implements SshProcess {
   private captureExit(code: number | null, signal: NodeJS.Signals | null): void {
     if (this.exit !== undefined) return;
     this.exit = [code, signal];
-    this.exitListener?.(code, signal);
+    for (const listener of this.exitListeners.splice(0)) listener(code, signal);
   }
   once(_event: 'exit', listener: (code: number | null, signal: NodeJS.Signals | null) => void): unknown {
-    this.exitListener = listener;
-    if (this.exit !== undefined) queueMicrotask(() => listener(...this.exit!));
+    if (this.exit === undefined) this.exitListeners.push(listener);
+    else queueMicrotask(() => listener(...this.exit!));
     return this;
   }
   stop(signal: NodeJS.Signals): void {

@@ -24,10 +24,11 @@ type EnrollmentFailure =
   | 'duplicate_url'
   | 'duplicate_public_key'
   | 'duplicate_fingerprint';
-type StoredPeer = Readonly<{ peerId: string; enrollmentState?: 'enrolled' | 'revoked' }>;
+type StoredPeer = Readonly<{ peerId: string; url?: string; transportMode?: FleetPairingTransportMode; enrollmentState?: 'enrolled' | 'revoked' }>;
 interface FleetPeerRegistry {
   find(peerId: string): StoredPeer | undefined;
   list(): readonly StoredPeer[];
+  revoke?(peerId: string, nowMs: number): unknown;
   enroll(input: Enrollment, nowMs: number):
     | Readonly<{ ok: true; peer: Enrollment }>
     | Readonly<{ ok: false; reason: EnrollmentFailure }>;
@@ -40,6 +41,7 @@ export type FleetPeerRedemptionRequest = Readonly<{
 }>;
 interface FleetPairingTransport {
   redeem(request: FleetPeerRedemptionRequest): Promise<unknown>;
+  revoke?(request: Readonly<{ peer: Readonly<{ url: string; transportMode: FleetPairingTransportMode }>; hub: SignedInstallationIdentity }>): Promise<boolean>;
 }
 type HubPairingDependencies = Readonly<{
   identity: SignedInstallationIdentity;
@@ -63,7 +65,7 @@ export type FleetHubPairingErrorCode =
 
 export class FleetHubPairingError extends Error {
   readonly name = 'FleetHubPairingError';
-  constructor(readonly code: FleetHubPairingErrorCode, message: string) { super(message); }
+  constructor(readonly code: FleetHubPairingErrorCode, message: string, readonly cleanupErrors: readonly Error[] = []) { super(message); }
 }
 
 function parseSignedIdentity(value: unknown): SignedInstallationIdentity {
@@ -112,35 +114,57 @@ export class FleetHubPairingService {
     this.preflight(input);
     const target = parseFleetTransportTarget(input.peerUrl, input.transportMode);
     if (!target.ok) throw new FleetHubPairingError('PEER_URL_INVALID', 'peer URL does not match its transport mode');
-    const remote = parseSignedIdentity(await this.dependencies.transport.redeem({
-      ...input,
-      hub: this.dependencies.identity,
-    }));
-    if (!verifySignedInstallationIdentity(remote)) {
-      throw new FleetHubPairingError('PEER_IDENTITY_INVALID', 'peer installation identity proof is invalid');
-    }
-    const existing = this.dependencies.peers.find(remote.descriptor.installationId);
-    if (existing?.enrollmentState !== 'revoked' && existing !== undefined) {
-      throw new FleetHubPairingError('PEER_ALREADY_ENROLLED', 'revoke the peer before replacing enrollment');
-    }
-    const enrollment: Enrollment = {
-      peerId: remote.descriptor.installationId,
-      url: input.peerUrl,
-      transportMode: input.transportMode,
-      displayLabel: input.label ?? target.target.hostname,
-      pinnedPublicKey: remote.publicKey,
-      pinnedPublicKeyFingerprint: remote.descriptor.publicKeyFingerprint,
-    };
-    const stored = this.dependencies.peers.enroll(enrollment, this.dependencies.now?.() ?? Date.now());
-    if (!stored.ok) {
-      if (stored.reason === 'capacity') {
-        throw new FleetHubPairingError('PEER_CAPACITY_REACHED', 'fleet peer capacity reached');
+    let redeemed = false;
+    try {
+      const remoteValue = await this.dependencies.transport.redeem({ ...input, hub: this.dependencies.identity });
+      redeemed = true;
+      const remote = parseSignedIdentity(remoteValue);
+      if (!verifySignedInstallationIdentity(remote)) {
+        throw new FleetHubPairingError('PEER_IDENTITY_INVALID', 'peer installation identity proof is invalid');
       }
-      if (stored.reason === 'role_conflict') {
-        throw new FleetHubPairingError('HUB_ROLE_CONFLICT', 'revoke the inbound hub grant before enrolling outbound peers');
+      const existing = this.dependencies.peers.find(remote.descriptor.installationId);
+      if (existing?.enrollmentState !== 'revoked' && existing !== undefined) {
+        throw new FleetHubPairingError('PEER_ALREADY_ENROLLED', 'revoke the peer before replacing enrollment');
       }
-      throw new FleetHubPairingError('PEER_PERSISTENCE_CONFLICT', 'peer enrollment conflicts with existing metadata');
+      const enrollment: Enrollment = {
+        peerId: remote.descriptor.installationId,
+        url: input.peerUrl,
+        transportMode: input.transportMode,
+        displayLabel: input.label ?? target.target.hostname,
+        pinnedPublicKey: remote.publicKey,
+        pinnedPublicKeyFingerprint: remote.descriptor.publicKeyFingerprint,
+      };
+      const stored = this.dependencies.peers.enroll(enrollment, this.dependencies.now?.() ?? Date.now());
+      if (!stored.ok) {
+        if (stored.reason === 'capacity') throw new FleetHubPairingError('PEER_CAPACITY_REACHED', 'fleet peer capacity reached');
+        if (stored.reason === 'role_conflict') throw new FleetHubPairingError('HUB_ROLE_CONFLICT', 'revoke the inbound hub grant before enrolling outbound peers');
+        throw new FleetHubPairingError('PEER_PERSISTENCE_CONFLICT', 'peer enrollment conflicts with existing metadata');
+      }
+      return stored.peer;
+    } catch (error) {
+      if (!redeemed) throw error;
+      try {
+        const revoked = await this.dependencies.transport.revoke?.({ peer: { url: input.peerUrl, transportMode: input.transportMode }, hub: this.dependencies.identity });
+        if (this.dependencies.transport.revoke !== undefined && !revoked) throw new Error('remote grant revocation was refused');
+      } catch (cleanupError) {
+        const original = error instanceof FleetHubPairingError ? error : new FleetHubPairingError('PEER_IDENTITY_INVALID', 'peer enrollment failed after redemption');
+        throw new FleetHubPairingError(original.code, original.message, [cleanupError instanceof Error ? cleanupError : new Error('remote grant revocation failed')]);
+      }
+      throw error;
     }
-    return stored.peer;
+  }
+
+  async rollback(peerId: string): Promise<void> {
+    const peer = this.dependencies.peers.find(peerId);
+    const errors: Error[] = [];
+    if (peer?.url !== undefined && peer.transportMode !== undefined) {
+      try {
+        const revoked = await this.dependencies.transport.revoke?.({ peer: { url: peer.url, transportMode: peer.transportMode }, hub: this.dependencies.identity });
+        if (this.dependencies.transport.revoke !== undefined && !revoked) throw new Error('remote grant revocation was refused');
+      } catch (error) { errors.push(error instanceof Error ? error : new Error('remote grant revocation failed')); }
+    }
+    try { this.dependencies.peers.revoke?.(peerId, this.dependencies.now?.() ?? Date.now()); }
+    catch (error) { errors.push(error instanceof Error ? error : new Error('local peer revocation failed')); }
+    if (errors.length > 0) throw new FleetHubPairingError('PEER_PERSISTENCE_CONFLICT', 'peer enrollment compensation was incomplete', errors);
   }
 }

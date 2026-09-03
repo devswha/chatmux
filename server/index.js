@@ -12,6 +12,7 @@ import compression from 'compression';
 import Database from 'better-sqlite3';
 
 import { getOpenCodeDatabasePath } from '@/shared/utils.js';
+import { isSshEnrollmentPath } from '@/modules/fleet/ssh-enrollment-path.js';
 import {
     assertFreshLocalAgentTmuxTarget,
     assertTmuxPaneIdentity,
@@ -326,7 +327,7 @@ app.use(express.json({
     type: (req) => {
         // Skip multipart/form-data requests (for file uploads like images)
         const contentType = req.headers['content-type'] || '';
-        if (contentType.includes('multipart/form-data') || req.path === '/api/fleet/ssh-enroll') {
+        if (contentType.includes('multipart/form-data') || isSshEnrollmentPath(req.path)) {
             return false;
         }
         return contentType.includes('json');
@@ -335,7 +336,7 @@ app.use(express.json({
 app.use(express.urlencoded({
     limit: '50mb',
     extended: true,
-    type: (req) => req.path !== '/api/fleet/ssh-enroll'
+    type: (req) => !isSshEnrollmentPath(req.path)
         && (req.headers['content-type'] || '').includes('application/x-www-form-urlencoded'),
 }));
 

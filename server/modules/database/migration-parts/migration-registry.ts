@@ -187,12 +187,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 18, migrate: rebuildFleetHubGrantsWithoutRegistryReference },
   { version: 19, migrate: enforceFleetRoleExclusivity },
   { version: 20, migrate: (db) => db.exec(FLEET_SSH_TUNNELS_SCHEMA_SQL) },
-  {
-    version: 21,
-    migrate: (db) => {
-      const columns = getTableInfo(db, 'fleet_ssh_tunnels').map((column) => column.name);
-      addColumnToTableIfNotExists(db, 'fleet_ssh_tunnels', columns, 'control_path', "TEXT NOT NULL DEFAULT ''");
-    },
-  },
 ];
 
