@@ -71,6 +71,35 @@
     "appearance": "Darstellung",
     "access": "Zugriff"
   },
+  "fleet": {
+    "sshEasy": {
+      "title": "PC einfach per SSH hinzufügen",
+      "description": "ChatMux verbindet sich per SSH, richtet den sicheren Tunnel ein und registriert den PC automatisch.",
+      "target": "SSH-Ziel",
+      "targetPlaceholder": "devswha@192.168.1.50",
+      "password": "SSH-Passwort",
+      "passwordHelp": "Wird nur für diese Verbindung verwendet und nicht gespeichert.",
+      "keyDisclosure": "Bei der ersten Verbindung wird auf dem entfernten PC ein nur für diesen Hub gültiger SSH-Schlüssel installiert. Spätere Verbindungen erfolgen automatisch.",
+      "submit": "Per SSH hinzufügen",
+      "success": "{{label}} ist über den lokalen Port {{port}} verbunden.",
+      "stepConnect": "SSH-Verbindung wird hergestellt…",
+      "stepKey": "Hub-Schlüssel wird installiert…",
+      "stepToken": "Kopplungstoken wird erstellt…",
+      "stepEnroll": "PC wird registriert…",
+      "errors": {
+        "INVALID_SSH_TARGET": "Gib ein gültiges SSH-Ziel im Format benutzer@host[:port] ein.",
+        "SSH_PASSWORD_REQUIRED": "Für die erste Verbindung ist das SSH-Passwort erforderlich.",
+        "SSH_AUTH_FAILED": "Die SSH-Anmeldung ist fehlgeschlagen. Prüfe Benutzername und Passwort.",
+        "SSH_UNREACHABLE": "Das SSH-Ziel ist nicht erreichbar.",
+        "HOSTKEY_REJECTED": "Der Hostschlüssel wurde abgelehnt. Prüfe die Identität des entfernten PCs.",
+        "REMOTE_CLI_FAILED": "ChatMux konnte auf dem entfernten PC nicht ausgeführt werden.",
+        "TOKEN_PARSE_FAILED": "Der Kopplungstoken des entfernten PCs konnte nicht gelesen werden.",
+        "ENROLL_FAILED": "Der PC konnte nicht registriert werden.",
+        "PEER_LIMIT_REACHED": "Diese Flotte hat bereits die maximale Anzahl an PCs erreicht.",
+        "TUNNEL_FAILED": "Der sichere SSH-Tunnel konnte nicht eingerichtet werden."
+      }
+    }
+  },
   "appearanceSettings": {
     "darkMode": {
       "label": "Darkmode",

@@ -39,6 +39,32 @@ export type FleetEnrollmentInput = Readonly<{
   readonly label: string;
 }>;
 
+export const FLEET_SSH_ENROLLMENT_ERROR_CODES = [
+  'INVALID_SSH_TARGET',
+  'SSH_PASSWORD_REQUIRED',
+  'SSH_AUTH_FAILED',
+  'SSH_UNREACHABLE',
+  'HOSTKEY_REJECTED',
+  'REMOTE_CLI_FAILED',
+  'TOKEN_PARSE_FAILED',
+  'ENROLL_FAILED',
+  'PEER_LIMIT_REACHED',
+  'TUNNEL_FAILED',
+] as const;
+
+export type FleetSshEnrollmentErrorCode = (typeof FLEET_SSH_ENROLLMENT_ERROR_CODES)[number];
+
+export type FleetSshEnrollmentInput = Readonly<{
+  readonly sshTarget: string;
+  readonly password: string;
+  readonly label?: string;
+}>;
+
+export type FleetSshEnrollmentResult = Readonly<{
+  readonly peerId: string;
+  readonly port: number;
+}>;
+
 export type FleetRevocationResult = Readonly<{
   readonly localRemoval: 'removed' | 'not_found' | 'already_removed';
   readonly peerRevocation: 'revoked' | 'refused' | 'unreachable' | 'not_attempted';

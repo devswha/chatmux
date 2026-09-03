@@ -71,6 +71,35 @@
     "appearance": "Aspetto",
     "access": "Accesso"
   },
+  "fleet": {
+    "sshEasy": {
+      "title": "Aggiunta semplice tramite SSH",
+      "description": "ChatMux si collega tramite SSH, configura il tunnel sicuro e registra automaticamente il PC.",
+      "target": "Destinazione SSH",
+      "targetPlaceholder": "devswha@192.168.1.50",
+      "password": "Password SSH",
+      "passwordHelp": "Usata solo per questa connessione e mai salvata.",
+      "keyDisclosure": "Al primo collegamento ChatMux installa sul PC remoto una chiave SSH riservata a questo hub. Le riconnessioni successive sono automatiche.",
+      "submit": "Aggiungi tramite SSH",
+      "success": "{{label}} è connesso sulla porta locale {{port}}.",
+      "stepConnect": "Connessione SSH…",
+      "stepKey": "Installazione della chiave dell’hub…",
+      "stepToken": "Creazione del token di associazione…",
+      "stepEnroll": "Registrazione del PC…",
+      "errors": {
+        "INVALID_SSH_TARGET": "Inserisci una destinazione SSH valida nel formato utente@host[:porta].",
+        "SSH_PASSWORD_REQUIRED": "La password SSH è necessaria per il primo collegamento.",
+        "SSH_AUTH_FAILED": "Autenticazione SSH non riuscita. Controlla nome utente e password.",
+        "SSH_UNREACHABLE": "La destinazione SSH non è raggiungibile.",
+        "HOSTKEY_REJECTED": "La chiave host è stata rifiutata. Verifica l’identità del PC remoto.",
+        "REMOTE_CLI_FAILED": "Impossibile eseguire ChatMux sul PC remoto.",
+        "TOKEN_PARSE_FAILED": "Impossibile leggere il token di associazione remoto.",
+        "ENROLL_FAILED": "Impossibile registrare il PC.",
+        "PEER_LIMIT_REACHED": "Questa flotta ha già raggiunto il numero massimo di PC.",
+        "TUNNEL_FAILED": "Impossibile stabilire il tunnel SSH sicuro."
+      }
+    }
+  },
   "appearanceSettings": {
     "darkMode": {
       "label": "Modalità scura",

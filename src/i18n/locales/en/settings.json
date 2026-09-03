@@ -89,7 +89,34 @@
     "actions": { "reconnect": "Reconnect", "revoke": "Revoke grant", "removeLocal": "Remove from hub", "cancel": "Cancel", "confirmRevoke": "Revoke" },
     "confirm": { "title": "Confirm peer revocation", "description": "The hub removes local authorization first, then asks the peer to revoke this hub grant. Remote revocation may report unreachable separately." },
     "revocationOutcome": "Hub-local: {{local}}; peer grant: {{peer}}.",
-    "errors": { "load": "Fleet settings unavailable ({{code}}).", "action": "Fleet action failed ({{code}})." }
+    "errors": { "load": "Fleet settings unavailable ({{code}}).", "action": "Fleet action failed ({{code}})." },
+    "sshEasy": {
+      "title": "Easy SSH setup",
+      "description": "ChatMux connects over SSH, sets up the secure tunnel, and enrolls the PC automatically.",
+      "target": "SSH target",
+      "targetPlaceholder": "devswha@192.168.1.50",
+      "password": "SSH password",
+      "passwordHelp": "Used only for this connection and never saved.",
+      "keyDisclosure": "On first connect, ChatMux installs an SSH key restricted to this hub on the remote PC. Later reconnects are automatic.",
+      "submit": "Add with SSH",
+      "success": "{{label}} is connected on local port {{port}}.",
+      "stepConnect": "Connecting over SSH…",
+      "stepKey": "Installing the hub key…",
+      "stepToken": "Minting a pairing token…",
+      "stepEnroll": "Enrolling the PC…",
+      "errors": {
+        "INVALID_SSH_TARGET": "Enter a valid SSH target as user@host[:port].",
+        "SSH_PASSWORD_REQUIRED": "The SSH password is required for the first connection.",
+        "SSH_AUTH_FAILED": "SSH authentication failed. Check the username and password.",
+        "SSH_UNREACHABLE": "The SSH target could not be reached.",
+        "HOSTKEY_REJECTED": "The host key was rejected. Verify the remote PC identity.",
+        "REMOTE_CLI_FAILED": "ChatMux could not run on the remote PC.",
+        "TOKEN_PARSE_FAILED": "The remote pairing token could not be read.",
+        "ENROLL_FAILED": "The PC could not be enrolled.",
+        "PEER_LIMIT_REACHED": "This fleet already has the maximum number of PCs.",
+        "TUNNEL_FAILED": "The secure SSH tunnel could not be established."
+      }
+    }
   },
   "appearanceSettings": {
     "darkMode": {

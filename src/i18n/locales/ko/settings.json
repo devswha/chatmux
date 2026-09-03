@@ -89,7 +89,34 @@
     "actions": { "reconnect": "다시 연결", "revoke": "권한 취소", "removeLocal": "허브에서 제거", "cancel": "취소", "confirmRevoke": "취소 실행" },
     "confirm": { "title": "피어 권한 취소 확인", "description": "허브가 로컬 권한을 먼저 제거한 뒤 피어에 이 허브 권한 취소를 요청합니다. 원격 취소 실패는 별도로 표시됩니다." },
     "revocationOutcome": "허브 로컬: {{local}} · 피어 권한: {{peer}}",
-    "errors": { "load": "Fleet 설정을 사용할 수 없습니다 ({{code}}).", "action": "Fleet 작업에 실패했습니다 ({{code}})." }
+    "errors": { "load": "Fleet 설정을 사용할 수 없습니다 ({{code}}).", "action": "Fleet 작업에 실패했습니다 ({{code}})." },
+    "sshEasy": {
+      "title": "간편 SSH 추가",
+      "description": "ChatMux가 SSH로 연결해 보안 터널을 설정하고 PC를 자동으로 등록합니다.",
+      "target": "SSH 대상",
+      "targetPlaceholder": "devswha@192.168.1.50",
+      "password": "SSH 비밀번호",
+      "passwordHelp": "이번 연결에만 사용하며 저장하지 않습니다.",
+      "keyDisclosure": "처음 연결할 때 원격 PC에 이 허브 전용 SSH 키를 설치합니다. 이후에는 자동으로 다시 연결합니다.",
+      "submit": "SSH로 추가",
+      "success": "{{label}}이(가) 로컬 포트 {{port}}에 연결되었습니다.",
+      "stepConnect": "SSH로 연결하는 중…",
+      "stepKey": "허브 전용 키를 설치하는 중…",
+      "stepToken": "페어링 토큰을 발급하는 중…",
+      "stepEnroll": "PC를 등록하는 중…",
+      "errors": {
+        "INVALID_SSH_TARGET": "SSH 대상을 user@host[:port] 형식으로 입력하세요.",
+        "SSH_PASSWORD_REQUIRED": "처음 연결하려면 SSH 비밀번호가 필요합니다.",
+        "SSH_AUTH_FAILED": "SSH 인증에 실패했습니다. 사용자 이름과 비밀번호를 확인하세요.",
+        "SSH_UNREACHABLE": "SSH 대상에 연결할 수 없습니다.",
+        "HOSTKEY_REJECTED": "호스트 키가 거부되었습니다. 원격 PC의 신원을 확인하세요.",
+        "REMOTE_CLI_FAILED": "원격 PC에서 ChatMux를 실행할 수 없습니다.",
+        "TOKEN_PARSE_FAILED": "원격 페어링 토큰을 읽을 수 없습니다.",
+        "ENROLL_FAILED": "PC를 등록할 수 없습니다.",
+        "PEER_LIMIT_REACHED": "이 Fleet은 등록 가능한 PC 수 한도에 도달했습니다.",
+        "TUNNEL_FAILED": "보안 SSH 터널을 설정할 수 없습니다."
+      }
+    }
   },
   "appearanceSettings": {
     "darkMode": {
