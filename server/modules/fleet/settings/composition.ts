@@ -44,7 +44,15 @@ async function services(): Promise<Services> {
         identity,
       }),
       hubPairing,
-      sshEnrollment: new SshEasyEnrollService({ tunnels: fleetSshTunnelManager, hubPairing }),
+      sshEnrollment: new SshEasyEnrollService({
+        tunnels: fleetSshTunnelManager,
+        onPersisted: () => fleetBrowserDiscoveryGateway.current()?.reconcile(),
+        hubPairing: {
+          preflight: (input) => hubPairing.preflight(input),
+          enroll: (input) => hubPairing.enroll(input),
+          rollback: (peerId) => { fleetPeersDb.revoke(peerId, Date.now()); },
+        },
+      }),
       revocation: new FleetRevocationService({
         identity,
         peers: fleetPeersDb,

@@ -89,6 +89,7 @@
       "stepEnroll": "Bilgisayar kaydediliyor…",
       "errors": {
         "INVALID_SSH_TARGET": "SSH hedefini kullanıcı@sunucu[:bağlantı_noktası] biçiminde girin.",
+        "MALFORMED_REQUEST": "The SSH enrollment request is malformed.",
         "SSH_PASSWORD_REQUIRED": "İlk bağlantı için SSH parolası gereklidir.",
         "SSH_AUTH_FAILED": "SSH kimlik doğrulaması başarısız. Kullanıcı adı ve parolayı denetleyin.",
         "SSH_UNREACHABLE": "SSH hedefine ulaşılamadı.",

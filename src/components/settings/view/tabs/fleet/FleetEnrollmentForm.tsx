@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { Link2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
-import { fleetApi, FleetSettingsRequestError } from '../../../fleet/fleetApi';
+import { FleetSettingsRequestError } from '../../../fleet/fleetApi';
 import { FLEET_SSH_ENROLLMENT_ERROR_CODES } from '../../../fleet/types';
 import type {
   FleetEnrollmentInput,
@@ -17,7 +17,7 @@ type EnrollmentMode = FleetTransportMode | 'ssh-easy';
 type Props = Readonly<{
   readonly pending: boolean;
   readonly onEnroll: (input: FleetEnrollmentInput) => Promise<void>;
-  readonly onSshEnroll?: (input: FleetSshEnrollmentInput) => Promise<FleetSshEnrollmentResult>;
+  readonly onSshEnroll: (input: FleetSshEnrollmentInput) => Promise<FleetSshEnrollmentResult>;
 }>;
 
 const SSH_TARGET_PATTERN = /^[^\s@]+@(?:\[[0-9a-fA-F:]+\]|[^\s@:]+)(?::([0-9]{1,5}))?$/;
@@ -30,7 +30,7 @@ function validSshTarget(value: string): boolean {
   return port === undefined || (Number(port) >= 1 && Number(port) <= 65_535);
 }
 
-export function FleetEnrollmentForm({ pending, onEnroll, onSshEnroll = fleetApi.sshEnroll }: Props) {
+export function FleetEnrollmentForm({ pending, onEnroll, onSshEnroll }: Props) {
   const { t } = useTranslation('settings');
   const [transportMode, setTransportMode] = useState<EnrollmentMode>('direct-wss');
   const [peerUrl, setPeerUrl] = useState('');

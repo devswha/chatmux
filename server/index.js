@@ -326,13 +326,18 @@ app.use(express.json({
     type: (req) => {
         // Skip multipart/form-data requests (for file uploads like images)
         const contentType = req.headers['content-type'] || '';
-        if (contentType.includes('multipart/form-data')) {
+        if (contentType.includes('multipart/form-data') || req.path === '/api/fleet/ssh-enroll') {
             return false;
         }
         return contentType.includes('json');
     }
 }));
-app.use(express.urlencoded({ limit: '50mb', extended: true }));
+app.use(express.urlencoded({
+    limit: '50mb',
+    extended: true,
+    type: (req) => req.path !== '/api/fleet/ssh-enroll'
+        && (req.headers['content-type'] || '').includes('application/x-www-form-urlencoded'),
+}));
 
 // Public health check endpoint (no authentication required)
 app.get('/health', (req, res) => {

@@ -41,6 +41,7 @@ export type FleetEnrollmentInput = Readonly<{
 
 export const FLEET_SSH_ENROLLMENT_ERROR_CODES = [
   'INVALID_SSH_TARGET',
+  'MALFORMED_REQUEST',
   'SSH_PASSWORD_REQUIRED',
   'SSH_AUTH_FAILED',
   'SSH_UNREACHABLE',

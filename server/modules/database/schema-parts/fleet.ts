@@ -3,7 +3,8 @@ CREATE TABLE IF NOT EXISTS fleet_ssh_tunnels (
     peer_id TEXT PRIMARY KEY NOT NULL REFERENCES fleet_peers(peer_id) ON DELETE CASCADE,
     ssh_target TEXT NOT NULL UNIQUE CHECK (length(ssh_target) > 0),
     ssh_port INTEGER CHECK (ssh_port BETWEEN 1 AND 65535),
-    local_port INTEGER NOT NULL UNIQUE CHECK (local_port BETWEEN 1 AND 65535)
+    local_port INTEGER NOT NULL UNIQUE CHECK (local_port BETWEEN 1 AND 65535),
+    control_path TEXT NOT NULL CHECK (length(control_path) > 0)
 );
 `;
 

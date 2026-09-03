@@ -7,8 +7,9 @@ import { I18nextProvider } from 'react-i18next';
 import TestRenderer, { act, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
 import enSettings from '../../../../../i18n/locales/en/settings.json';
-import { FleetSettingsRequestError } from '../../../fleet/fleetApi';
-import type { FleetSshEnrollmentInput, FleetSshEnrollmentResult } from '../../../fleet/types';
+import { fleetApi, FleetSettingsRequestError } from '../../../fleet/fleetApi';
+import type { FleetSettingsPayload, FleetSshEnrollmentInput, FleetSshEnrollmentResult } from '../../../fleet/types';
+import { useFleetSettings } from '../../../fleet/useFleetSettings';
 
 import { FleetEnrollmentForm } from './FleetEnrollmentForm';
 
@@ -88,8 +89,30 @@ test('Given valid SSH credentials, when submitted, then trimmed transient values
   });
 
   assert.deepEqual(received, { sshTarget: 'devswha@192.168.1.50', password: 'secret', label: 'Studio' });
+  assert.equal(renderer.root.findByProps({ name: 'password' }).props.value, '', 'the credential is cleared after submission');
+  assert.equal(renderer.root.findAllByType('p').some((node) => node.children.join('') === enSettings.fleet.sshEasy.keyDisclosure), true, 'the key-install disclosure is rendered');
   assert.equal(renderer.root.findAllByProps({ role: 'status' }).some((node) => node.children.join('').includes('8022')), true);
   renderer.unmount();
+});
+
+test('Given the settings hook SSH handler, when enrollment succeeds, then parent settings are refreshed', async () => {
+  const originalSettings = fleetApi.settings; const originalSshEnroll = fleetApi.sshEnroll;
+  const payload: FleetSettingsPayload = { local: { installationId: 'local', publicKeyFingerprint: 'sha256:local' }, role: 'standalone', capacity: { totalInstallations: 10, remotePeers: 9 }, peers: [] };
+  let settingsCalls = 0; let hook: ReturnType<typeof useFleetSettings> | undefined;
+  Object.defineProperty(fleetApi, 'settings', { configurable: true, value: async () => { settingsCalls += 1; return payload; } });
+  Object.defineProperty(fleetApi, 'sshEnroll', { configurable: true, value: async () => ({ peerId: 'peer-a', port: 8022 }) });
+  function Harness() { hook = useFleetSettings(); return createElement('div'); }
+  let renderer: ReactTestRenderer | undefined;
+  try {
+    await act(async () => { renderer = TestRenderer.create(createElement(Harness)); await tick(); });
+    assert.ok(hook);
+    await act(async () => { await hook?.sshEnroll({ sshTarget: 'alice@example.test', password: 'secret' }); });
+    assert.equal(settingsCalls, 2);
+  } finally {
+    renderer?.unmount();
+    Object.defineProperty(fleetApi, 'settings', { configurable: true, value: originalSettings });
+    Object.defineProperty(fleetApi, 'sshEnroll', { configurable: true, value: originalSshEnroll });
+  }
 });
 
 test('Given a closed enrollment error, when submission fails, then its localized message is shown', async () => {

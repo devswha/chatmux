@@ -94,7 +94,7 @@ const fixtures: readonly MigrationFixture[] = [
       runMigrations(db);
     },
     verify: (db) => {
-      assert.deepEqual(migrationVersions(db), Array.from({ length: 20 }, (_, index) => index + 1));
+      assert.deepEqual(migrationVersions(db), Array.from({ length: 21 }, (_, index) => index + 1));
       assert.equal(
         get<Row>(db, "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'api_keys'"),
         undefined,

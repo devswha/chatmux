@@ -1,4 +1,4 @@
-import type { NextFunction, Request, RequestHandler, Response, Router } from 'express';
+import express, { type NextFunction, type Request, type RequestHandler, type Response, type Router } from 'express';
 
 import type { SshEnrollmentInput } from '@/modules/fleet/services/ssh-easy-enroll.service.js';
 import { SshEnrollmentError } from '@/modules/fleet/services/ssh-tunnel.service.js';
@@ -31,7 +31,7 @@ function requestBody(value: unknown): SshEnrollmentInput {
 
 function status(code: SshEnrollmentError['code']): number {
   switch (code) {
-    case 'INVALID_SSH_TARGET': case 'SSH_PASSWORD_REQUIRED': return 400;
+    case 'INVALID_SSH_TARGET': case 'MALFORMED_REQUEST': case 'SSH_PASSWORD_REQUIRED': return 400;
     case 'SSH_AUTH_FAILED': return 401;
     case 'HOSTKEY_REJECTED': case 'PEER_LIMIT_REACHED': return 409;
     case 'SSH_UNREACHABLE': case 'REMOTE_CLI_FAILED': case 'TOKEN_PARSE_FAILED':
@@ -52,8 +52,22 @@ export function registerSshEnrollmentRoute(
   owner: RequestHandler,
   service: SshEnrollmentRouteService,
 ): void {
-  router.post('/ssh-enroll', owner, async (request: Request, response: Response, next: NextFunction) => {
-    try { response.status(201).json(await service.enroll(requestBody(request.body))); }
-    catch (error) { sendError(error, response, next); }
-  });
+  const credentialJson = express.json({ limit: '64kb', type: 'application/json' });
+  router.post(
+    '/ssh-enroll',
+    owner,
+    credentialJson,
+    (error: unknown, _request: Request, response: Response, next: NextFunction) => {
+      if (typeof error === 'object' && error !== null && 'type' in error
+        && typeof error.type === 'string' && error.type.startsWith('entity.')) {
+        sendError(new SshEnrollmentError('MALFORMED_REQUEST', 'SSH enrollment request is malformed'), response, next);
+        return;
+      }
+      next(error);
+    },
+    async (request: Request, response: Response, next: NextFunction) => {
+      try { response.status(201).json(await service.enroll(requestBody(request.body))); }
+      catch (error) { sendError(error, response, next); }
+    },
+  );
 }

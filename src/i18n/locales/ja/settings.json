@@ -88,6 +88,7 @@
       "stepEnroll": "PCを登録しています…",
       "errors": {
         "INVALID_SSH_TARGET": "SSH接続先を user@host[:port] の形式で入力してください。",
+        "MALFORMED_REQUEST": "The SSH enrollment request is malformed.",
         "SSH_PASSWORD_REQUIRED": "初回接続にはSSHパスワードが必要です。",
         "SSH_AUTH_FAILED": "SSH認証に失敗しました。ユーザー名とパスワードを確認してください。",
         "SSH_UNREACHABLE": "SSH接続先に到達できませんでした。",

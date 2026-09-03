@@ -106,6 +106,7 @@
       "stepEnroll": "PC를 등록하는 중…",
       "errors": {
         "INVALID_SSH_TARGET": "SSH 대상을 user@host[:port] 형식으로 입력하세요.",
+        "MALFORMED_REQUEST": "The SSH enrollment request is malformed.",
         "SSH_PASSWORD_REQUIRED": "처음 연결하려면 SSH 비밀번호가 필요합니다.",
         "SSH_AUTH_FAILED": "SSH 인증에 실패했습니다. 사용자 이름과 비밀번호를 확인하세요.",
         "SSH_UNREACHABLE": "SSH 대상에 연결할 수 없습니다.",

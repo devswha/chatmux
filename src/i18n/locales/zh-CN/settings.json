@@ -89,6 +89,7 @@
       "stepEnroll": "正在注册电脑…",
       "errors": {
         "INVALID_SSH_TARGET": "请输入 user@host[:port] 格式的有效 SSH 目标。",
+        "MALFORMED_REQUEST": "The SSH enrollment request is malformed.",
         "SSH_PASSWORD_REQUIRED": "首次连接需要 SSH 密码。",
         "SSH_AUTH_FAILED": "SSH 身份验证失败，请检查用户名和密码。",
         "SSH_UNREACHABLE": "无法访问 SSH 目标。",

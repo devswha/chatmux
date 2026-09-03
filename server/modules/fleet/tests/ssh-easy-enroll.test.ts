@@ -1,14 +1,21 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { createServer } from 'node:http';
+import { mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 
 import express from 'express';
 
 import { createFleetPairingRouter } from '@/modules/fleet/fleet-pairing.routes.js';
+import { createApiErrorMiddleware } from '@/modules/fleet/routing/api-error-middleware.js';
+import { FleetHubPairingError } from '@/modules/fleet/services/fleet-hub-pairing.service.js';
 import { FleetPairingFailureLimiter } from '@/modules/fleet/services/fleet-pairing-limiter.service.js';
 import { SshEasyEnrollService } from '@/modules/fleet/services/ssh-easy-enroll.service.js';
 import {
+  SshEnrollmentError,
   SshTunnelManager,
   type SshProcess,
   type SshProcessOptions,
@@ -44,25 +51,37 @@ class FakeIo implements SshTunnelIo {
   readonly removals: string[] = [];
   runResults: SshRunResult[] = [];
   keyExists = true;
-  private tempCount = 0;
-  allocatePort = async (): Promise<number> => 41234;
+  askpassExecutions: Array<{ output: string; helperMode: number; payloadMode: number; helperDeleted: boolean; payloadDeleted: boolean }> = [];
+  ready: () => Promise<void> = async () => undefined;
+  onSpawn?: (child: FakeProcess) => void;
+  allocatedPorts = [41234];
+  allocatePort = async (): Promise<number> => this.allocatedPorts.shift() ?? 41234;
   fileExists = async (): Promise<boolean> => this.keyExists;
   mkdir = async (): Promise<void> => undefined;
-  mkdtemp = async (): Promise<string> => `/tmp/chatmux-askpass-${this.tempCount += 1}`;
+  mkdtemp = async (): Promise<string> => mkdtemp(join(tmpdir(), 'chatmux-askpass-test-'));
   readFile = async (): Promise<string> => 'ssh-ed25519 AAAATEST chatmux-fleet-tunnel\n';
-  writeFile = async (path: string, data: string, mode: number): Promise<void> => { this.writes.push({ path, data, mode }); };
-  rm = async (path: string): Promise<void> => { this.removals.push(path); };
+  writeFile = async (path: string, data: string, mode: number): Promise<void> => { this.writes.push({ path, data, mode }); await writeFile(path, data, { mode }); };
+  rm = async (path: string): Promise<void> => { this.removals.push(path); await rm(path, { recursive: true, force: true }); };
   run = async (command: string, args: readonly string[], options: SshProcessOptions): Promise<SshRunResult> => {
     this.runs.push({ command, args, options });
+    const helper = options.env?.SSH_ASKPASS;
+    if (helper !== undefined) {
+      const payload = join(helper, '..', 'payload');
+      const helperMode = (await stat(helper)).mode & 0o777; const payloadMode = (await stat(payload)).mode & 0o777;
+      const executed = spawnSync('/bin/sh', [helper], { encoding: 'utf8' });
+      this.askpassExecutions.push({ output: executed.stdout, helperMode, payloadMode, helperDeleted: !(await this.exists(helper)), payloadDeleted: !(await this.exists(payload)) });
+    }
     return this.runResults.shift() ?? { code: 0, stdout: `Pairing token: ${TOKEN}\nExpires at: 2030-01-01T00:00:00.000Z\n`, stderr: '' };
   };
+  private exists = async (path: string): Promise<boolean> => stat(path).then(() => true, () => false);
   spawn = (command: string, args: readonly string[], options: SshProcessOptions): SshProcess => {
-    const child = new FakeProcess(); this.spawns.push({ command, args, options, child }); return child;
+    const child = new FakeProcess(); this.spawns.push({ command, args, options, child }); this.onSpawn?.(child); return child;
   };
+  waitUntilReady = async (): Promise<void> => this.ready();
   killGroup = (pid: number, signal: NodeJS.Signals): void => { this.spawns.find(({ child }) => child.pid === pid)?.child.stop(signal); };
 }
 
-type Fixture = Readonly<{ io: FakeIo; store: MemoryStore; manager: SshTunnelManager; service: SshEasyEnrollService; enrollments: Readonly<Record<string, unknown>>[] }>;
+type Fixture = Readonly<{ io: FakeIo; store: MemoryStore; manager: SshTunnelManager; service: SshEasyEnrollService; enrollments: Readonly<Record<string, unknown>>[]; reconciliations: string[] }>;
 function responseErrorCode(value: unknown): string | undefined {
   if (typeof value !== 'object' || value === null || !('error' in value)) return undefined;
   const error = value.error;
@@ -71,28 +90,39 @@ function responseErrorCode(value: unknown): string | undefined {
 function fixture(runResults: SshRunResult[] = []): Fixture {
   const io = new FakeIo(); io.runResults = [...runResults]; const store = new MemoryStore();
   const manager = new SshTunnelManager({ io, store, paths: { directory: '/hub/fleet', privateKey: '/hub/fleet/id_ed25519', publicKey: '/hub/fleet/id_ed25519.pub', knownHosts: '/hub/fleet/known_hosts' }, scheduler: { schedule: (_delay, callback) => { callback(); return { cancel: () => undefined }; } } });
-  const enrollments: Readonly<Record<string, unknown>>[] = [];
-  const service = new SshEasyEnrollService({ tunnels: manager, hubPairing: { enroll: async (input) => { enrollments.push(input); return { peerId: PEER_ID }; } } });
-  return { io, store, manager, service, enrollments };
+  const enrollments: Readonly<Record<string, unknown>>[] = []; const reconciliations: string[] = [];
+  const service = new SshEasyEnrollService({ tunnels: manager, onPersisted: () => { reconciliations.push('reconcile'); }, hubPairing: { enroll: async (input) => { enrollments.push(input); return { peerId: PEER_ID }; } } });
+  return { io, store, manager, service, enrollments, reconciliations };
 }
 
-async function startRoute(subject: SshEasyEnrollService): Promise<Readonly<{ url: string; close(): Promise<void> }>> {
-  const app = express(); app.use(express.json()); app.use((request, _response, next) => { Object.defineProperty(request, 'user', { value: { id: 1 } }); next(); });
+async function startRoute(subject: SshEasyEnrollService, reports: unknown[] = []): Promise<Readonly<{ url: string; close(): Promise<void> }>> {
+  const app = express(); app.use((request, _response, next) => { Object.defineProperty(request, 'user', { value: { id: 1 } }); next(); });
   app.use('/api/fleet', createFleetPairingRouter({ authMode: 'password', limiter: new FleetPairingFailureLimiter(), pairing: { issueToken: () => ({ token: TOKEN, expiresAtMs: 1 }), redeem: () => { throw new TypeError('unused'); }, revokeHubGrant: () => false }, hubPairing: { enroll: async () => ({ peerId: PEER_ID }) }, revocation: { remove: async () => ({ localRemoval: 'removed', peerRevocation: 'revoked' }) }, sshEnrollment: subject }));
+  app.use(createApiErrorMiddleware((error) => reports.push(error)));
   const server = createServer(app); await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const address = server.address(); if (address === null || typeof address === 'string') throw new TypeError('server address unavailable');
   return { url: `http://127.0.0.1:${address.port}/api/fleet`, close: () => new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve())) };
 }
 
 test('Given an SSH host and password, when the owner enrolls it, then the stable loopback peer is enrolled without exposing credentials', async (context) => {
-  const subject = fixture([{ code: 0, stdout: '', stderr: '' }, { code: 0, stdout: `Pairing token: ${TOKEN}\nExpires at: 2030-01-01T00:00:00.000Z\n`, stderr: '' }]); const route = await startRoute(subject.service); context.after(route.close);
+  const subject = fixture([{ code: 0, stdout: `Pairing token: ${TOKEN}\nExpires at: 2030-01-01T00:00:00.000Z\n`, stderr: '' }]); const route = await startRoute(subject.service); context.after(route.close);
   const response = await fetch(`${route.url}/ssh-enroll`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sshTarget: 'alice@example.test:2222', password: PASSWORD, label: ' Lab ' }) });
   const responseBody = await response.text(); assert.equal(response.status, 201); assert.deepEqual(JSON.parse(responseBody), { peerId: PEER_ID, port: 41234 });
-  assert.deepEqual(subject.enrollments, [{ peerUrl: 'ws://127.0.0.1:41234/fleet-ws', transportMode: 'ssh-loopback', token: TOKEN, label: 'Lab' }]);
-  const tunnel = subject.io.spawns[0]; assert.ok(tunnel); assert.deepEqual(tunnel.args, ['-N', '-o', 'ExitOnForwardFailure=yes', '-o', 'ServerAliveInterval=30', '-o', 'ServerAliveCountMax=3', '-o', 'StrictHostKeyChecking=accept-new', '-o', 'UserKnownHostsFile=/hub/fleet/known_hosts', '-i', '/hub/fleet/id_ed25519', '-p', '2222', '-L', '127.0.0.1:41234:127.0.0.1:3001', 'alice@example.test']);
-  assert.equal(tunnel.options.env?.SSH_ASKPASS, '/tmp/chatmux-askpass-1/askpass'); assert.equal(tunnel.options.env?.SSH_ASKPASS_REQUIRE, 'force');
-  assert.deepEqual(subject.io.writes.map(({ mode }) => mode), [0o600, 0o600]); assert.deepEqual(subject.io.removals, ['/tmp/chatmux-askpass-2', '/tmp/chatmux-askpass-1']);
-  assert.equal(JSON.stringify({ runs: subject.io.runs.map(({ command }) => command), body: responseBody }).includes(PASSWORD), false);
+  assert.deepEqual(subject.enrollments, [{ peerUrl: 'ws://127.0.0.1:41234/fleet-ws', transportMode: 'ssh-loopback', token: TOKEN, label: 'Lab' }]); assert.deepEqual(subject.reconciliations, ['reconcile']);
+  const tunnel = subject.io.spawns[0]; assert.ok(tunnel); assert.match(tunnel.args.join(' '), /ControlPath=\/hub\/fleet\/control-41234/); assert.match(tunnel.args.join(' '), /127\.0\.0\.1:41234:127\.0\.0\.1:3001/);
+  assert.equal(tunnel.options.env?.SSH_ASKPASS, undefined); assert.ok(tunnel.args.includes('IdentitiesOnly=yes')); assert.ok(tunnel.args.includes('BatchMode=yes'));
+  assert.deepEqual(subject.io.writes.map(({ mode }) => mode), [0o600, 0o700]);
+  assert.deepEqual(subject.io.askpassExecutions, [{ output: `${PASSWORD}\n`, helperMode: 0o700, payloadMode: 0o600, helperDeleted: true, payloadDeleted: true }]);
+  const authenticated = subject.io.runs.filter(({ options }) => options.env?.SSH_ASKPASS !== undefined); assert.equal(authenticated.length, 1);
+  assert.match(authenticated[0]?.args.at(-1) ?? '', /restrict,port-forwarding,no-pty ssh-ed25519/);
+  assert.equal(JSON.stringify({ argv: subject.io.runs.map(({ args }) => args), env: subject.io.spawns.map(({ options }) => options.env), records: subject.store.records, body: responseBody }).includes(PASSWORD), false);
+});
+
+test('Given pairing capacity preflight rejects, when SSH enrollment starts, then no remote key or process is created', async () => {
+  const io = new FakeIo(); const store = new MemoryStore(); const manager = new SshTunnelManager({ io, store, paths: { directory: '/hub/fleet', privateKey: '/hub/fleet/id_ed25519', publicKey: '/hub/fleet/id_ed25519.pub', knownHosts: '/hub/fleet/known_hosts' }, scheduler: { schedule: () => ({ cancel: () => undefined }) } });
+  const service = new SshEasyEnrollService({ tunnels: manager, hubPairing: { preflight: () => { throw new FleetHubPairingError('PEER_CAPACITY_REACHED', 'full'); }, enroll: async () => ({ peerId: PEER_ID }) } });
+  await assert.rejects(service.enroll({ sshTarget: 'alice@example.test', password: PASSWORD }), (error) => error instanceof SshEnrollmentError && error.code === 'PEER_LIMIT_REACHED');
+  assert.deepEqual(io.writes, []); assert.deepEqual(io.runs, []); assert.deepEqual(io.spawns, []);
 });
 
 test('Given malformed SSH targets, when enrollment is requested, then each is rejected before SSH spawn', async () => {
@@ -112,7 +142,7 @@ test('Given rejected password authentication, when enrollment runs, then askpass
     const response = await fetch(`${route.url}/ssh-enroll`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sshTarget: 'alice@example.test', password: PASSWORD }) });
     const body = await response.text(); assert.equal(response.status, 401); assert.equal(responseErrorCode(JSON.parse(body)), 'SSH_AUTH_FAILED'); assert.equal(body.includes(PASSWORD), false);
   } finally { await route.close(); }
-  assert.deepEqual(subject.io.removals, ['/tmp/chatmux-askpass-2', '/tmp/chatmux-askpass-1']);
+  assert.equal(subject.io.removals.length, 1);
 });
 
 test('Given an unreachable SSH server, when enrollment runs, then it reports SSH_UNREACHABLE', async () => {
@@ -121,25 +151,40 @@ test('Given an unreachable SSH server, when enrollment runs, then it reports SSH
 });
 
 test('Given both remote CLI paths are missing, when minting runs, then it reports REMOTE_CLI_FAILED', async () => {
-  const missing = { code: 127, stdout: '', stderr: 'command not found' }; const subject = fixture([{ code: 0, stdout: '', stderr: '' }, missing, missing]);
+  const missing = { code: 127, stdout: '', stderr: 'command not found' }; const subject = fixture([missing]);
   await assert.rejects(subject.service.enroll({ sshTarget: 'alice@example.test', password: PASSWORD }), (error) => error instanceof Error && 'code' in error && error.code === 'REMOTE_CLI_FAILED');
+  assert.ok(subject.io.runs.some(({ args }) => (args.at(-1) ?? '').includes('grep -vxF')), 'token-mint failure removes the installed key');
 });
 
 test('Given malformed token output, when minting runs, then no token content reaches the error', async () => {
-  const leaked = `Pairing token: ${TOKEN}extra`; const subject = fixture([{ code: 0, stdout: '', stderr: '' }, { code: 0, stdout: leaked, stderr: '' }]);
+  const leaked = `Pairing token: ${TOKEN}extra`; const subject = fixture([{ code: 0, stdout: leaked, stderr: '' }]);
   await assert.rejects(subject.service.enroll({ sshTarget: 'alice@example.test', password: PASSWORD }), (error) => error instanceof Error && 'code' in error && error.code === 'TOKEN_PARSE_FAILED' && !error.message.includes(TOKEN));
+  assert.ok(subject.io.runs.some(({ args }) => (args.at(-1) ?? '').includes('grep -vxF')));
 });
 
 test('Given an enrolled tunnel exits, when supervised, then it restarts with key authentication and no askpass', async () => {
-  const subject = fixture([{ code: 0, stdout: '', stderr: '' }]); await subject.service.enroll({ sshTarget: 'alice@example.test', password: PASSWORD });
+  const subject = fixture(); await subject.service.enroll({ sshTarget: 'alice@example.test', password: PASSWORD });
   subject.io.spawns[0]?.child.emit('exit', 255, null);
   assert.equal(subject.io.spawns.length, 2); assert.equal(subject.io.spawns[1]?.options.env?.SSH_ASKPASS, undefined); assert.ok(subject.io.spawns[1]?.args.includes('/hub/fleet/id_ed25519'));
 });
 
+test('Given a restarted tunnel remains healthy, when it exits later, then the restart budget and backoff are reset', async () => {
+  type Task = { delay: number; callback: () => void; canceled: boolean };
+  const tasks: Task[] = []; const io = new FakeIo(); const store = new MemoryStore();
+  const manager = new SshTunnelManager({ io, store, maxRestartAttempts: 2, healthyResetMs: 30_000, paths: { directory: '/hub/fleet', privateKey: '/hub/fleet/id_ed25519', publicKey: '/hub/fleet/id_ed25519.pub', knownHosts: '/hub/fleet/known_hosts' }, scheduler: { schedule: (delay, callback) => { const task = { delay, callback, canceled: false }; tasks.push(task); return { cancel: () => { task.canceled = true; } }; } } });
+  const service = new SshEasyEnrollService({ tunnels: manager, hubPairing: { enroll: async () => ({ peerId: PEER_ID }) } });
+  await service.enroll({ sshTarget: 'alice@example.test', password: PASSWORD });
+  io.spawns[0]?.child.emit('exit', 255, null); const firstRestart = tasks.find((task) => !task.canceled && task.delay === 1_000); assert.ok(firstRestart); firstRestart.callback(); await new Promise<void>((resolve) => setImmediate(resolve));
+  const healthy = tasks.findLast((task) => !task.canceled && task.delay === 30_000); assert.ok(healthy); healthy.callback();
+  io.spawns[1]?.child.emit('exit', 255, null);
+  assert.equal(tasks.findLast((task) => !task.canceled)?.delay, 1_000);
+});
+
 test('Given an enrolled tunnel, when its peer is deleted, then the process group and authorized key are removed', async () => {
-  const subject = fixture([{ code: 0, stdout: '', stderr: '' }]); await subject.service.enroll({ sshTarget: 'alice@example.test', password: PASSWORD }); await subject.service.remove(PEER_ID);
+  const subject = fixture(); await subject.service.enroll({ sshTarget: 'alice@example.test', password: PASSWORD }); await subject.service.remove(PEER_ID);
   assert.deepEqual(subject.io.spawns[0]?.child.stopSignals, ['SIGTERM']); assert.equal(subject.store.findByPeerId(PEER_ID), undefined);
-  assert.match(subject.io.runs.at(-1)?.args.at(-1) ?? '', /authorized_keys/); assert.match(subject.io.runs.at(-1)?.args.at(-1) ?? '', /AAAATEST/);
+  const cleanup = subject.io.runs.find(({ args }) => (args.at(-1) ?? '').includes('grep -vxF')); assert.ok(cleanup);
+  assert.match(cleanup.args.at(-1) ?? '', /authorized_keys/); assert.match(cleanup.args.at(-1) ?? '', /AAAATEST/);
 });
 
 test('Given no installed key for a target, when password is omitted, then enrollment requires one without spawning SSH', async () => {
@@ -151,8 +196,58 @@ test('Given no installed key for a target, when password is omitted, then enroll
   assert.equal(subject.io.spawns.length, 0);
 });
 
-test('Given a persisted tunnel, when the hub starts, then its stable port is restored with key-only authentication', async () => {
-  const subject = fixture(); subject.store.save({ peerId: PEER_ID, sshTarget: 'alice@example.test:2222', sshPort: 2222, localPort: 45678 });
-  await subject.manager.restore();
-  assert.match(subject.io.spawns[0]?.args.join(' ') ?? '', /127\.0\.0\.1:45678:127\.0\.0\.1:3001/); assert.equal(subject.io.spawns[0]?.options.env?.SSH_ASKPASS, undefined);
+test('Given a hub supervisor disappears without stopping its master, when a new hub restores, then it reclaims the persisted control session with key-only authentication', async () => {
+  const original = fixture(); await original.service.enroll({ sshTarget: 'alice@example.test:2222', password: PASSWORD });
+  // Deliberately abandon `original.manager` without stop(): this models a hub crash
+  // while the detached OpenSSH control master and durable record remain.
+  const io = new FakeIo(); const restored = new SshTunnelManager({ io, store: original.store, paths: { directory: '/hub/fleet', privateKey: '/hub/fleet/id_ed25519', publicKey: '/hub/fleet/id_ed25519.pub', knownHosts: '/hub/fleet/known_hosts' }, scheduler: { schedule: () => ({ cancel: () => undefined }) } });
+  await restored.restore();
+  assert.ok(io.runs[0]?.args.includes('check')); assert.match(io.spawns[0]?.args.join(' ') ?? '', /127\.0\.0\.1:41234:127\.0\.0\.1:3001/);
+  assert.equal(io.spawns[0]?.options.env?.SSH_ASKPASS, undefined); assert.ok(io.spawns[0]?.args.includes('BatchMode=yes'));
+});
+
+test('Given malformed credential JSON, when it reaches the authenticated mounted route, then the secret is neither logged nor returned', async (context) => {
+  const reports: unknown[] = []; const subject = fixture(); const route = await startRoute(subject.service, reports); context.after(route.close);
+  const sentinel = 'MALFORMED-SSH-SECRET-9f4c';
+  const response = await fetch(`${route.url}/ssh-enroll`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: `{"sshTarget":"alice@example.test","password":"${sentinel}"` });
+  const body = await response.text();
+  assert.equal(response.status, 400); assert.equal(responseErrorCode(JSON.parse(body)), 'MALFORMED_REQUEST');
+  assert.equal(body.includes(sentinel), false); assert.equal(JSON.stringify(reports).includes(sentinel), false); assert.deepEqual(reports, []);
+});
+
+test('Given token-like output is not one exact unique first line, when enrollment runs, then it is rejected closed', async () => {
+  for (const stdout of [`banner\nPairing token: ${TOKEN}\n`, `Pairing token: ${TOKEN}\nPairing token: ${TOKEN}\n`]) {
+    const subject = fixture([{ code: 0, stdout, stderr: '' }]);
+    await assert.rejects(subject.service.enroll({ sshTarget: 'alice@example.test', password: PASSWORD }), (error) => error instanceof SshEnrollmentError && error.code === 'TOKEN_PARSE_FAILED');
+  }
+  const accepted = fixture([{ code: 0, stdout: `Pairing token: ${TOKEN}\nExpires later\n`, stderr: '' }]);
+  assert.equal((await accepted.service.enroll({ sshTarget: 'alice@example.test', password: PASSWORD })).peerId, PEER_ID);
+});
+
+test('Given the tunnel exits before readiness, when preparing enrollment, then pairing never starts and key installation is compensated', async () => {
+  const subject = fixture(); subject.io.ready = () => new Promise<void>(() => undefined); subject.io.onSpawn = (child) => queueMicrotask(() => child.emit('exit', 255, null));
+  await assert.rejects(subject.service.enroll({ sshTarget: 'alice@example.test', password: PASSWORD }), (error) => error instanceof SshEnrollmentError && error.code === 'TUNNEL_FAILED');
+  assert.equal(subject.enrollments.length, 0); assert.ok(subject.io.runs.some(({ args }) => (args.at(-1) ?? '').includes('grep -vxF')));
+});
+
+test('Given an allocated port collides with persisted metadata, when preparing a new target, then a different port is reserved', async () => {
+  const subject = fixture(); subject.store.save({ peerId: 'other', sshTarget: 'bob@example.test', localPort: 41234, controlPath: '/hub/fleet/control-41234' }); subject.io.allocatedPorts = [41234, 41235];
+  const result = await subject.service.enroll({ sshTarget: 'alice@example.test', password: PASSWORD });
+  assert.equal(result.port, 41235);
+});
+
+test('Given pairing rejects after the key and ready tunnel, when enrollment aborts, then the key is removed and no tunnel record persists', async () => {
+  const io = new FakeIo(); const store = new MemoryStore(); const manager = new SshTunnelManager({ io, store, paths: { directory: '/hub/fleet', privateKey: '/hub/fleet/id_ed25519', publicKey: '/hub/fleet/id_ed25519.pub', knownHosts: '/hub/fleet/known_hosts' }, scheduler: { schedule: () => ({ cancel: () => undefined }) } });
+  const service = new SshEasyEnrollService({ tunnels: manager, hubPairing: { enroll: async () => { throw new Error('rejected'); } } });
+  await assert.rejects(service.enroll({ sshTarget: 'alice@example.test', password: PASSWORD }), (error) => error instanceof SshEnrollmentError && error.code === 'ENROLL_FAILED');
+  assert.deepEqual(store.records, []); assert.ok(io.runs.some(({ args }) => (args.at(-1) ?? '').includes('grep -vxF')));
+});
+
+test('Given tunnel metadata save fails after peer persistence, when enrollment aborts, then completion remains compensatable and the peer is rolled back', async () => {
+  const io = new FakeIo(); const store = new MemoryStore(); store.save = () => { throw new Error('duplicate local port'); };
+  const manager = new SshTunnelManager({ io, store, paths: { directory: '/hub/fleet', privateKey: '/hub/fleet/id_ed25519', publicKey: '/hub/fleet/id_ed25519.pub', knownHosts: '/hub/fleet/known_hosts' }, scheduler: { schedule: () => ({ cancel: () => undefined }) } });
+  const rolledBack: string[] = [];
+  const service = new SshEasyEnrollService({ tunnels: manager, hubPairing: { enroll: async () => ({ peerId: PEER_ID }), rollback: (peerId) => { rolledBack.push(peerId); } } });
+  await assert.rejects(service.enroll({ sshTarget: 'alice@example.test', password: PASSWORD }), (error) => error instanceof SshEnrollmentError && error.code === 'ENROLL_FAILED');
+  assert.deepEqual(rolledBack, [PEER_ID]); assert.ok(io.runs.some(({ args }) => (args.at(-1) ?? '').includes('grep -vxF')));
 });

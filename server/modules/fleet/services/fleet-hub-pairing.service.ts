@@ -90,12 +90,7 @@ function parseSignedIdentity(value: unknown): SignedInstallationIdentity {
 export class FleetHubPairingService {
   constructor(private readonly dependencies: HubPairingDependencies) {}
 
-  async enroll(input: Readonly<{
-    peerUrl: string;
-    transportMode: FleetPairingTransportMode;
-    token: string;
-    label?: string;
-  }>): Promise<Enrollment> {
+  preflight(input: Readonly<{ peerUrl: string; transportMode: FleetPairingTransportMode }>): void {
     if (this.dependencies.activeInboundGrant?.() === true) {
       throw new FleetHubPairingError('HUB_ROLE_CONFLICT', 'revoke the inbound hub grant before enrolling outbound peers');
     }
@@ -106,6 +101,17 @@ export class FleetHubPairingService {
     if (this.dependencies.peers.list().filter((peer) => peer.enrollmentState !== 'revoked').length >= 9) {
       throw new FleetHubPairingError('PEER_CAPACITY_REACHED', 'fleet peer capacity reached');
     }
+  }
+
+  async enroll(input: Readonly<{
+    peerUrl: string;
+    transportMode: FleetPairingTransportMode;
+    token: string;
+    label?: string;
+  }>): Promise<Enrollment> {
+    this.preflight(input);
+    const target = parseFleetTransportTarget(input.peerUrl, input.transportMode);
+    if (!target.ok) throw new FleetHubPairingError('PEER_URL_INVALID', 'peer URL does not match its transport mode');
     const remote = parseSignedIdentity(await this.dependencies.transport.redeem({
       ...input,
       hub: this.dependencies.identity,

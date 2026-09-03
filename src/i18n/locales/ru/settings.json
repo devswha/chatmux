@@ -88,6 +88,7 @@
       "stepEnroll": "Регистрация компьютера…",
       "errors": {
         "INVALID_SSH_TARGET": "Введите адрес SSH в формате пользователь@хост[:порт].",
+        "MALFORMED_REQUEST": "The SSH enrollment request is malformed.",
         "SSH_PASSWORD_REQUIRED": "Для первого подключения требуется пароль SSH.",
         "SSH_AUTH_FAILED": "Ошибка аутентификации SSH. Проверьте имя пользователя и пароль.",
         "SSH_UNREACHABLE": "Не удалось связаться с адресом SSH.",
