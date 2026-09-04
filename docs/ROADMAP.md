@@ -10,7 +10,7 @@ ChatMux는 tmux에서 이미 실행 중인 코딩 에이전트를 발견하고, 
 
 > **tmux가 주인이고 ChatMux는 창문이다.**
 
-사용자는 Gajae Code, Claude Code, Codex, Cursor, OpenCode, Oh My Pi 같은
+사용자는 Gajae Code, Claude Code, Codex, Cursor, OpenCode, Oh My Pi, Oh My OpenAgent 같은
 에이전트를 평소처럼 tmux에서 실행한다. ChatMux는 그 프로세스를 소유권
 이관이나 별도 등록 없이 찾아 브라우저와 모바일 웹에 표시한다.
 
@@ -42,7 +42,7 @@ ChatMux가 제공하는 핵심 가치는 다음과 같다.
 
 ## 현재 기준선
 
-- Gajae Code, Claude Code, Codex, Cursor, OpenCode, Oh My Pi와 SSH tmux
+- Gajae Code, Claude Code, Codex, Cursor, OpenCode, Oh My Pi, Oh My OpenAgent와 SSH tmux
   세션을 자동 발견한다.
 - provider-native session store를 인덱싱하고, 연결 가능한 외부 세션을
   구조화된 transcript와 composer로 연다.

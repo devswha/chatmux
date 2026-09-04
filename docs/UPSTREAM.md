@@ -79,7 +79,7 @@ on the resulting diff.
 
 ```sh
 cd "$CHECKOUT"
-git switch -c intake/<short-purpose>
+git switch -c fix/upstream-<short-purpose>
 git cherry-pick -x "$UPSTREAM_COMMIT"
 git diff --check
 ```
@@ -88,7 +88,8 @@ A conflict is a review event, not permission to copy surrounding upstream
 changes. Resolve only the approved behavior; otherwise abort the intake and
 record why it was rejected.
 
-After review, add a new ChatMux changelog entry above the historical
-provenance section. Do not rewrite historical links or entries. Publishing a
-new server artifact remains a separate release review and uses GitHub Releases
-only.
+After review, submit the intake through a focused pull request. Its conventional
+commit title feeds the canonical GitHub-generated release notes; do not add a
+second hand-written release-note source. Preserve historical changelog links and
+entries as provenance. Publishing a new server artifact remains a separate release
+step through `.github/workflows/release.yml` from `main`.
