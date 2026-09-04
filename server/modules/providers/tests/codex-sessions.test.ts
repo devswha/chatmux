@@ -12,7 +12,11 @@ import {
   isCodexHistoryCacheable,
   normalizeCodexToolName,
 } from '@/modules/providers/list/codex/codex-sessions.provider.js';
-import { sessionsService } from '@/modules/providers/services/sessions.service.js';
+import {
+  prepareHistoryMessagesForTransport,
+  sessionsService,
+} from '@/modules/providers/services/sessions.service.js';
+import type { NormalizedMessage } from '@/shared/types.js';
 
 test('Codex request_user_input uses the shared question renderer', () => {
   assert.equal(normalizeCodexToolName('request_user_input'), 'AskUserQuestion');
@@ -24,6 +28,36 @@ test('Codex history cache budget includes normalized messages, partial tails, an
   assert.equal(isCodexHistoryCacheable(9, 0, 0, 8), false);
   assert.equal(isCodexHistoryCacheable(0, 9, 0, 8), false);
   assert.equal(isCodexHistoryCacheable(0, 0, 9, 8), false);
+});
+
+test('tool history previews bound aggregate bytes and individual lines', () => {
+  const outputs = [
+    `start-${'x'.repeat(8 * 1024)}-end`,
+    Array.from({ length: 40 }, () => 'y'.repeat(1024)).join('\n'),
+  ];
+
+  for (const [index, output] of outputs.entries()) {
+    const message: NormalizedMessage = {
+      id: `tool-${index}`,
+      sessionId: 'session-preview-bounds',
+      timestamp: '2026-08-10T00:00:00.000Z',
+      provider: 'codex',
+      kind: 'tool_use',
+      toolName: 'exec',
+      toolId: `tool-${index}`,
+      toolResult: { content: output, isError: false },
+    };
+    const [prepared] = prepareHistoryMessagesForTransport([message]);
+    const preview = String(prepared.toolResult?.content ?? '');
+
+    assert.equal(prepared.toolResultTruncated, true);
+    assert.equal(prepared.toolResultBytes, Buffer.byteLength(output));
+    assert.ok(Buffer.byteLength(preview) <= 16 * 1024);
+    assert.ok(Math.max(...preview.split('\n').map((line) => Buffer.byteLength(line))) <= 4 * 1024);
+    assert.equal(preview.includes('\uFFFD'), false);
+    assert.equal(preview.startsWith(output.slice(0, 32)), true);
+    assert.equal(preview.endsWith(output.slice(-32)), true);
+  }
 });
 
 test('Codex SDK stays pinned to the CLI version required by synchronized models', () => {
@@ -616,8 +650,7 @@ test('Codex history sends bounded tool previews and loads the full result on dem
   try {
     const sessionId = 'codex-tool-preview-history';
     const transcriptPath = await writeCodexTranscript(tempRoot, sessionId, workspacePath);
-    // The 7-byte Korean prefix deliberately makes the fixed 48 KiB head cut
-    // land inside a three-byte UTF-8 character.
+    // The Korean prefix exercises UTF-8-safe line and aggregate preview cuts.
     const output = `시작-${'한'.repeat(40 * 1024)}-끝`;
     await appendFile(transcriptPath, [
       JSON.stringify({
@@ -673,6 +706,12 @@ test('Codex history sends bounded tool previews and loads the full result on dem
       assert.equal(toolUse?.toolResultTruncated, true);
       assert.equal(toolUse?.toolResultBytes, Buffer.byteLength(output));
       assert.ok(String(toolUse?.toolResult?.content).length < output.length);
+      assert.ok(Buffer.byteLength(String(toolUse?.toolResult?.content)) <= 16 * 1024);
+      assert.ok(Math.max(
+        ...String(toolUse?.toolResult?.content)
+          .split('\n')
+          .map((line) => Buffer.byteLength(line)),
+      ) <= 4 * 1024);
       assert.equal(String(toolUse?.toolResult?.content).includes('\uFFFD'), false);
       assert.equal(String(toolUse?.toolResult?.content).startsWith('시작-'), true);
       assert.equal(String(toolUse?.toolResult?.content).endsWith('-끝'), true);

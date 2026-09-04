@@ -21,6 +21,10 @@ interface CollapsibleProps extends React.HTMLAttributes<HTMLDivElement> {
   onOpenChange?: (open: boolean) => void;
 }
 
+interface CollapsibleContentProps extends React.HTMLAttributes<HTMLDivElement> {
+  unmountOnClose?: boolean;
+}
+
 const Collapsible = React.forwardRef<HTMLDivElement, CollapsibleProps>(
   ({ defaultOpen = false, open: controlledOpen, onOpenChange: controlledOnOpenChange, className, children, ...props }, ref) => {
     const [internalOpen, setInternalOpen] = React.useState(defaultOpen);
@@ -76,9 +80,10 @@ const CollapsibleTrigger = React.forwardRef<HTMLButtonElement, React.ButtonHTMLA
 );
 CollapsibleTrigger.displayName = 'CollapsibleTrigger';
 
-const CollapsibleContent = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
-  ({ className, children, ...props }, ref) => {
+const CollapsibleContent = React.forwardRef<HTMLDivElement, CollapsibleContentProps>(
+  ({ className, children, unmountOnClose = false, ...props }, ref) => {
     const { open } = useCollapsible();
+    const shouldRenderContent = open || !unmountOnClose;
 
     return (
       <div
@@ -91,9 +96,11 @@ const CollapsibleContent = React.forwardRef<HTMLDivElement, React.HTMLAttributes
         )}
         {...props}
       >
-        <div className="overflow-hidden">
-          {children}
-        </div>
+        {shouldRenderContent && (
+          <div className="min-w-0 overflow-hidden">
+            {children}
+          </div>
+        )}
       </div>
     );
   }
