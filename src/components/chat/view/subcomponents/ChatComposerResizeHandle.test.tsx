@@ -52,11 +52,12 @@ test('composer resize handle grows upward, supports keyboard changes, and resets
     });
     handle.props.onPointerUp({ currentTarget, pointerId: 7 });
     handle.props.onKeyDown({ key: 'ArrowUp', shiftKey: false, preventDefault });
+    handle.props.onKeyDown({ key: 'ArrowDown', shiftKey: true, preventDefault });
     handle.props.onKeyDown({ key: 'Home', shiftKey: false, preventDefault });
     handle.props.onDoubleClick();
   });
 
-  assert.deepEqual(heights, [180, 144]);
+  assert.deepEqual(heights, [180, 144, 72]);
   assert.equal(resets, 2);
   assert.equal(capturedPointers.size, 0);
   assert.equal(handle.props['aria-valuemin'], 56);
