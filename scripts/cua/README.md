@@ -1,7 +1,8 @@
 # ChatMux CUA validation harness
 
 This harness creates a disposable HOME and tmux socket, seeds seven fake coding
-agents, and runs ChatMux on ports 4310/4311. It never attaches to or deletes the
+agents, and runs the web UI on port 4310 with dynamically allocated backend ports.
+It never attaches to or deletes the
 operator's existing tmux sessions. Fake agent executables live under the
 fixture HOME's `.local/bin`, so UI-created sessions cannot accidentally launch
 the operator's real Claude, Codex, Cursor, OpenCode, OMO, OMP, or GJC binary.
@@ -71,7 +72,8 @@ the operator's real Claude, Codex, Cursor, OpenCode, OMO, OMP, or GJC binary.
 5. Stop the fixture with Ctrl+C, then record regression exit codes, materialize
    the Node 22/24 and canonical-bundle receipts, run the integrity collector,
    and build the requirement-by-requirement summary. `npm run cua:release`
-   performs this complete sequence in CI.
+   performs this complete sequence when run explicitly, including the manual CI
+   workflow-dispatch evidence job.
 
    ```sh
    CUA_EVIDENCE_DIR=/absolute/evidence/run npm run cua:regressions
@@ -81,9 +83,10 @@ the operator's real Claude, Codex, Cursor, OpenCode, OMO, OMP, or GJC binary.
 For the same headless release surface used by CI, run `npm run cua:release`. It
 starts an enrolled hub plus two full peers with duplicate labels and session IDs,
 launches an accessibility-enabled disposable Chrome, runs desktop/mobile and
-destructive scenarios, and closes every owned process. CI runs this after the
-Node 24 verify gate while the unchanged full verify gate runs on both Node 22 and
-Node 24; its evidence directory is uploaded even when a browser assertion fails.
+destructive scenarios, and closes every owned process. CI runs this only on
+`workflow_dispatch`, after both Node 22/24 verification and the canonical bundle
+job. Ordinary pull-request and push CI skip it. Its evidence directory is uploaded
+even when a browser assertion fails; this manual evidence does not gate publication.
 
 The UI scripts require Python Playwright and a Chrome instance reachable at
 `CUA_CDP_URL` (default `http://127.0.0.1:9333`). `mcp-evidence.mjs` requires an
@@ -97,13 +100,14 @@ push subscription keys, cookies, or credentials.
 
 ## Multi-PC release walkthroughs
 
-Fleet release evidence uses **two independent disposable full installations**, not a
-mocked peer or second agent artifact. Give each process a unique HOME, data root,
+Fleet release evidence uses **one hub and two independent disposable full peers**.
+Give each process a unique HOME, data root,
 loopback port, tmux socket, Chrome profile, and evidence directory. The hub and peer
 must both expose their own direct UI. The hermetic CI fixture uses only its owned
 loopback listeners. Product deployments still use documented direct WSS by default;
-`ssh-loopback` remains limited to an owner-managed local forward saved as exactly
-`ws://127.0.0.1:<port>/fleet-ws` (or literal `[::1]`).
+`ssh-loopback` remains limited to an owner-managed or explicitly requested
+hub-managed local forward saved as exactly `ws://127.0.0.1:<port>/fleet-ws`
+(or literal `[::1]`), under Fleet RFC revision 4.
 
 Run and record two clean walkthroughs:
 

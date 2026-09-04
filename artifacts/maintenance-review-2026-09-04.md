@@ -29,6 +29,7 @@
 | 기여 가이드의 존재하지 않는 backend 디렉터리 | `CONTRIBUTING.md` 대 `server/modules`, `server/shared` | 현재 디렉터리로 정정 |
 | provider 목록에서 이미 지원하는 omo 누락 | `process-classification.ts:36`, `list/omo/` 대 ROADMAP·provider README | Oh My OpenAgent를 기존 지원 목록에 추가 |
 | upstream 반영 후 수동 changelog 추가를 요구 | `docs/UPSTREAM.md` 대 CONTRIBUTING의 GitHub 생성 릴리스 노트 계약 | PR 및 유일한 release workflow 경로로 정정; 역사 기록은 보존 |
+| CUA 안내가 현재 CI 실행 조건·fixture 구성과 불일치 | `scripts/cua/README.md` 대 `run-fixture.ts`, `.github/workflows/ci.yml` | 동적 backend 포트, hub와 두 peer, workflow_dispatch에서만 실행하는 수동 증거로 정정 |
 
 #105의 이전 CI는 sibling rollback에서 `AggregateError`를 기록했다. 그 간헐적
 실패는 로컬 350회 반복에서는 재현되지 않았으므로 zombie 결함이 그 실패의
