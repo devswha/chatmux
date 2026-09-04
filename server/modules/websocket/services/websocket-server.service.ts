@@ -3,7 +3,9 @@ import type { Server as HttpServer } from 'node:http';
 import { WebSocketServer, type RawData, type VerifyClientCallbackSync, type WebSocket } from 'ws';
 
 import { handleChatConnection } from '@/modules/websocket/services/chat-websocket.service.js';
-import { verifyWebSocketClient } from '@/modules/websocket/services/websocket-auth.service.js';
+import { createWebSocketAuthorizationCheck, verifyWebSocketClient } from '@/modules/websocket/services/websocket-auth.service.js';
+import { onTokenRevocation } from '@/middleware/auth.js';
+import { AuthorizedWebSocket } from '@/modules/websocket/services/authorized-websocket.js';
 import { handleShellConnection } from '@/modules/websocket/services/shell-websocket.service.js';
 import { createDiscoveryStream } from '@/modules/websocket/services/discovery-stream.service.js';
 import type { DiscoveryCollector } from '@/modules/providers/index.js';
@@ -47,14 +49,23 @@ export function createWebSocketServer(
 ): WebSocketServer {
   const wss = new WebSocketServer({
     server,
+    WebSocket: AuthorizedWebSocket,
     verifyClient: ((
       info: Parameters<VerifyClientCallbackSync<AuthenticatedWebSocketRequest>>[0]
     ) => verifyWebSocketClient(info, dependencies.verifyClient)),
   });
+  const releaseRevocations = onTokenRevocation(() => {
+    for (const socket of wss.clients) socket.isAuthorized();
+  });
+  wss.once('close', releaseRevocations);
   const discovery = dependencies.discovery ? createDiscoveryStream(dependencies.discovery) : undefined;
   const panes = dependencies.panes ?? createPaneOutputStream();
   dependencies.discovery?.onSnapshot((snapshot) => panes.reconcile(snapshot));
   wss.on('connection', (ws, request) => {
+    const incomingRequest = request as AuthenticatedWebSocketRequest;
+    const authorize = createWebSocketAuthorizationCheck(ws, incomingRequest, dependencies.verifyClient);
+    ws.setAuthorizationCheck(authorize);
+    if (!authorize()) return;
     // Keep WebSocket alive across reverse-proxy idle timeouts (Cloudflare ~100s,
     // AWS ALB 60s, nginx 60s, etc.). Without app-level pings these connections
     // are silently torn down even when the UI is active, causing repeated
@@ -63,7 +74,7 @@ export function createWebSocketServer(
     let isAlive = true;
     ws.on('pong', () => { isAlive = true; });
     const heartbeat = setInterval(() => {
-      if (ws.readyState !== ws.OPEN) {
+      if (ws.readyState !== ws.OPEN || !authorize()) {
         return;
       }
       // A peer that missed an entire ping cycle is gone (phone lost signal,
@@ -84,7 +95,6 @@ export function createWebSocketServer(
     ws.on('close', stopHeartbeat);
     ws.on('error', stopHeartbeat);
 
-    const incomingRequest = request as AuthenticatedWebSocketRequest;
     const fleetSocket = {
       send: (payload: string, callback: (error?: Error) => void) => ws.send(
         payload,
@@ -108,7 +118,7 @@ export function createWebSocketServer(
 
     if (pathname === '/shell') {
       const principal = incomingRequest.user?.id ?? incomingRequest.user?.userId ?? incomingRequest.user?.username;
-      handleShellConnection(ws, dependencies.shell, principal === undefined ? undefined : String(principal));
+      handleShellConnection(ws, { ...dependencies.shell, checkAuthorization: authorize }, principal === undefined ? undefined : String(principal));
       return;
     }
 
@@ -126,6 +136,7 @@ export function createWebSocketServer(
       }
       handleChatConnection(ws, incomingRequest, {
         ...dependencies.chat,
+        checkAuthorization: authorize,
         handleDiscovery: (socket, data) => {
           const fleet = fleetBrowserDiscoveryGateway.current();
           if (fleet !== undefined && dependencies.fleet !== undefined && fleet.handle(

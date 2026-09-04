@@ -42,6 +42,9 @@ export async function verifyLocalRemoteTerminalTarget(target: FleetPaneReference
 }
 
 export function attachVerifiedLocalTmuxTerminal(verified: Readonly<{ readonly tmux: Readonly<TmuxPaneIdentity> }>, cols: number, rows: number): RemoteTerminalProcess {
+  const environment: NodeJS.ProcessEnv = { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor' };
+  delete environment.TMUX;
+  delete environment.TMUX_PANE;
   const terminal = pty.spawn('tmux', [
     '-S', verified.tmux.socketPath,
     'select-window', '-t', verified.tmux.windowId, ';',
@@ -49,7 +52,7 @@ export function attachVerifiedLocalTmuxTerminal(verified: Readonly<{ readonly tm
     'attach-session', '-t', verified.tmux.sessionId,
   ], {
     name: 'xterm-256color', cols, rows, cwd: process.cwd(),
-    env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor' },
+    env: environment,
   });
   return {
     onData: (listener) => { terminal.onData(listener); },

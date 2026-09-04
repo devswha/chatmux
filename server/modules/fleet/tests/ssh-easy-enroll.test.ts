@@ -103,6 +103,44 @@ function fixture(runResults: SshRunResult[] = []): Fixture {
   return { io, store, manager, service, enrollments, reconciliations };
 }
 
+test('concurrent enrollment reserves one SSH target before asynchronous key setup', async () => {
+  const subject = fixture();
+  const gate = Promise.withResolvers<void>();
+  subject.io.mkdir = () => gate.promise;
+  subject.io.allocatedPorts = [41234, 41235];
+  const input = { sshTarget: 'alice@example.test', password: PASSWORD };
+  const attempts = Promise.allSettled([subject.manager.prepare(input), subject.manager.prepare(input)]);
+  gate.resolve();
+  const outcomes = await attempts;
+  await Promise.allSettled(outcomes.flatMap((outcome) => outcome.status === 'fulfilled' ? [outcome.value.abort()] : []));
+  assert.equal(outcomes.filter((outcome) => outcome.status === 'fulfilled').length, 1);
+  const rejected = outcomes.find((outcome) => outcome.status === 'rejected');
+  assert.ok(rejected?.status === 'rejected' && rejected.reason instanceof SshEnrollmentError);
+  assert.equal(subject.io.spawns.length, 1);
+});
+
+test('different SSH targets share key generation and reserve distinct ports before yielding', async () => {
+  const subject = fixture();
+  subject.io.keyExists = false;
+  subject.io.allocatedPorts = [41234, 41234, 41235];
+  subject.io.onRun = (command) => { if (command === 'ssh-keygen') subject.io.keyExists = true; return undefined; };
+  const tunnels = await Promise.all(['alice@example.test', 'bob@example.test'].map((sshTarget) => subject.manager.prepare({ sshTarget, password: PASSWORD })));
+  try {
+    assert.equal(new Set(tunnels.map((tunnel) => tunnel.localPort)).size, 2);
+    assert.equal(subject.io.runs.filter((run) => run.command === 'ssh-keygen').length, 1);
+  } finally { await Promise.all(tunnels.map((tunnel) => tunnel.abort())); }
+});
+
+test('failed SSH key setup releases the target reservation for a later attempt', async () => {
+  const subject = fixture();
+  subject.io.mkdir = async () => { throw new Error('key directory unavailable'); };
+  const input = { sshTarget: 'alice@example.test', password: PASSWORD };
+  await assert.rejects(subject.manager.prepare(input), /key directory unavailable/);
+  subject.io.mkdir = async () => undefined;
+  const tunnel = await subject.manager.prepare(input);
+  await tunnel.abort();
+});
+
 async function startRoute(subject: SshEasyEnrollService, reports: unknown[] = []): Promise<Readonly<{ url: string; close(): Promise<void> }>> {
   const app = express();
   app.use(express.json({ limit: '50mb', type: (request) => !isSshEnrollmentPath(request.url) && (request.headers['content-type'] ?? '').includes('json') }));

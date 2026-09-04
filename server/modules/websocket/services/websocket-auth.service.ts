@@ -1,9 +1,9 @@
-import type { VerifyClientCallbackSync } from 'ws';
+import type { VerifyClientCallbackSync, WebSocket } from 'ws';
 
 import type { AuthenticatedWebSocketRequest } from '@/shared/types.js';
 import { AUTH_COOKIE_NAME, getBearerToken, parseCookieHeader } from '@/middleware/auth.js';
 
-type WebSocketAuthDependencies = {
+export type WebSocketAuthDependencies = {
   /** Same-site guard shared with the HTTP API; runs before any credential is read. */
   checkCrossSite?: (request: AuthenticatedWebSocketRequest) => { ok: true } | { ok: false; error: string };
   authenticateWebSocket: (
@@ -16,6 +16,37 @@ type WebSocketAuthDependencies = {
     [key: string]: unknown;
   } | null;
 };
+
+function principalKey(user: AuthenticatedWebSocketRequest['user']): string {
+  return JSON.stringify([
+    user?.id ?? user?.userId ?? null, user?.username ?? null,
+    user?.tailscaleLogin ?? null, user?.tailscaleRole ?? null, user?.authSource ?? null,
+  ]);
+}
+
+/** Re-read revocation/allowlist state; a connection never changes its principal. */
+export function createWebSocketAuthorizationCheck(
+  socket: WebSocket,
+  request: AuthenticatedWebSocketRequest,
+  dependencies: WebSocketAuthDependencies,
+): () => boolean {
+  const admitted = principalKey(request.user);
+  const token = getBearerToken(request.headers.authorization)
+    ?? parseCookieHeader(request.headers.cookie)[AUTH_COOKIE_NAME] ?? null;
+  let revoked = false;
+  return () => {
+    if (revoked || socket.readyState !== socket.OPEN) return false;
+    try {
+      const current = dependencies.authenticateWebSocket(token, request);
+      if (current !== null && principalKey(current) === admitted) return true;
+    } catch {
+      // An unreadable auth store is not authority to keep an existing socket.
+    }
+    revoked = true;
+    socket.close(1008, 'Authentication is no longer valid.');
+    return false;
+  };
+}
 
 /**
  * Authenticates websocket upgrade requests before the `connection` handler runs.

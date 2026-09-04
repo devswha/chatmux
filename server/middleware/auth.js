@@ -152,9 +152,18 @@ const getTokenVersion = (userId) => {
   return 0;
 };
 
+const tokenRevocationListeners = new Set();
+const onTokenRevocation = (listener) => {
+  tokenRevocationListeners.add(listener);
+  return () => tokenRevocationListeners.delete(listener);
+};
+
 const incrementTokenVersion = (userId) => {
   const nextVersion = getTokenVersion(userId) + 1;
   appConfigDb.set(tokenVersionKey(userId), String(nextVersion));
+  for (const listener of tokenRevocationListeners) {
+    try { listener(userId); } catch { console.error('WebSocket revocation notification failed'); }
+  }
   return nextVersion;
 };
 
@@ -301,6 +310,7 @@ export {
   isTokenVersionValid,
   parseStoredTokenVersion,
   incrementTokenVersion,
+  onTokenRevocation,
   AUTH_COOKIE_NAME,
   AUTH_MODE,
   resolveAuthMode,
