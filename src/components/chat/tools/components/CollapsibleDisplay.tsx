@@ -17,6 +17,7 @@ interface CollapsibleDisplayProps {
   rawContent?: string;
   className?: string;
   toolCategory?: string;
+  unmountOnClose?: boolean;
 }
 
 const borderColorMap: Record<string, string> = {
@@ -43,6 +44,7 @@ export const CollapsibleDisplay: React.FC<CollapsibleDisplayProps> = ({
   rawContent,
   className = '',
   toolCategory,
+  unmountOnClose = false,
 }) => {
   const borderColor = borderColorMap[toolCategory || 'default'] || borderColorMap.default;
 
@@ -55,6 +57,7 @@ export const CollapsibleDisplay: React.FC<CollapsibleDisplayProps> = ({
         action={action}
         badge={badge}
         onTitleClick={onTitleClick}
+        unmountOnClose={unmountOnClose}
       >
         {children}
 
@@ -71,7 +74,7 @@ export const CollapsibleDisplay: React.FC<CollapsibleDisplayProps> = ({
               </svg>
               raw params
             </CollapsibleTrigger>
-            <CollapsibleContent>
+            <CollapsibleContent unmountOnClose>
               <pre className="mt-1 overflow-hidden whitespace-pre-wrap break-words rounded border border-border/40 bg-muted p-2 font-mono text-[11px] text-muted-foreground">
                 {rawContent}
               </pre>

@@ -70,12 +70,18 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
   const [fullToolResult, setFullToolResult] = useState<ToolResult | null>(null);
   const [isLoadingFullToolResult, setIsLoadingFullToolResult] = useState(false);
   const [fullToolResultError, setFullToolResultError] = useState(false);
+  const [isToolErrorOpen, setIsToolErrorOpen] = useState(false);
+  const [isConversationErrorOpen, setIsConversationErrorOpen] = useState(false);
   useEffect(() => {
     setFullToolResult(null);
     setIsLoadingFullToolResult(false);
     setFullToolResultError(false);
+    setIsToolErrorOpen(false);
   }, [message.sessionId, message.toolId]);
-  const effectiveToolResult = fullToolResult ?? message.toolResult;
+  useEffect(() => {
+    setIsConversationErrorOpen(false);
+  }, [message.sessionId, message.timestamp, message.content]);
+  const effectiveToolResult = message.toolResult;
   const errorContent = String(message.content || '');
   const errorSummary = compactErrorSummary(errorContent, t('messageTypes.error'));
   const toolResultContent = String(effectiveToolResult?.content || '');
@@ -247,6 +253,7 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
                     <details
                       id={`tool-result-${message.toolId}`}
                       className="relative mt-2 scroll-mt-4 rounded border border-red-200/60 bg-red-50/50 p-3 dark:border-red-800/40 dark:bg-red-950/10"
+                      onToggle={(event) => setIsToolErrorOpen(event.currentTarget.open)}
                     >
                       <summary className="flex cursor-pointer items-center gap-1.5 text-xs font-medium text-red-700 dark:text-red-300">
                         <svg className="h-4 w-4 flex-shrink-0 text-red-500 dark:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -255,11 +262,13 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
                         <span className="flex-shrink-0">{message.toolName || 'UnknownTool'} {t('messageTypes.error')}</span>
                         <span className="truncate text-red-900 dark:text-red-100">{toolErrorSummary}</span>
                       </summary>
-                      <div className="relative mt-2 text-sm text-red-900 dark:text-red-100">
-                        <Markdown className="prose prose-sm prose-red max-w-none font-serif dark:prose-invert">
-                          {toolResultContent}
-                        </Markdown>
-                      </div>
+                      {isToolErrorOpen && (
+                        <div className="relative mt-2 min-w-0 max-w-full overflow-x-auto text-sm text-red-900 [overflow-wrap:anywhere] dark:text-red-100">
+                          <Markdown className="prose prose-sm prose-red max-w-none break-all font-serif dark:prose-invert">
+                            {toolResultContent}
+                          </Markdown>
+                        </div>
+                      )}
                     </details>
                   ) : (
                     // Non-error results - route through ToolRenderer (single source of truth)
@@ -299,6 +308,19 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
                         {t('session.messages.fullToolOutputFailed')}
                       </span>
                     )}
+                  </div>
+                )}
+                {fullToolResult && (
+                  <div className="mt-2 min-w-0 max-w-full rounded border border-border bg-muted/30 p-2">
+                    <textarea
+                      aria-label={t('session.messages.loadFullToolOutput')}
+                      className="h-64 min-h-32 w-full max-w-full resize-y overflow-auto whitespace-pre rounded bg-background p-2 font-mono text-xs text-foreground"
+                      dir="ltr"
+                      readOnly
+                      spellCheck={false}
+                      value={String(fullToolResult.content || '')}
+                      wrap="off"
+                    />
                   </div>
                 )}
               </>
@@ -397,7 +419,10 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
                 </ReasoningContent>
               </Reasoning>
             ) : message.type === 'error' ? (
-              <details className="rounded border border-red-200/60 bg-red-50/50 p-3 text-sm text-red-900 dark:border-red-800/40 dark:bg-red-950/10 dark:text-red-100">
+              <details
+                className="rounded border border-red-200/60 bg-red-50/50 p-3 text-sm text-red-900 dark:border-red-800/40 dark:bg-red-950/10 dark:text-red-100"
+                onToggle={(event) => setIsConversationErrorOpen(event.currentTarget.open)}
+              >
                 <summary className="flex cursor-pointer items-center gap-1.5 font-medium text-red-700 dark:text-red-300">
                   <svg className="h-4 w-4 flex-shrink-0 text-red-500 dark:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -405,9 +430,11 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
                   <span className="flex-shrink-0">{t('messageTypes.error')}</span>
                   <span className="truncate text-red-900 dark:text-red-100">{errorSummary}</span>
                 </summary>
-                <div className="mt-2 whitespace-pre-wrap">
-                  {errorContent}
-                </div>
+                {isConversationErrorOpen && (
+                  <div className="mt-2 min-w-0 max-w-full overflow-x-auto whitespace-pre-wrap break-all [overflow-wrap:anywhere]">
+                    {errorContent}
+                  </div>
+                )}
               </details>
             ) : (
               <div dir="auto" className="text-sm text-gray-700 dark:text-gray-300">
