@@ -101,11 +101,14 @@ test('Given malformed fleet inputs, When parsed, Then each fails closed', async 
     kind: 'request', protocolVersion: FLEET_PROTOCOL_VERSION, connectionGeneration: 1,
     requestId: 'request-1', operation: 'session.read', target: { kind: 'session', localId: 'session-42' }, body: null,
   }));
-  assert.throws(() => parseFleetEventEnvelope({
+  // RFC revision 3 keeps bodies opaque; enums are validated in descriptors,
+  // not in arbitrary operation payloads that happen to reuse a field name.
+  const opaque = { capabilities: ['catalog.read', 'catalog.read'] };
+  assert.deepEqual(parseFleetEventEnvelope({
     kind: 'event', protocolVersion: FLEET_PROTOCOL_VERSION, connectionGeneration: 1,
     eventId: 'event-1', event: 'catalog.snapshot', hostId: hostA,
-    body: { capabilities: ['catalog.read', 'catalog.read'] },
-  }));
+    body: opaque,
+  }).body, opaque);
   assert.throws(() => parseFleetResponseEnvelope({
     kind: 'response', protocolVersion: FLEET_PROTOCOL_VERSION, connectionGeneration: 1,
     requestId: 'request-1', target, status: 'failure', sideEffect: 'none', error: 'UNKNOWN', body: null,

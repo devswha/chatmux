@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
-const TEST_FILE_PATTERN = /\.(?:test|spec)\.(?:js|ts|tsx)$/;
+const TEST_FILE_PATTERN = /\.(?:test|spec)\.(?:js|mjs|ts|tsx)$/;
 const SKIPPED_DIRECTORIES = new Set(['dist', 'dist-server', 'node_modules']);
 export const REAL_RESOURCE_TESTS = Object.freeze([
   'server/gjc-core-host.test.ts',
@@ -66,11 +66,14 @@ export function runTests(label, files, { tsconfig, testConcurrency } = {}) {
 
   console.log(`\n[test] ${label}: ${files.length} files`);
   const runtime = tsconfig ? ['--import', 'tsx'] : [];
+  if (tsconfig === 'server/tsconfig.json') runtime.push('--import', fileURLToPath(new URL('./test-database.mjs', import.meta.url)));
   const concurrency = testConcurrency === undefined ? [] : [`--test-concurrency=${testConcurrency}`];
   const args = [...runtime, '--test', ...concurrency, ...files];
   const result = spawnSync(process.execPath, args, {
     cwd: process.cwd(),
-    env: tsconfig ? { ...process.env, TSX_TSCONFIG_PATH: tsconfig } : process.env,
+    // Each test worker owns its database, including import-time auth bootstrap.
+    // Individual persistence fixtures override this with their own temp paths.
+    env: { ...process.env, DATABASE_PATH: ':memory:', ...(tsconfig ? { TSX_TSCONFIG_PATH: tsconfig } : {}) },
     stdio: 'inherit',
   });
 
@@ -79,14 +82,15 @@ export function runTests(label, files, { tsconfig, testConcurrency } = {}) {
 }
 
 export async function discoverTests() {
-  const [serverTests, scriptTests, clientTests] = await Promise.all([
+  const [serverTests, scriptTests, clientTests, sharedTests] = await Promise.all([
     collectTests('server'),
     collectTests('scripts'),
     collectTests('src'),
+    collectTests('shared'),
   ]);
 
   return {
-    serverTests: [...serverTests, ...scriptTests].sort(),
+    serverTests: [...serverTests, ...scriptTests, ...sharedTests].sort(),
     clientTests,
   };
 }
