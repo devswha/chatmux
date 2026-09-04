@@ -248,6 +248,10 @@ router.get('/api/projects/:projectId/files/content', authenticateToken, async (r
         // Get file extension and set appropriate content type
         const mimeType = mime.lookup(readablePath) || 'application/octet-stream';
         res.setHeader('Content-Type', mimeType);
+        // Project files are untrusted documents. Directly opening HTML/SVG must
+        // not grant scripts the authenticated app origin; byte previews remain usable.
+        res.setHeader('Content-Security-Policy', 'sandbox');
+        res.setHeader('X-Content-Type-Options', 'nosniff');
 
         // Stream the file
         const fileStream = fs.createReadStream(readablePath);
@@ -263,7 +267,9 @@ router.get('/api/projects/:projectId/files/content', authenticateToken, async (r
     } catch (error) {
         console.error('Error serving binary file:', error);
         if (!res.headersSent) {
-            res.status(500).json({ error: error.message });
+            if (error.code === 'ENOENT') res.status(404).json({ error: 'File not found' });
+            else if (error.code === 'EACCES') res.status(403).json({ error: 'Permission denied' });
+            else res.status(500).json({ error: 'Error reading file' });
         }
     }
 });

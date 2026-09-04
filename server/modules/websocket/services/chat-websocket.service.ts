@@ -65,6 +65,8 @@ type LiveTmuxSpawnGuardResult =
   | { readonly kind: 'discovery_unavailable' };
 
 type ChatWebSocketDependencies = {
+  /** Rechecked after asynchronous discovery, immediately before starting a run. */
+  checkAuthorization?: () => boolean;
   /** Provider runtimes keyed by provider id. */
   spawnFns: Record<LLMProvider, ProviderSpawnFn>;
   /**
@@ -216,6 +218,7 @@ async function handleChatSend(
     }
   }
 
+  if (dependencies.checkAuthorization?.() === false) return;
   const run = chatRunRegistry.startRun({
     appSessionId: sessionId,
     provider,

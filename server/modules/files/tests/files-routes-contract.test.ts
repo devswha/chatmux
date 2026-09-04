@@ -104,14 +104,9 @@ test('binary content serving and write failures retain their HTTP contracts', as
   assert.equal(response.status, 403);
   assert.deepEqual(response.body, { error: 'Path must be under project root' });
 
-  // Pre-existing behavior carried over unchanged by the extraction: the
-  // containment resolver lstats the path and throws ENOENT before the
-  // access() check can answer 404, so a missing file surfaces the generic
-  // 500 handler. Locked here so the move stays behavior-neutral; correcting
-  // it to 404 is follow-up work, not part of this refactor.
   response = await request(`/api/projects/${projectId}/files/content?path=missing.png`);
-  assert.equal(response.status, 500);
-  assert.equal(typeof (response.body as { error?: unknown }).error, 'string');
+  assert.equal(response.status, 404);
+  assert.deepEqual(response.body, { error: 'File not found' });
 
   response = await request('/api/projects/missing/files/content?path=image.png');
   assert.equal(response.status, 404);
@@ -126,4 +121,16 @@ test('binary content serving and write failures retain their HTTP contracts', as
   assert.deepEqual(response.body, { error: 'Project not found' });
 
   assert.equal(await readFile(path.join(projectRoot, 'existing.txt'), 'utf8'), 'after');
+});
+
+test('project HTML and SVG are sandboxed documents rather than executable app-origin content', async () => {
+  for (const [name, content] of [['untrusted.html', '<script>window.projectScriptRan=true</script>'],
+    ['untrusted.svg', '<svg xmlns="http://www.w3.org/2000/svg"><script>window.projectScriptRan=true</script></svg>']]) {
+    await writeFile(path.join(projectRoot, name!), content!);
+    const response = await fetch(`${baseUrl}/api/projects/${projectId}/files/content?path=${name}`);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('content-security-policy'), 'sandbox');
+    assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
+    assert.equal(await response.text(), content);
+  }
 });

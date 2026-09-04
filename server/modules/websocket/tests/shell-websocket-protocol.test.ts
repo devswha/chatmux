@@ -113,6 +113,30 @@ test('typed attach best-effort enables passthrough before the server-built exact
   assert.deepEqual(commands, [['-c', "tmux -S '/tmp/tmux.sock' set-option -g allow-passthrough on >/dev/null 2>&1 || true; exec tmux -S '/tmp/tmux.sock' select-window -t '@2' \\; select-pane -t '%3' \\; attach-session -t '$1'"]]);
 });
 
+test('verified attach children cannot inherit the hosting tmux context', async () => {
+  const previous = { TMUX: process.env.TMUX, TMUX_PANE: process.env.TMUX_PANE };
+  process.env.TMUX = '/tmp/operator.sock,42,0';
+  process.env.TMUX_PANE = '%123';
+  let environment: NodeJS.ProcessEnv | undefined;
+  const ws = new FakeWebSocket();
+  try {
+    handleShellConnection(ws as never, dependencies({
+      spawn: ((_shell: string, _args: string[], options: { env: NodeJS.ProcessEnv }) => { environment = options.env; return fakePty(); }) as never,
+      assertFreshExternalTmuxTarget: async () => createVerifiedTmuxActionTarget(tmux, { pid: 9, startedAtMs: 1 }, 'claude', 'agent'),
+    }));
+    await sendInit(ws, { shellProtocolVersion: SHELL_PROTOCOL_VERSION, mode: 'typed-attach', targetClass: 'local-agent',
+      tmux, process: { pid: 9, startedAtMs: 1 }, sessionId: 'isolated-attach-environment' });
+    assert.ok(environment);
+    assert.equal(environment.TMUX, undefined);
+    assert.equal(environment.TMUX_PANE, undefined);
+    assert.equal(process.env.TMUX, '/tmp/operator.sock,42,0');
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
+  }
+});
+
 test('plain shell preserves its command after protocol negotiation', async () => {
   const commands: string[][] = [];
   const ws = new FakeWebSocket();

@@ -62,6 +62,7 @@ export type ShellAttachDiagnostic = Readonly<{
 }>;
 
 export type ShellWebSocketDependencies = {
+  checkAuthorization?: () => boolean;
   resolveProviderSessionId: (
     sessionId: string,
     provider: string,
@@ -486,6 +487,7 @@ export function handleShellConnection(
         const typedAttach = data.mode === 'typed-attach'
           ? await assertAttachTarget(data, connectionDependencies, emitAttachDiagnostic)
           : null;
+        if (connectionDependencies.checkAuthorization?.() === false) return;
 
         const projectPath = readString(data.projectPath, process.cwd());
         const sessionId = readString(data.sessionId) || null;
@@ -543,6 +545,7 @@ export function handleShellConnection(
         }
         const existingSession =
           isLoginCommand || forceRestart ? null : currentSession;
+        if (connectionDependencies.checkAuthorization?.() === false) return;
         if (existingSession) {
           shellProcess = existingSession.pty;
           if (existingSession.timeoutId) {
@@ -606,19 +609,21 @@ export function handleShellConnection(
           return;
         }
         const prioritizedPath = prioritizeUserNpmGlobalBin(process.env);
+        const environment: NodeJS.ProcessEnv = {
+          ...process.env, [prioritizedPath.key]: prioritizedPath.value,
+          TERM: 'xterm-256color', COLORTERM: 'truecolor', FORCE_COLOR: '3',
+        };
+        if (typedAttach) {
+          delete environment.TMUX;
+          delete environment.TMUX_PANE;
+        }
 
         shellProcess = (connectionDependencies.spawn ?? pty.spawn)(shell, shellArgs, {
           name: 'xterm-256color',
           cols: termCols,
           rows: termRows,
           cwd: resolvedProjectPath,
-          env: {
-            ...process.env,
-            [prioritizedPath.key]: prioritizedPath.value,
-            TERM: 'xterm-256color',
-            COLORTERM: 'truecolor',
-            FORCE_COLOR: '3',
-          },
+          env: environment,
         });
 
         const replacement = ptySessionsMap.get(ptySessionKey);

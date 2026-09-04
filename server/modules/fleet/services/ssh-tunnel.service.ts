@@ -96,6 +96,7 @@ export class SshTunnelManager {
   private readonly active = new Map<string, ActiveTunnel>();
   private readonly reservedTargets = new Set<string>();
   private readonly reservedPorts = new Set<number>();
+  private keyInitialization: Promise<void> | undefined;
   constructor(private readonly dependencies: ManagerDependencies) {}
 
   async prepare(input: Readonly<{ sshTarget: string; password?: string }>): Promise<PreparedSshTunnel> {
@@ -110,10 +111,18 @@ export class SshTunnelManager {
       throw new SshEnrollmentError('SSH_PASSWORD_REQUIRED', 'SSH password is required until the tunnel key is installed');
     }
     if (this.reservedTargets.has(target.sshTarget)) throw new SshEnrollmentError('TUNNEL_FAILED', 'SSH target enrollment is already in progress');
-    await this.ensureKey();
-    const localPort = existing?.localPort ?? await this.allocateUniquePort();
+    this.reservedTargets.add(target.sshTarget);
+    let localPort: number;
+    try {
+      await this.ensureKey();
+      if (existing !== undefined && this.reservedPorts.has(existing.localPort)) throw new SshEnrollmentError('TUNNEL_FAILED', 'SSH tunnel port is already reserved');
+      localPort = existing?.localPort ?? await this.allocateUniquePort();
+      this.reservedPorts.add(localPort);
+    } catch (error) {
+      this.reservedTargets.delete(target.sshTarget);
+      throw error;
+    }
     const controlPath = join(this.dependencies.paths.directory, `control-${localPort}`);
-    this.reservedTargets.add(target.sshTarget); this.reservedPorts.add(localPort);
     const password = input.password === undefined || input.password.length === 0 ? undefined : input.password;
     let askpass: Askpass | undefined;
     let launch: Launch | undefined;
@@ -219,11 +228,20 @@ export class SshTunnelManager {
   private async allocateUniquePort(): Promise<number> {
     for (let attempt = 0; attempt < 10; attempt += 1) {
       const port = await this.dependencies.io.allocatePort();
-      if (!this.reservedPorts.has(port) && !this.dependencies.store.list().some((record) => record.localPort === port)) return port;
+      if (!this.reservedPorts.has(port) && !this.dependencies.store.list().some((record) => record.localPort === port)) {
+        this.reservedPorts.add(port);
+        return port;
+      }
     }
     throw new SshEnrollmentError('TUNNEL_FAILED', 'No unique SSH tunnel port is available');
   }
   private async ensureKey(): Promise<void> {
+    if (this.keyInitialization !== undefined) return this.keyInitialization;
+    const pending = this.initializeKey();
+    this.keyInitialization = pending;
+    try { await pending; } finally { if (this.keyInitialization === pending) this.keyInitialization = undefined; }
+  }
+  private async initializeKey(): Promise<void> {
     await this.dependencies.io.mkdir(this.dependencies.paths.directory, 0o700);
     if (await this.dependencies.io.fileExists(this.dependencies.paths.privateKey)) return;
     const result = await this.dependencies.io.run('ssh-keygen', ['-t', 'ed25519', '-N', '', '-C', 'chatmux-fleet-tunnel', '-f', this.dependencies.paths.privateKey], { timeoutMs: EXEC_TIMEOUT_MS });
