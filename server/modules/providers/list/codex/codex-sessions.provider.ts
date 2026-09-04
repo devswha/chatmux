@@ -130,6 +130,87 @@ function extractCodexTextContent(content: unknown): string {
     .join('\n');
 }
 
+type CodexToolOutput = {
+  content: string;
+  isError: boolean;
+};
+
+function parseStructuredCodexToolBlock(text: string): CodexToolOutput {
+  const trimmed = text.trim();
+  if (trimmed === '{}' || trimmed === '[]') {
+    return { content: '', isError: false };
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed) as AnyRecord;
+    const isExecEnvelope = parsed
+      && typeof parsed === 'object'
+      && !Array.isArray(parsed)
+      && typeof parsed.output === 'string'
+      && (
+        'exit_code' in parsed
+        || 'session_id' in parsed
+        || 'chunk_id' in parsed
+        || 'wall_time_seconds' in parsed
+      );
+    if (isExecEnvelope) {
+      return {
+        content: parsed.output,
+        isError: typeof parsed.exit_code === 'number' && parsed.exit_code !== 0,
+      };
+    }
+  } catch {
+    // Most text blocks are ordinary output rather than serialized JSON.
+  }
+
+  return { content: text, isError: false };
+}
+
+function extractCodexToolOutput(output: unknown): CodexToolOutput {
+  if (typeof output === 'string') {
+    return { content: output, isError: false };
+  }
+  if (!Array.isArray(output)) {
+    if (!output || typeof output !== 'object') {
+      return { content: '', isError: false };
+    }
+    return { content: JSON.stringify(output), isError: false };
+  }
+
+  const blocks: string[] = [];
+  let isError = false;
+  for (const item of output) {
+    let text = '';
+    if (typeof item === 'string') {
+      text = item;
+    } else if (item && typeof item === 'object') {
+      const record = item as AnyRecord;
+      if (
+        ['input_text', 'output_text', 'text'].includes(String(record.type))
+        && typeof record.text === 'string'
+      ) {
+        text = record.text;
+      }
+    }
+    if (!text) continue;
+
+    const normalized = parseStructuredCodexToolBlock(text);
+    isError ||= normalized.isError;
+    if (normalized.content) {
+      blocks.push(normalized.content);
+    }
+  }
+
+  let content = blocks.reduce((joined, block) => {
+    if (!joined) return block;
+    return joined.endsWith('\n') ? `${joined}${block}` : `${joined}\n${block}`;
+  }, '');
+  if (blocks.length === 1) {
+    content = content.replace(/\nOutput:\s*$/u, '').trimEnd();
+  }
+  return { content, isError };
+}
+
 type CodexHistoryAccumulator = {
   messages: AnyRecord[];
   tokenUsage: AnyRecord | null;
@@ -290,11 +371,13 @@ function parseCodexHistoryLine(line: string, accumulator: CodexHistoryAccumulato
     }
 
     if (entry.type === 'response_item' && entry.payload?.type === 'function_call_output') {
+      const result = extractCodexToolOutput(entry.payload.output);
       accumulator.messages.push({
         type: 'tool_result',
         timestamp: entry.timestamp,
         toolCallId: entry.payload.call_id,
-        output: entry.payload.output,
+        output: result.content,
+        isError: result.isError,
       });
     }
 
@@ -340,11 +423,13 @@ function parseCodexHistoryLine(line: string, accumulator: CodexHistoryAccumulato
     }
 
     if (entry.type === 'response_item' && entry.payload?.type === 'custom_tool_call_output') {
+      const result = extractCodexToolOutput(entry.payload.output);
       accumulator.messages.push({
         type: 'tool_result',
         timestamp: entry.timestamp,
         toolCallId: entry.payload.call_id,
-        output: entry.payload.output || '',
+        output: result.content,
+        isError: result.isError,
       });
     }
   } catch {
