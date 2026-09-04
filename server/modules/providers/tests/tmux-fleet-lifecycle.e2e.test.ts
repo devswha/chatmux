@@ -1,14 +1,16 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { stat } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 import { pathToFileURL } from 'node:url';
 
 import { startFleetServers, stopFleetProcesses, type FleetProcess } from '../../../../scripts/cua/fleet-process-lifecycle.js';
+import { parseProcStatStartTicks, parseProcStatState } from '../services/process-start-time.service.js';
 
 import { createTmuxFleetE2EHarness } from './support/tmux-fleet-harness.js';
 import { createTmuxFleetNode } from './support/tmux-fleet-node.js';
+import { isOwnedPaneRunning } from './support/tmux-owned-server.js';
 import type { TmuxFleetNode } from './support/tmux-e2e-types.js';
 
 const tmuxE2ESkip = process.platform === 'win32'
@@ -69,6 +71,48 @@ function startFleetWorker(): ChildProcessWithoutNullStreams {
     cwd: path.resolve('.'), stdio: ['pipe', 'pipe', 'pipe'],
   });
 }
+
+test('owned pane cleanup distinguishes an exited zombie from a running generation', {
+  skip: process.platform !== 'linux', timeout: 10_000, concurrency: false,
+}, async (t) => {
+  // Keep an exited child unreaped until the assertion, just as pidfd readiness
+  // can precede its parent's waitpid during concurrent tmux shutdown.
+  const source = [
+    'import os,sys',
+    'reader,writer=os.pipe()',
+    'pid=os.fork()',
+    'if pid==0:',
+    ' os.close(writer); os.read(reader,1); os._exit(0)',
+    'os.close(reader)',
+    "print('LIVE='+str(pid),flush=True)",
+    'try:',
+    ' sys.stdin.readline(); os.close(writer)',
+    ' os.waitid(os.P_PID,pid,os.WEXITED|os.WNOWAIT)',
+    " print('ZOMBIE=',flush=True)",
+    ' sys.stdin.readline()',
+    'finally: os.waitpid(pid,0)',
+  ].join('\n');
+  const child = spawn('python3', ['-c', source], { stdio: ['pipe', 'pipe', 'pipe'] });
+  const exited = waitForExit(child);
+  t.after(async () => { child.stdin.end(); await exited; });
+  const pid = Number(await waitForLine(child, 'LIVE='));
+  const initialStat = await readFile(`/proc/${pid}/stat`, 'utf8');
+  const ticks = parseProcStatStartTicks(initialStat);
+  assert.ok(ticks !== null);
+  const identity = { pid, processGroupId: pid, startedAtTicks: String(ticks) };
+  assert.equal(await isOwnedPaneRunning(identity), true);
+  assert.equal(await isOwnedPaneRunning({ ...identity, startedAtTicks: String(ticks + 1) }), false);
+
+  const zombie = waitForLine(child, 'ZOMBIE=');
+  child.stdin.write('EXIT\n');
+  await zombie;
+  assert.equal(parseProcStatState(await readFile(`/proc/${pid}/stat`, 'utf8')), 'Z');
+  assert.equal(await isOwnedPaneRunning(identity), false, 'an exited PID must not be escalated or reported as surviving shutdown');
+
+  child.stdin.end();
+  await exited;
+  assert.equal(await isOwnedPaneRunning(identity), false);
+});
 
 test('fleet harness rolls back fulfilled siblings when one concurrent node start fails', {
   skip: tmuxE2ESkip, timeout: 30_000, concurrency: false,
