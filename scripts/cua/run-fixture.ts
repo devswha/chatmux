@@ -1,5 +1,6 @@
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { homedir } from 'node:os';
 
 import { createTmuxFleetE2EHarness, type FakeTmuxAgent, type TmuxFleetE2EHarness } from '../../server/modules/providers/tests/support/tmux-e2e-harness.js';
 import { enrollFleetPeers, type FleetEnrollment } from './fleet-enrollment.js';
@@ -58,7 +59,9 @@ process.once('SIGTERM', () => void stop('SIGTERM'));
 
 try {
   process.env.CHATMUX_FLEET_TRANSPORT_MODE = 'ssh-loopback';
-  const fixtureFleet = await createTmuxFleetE2EHarness({ hub: serverPort, peerA: peerAPort, peerB: peerBPort });
+  // Project registration deliberately forbids /tmp. A disposable directory in
+  // the user's home exercises the real workspace policy without relaxing it.
+  const fixtureFleet = await createTmuxFleetE2EHarness({ hub: serverPort, peerA: peerAPort, peerB: peerBPort, tempRoot: homedir() });
   fleet = fixtureFleet;
   const harness = fixtureFleet.hub;
   const definitions = [
@@ -150,6 +153,7 @@ try {
     ui: { pid: viteProcess.pid, port: vitePort, url: baseUrl, logPath: path.join(evidenceRoot, 'vite.log') },
     control: { url: control.url, owned: true },
     fleet: {
+      toolTranscripts: [peerAAgent.transcriptPath, peerBAgent.transcriptPath],
       collision: fixtureFleet.collision,
       enrollment: { peers: enrollment.peers, observedFrameCount: enrollment.frames().length },
       eventIsolation: { peerAEvent, peerAInterrupts, peerAInputExact, peerBLogByteLengthBefore: peerBLogBefore.byteLength,

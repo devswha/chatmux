@@ -131,6 +131,27 @@ export function createHostQualifiedRoutes(resolve: RoutingResolver = () => fleet
     } catch (error) { next(failure(error)); }
   });
 
+  router.get('/hosts/:hostId/providers/sessions/:sessionId/tool-result', async (request, response, next) => {
+    try {
+      const sessionId = text(request.params.sessionId, 'sessionId');
+      const toolId = typeof request.query.toolId === 'string' ? request.query.toolId : '';
+      const offset = request.query.offset === undefined ? 0 : typeof request.query.offset === 'string' ? Number(request.query.offset) : NaN;
+      const revision = request.query.revision === undefined ? null : request.query.revision;
+      if (!toolId || toolId.length > 500 || toolId.includes('\0') || !Number.isSafeInteger(offset) || offset < 0
+        || (revision !== null && (typeof revision !== 'string' || !/^[0-9a-f]{64}$/.test(revision)))
+        || (offset > 0 && revision === null)) {
+        throw new FleetHostRoutingError('FLEET_MALFORMED_FRAME', 'Tool output read parameters are invalid.');
+      }
+      const { active, selected } = route(request, resolve, 'session.read');
+      const options = { toolId, offset, revision, deadlineAtMs: deadline() };
+      if (selected.kind === 'local' && !active.localReads.toolResult) throw new FleetHostRoutingError('FLEET_CAPABILITY_UNAVAILABLE', 'Tool output reads are unavailable.');
+      const result = selected.kind === 'local'
+        ? await active.localReads.toolResult!(sessionId, options, signal())
+        : await selected.clients.reads.toolResult({ kind: 'session', hostId: selected.hostId, localId: sessionId }, options);
+      response.json(createApiSuccessResponse(result));
+    } catch (error) { next(failure(error)); }
+  });
+
   router.get('/hosts/:hostId/projects/:projectId/search', async (request, response, next) => {
     try {
       const projectId = text(request.params.projectId, 'projectId');

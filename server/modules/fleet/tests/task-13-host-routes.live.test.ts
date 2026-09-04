@@ -51,7 +51,7 @@ async function startFixture() {
     pathSuggestions: async (): Promise<JsonValue> => { remoteCalls += 1; return { source: 'remote-suggestions' }; },
   };
   const clients: FleetApplicationRouting['router'] extends FleetHostRouter<infer T> ? T : never = {
-    reads,
+    reads: { ...reads, toolResult: reads.metadata },
     mutations: {
       sendChat: async () => null,
       abortChat: async () => null,

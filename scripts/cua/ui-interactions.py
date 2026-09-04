@@ -98,6 +98,8 @@ class SkillsInterceptor:
         self.requests: list[dict[str, Any]] = []
         self.slow_started = threading.Event()
         self.slow_release = threading.Event()
+        self.slow_responses: list[Any] = []
+        self.completion_order = 0
         self.slow_finished = threading.Event()
         self.commands_requested = threading.Event()
 
@@ -168,8 +170,6 @@ class SkillsInterceptor:
             self.requests.append(record)
             recorded = True
             self.slow_started.set()
-            if not self.slow_release.wait(timeout=10):
-                record["releaseTimeout"] = True
 
         skill = SKILL_FIXTURES.get(provider)
         trigger = "$" if provider == "codex" else "/"
@@ -194,20 +194,35 @@ class SkillsInterceptor:
         record["skills"] = [entry["name"] for entry in skills_body]
         if not recorded:
             self.requests.append(record)
-        try:
-            route.fulfill(
-                status=200,
-                content_type="application/json",
-                body=json.dumps(
-                    {"success": True, "data": {"provider": provider, "skills": skills_body}}
-                ),
-            )
-            record["completion"] = "fulfilled"
-        except Exception:  # noqa: BLE001 - cancellation is the behavior under test
-            record["completion"] = "cancelled"
-        finally:
-            if mode == "slow":
-                self.slow_finished.set()
+        def complete() -> None:
+            try:
+                route.fulfill(
+                    status=200,
+                    content_type="application/json",
+                    body=json.dumps(
+                        {"success": True, "data": {"provider": provider, "skills": skills_body}}
+                    ),
+                )
+                record["completion"] = "fulfilled"
+            except Exception:  # noqa: BLE001 - cancellation is the behavior under test
+                record["completion"] = "cancelled"
+            finally:
+                self.completion_order += 1
+                record["completionOrder"] = self.completion_order
+                if mode == "slow":
+                    self.slow_finished.set()
+        if mode == "slow":
+            # Keep this request pending without blocking Playwright's event loop.
+            self.slow_responses.append(complete)
+        else:
+            complete()
+
+    def release_slow(self) -> None:
+        if not self.slow_responses:
+            raise AssertionError("no delayed response was armed")
+        pending, self.slow_responses = self.slow_responses, []
+        for complete in pending:
+            complete()
 
     def _commands(self, route: Route) -> None:
         self.commands_requested.set()
@@ -377,7 +392,15 @@ def open_slash_menu_via_typing(page: Any, trigger: str = "/") -> None:
     composer.press("Control+a")
     composer.press("Delete")
     composer.type(trigger)
-    page.get_by_role("listbox", name="Available commands").wait_for(timeout=8_000)
+    try:
+        page.get_by_role("listbox", name="Available commands").wait_for(timeout=8_000)
+    except PlaywrightTimeoutError:
+        page.screenshot(path=evidence_root / "slash-menu-failure.png")
+        (evidence_root / "slash-menu-failure.json").write_text(json.dumps({
+            "url": page.url, "trigger": trigger, "input": composer.input_value(),
+            "requests": interceptor.requests, "visibleText": page.locator("body").inner_text(),
+        }, indent=2), encoding="utf-8")
+        raise
 
 
 def close_slash_menu(page: Any) -> None:
@@ -430,6 +453,13 @@ def switch_to_agent_row(page: Any, tmux_name: str, provider: str) -> dict[str, A
             None,
         )
         if previous is None:
+            page.screenshot(path=evidence_root / "slash-switch-failure.png")
+            (evidence_root / "slash-switch-failure.json").write_text(json.dumps({
+                "provider": provider,
+                "url": page.url,
+                "requests": interceptor.requests,
+                "visibleText": page.locator("body").inner_text(),
+            }, indent=2), encoding="utf-8")
             raise
         return {
             "url": previous["url"],
@@ -537,32 +567,33 @@ with sync_playwright() as playwright:
         "paneReady": "ChatMux CUA fixture ready: codex" in created_pane,
     }
 
-    order_before = page.evaluate(f"localStorage.getItem('{ORDER_STORAGE_KEY}')")
-    arm_storage_change(page, ORDER_STORAGE_KEY, order_before)
-    drag_handle = page.get_by_role(
-        "button",
-        name="Drag to reorder session 'cua-07-omp'",
-        exact=True,
-    )
-    over_handle = page.get_by_role(
-        "button",
-        name="Drag to reorder session 'cua-06-gjc'",
-        exact=True,
-    )
-    source_box = drag_handle.bounding_box()
-    target_box = over_handle.bounding_box()
-    if source_box is None or target_box is None:
-        raise AssertionError("reorder handles are not visible")
-    page.mouse.move(source_box["x"] + source_box["width"] / 2, source_box["y"] + source_box["height"] / 2)
-    page.mouse.down()
-    page.mouse.move(target_box["x"] + target_box["width"] / 2, target_box["y"] + target_box["height"] / 2, steps=20)
-    page.mouse.up()
-    order_after = page.evaluate("window.__cuaStorageSignal")
-    results["checks"]["session_reordered"] = {
-        "ok": bool(order_after and order_after != order_before),
-        "before": json.loads(order_before) if order_before else [],
-        "after": json.loads(order_after) if order_after else [],
-    }
+    def check_reorder() -> None:
+        order_before = page.evaluate(f"localStorage.getItem('{ORDER_STORAGE_KEY}')")
+        arm_storage_change(page, ORDER_STORAGE_KEY, order_before)
+        drag_handle = page.get_by_role(
+            "button",
+            name="Drag to reorder session 'cua-07-omp'",
+            exact=True,
+        )
+        over_handle = page.get_by_role(
+            "button",
+            name="Drag to reorder session 'cua-06-gjc'",
+            exact=True,
+        )
+        source_box = drag_handle.bounding_box()
+        target_box = over_handle.bounding_box()
+        if source_box is None or target_box is None:
+            raise AssertionError("reorder handles are not visible")
+        page.mouse.move(source_box["x"] + source_box["width"] / 2, source_box["y"] + source_box["height"] / 2)
+        page.mouse.down()
+        page.mouse.move(target_box["x"] + target_box["width"] / 2, target_box["y"] + target_box["height"] / 2, steps=20)
+        page.mouse.up()
+        order_after = page.evaluate("window.__cuaStorageSignal")
+        results["checks"]["session_reordered"] = {
+            "ok": bool(order_after and order_after != order_before),
+            "before": json.loads(order_before) if order_before else [],
+            "after": json.loads(order_after) if order_after else [],
+        }
 
     # ────────────────────────────────────────────────────────────────
     # Slash-menu safety across provider/workspace changes and failures.
@@ -651,9 +682,8 @@ with sync_playwright() as playwright:
     # Kick the slow OMO request without waiting for it to return.
     omo_row = page.get_by_text(CREATED_OMO_SESSION, exact=True).first
     omo_row.wait_for(timeout=10_000)
-    omo_row.locator("xpath=ancestor::button[1]").click()
-    if not interceptor.slow_started.wait(timeout=10):
-        raise AssertionError("slow OMO skills request did not start")
+    with page.expect_request(lambda request: "/api/providers/omo/skills" in request.url, timeout=10_000):
+        omo_row.locator("xpath=ancestor::button[1]").click()
 
     # Switch straight back to Codex. The Codex fetch runs at normal speed and
     # must finish before OMO's delayed fulfilment.
@@ -669,14 +699,15 @@ with sync_playwright() as playwright:
     # Release the delayed OMO request only after Codex has committed. React may
     # cancel the stale request entirely; either cancellation or late fulfilment
     # must leave the currently selected Codex catalog unchanged.
-    interceptor.slow_release.set()
-    if not interceptor.slow_finished.wait(timeout=10):
-        raise AssertionError("slow OMO skills request did not settle")
+    interceptor.release_slow()
     omo_late_record = next(
         request
         for request in interceptor.requests
         if request["provider"] == "omo" and request["mode"] == "slow"
     )
+    codex_fast_record = next(request for request in interceptor.requests if request["provider"] == "codex")
+    if omo_late_record["completionOrder"] <= codex_fast_record["completionOrder"]:
+        raise AssertionError("the stale response did not actually settle after the new provider")
 
     open_slash_menu_via_typing(page, "$")
     reordered_menu_names = read_slash_menu_names(page)
@@ -704,10 +735,18 @@ with sync_playwright() as playwright:
     # 4. Synthetic 500 on skills. The menu must drop the previous provider's
     #    skills catalog entirely while built-in and custom commands survive.
     interceptor.reset_recording()
-    interceptor.configure(providers={"gjc": "fail"})
-    fail_switch = switch_to_agent_row(page, "cua-06-gjc", "gjc")
-    if fail_switch["status"] != 500:
-        raise AssertionError("synthetic GJC skills failure did not return HTTP 500")
+    # A persisted, inactive app session exercises useSlashCommandCatalog.
+    # Live GJC has its own native palette and does not consume this endpoint.
+    interceptor.configure(providers={"claude": "fail"})
+    inactive_project = Path(harness_home) / "cua-inactive-project"
+    inactive_project.mkdir(exist_ok=True)
+    app_response = context.request.post(f"{manifest['baseUrl']}/api/providers/sessions", data={"provider": "claude", "projectPath": str(inactive_project)})
+    if app_response.status != 201:
+        raise AssertionError(f"inactive app session creation failed: {app_response.status}: {app_response.text()}")
+    app_session_id = app_response.json()["data"]["sessionId"]
+    with page.expect_response(lambda response: "/api/providers/claude/skills" in response.url and response.status == 500, timeout=15_000) as failure_info:
+        page.goto(f"{manifest['baseUrl']}/session/{app_session_id}", wait_until="domcontentloaded")
+    fail_switch = {"status": failure_info.value.status, "url": failure_info.value.url}
 
     open_slash_menu_via_typing(page)
     failure_listbox = page.get_by_role("listbox", name="Available commands")
@@ -770,7 +809,15 @@ with sync_playwright() as playwright:
     composer.press("Enter")
     page.get_by_role("button", name="Stop", exact=True).wait_for(timeout=10_000)
     interrupted_signal = arm_log_event(gjc_agent["logPath"], "turn_interrupted")
-    page.get_by_role("button", name="Stop", exact=True).click()
+    try:
+        page.get_by_role("button", name="Stop", exact=True).click()
+    except PlaywrightTimeoutError:
+        page.screenshot(path=evidence_root / "interrupt-failure.png")
+        (evidence_root / "interrupt-failure.json").write_text(json.dumps({
+            "visibleText": page.locator("body").inner_text(),
+            "agentEvents": Path(gjc_agent["logPath"]).read_text(),
+        }, indent=2), encoding="utf-8")
+        raise
     interrupted = interrupted_signal()
     results["checks"]["interrupt"] = {
         "ok": interrupted,
@@ -817,6 +864,9 @@ with sync_playwright() as playwright:
     results["artifacts"]["slash_menu_after_500"] = str(
         evidence_root / "slash-menu-after-500.png"
     )
+
+    # Drag-and-drop suppresses immediate follow-up clicks; test it last.
+    check_reorder()
 
 results["ok"] = all(check["ok"] for check in results["checks"].values())
 report_path = evidence_root / "ui-interactions.json"

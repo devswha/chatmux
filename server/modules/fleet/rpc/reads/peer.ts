@@ -9,6 +9,7 @@ import { FleetReadContractError, parseFleetReadRequest, type FleetReadRequest } 
 import { FleetReadRpcError } from './errors.js';
 
 export type FleetReadServices = Readonly<{
+  readonly toolResult?: (localId: string, options: Readonly<{ toolId: string; offset: number; revision: string | null }>, signal: AbortSignal) => Promise<JsonValue>;
   readonly sessionMetadata: (localId: string, signal: AbortSignal) => Promise<JsonValue | null>;
   readonly history: (localId: string, options: Readonly<{ readonly limit: number | null; readonly offset: number; readonly includeImages: boolean }>, signal: AbortSignal) => Promise<JsonValue>;
   readonly search: (projectLocalId: string, options: Readonly<{ readonly query: string; readonly limit: number; readonly signal: AbortSignal }>) => Promise<JsonValue>;
@@ -53,6 +54,10 @@ async function bounded<T>(deadlineAtMs: number, now: () => number, operation: (s
 async function execute(request: FleetReadRequest, services: FleetReadServices, signal: AbortSignal): Promise<JsonValue> {
   switch (request.operation) {
     case 'session.read': {
+      if (request.body.read === 'tool_result') {
+        if (!services.toolResult) throw new FleetReadRpcError('FLEET_CAPABILITY_UNAVAILABLE', 'tool output reads are unavailable');
+        return services.toolResult(request.target.localId, request.body, signal);
+      }
       const value = request.body.read === 'metadata'
         ? await services.sessionMetadata(request.target.localId, signal)
         : request.body.read === 'provider_inventory'

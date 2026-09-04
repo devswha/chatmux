@@ -3,6 +3,11 @@ import type { HostTmuxPaneTarget } from './tmux.js';
 export const FLEET_PROTOCOL_VERSION = 'fleet/1' as const;
 export const FLEET_MAX_HOSTS = 10 as const;
 export const FLEET_MAX_REMOTE_PEERS = FLEET_MAX_HOSTS - 1;
+export const FLEET_TOOL_RESULT_CHUNK_BYTES = 8 * 1024;
+export type FleetToolResultChunk = Readonly<{
+  toolId: string; revision: string; content: string; isError: boolean;
+  offset: number; nextOffset: number | null; totalBytes: number;
+}>;
 export const FLEET_PROTOCOL_VERSIONS = [FLEET_PROTOCOL_VERSION] as const;
 export const FLEET_CAPABILITIES = ['catalog.read', 'session.read', 'chat.control', 'prompt.respond', 'pane.read', 'terminal.attach', 'terminal.input', 'session.spawn', 'session.terminate', 'completion.event'] as const;
 export const FLEET_PEER_STATES = ['connecting', 'syncing', 'online', 'degraded', 'offline', 'revoked', 'incompatible'] as const;

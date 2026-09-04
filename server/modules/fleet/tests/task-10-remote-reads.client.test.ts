@@ -34,6 +34,16 @@ function successFor(frame: FleetProtocolFrame, body: string): FleetProtocolFrame
   return { kind: 'response', protocolVersion: 'fleet/1', connectionGeneration: frame.connectionGeneration, requestId: frame.requestId, target: frame.target, status: 'success', sideEffect: 'none', body };
 }
 
+test('a read response with the right request ID but another session is rejected', async () => {
+  const channel = new Channel();
+  channel.onSend = (frame) => {
+    const response = successFor(frame, 'other-session-data');
+    if (response.kind !== 'response') throw new Error('response expected');
+    channel.frame({ ...response, target: { kind: 'session', hostId: HOST, localId: 'another-session' } });
+  };
+  await assert.rejects(new FleetReadClient(channel).metadata({ kind: 'session', hostId: HOST, localId: 'requested' }, Date.now() + 2000), FleetReadClientError);
+});
+
 test('Given an online synchronized peer, when a read responds synchronously, then subscription precedes send', async () => {
   // Given
   const channel = new Channel();

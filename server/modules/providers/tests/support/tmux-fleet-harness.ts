@@ -29,7 +29,7 @@ export async function createTmuxFleetE2EHarness(
   options: TmuxFleetHarnessOptions = {},
 ): Promise<TmuxFleetE2EHarness> {
   await assertTmuxAvailable();
-  const root = await mkdtemp(path.join(tmpdir(), 'chatmux-tmux-fleet-e2e-'));
+  const root = await mkdtemp(path.join(options.tempRoot ?? tmpdir(), 'chatmux-tmux-fleet-e2e-'));
   const workspace = path.join(root, 'project');
   const createNode = options.createNode ?? createTmuxFleetNode;
   const starts = [

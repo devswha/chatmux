@@ -4,6 +4,7 @@ import { FLEET_PROTOCOL_VERSION, type FleetPaneReference, type FleetRequestEnvel
 import { paneSubscriptionKey } from '../../../../shared/tmux.js';
 import type { HubPeerStatus } from '../hub/connection/types.js';
 import type { FleetProtocolFrame } from '../protocol/types.js';
+import { canonicalFleetJson } from '../protocol/codec.js';
 
 import type { RemoteTerminalLease, RemoteTerminalResume } from './contracts.js';
 
@@ -27,7 +28,7 @@ export type RemoteTerminalAttachment = Readonly<{
   readonly detach: () => void;
 }>;
 type RemoteTerminalCall = Readonly<{ readonly target: FleetPaneReference; readonly operation: 'pane.attach' | 'pane.input' | 'pane.resize' | 'pane.escape'; readonly body: JsonValue; readonly generation: number; readonly deadlineAtMs: number }>;
-type Pending = Readonly<{ readonly hostId: string; readonly generation: number; readonly resolve: (body: JsonValue) => void; readonly reject: (error: Error) => void; readonly timer: NodeJS.Timeout }>;
+type Pending = Readonly<{ readonly hostId: string; readonly target: FleetPaneReference; readonly generation: number; readonly resolve: (body: JsonValue) => void; readonly reject: (error: Error) => void; readonly timer: NodeJS.Timeout }>;
 type Active = Readonly<{ readonly target: FleetPaneReference; readonly lease: RemoteTerminalLease; readonly streamEpoch: string; readonly peerProcessEpoch: string; readonly sink: RemoteTerminalSink }>;
 type ResumeLease = Readonly<{ readonly principal: string; readonly target: FleetPaneReference; readonly lease: RemoteTerminalLease; readonly identity: RemoteTerminalResume }>;
 const MAX_RESUME_LEASES = 1_024;
@@ -145,7 +146,7 @@ export class RemoteTerminalClient {
     const requestId = `terminal-${randomUUID()}`;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => { this.pending.delete(requestId); reject(new RemoteTerminalClientError('terminal deadline exceeded')); }, deadlineAtMs - this.now()); timer.unref();
-      this.pending.set(requestId, { hostId: target.hostId, generation, resolve, reject, timer });
+      this.pending.set(requestId, { hostId: target.hostId, target, generation, resolve, reject, timer });
       const frame: FleetRequestEnvelope = { kind: 'request', protocolVersion: FLEET_PROTOCOL_VERSION, connectionGeneration: generation, requestId, operation, target, body };
       if (!this.channel.send(target.hostId, frame)) { clearTimeout(timer); this.pending.delete(requestId); reject(new RemoteTerminalClientError('terminal peer disconnected before dispatch')); }
     });
@@ -154,6 +155,10 @@ export class RemoteTerminalClient {
     if (frame.kind === 'response') {
       const pending = this.pending.get(frame.requestId); if (pending === undefined || pending.hostId !== hostId || pending.generation !== frame.connectionGeneration) return;
       clearTimeout(pending.timer); this.pending.delete(frame.requestId);
+      if (canonicalFleetJson(frame.target) !== canonicalFleetJson(pending.target)) {
+        pending.reject(new RemoteTerminalClientError('terminal response target does not match the request'));
+        return;
+      }
       if (frame.status === 'success') pending.resolve(frame.body); else pending.reject(new RemoteTerminalClientError(frame.error));
       return;
     }

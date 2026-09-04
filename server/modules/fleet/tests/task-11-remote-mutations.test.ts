@@ -76,6 +76,20 @@ class Channel implements FleetMutationChannel {
   subscribeStatus(listener: (status: HubPeerStatus) => void): () => void { this.statuses.add(listener); return () => this.statuses.delete(listener); }
   transition(state: HubPeerStatus['state'], generation: number): void { this.value = { ...this.value, state, generation }; for (const listener of this.statuses) listener(this.value); }
 }
+
+test('a mismatched mutation acknowledgement leaves the addressed action outcome unknown', async () => {
+  const channel = new Channel();
+  channel.onSend = () => {
+    const frame = channel.sent[0];
+    assert.ok(frame?.kind === 'request');
+    for (const listener of channel.frames) listener(HOST, { kind: 'response', protocolVersion: 'fleet/1',
+      connectionGeneration: frame.connectionGeneration, requestId: frame.requestId,
+      target: { ...session, localId: 'another-session' }, status: 'success', sideEffect: 'applied', body: { ok: true } });
+  };
+  await assert.rejects(new FleetMutationClient(channel).sendChat(session, { requestId: 'wrong-target', deadlineAtMs: Date.now() + 2000, message: 'hello' }),
+    (error: unknown) => error instanceof FleetMutationClientError && error.code === 'HOST_COMMAND_OUTCOME_UNKNOWN' && error.sideEffect === 'possible');
+  assert.equal(channel.sent.length, 1);
+});
 test('Given a real post-dispatch unknown outcome, when transcript and discovery reconcile it, then status stays unknown until evidence and no mutation replays', async () => {
   const channel = new Channel(); channel.onSend = () => channel.transition('offline', 7); let unknown: FleetMutationClientError | undefined;
   try { await new FleetMutationClient(channel).sendChat(session, { requestId: 'collision-id', deadlineAtMs: Date.now() + 2_000, message: 'hello' }); }

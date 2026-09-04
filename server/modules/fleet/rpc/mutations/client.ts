@@ -1,6 +1,7 @@
 import { FLEET_PROTOCOL_VERSION, type FleetCapability, type FleetErrorCode, type FleetOperation, type FleetPaneReference, type FleetProjectReference, type FleetRequestEnvelope, type FleetSessionReference, type JsonValue } from '../../../../../shared/fleet.js';
 import type { HubPeerStatus } from '../../hub/connection/types.js';
 import { capabilityForOperation } from '../../protocol/capabilities.js';
+import { canonicalFleetJson } from '../../protocol/codec.js';
 import type { FleetProtocolFrame } from '../../protocol/types.js';
 
 import type { ApprovalDecision, PromptResponse } from './contracts.js';
@@ -87,6 +88,10 @@ export class FleetMutationClient {
       const fail = (error: FleetMutationClientError): void => { if (settled) return; settled = true; release(); reject(error); };
       const releaseFrames = this.channel.subscribeFrames((hostId, frame) => {
         if (hostId !== call.target.hostId || frame.kind !== 'response' || frame.requestId !== call.meta.requestId || frame.connectionGeneration !== call.generation) return;
+        if (canonicalFleetJson(frame.target) !== canonicalFleetJson(call.target)) {
+          fail(new FleetMutationClientError('HOST_COMMAND_OUTCOME_UNKNOWN', 'fleet response target does not match the request', 'possible', new FleetUnknownMutationOutcome(call.meta.requestId)));
+          return;
+        }
         if (settled) return; settled = true; release();
         if (frame.status === 'success') resolve(frame.body); else reject(new FleetMutationClientError(frame.error, 'fleet mutation failed', frame.sideEffect));
       });

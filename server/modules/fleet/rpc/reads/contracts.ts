@@ -8,6 +8,9 @@ import type {
 
 export type SessionMetadataRead = Readonly<{ readonly read: 'metadata'; readonly deadlineAtMs: number }>;
 export type ProviderInventoryRead = Readonly<{ readonly read: 'provider_inventory'; readonly deadlineAtMs: number }>;
+export type ToolResultRead = Readonly<{
+  read: 'tool_result'; deadlineAtMs: number; toolId: string; offset: number; revision: string | null;
+}>;
 export type ChatSubscriptionRead = Readonly<{
   readonly read: 'chat_subscription';
   readonly deadlineAtMs: number;
@@ -25,7 +28,7 @@ type RequestBase<TTarget, TBody> = Omit<FleetRequestEnvelope, 'operation' | 'tar
 }>;
 
 export type FleetReadRequest =
-  | (RequestBase<FleetSessionReference, SessionMetadataRead | ProviderInventoryRead | ChatSubscriptionRead> & Readonly<{ readonly operation: 'session.read' }>)
+  | (RequestBase<FleetSessionReference, SessionMetadataRead | ProviderInventoryRead | ChatSubscriptionRead | ToolResultRead> & Readonly<{ readonly operation: 'session.read' }>)
   | (RequestBase<FleetSessionReference, HistoryRead> & Readonly<{ readonly operation: 'session.history' }>)
   | (RequestBase<FleetProjectReference, TranscriptSearchRead | PathSuggestionsRead> & Readonly<{ readonly operation: 'session.search' }>)
   | (RequestBase<FleetSessionReference, PromptRead> & Readonly<{ readonly operation: 'prompt.read' | 'approval.read' }>)
@@ -69,8 +72,15 @@ function simple(body: JsonValue): PromptRead {
   const input = record(body); exact(input, ['deadlineAtMs']);
   return { deadlineAtMs: deadline(input.deadlineAtMs) };
 }
-function sessionRead(body: JsonValue): SessionMetadataRead | ProviderInventoryRead | ChatSubscriptionRead {
+function sessionRead(body: JsonValue): SessionMetadataRead | ProviderInventoryRead | ChatSubscriptionRead | ToolResultRead {
   const input = record(body);
+  if (input.read === 'tool_result') {
+    exact(input, ['read', 'deadlineAtMs', 'toolId', 'offset', 'revision']);
+    const offset = integer(input.offset, 'offset', { minimum: 0, maximum: Number.MAX_SAFE_INTEGER });
+    if (input.revision !== null && (typeof input.revision !== 'string' || !/^[0-9a-f]{64}$/.test(input.revision))) return fail('revision is invalid');
+    if (offset > 0 && input.revision === null) return fail('continuation requires a revision');
+    return { read: input.read, deadlineAtMs: deadline(input.deadlineAtMs), toolId: text(input.toolId, 'toolId', { minimum: 1, maximum: 500 }), offset, revision: input.revision };
+  }
   if (input.read === 'chat_subscription') {
     exact(input, ['read', 'deadlineAtMs', 'lastSeq']);
     return {

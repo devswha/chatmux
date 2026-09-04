@@ -11,7 +11,7 @@ import { createLocalFleetSpawnService, type LocalFleetSpawnService } from './loc
 
 export type FleetApplicationClients = Readonly<{
   readonly reads: Pick<FleetReadClient,
-    'metadata' | 'history' | 'search' | 'capturePane' | 'chatSubscription'
+    'metadata' | 'history' | 'search' | 'capturePane' | 'chatSubscription' | 'toolResult'
     | 'providerInventory' | 'prompt' | 'approval' | 'pathSuggestions'
   >;
   readonly mutations: Pick<FleetMutationClient,

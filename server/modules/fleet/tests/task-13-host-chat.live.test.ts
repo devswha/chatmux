@@ -57,6 +57,7 @@ test('Given a real host-qualified chat socket, when remote and exact-local frame
   const clients: FleetApplicationRouting['router'] extends FleetHostRouter<infer T> ? T : never = {
     reads: {
       metadata: async (): Promise<JsonValue> => null,
+      toolResult: async (): Promise<JsonValue> => null,
       chatSubscription: async (target, _deadline, lastSeq): Promise<JsonValue> => {
         remoteCalls.push(`subscribe:${target.hostId}:${lastSeq}`);
         return { isProcessing: true, lastSeq, events: [] };

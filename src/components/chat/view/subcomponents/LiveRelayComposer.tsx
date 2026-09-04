@@ -91,7 +91,7 @@ export default function LiveRelayComposer({
   const commands = useRelayCommandInventory({ relayKind, workspacePath, commandTrigger, session: relaySession });
   const { prompt, dismiss: dismissPrompt } = useRelayInteractivePrompt({ relayKind, target, session: relaySession });
 
-  const fileCatalog = useRelayFileCatalog(workspacePath);
+  const fileCatalog = useRelayFileCatalog(workspacePath, relaySession);
   const menus = useRelayComposerMenus({
     commands,
     files: fileCatalog.files,

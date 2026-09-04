@@ -14,6 +14,7 @@ import { useFleetHostCatalog } from '../../../../fleet/discovery/FleetHostCatalo
 import { remoteTargetState } from '../../../../fleet/terminal/remoteTargetState';
 import type { ExternalTerminalTarget } from '../../../../types/app';
 import LiveRelayComposer from '../../../chat/view/subcomponents/LiveRelayComposer';
+import { relayTargetKey } from '../../../chat/utils/relayTransport';
 import { buildTranscriptCliAttachTarget, pendingRelayCliKind } from '../externalAttachTargets';
 
 import PendingExternalCliOutput from './PendingExternalCliOutput';
@@ -148,7 +149,8 @@ export default function PendingRelayView({
       )}
       {externalTranscriptView === 'conversation' && (
         <LiveRelayComposer
-          key={`pending-${externalTerminal.cliKind}:${tmuxPaneIdentityKey(externalTerminal.tmux)}:${process.startedAtMs}`}
+          key={relayTargetKey(externalTerminal.cliKind, { tmux: externalTerminal.tmux, process,
+            ...(externalTerminal.hostId === undefined ? {} : { hostId: externalTerminal.hostId }) })}
           target={{
             tmux: externalTerminal.tmux,
             process,

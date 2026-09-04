@@ -44,6 +44,19 @@ function requestAt(channel: FakeChannel, index: number): Extract<FleetProtocolFr
   return frame;
 }
 
+test('a terminal reply for a different pane generation cannot create an attachment', async () => {
+  const channel = new FakeChannel(); const sink = new Sink();
+  const client = new RemoteTerminalClient(channel, { now: () => 1000 });
+  try {
+    const pending = client.attach({ principal: 'owner', owner: true, target, cols: 80, rows: 24, deadlineAtMs: 2000, resume: null, sink });
+    const frame = success(requestAt(channel, 0), { terminalSessionId: 'terminal-1', streamEpoch: 'stream-1', peerProcessEpoch: 'peer-process-1', replay: 'redraw', lastSeq: 0 });
+    channel.emitFrame(HOST_A, { ...frame, target: { ...target, process: { ...target.process, startedAtMs: 101 } } });
+    await assert.rejects(pending, /target does not match/);
+    assert.deepEqual(sink.outputs, []);
+    assert.equal(channel.sent.length, 1);
+  } finally { client.dispose(); }
+});
+
 test('hub binds owner attach and forwards input, resize, output, and close to peer A only', async () => {
   // Given
   let now = 1_000;

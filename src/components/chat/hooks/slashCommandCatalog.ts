@@ -167,15 +167,20 @@ async function localSlashCommands(project: Project, provider: LLMProvider): Prom
   if (workspacePath) {
     skillsParams.set('workspacePath', workspacePath);
   }
-  const skillsResponse = await authenticatedFetch(
-    `/api/providers/${encodeURIComponent(provider)}/skills${skillsParams.toString() ? `?${skillsParams.toString()}` : ''}`,
-  );
-  const skillsData = skillsResponse.ok
-    ? ((await skillsResponse.json()) as ProviderSkillsResponse)
-    : null;
+  let skillsData: ProviderSkillsResponse | null = null;
+  try {
+    const skillsResponse = await authenticatedFetch(
+      `/api/providers/${encodeURIComponent(provider)}/skills${skillsParams.toString() ? `?${skillsParams.toString()}` : ''}`,
+    );
+    if (skillsResponse.ok) skillsData = await skillsResponse.json() as ProviderSkillsResponse;
+  } catch {
+    // A failed optional provider catalog must not discard known local commands.
+  }
+  const skills = Array.isArray(skillsData?.data?.skills) ? skillsData.data.skills.filter((skill) => skill
+    && typeof skill.name === 'string' && typeof skill.command === 'string' && typeof skill.scope === 'string') : [];
   return [
     ...((data.builtIn || []) as SlashCommand[]).map((command) => ({ ...command, type: 'built-in' })),
-    ...dedupeProviderSkills(skillsData?.data?.skills || []).map(mapSkillToSlashCommand),
+    ...dedupeProviderSkills(skills).map(mapSkillToSlashCommand),
     ...((data.custom || []) as SlashCommand[]).map((command) => ({ ...command, type: 'custom' })),
   ];
 }

@@ -12,6 +12,7 @@ import {
   type JsonValue,
 } from '../../../../../shared/fleet.js';
 import { capabilityForOperation } from '../../protocol/capabilities.js';
+import { canonicalFleetJson } from '../../protocol/codec.js';
 import type { FleetProtocolFrame } from '../../protocol/types.js';
 import type { HubPeerStatus } from '../../hub/connection/types.js';
 
@@ -75,6 +76,9 @@ export class FleetReadClient {
   constructor(private readonly channel: FleetReadChannel) {}
 
   metadata(target: FleetSessionReference, deadlineAtMs: number): Promise<JsonValue> { return this.call('session.read', target, { read: 'metadata', deadlineAtMs }); }
+  toolResult(target: FleetSessionReference, options: Readonly<{ toolId: string; offset: number; revision: string | null; deadlineAtMs: number }>): Promise<JsonValue> {
+    return this.call('session.read', target, { read: 'tool_result', ...options });
+  }
   providerInventory(target: FleetSessionReference, deadlineAtMs: number): Promise<JsonValue> { return this.call('session.read', target, { read: 'provider_inventory', deadlineAtMs }); }
   chatSubscription(target: FleetSessionReference, deadlineAtMs: number, lastSeq: number): Promise<JsonValue> {
     return this.call('session.read', target, { read: 'chat_subscription', deadlineAtMs, lastSeq });
@@ -114,6 +118,10 @@ export class FleetReadClient {
       };
       const releaseFrames = this.channel.subscribeFrames((hostId, frame) => {
         if (hostId !== call.target.hostId || frame.kind !== 'response' || frame.requestId !== requestId || frame.connectionGeneration !== expectedGeneration) return;
+        if (canonicalFleetJson(frame.target) !== canonicalFleetJson(call.target)) {
+          finish({ error: new FleetReadClientError('FLEET_MALFORMED_FRAME', 'fleet response target does not match the request') });
+          return;
+        }
         if (frame.status === 'success') finish({ value: frame.body });
         else finish({ error: new FleetReadClientError(frame.error, 'fleet read failed') });
       });
@@ -130,4 +138,3 @@ export class FleetReadClient {
     });
   }
 }
-
