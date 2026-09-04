@@ -123,7 +123,8 @@
       "enter": "Enterで送信 • Shift+Enterで改行 • Tabでモード切替 • / でスラッシュコマンド"
     },
     "clickToChangeMode": "クリックで権限モードを変更（または入力欄でTab）",
-    "showAllCommands": "すべてのコマンドを表示"
+    "showAllCommands": "すべてのコマンドを表示",
+    "resizeHeight": "ドラッグしてメッセージ入力欄の高さを変更します。ダブルクリックでリセットします。"
   },
   "providerSelection": {
     "title": "AIアシスタントを選択",

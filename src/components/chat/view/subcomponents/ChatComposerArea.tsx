@@ -180,6 +180,9 @@ export default function ChatComposerArea({
                         : t('messageTypes.claude'),
           })}
           isTextareaExpanded={composer.isTextareaExpanded}
+          textareaHeight={composer.manualTextareaHeight}
+          onTextareaHeightChange={composer.handleTextareaHeightChange}
+          onTextareaHeightReset={composer.handleTextareaHeightReset}
           sendByCtrlEnter={sendByCtrlEnter}
         />
       )}

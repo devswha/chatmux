@@ -126,7 +126,8 @@
     "clickToChangeMode": "Cliquez pour changer le mode de permission (ou appuyez sur Tab dans la saisie)",
     "showAllCommands": "Afficher toutes les commandes",
     "clearInput": "Effacer la saisie",
-    "scrollToBottom": "Défiler vers le bas"
+    "scrollToBottom": "Défiler vers le bas",
+    "resizeHeight": "Faites glisser pour redimensionner la zone de saisie. Double-cliquez pour réinitialiser."
   },
   "providerSelection": {
     "title": "Choisissez votre assistant IA",

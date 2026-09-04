@@ -1,5 +1,3 @@
-import { useMemo } from 'react';
-
 import {
   PromptInput,
   PromptInputBody,
@@ -9,6 +7,7 @@ import {
 
 import type { ChatComposerProps } from './chatComposerTypes';
 import ChatComposerControls from './ChatComposerControls';
+import ChatComposerResizeHandle from './ChatComposerResizeHandle';
 import CommandMenu from './CommandMenu';
 import ImageAttachment from './ImageAttachment';
 
@@ -17,7 +16,7 @@ type ChatComposerInputSurfaceProps = ChatComposerProps & {
 };
 
 export default function ChatComposerInputSurface(props: ChatComposerInputSurfaceProps) {
-  const commandMenuPosition = useMemo(() => {
+  const commandMenuPosition = (() => {
     if (!props.isCommandMenuOpen) return { top: 0, left: 16, bottom: 90 };
     const textareaRect = props.textareaRef.current?.getBoundingClientRect();
     return {
@@ -25,7 +24,7 @@ export default function ChatComposerInputSurface(props: ChatComposerInputSurface
       left: textareaRect ? textareaRect.left : 16,
       bottom: textareaRect ? window.innerHeight - textareaRect.top + 8 : 90,
     };
-  }, [props.isCommandMenuOpen, props.textareaRef]);
+  })();
 
   return (
     <div className="relative mx-auto max-w-[54.25rem]">
@@ -64,6 +63,13 @@ export default function ChatComposerInputSurface(props: ChatComposerInputSurface
         ].filter(Boolean).join(' ')}
         {...props.getRootProps()}
       >
+        <ChatComposerResizeHandle
+          textareaRef={props.textareaRef}
+          textareaHeight={props.textareaHeight}
+          onHeightChange={props.onTextareaHeightChange}
+          onHeightReset={props.onTextareaHeightReset}
+        />
+
         {props.isDragActive && (
           <div className="absolute inset-0 z-50 flex items-center justify-center rounded-2xl border-2 border-dashed border-primary/50 bg-primary/15">
             <div className="rounded-xl border border-border/30 bg-card p-4 shadow-lg">
