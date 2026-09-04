@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, watch } from 'node:fs';
+import { mkdtempSync, rmSync, watch, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -8,7 +8,7 @@ import test from 'node:test';
 import { attachVerifiedLocalTmuxTerminal } from '../terminal/local-peer.js';
 
 function tmux(socketPath: string, args: readonly string[]): string {
-  const result = spawnSync('tmux', ['-S', socketPath, ...args], { encoding: 'utf8' });
+  const result = spawnSync('tmux', ['-f', '/dev/null', '-S', socketPath, ...args], { encoding: 'utf8' });
   if (result.status !== 0) throw new TypeError(`tmux fixture failed: ${result.stderr}`);
   return result.stdout;
 }
@@ -57,7 +57,12 @@ test('real peer-owned PTY attaches peer A, accepts input and resize, and leaves 
   const controllerBefore = controllerState();
   let terminal: ReturnType<typeof attachVerifiedLocalTmuxTerminal> | undefined;
   try {
-    tmux(socketA, ['new-session', '-d', '-s', 'peer-a', 'bash --noprofile --norc']);
+    const quote = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`;
+    const rc = path.join(root, 'bashrc');
+    const signal = path.join(root, 'peer-a-resized');
+    const resizedSignal = `test "$(stty size)" = '39 120' && touch ${quote(signal)}`;
+    writeFileSync(rc, `PS1='bash-fixture$ '\ntrap ${quote(resizedSignal)} WINCH\n`);
+    tmux(socketA, ['new-session', '-d', '-s', 'peer-a', `bash --noprofile --rcfile ${quote(rc)}`]);
     const peerBReady = armCreated(root, 'peer-b-ready');
     tmux(socketB, ['new-session', '-d', '-s', 'peer-b', `touch '${path.join(root, 'peer-b-ready')}'; exec bash --noprofile --norc`]);
     await peerBReady;
@@ -91,11 +96,13 @@ test('real peer-owned PTY attaches peer A, accepts input and resize, and leaves 
     const timeout = setTimeout(() => failure('terminal output timed out'), 30_000);
 
     // When
-    terminal.resize(120, 40);
     // Input written before the tmux client replays the pane is flushed by the
     // client's terminal setup and never reaches the pane, so wait for the
     // attach screen before writing (observed as lost input on slow CI hosts).
     await attached;
+    const resized = armCreated(root, 'peer-a-resized');
+    terminal.resize(120, 40);
+    await resized;
     terminal.write("stty size; printf 'LIVE_A_MARKER\\n'\n");
     try { await marker; } finally { clearTimeout(timeout); }
 
