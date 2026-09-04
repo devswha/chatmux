@@ -336,6 +336,134 @@ test('Codex history incrementally appends complete JSONL records', { concurrency
   }
 });
 
+test('Codex history renders structured custom tool output without leaking transport blocks', { concurrency: false }, async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-history-custom-tool-output-'));
+  const workspacePath = path.join(tempRoot, 'workspace');
+  await mkdir(workspacePath, { recursive: true });
+
+  try {
+    const sessionId = 'codex-structured-custom-tool-output';
+    const transcriptPath = await writeCodexTranscript(tempRoot, sessionId, workspacePath);
+    const header = 'Script completed\nWall time 0.0 seconds\nOutput:\n';
+    await appendFile(transcriptPath, [
+      JSON.stringify({
+        type: 'response_item',
+        timestamp: '2026-09-03T00:00:00.000Z',
+        payload: {
+          type: 'custom_tool_call',
+          name: 'apply_patch',
+          input: '*** Begin Patch\n*** Update File: example.ts\n*** End Patch',
+          call_id: 'empty-result',
+        },
+      }),
+      JSON.stringify({
+        type: 'response_item',
+        timestamp: '2026-09-03T00:00:01.000Z',
+        payload: {
+          type: 'custom_tool_call_output',
+          call_id: 'empty-result',
+          output: [
+            { type: 'input_text', text: header },
+            { type: 'input_text', text: '{}' },
+          ],
+        },
+      }),
+      JSON.stringify({
+        type: 'response_item',
+        timestamp: '2026-09-03T00:00:02.000Z',
+        payload: {
+          type: 'custom_tool_call',
+          name: 'exec',
+          input: '{}',
+          call_id: 'successful-result',
+        },
+      }),
+      JSON.stringify({
+        type: 'response_item',
+        timestamp: '2026-09-03T00:00:03.000Z',
+        payload: {
+          type: 'custom_tool_call_output',
+          call_id: 'successful-result',
+          output: [
+            { type: 'input_text', text: header },
+            {
+              type: 'input_text',
+              text: JSON.stringify({
+                chunk_id: 'chunk-success',
+                wall_time_seconds: 0.1,
+                exit_code: 0,
+                output: 'rendered output\n',
+              }),
+            },
+          ],
+        },
+      }),
+      JSON.stringify({
+        type: 'response_item',
+        timestamp: '2026-09-03T00:00:04.000Z',
+        payload: {
+          type: 'custom_tool_call',
+          name: 'exec',
+          input: '{}',
+          call_id: 'failed-result',
+        },
+      }),
+      JSON.stringify({
+        type: 'response_item',
+        timestamp: '2026-09-03T00:00:05.000Z',
+        payload: {
+          type: 'custom_tool_call_output',
+          call_id: 'failed-result',
+          output: [
+            { type: 'input_text', text: header },
+            {
+              type: 'input_text',
+              text: JSON.stringify({
+                wall_time_seconds: 0.1,
+                exit_code: 2,
+                output: 'command failed\n',
+              }),
+            },
+          ],
+        },
+      }),
+      '',
+    ].join('\n'), 'utf8');
+
+    await withIsolatedDatabase(async () => {
+      sessionsDb.createSession(
+        sessionId,
+        'codex',
+        workspacePath,
+        undefined,
+        undefined,
+        undefined,
+        transcriptPath,
+      );
+
+      const history = await new CodexSessionsProvider().fetchHistory(sessionId);
+      const toolUses = history.messages.filter((message) => message.kind === 'tool_use');
+      assert.equal(toolUses.length, 3);
+      assert.deepEqual(toolUses[0].toolResult, {
+        content: 'Script completed\nWall time 0.0 seconds',
+        isError: false,
+      });
+      assert.deepEqual(toolUses[1].toolResult, {
+        content: `${header}rendered output\n`,
+        isError: false,
+      });
+      assert.deepEqual(toolUses[2].toolResult, {
+        content: `${header}command failed\n`,
+        isError: true,
+      });
+      assert.equal(JSON.stringify(toolUses).includes('input_text'), false);
+      assert.equal(history.messages.some((message) => message.kind === 'tool_result'), false);
+    });
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test('Codex history reads response-item-only user prompts without exposing injected context', { concurrency: false }, async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-history-response-user-'));
   const workspacePath = path.join(tempRoot, 'workspace');
