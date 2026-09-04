@@ -125,7 +125,8 @@
     "clickToChangeMode": "点击更改权限模式（或在输入框中按 Tab）",
     "showAllCommands": "显示所有命令",
     "clearInput": "清空输入",
-    "scrollToBottom": "滚动到底部"
+    "scrollToBottom": "滚动到底部",
+    "resizeHeight": "拖动以调整消息输入框高度。双击可重置。"
   },
   "providerSelection": {
     "title": "选择您的 AI 助手",

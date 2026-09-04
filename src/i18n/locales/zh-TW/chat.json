@@ -125,7 +125,8 @@
     "clickToChangeMode": "點擊變更權限模式（或在輸入框中按 Tab）",
     "showAllCommands": "顯示所有指令",
     "clearInput": "清空輸入",
-    "scrollToBottom": "捲動到底部"
+    "scrollToBottom": "捲動到底部",
+    "resizeHeight": "拖曳以調整訊息輸入框高度。按兩下可重設。"
   },
   "thinkingMode": {
     "selector": {
