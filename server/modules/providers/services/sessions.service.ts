@@ -19,7 +19,9 @@ type CreateAppSessionResult = {
   projectPath: string;
 };
 
-const HISTORY_TOOL_OUTPUT_PREVIEW_BYTES = 64 * 1024;
+const HISTORY_TOOL_OUTPUT_PREVIEW_BYTES = 16 * 1024;
+const HISTORY_TOOL_OUTPUT_MAX_LINE_BYTES = 4 * 1024;
+const HISTORY_TOOL_OUTPUT_MARKER_RESERVE_BYTES = 128;
 
 function isUtf8ContinuationByte(value: number | undefined): boolean {
   return value !== undefined && (value & 0xc0) === 0x80;
@@ -50,6 +52,45 @@ function stringifyToolOutput(content: unknown): string {
   }
 }
 
+function buildMiddleTruncatedPreview(
+  serialized: string,
+  maxBytes: number,
+  label: string,
+): string {
+  const source = Buffer.from(serialized);
+  if (source.length <= maxBytes) return serialized;
+
+  const contentBudget = Math.max(0, maxBytes - HISTORY_TOOL_OUTPUT_MARKER_RESERVE_BYTES);
+  const requestedHeadBytes = Math.floor(contentBudget * 0.75);
+  const requestedTailBytes = contentBudget - requestedHeadBytes;
+  const headEnd = utf8SafeHeadEnd(source, requestedHeadBytes);
+  const tailStart = utf8SafeTailStart(source, source.length - requestedTailBytes);
+  const omittedBytes = Math.max(0, tailStart - headEnd);
+  const head = source.subarray(0, headEnd).toString('utf8');
+  const tail = source.subarray(tailStart).toString('utf8');
+  return `${head}\n… [${omittedBytes} ${label}] …\n${tail}`;
+}
+
+function boundToolOutputLines(serialized: string): {
+  content: string;
+  truncated: boolean;
+} {
+  let truncated = false;
+  const content = serialized
+    .split('\n')
+    .map((line) => {
+      if (Buffer.byteLength(line) <= HISTORY_TOOL_OUTPUT_MAX_LINE_BYTES) return line;
+      truncated = true;
+      return buildMiddleTruncatedPreview(
+        line,
+        HISTORY_TOOL_OUTPUT_MAX_LINE_BYTES,
+        'bytes omitted from line',
+      );
+    })
+    .join('\n');
+  return { content, truncated };
+}
+
 function buildToolOutputPreview(content: unknown): {
   content: unknown;
   truncated: boolean;
@@ -57,19 +98,21 @@ function buildToolOutputPreview(content: unknown): {
 } {
   const serialized = stringifyToolOutput(content);
   const bytes = Buffer.byteLength(serialized);
-  if (bytes <= HISTORY_TOOL_OUTPUT_PREVIEW_BYTES) {
+  const aggregateTruncated = bytes > HISTORY_TOOL_OUTPUT_PREVIEW_BYTES;
+  const aggregateBounded = aggregateTruncated
+    ? buildMiddleTruncatedPreview(
+        serialized,
+        HISTORY_TOOL_OUTPUT_PREVIEW_BYTES,
+        'bytes omitted from output',
+      )
+    : serialized;
+  const lineBounded = boundToolOutputLines(aggregateBounded);
+  if (!aggregateTruncated && !lineBounded.truncated) {
     return { content, truncated: false, bytes };
   }
 
-  const source = Buffer.from(serialized);
-  const headBytes = Math.floor(HISTORY_TOOL_OUTPUT_PREVIEW_BYTES * 0.75);
-  const tailBytes = HISTORY_TOOL_OUTPUT_PREVIEW_BYTES - headBytes;
-  const headEnd = utf8SafeHeadEnd(source, headBytes);
-  const tailStart = utf8SafeTailStart(source, source.length - tailBytes);
-  const head = source.subarray(0, headEnd).toString('utf8');
-  const tail = source.subarray(tailStart).toString('utf8');
   return {
-    content: `${head}\n\n… [${tailStart - headEnd} bytes omitted] …\n\n${tail}`,
+    content: lineBounded.content,
     truncated: true,
     bytes,
   };
