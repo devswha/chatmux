@@ -94,7 +94,8 @@
   "overrides": {
     "brace-expansion": "^5.0.8",
     "minimatch": "^10.2.5",
-    "undici": "^8.9.0"
+    "undici": "^8.9.0",
+    "qs": "^6.16.0"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.165",
@@ -150,7 +151,7 @@
     "react-error-boundary": "^4.1.2",
     "react-i18next": "^16.5.3",
     "react-markdown": "^10.1.0",
-    "react-router-dom": "^6.8.1",
+    "react-router-dom": "^7.18.3",
     "react-syntax-highlighter": "^16.1.1",
     "rehype-katex": "^7.0.1",
     "rehype-raw": "^7.0.0",
