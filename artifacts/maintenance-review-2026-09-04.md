@@ -27,7 +27,7 @@
 | npm 취약점 7개 (low 1, moderate 6) | v1.8.18 기준 `npm audit`, #108 | qs 6.16.0, React Router 7.18.3, humanfs/node 0.16.8, selector-parser 6.1.4로 보완; 수정본 감사 0개 |
 | SSH 간편 등록 출시 후에도 수동 터널만 허용한다고 설명 | Fleet RFC revision 4 및 #101 대 README·ROADMAP·설치·운영 안내 | #106에서 기존 계약과 일치시킴; 원격 사전 설치·3001 포트·키 설치·비밀번호 미보관·호스트 키 검증 명시 |
 | 기여 가이드의 존재하지 않는 backend 디렉터리 | `CONTRIBUTING.md` 대 `server/modules`, `server/shared` | 현재 디렉터리로 정정 |
-| provider 목록에서 이미 지원하는 omo 누락 | `process-classification.ts:36`, `list/omo/` 대 ROADMAP·provider README | Oh My OpenAgent를 기존 지원 목록에 추가 |
+| provider 목록에서 이미 지원하는 omo 누락 | `process-classification.ts:29`, `list/omo/` 대 ROADMAP·provider README | Oh My OpenAgent를 기존 지원 목록에 추가 |
 | upstream 반영 후 수동 changelog 추가를 요구 | `docs/UPSTREAM.md` 대 CONTRIBUTING의 GitHub 생성 릴리스 노트 계약 | PR 및 유일한 release workflow 경로로 정정; 역사 기록은 보존 |
 | CUA 안내가 현재 CI 실행 조건·fixture 구성과 불일치 | `scripts/cua/README.md` 대 `run-fixture.ts`, `.github/workflows/ci.yml` | 동적 backend 포트, hub와 두 peer, workflow_dispatch에서만 실행하는 수동 증거로 정정 |
 
