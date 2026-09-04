@@ -129,6 +129,7 @@
     "showAllCommands": "Show all commands",
     "clearInput": "Clear input",
     "scrollToBottom": "Scroll to bottom",
+    "resizeHeight": "Drag to resize the message input. Double-click to reset.",
     "newMessages": "New messages",
     "queue": {
       "sendNext": "Queue next message",

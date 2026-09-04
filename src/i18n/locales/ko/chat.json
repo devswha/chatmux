@@ -126,6 +126,7 @@
     "showAllCommands": "모든 명령어 보기",
     "clearInput": "입력 지우기",
     "scrollToBottom": "맨 아래로 스크롤",
+    "resizeHeight": "드래그하여 메시지 입력창 높이를 조절하세요. 두 번 클릭하면 초기화됩니다.",
     "newMessages": "새 메시지"
   },
   "providerSelection": {

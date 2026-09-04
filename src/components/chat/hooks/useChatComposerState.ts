@@ -29,8 +29,10 @@ import type {
 } from '../types/types';
 import type { Project, ProjectSession, LLMProvider, ProviderModelsCacheInfo } from '../../../types/app';
 import { escapeRegExp } from '../utils/chatFormatting';
+import { CHAT_COMPOSER_MIN_HEIGHT } from '../utils/chatComposerResize';
 
 import { useFileMentions } from './useFileMentions';
+import { useChatComposerHeight } from './useChatComposerHeight';
 import { type SlashCommand, useSlashCommands } from './useSlashCommands';
 
 interface UseChatComposerStateArgs {
@@ -247,6 +249,13 @@ export function useChatComposerState({
   }, []);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const {
+    manualHeight: manualTextareaHeight,
+    manualHeightRef: manualTextareaHeightRef,
+    applyManualHeight,
+    setManualHeight,
+    resetManualHeight,
+  } = useChatComposerHeight(textareaRef);
   const inputHighlightRef = useRef<HTMLDivElement>(null);
   const textareaLineHeightRef = useRef<number | null>(null);
   const lastAutosizedInputRef = useRef<string | null>(null);
@@ -520,21 +529,56 @@ export function useChatComposerState({
     inputHighlightRef.current.scrollLeft = target.scrollLeft;
   }, []);
 
-  const resizeTextarea = useCallback((target: HTMLTextAreaElement) => {
-    target.style.height = 'auto';
-    const nextHeight = Math.max(22, target.scrollHeight);
-    target.style.height = `${nextHeight}px`;
-
+  const updateTextareaExpanded = useCallback((target: HTMLTextAreaElement, height: number) => {
     let lineHeight = textareaLineHeightRef.current;
     if (!lineHeight) {
       lineHeight = parseInt(window.getComputedStyle(target).lineHeight);
       textareaLineHeightRef.current = Number.isFinite(lineHeight) ? lineHeight : 24;
     }
 
-    const expanded = nextHeight > (textareaLineHeightRef.current || 24) * 2;
+    const expanded = height > (textareaLineHeightRef.current || 24) * 2;
     setIsTextareaExpanded((previous) => previous === expanded ? previous : expanded);
-    lastAutosizedInputRef.current = target.value;
   }, []);
+
+  const resizeTextarea = useCallback((target: HTMLTextAreaElement) => {
+    const manualHeight = manualTextareaHeightRef.current;
+    let nextHeight: number;
+    if (manualHeight !== null) {
+      nextHeight = applyManualHeight(target) ?? CHAT_COMPOSER_MIN_HEIGHT;
+    } else {
+      target.style.height = 'auto';
+      nextHeight = Math.max(22, target.scrollHeight);
+    }
+    target.style.height = `${nextHeight}px`;
+    updateTextareaExpanded(target, nextHeight);
+    lastAutosizedInputRef.current = target.value;
+  }, [applyManualHeight, manualTextareaHeightRef, updateTextareaExpanded]);
+
+  const applyEmptyTextareaHeight = useCallback((target: HTMLTextAreaElement) => {
+    const manualHeight = manualTextareaHeightRef.current;
+    if (manualHeight === null) {
+      target.style.height = 'auto';
+      setIsTextareaExpanded(false);
+    } else {
+      const nextHeight = applyManualHeight(target) ?? CHAT_COMPOSER_MIN_HEIGHT;
+      updateTextareaExpanded(target, nextHeight);
+    }
+    lastAutosizedInputRef.current = target.value;
+  }, [applyManualHeight, manualTextareaHeightRef, updateTextareaExpanded]);
+
+  const handleTextareaHeightChange = useCallback((height: number) => {
+    const nextHeight = setManualHeight(height);
+    if (textareaRef.current) {
+      updateTextareaExpanded(textareaRef.current, nextHeight);
+    }
+  }, [setManualHeight, updateTextareaExpanded]);
+
+  const handleTextareaHeightReset = useCallback(() => {
+    resetManualHeight();
+    if (textareaRef.current) {
+      resizeTextarea(textareaRef.current);
+    }
+  }, [resetManualHeight, resizeTextarea]);
 
   const handleImageFiles = useCallback((files: File[]) => {
     const validFiles = files.filter((file) => {
@@ -697,9 +741,8 @@ export function useChatComposerState({
         setUploadingImages(new Map());
         setImageErrors(new Map());
         resetCommandMenuState();
-        setIsTextareaExpanded(false);
         if (textareaRef.current) {
-          textareaRef.current.style.height = 'auto';
+          applyEmptyTextareaHeight(textareaRef.current);
         }
         // selectedProject is guaranteed by the guard at the top of handleSubmit.
         safeLocalStorage.removeItem(`draft_input_${selectedProject.projectId}`);
@@ -733,9 +776,8 @@ export function useChatComposerState({
           setUploadingImages(new Map());
           setImageErrors(new Map());
           resetCommandMenuState();
-          setIsTextareaExpanded(false);
           if (textareaRef.current) {
-            textareaRef.current.style.height = 'auto';
+            applyEmptyTextareaHeight(textareaRef.current);
           }
           return;
         }
@@ -862,10 +904,9 @@ export function useChatComposerState({
       setAttachedImages([]);
       setUploadingImages(new Map());
       setImageErrors(new Map());
-      setIsTextareaExpanded(false);
 
       if (textareaRef.current) {
-        textareaRef.current.style.height = 'auto';
+        applyEmptyTextareaHeight(textareaRef.current);
       }
 
       safeLocalStorage.removeItem(`draft_input_${selectedProject.projectId}`);
@@ -873,6 +914,7 @@ export function useChatComposerState({
     [
       selectedSession,
       attachedImages,
+      applyEmptyTextareaHeight,
       buildSendOptions,
       currentSessionId,
       executeCommand,
@@ -1012,6 +1054,21 @@ export function useChatComposerState({
   }, [sessionKey]);
 
   useEffect(() => {
+    if (typeof window === 'undefined' || manualTextareaHeight !== null) return undefined;
+    const handleViewportResize = () => {
+      if (textareaRef.current) {
+        resizeTextarea(textareaRef.current);
+      }
+    };
+    window.addEventListener('resize', handleViewportResize);
+    window.visualViewport?.addEventListener('resize', handleViewportResize);
+    return () => {
+      window.removeEventListener('resize', handleViewportResize);
+      window.visualViewport?.removeEventListener('resize', handleViewportResize);
+    };
+  }, [manualTextareaHeight, resizeTextarea]);
+
+  useEffect(() => {
     if (!textareaRef.current) {
       return;
     }
@@ -1027,9 +1084,8 @@ export function useChatComposerState({
     if (!textareaRef.current || input.trim()) {
       return;
     }
-    textareaRef.current.style.height = 'auto';
-    setIsTextareaExpanded(false);
-  }, [input]);
+    applyEmptyTextareaHeight(textareaRef.current);
+  }, [applyEmptyTextareaHeight, input]);
 
   const handleInputChange = useCallback(
     (event: ChangeEvent<HTMLTextAreaElement>) => {
@@ -1041,15 +1097,14 @@ export function useChatComposerState({
       setCursorPosition(cursorPos);
 
       if (!newValue.trim()) {
-        event.target.style.height = 'auto';
-        setIsTextareaExpanded(false);
+        applyEmptyTextareaHeight(event.target);
         resetCommandMenuState();
         return;
       }
 
       handleCommandInputChange(newValue, cursorPos);
     },
-    [handleCommandInputChange, resetCommandMenuState, setCursorPosition],
+    [applyEmptyTextareaHeight, handleCommandInputChange, resetCommandMenuState, setCursorPosition],
   );
 
   const handleKeyDown = useCallback(
@@ -1115,11 +1170,10 @@ export function useChatComposerState({
     inputValueRef.current = '';
     resetCommandMenuState();
     if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
+      applyEmptyTextareaHeight(textareaRef.current);
       textareaRef.current.focus();
     }
-    setIsTextareaExpanded(false);
-  }, [resetCommandMenuState]);
+  }, [applyEmptyTextareaHeight, resetCommandMenuState]);
 
   const handleAbortSession = useCallback(() => {
     if (!canAbortSession) {
@@ -1195,6 +1249,7 @@ export function useChatComposerState({
     textareaRef,
     inputHighlightRef,
     isTextareaExpanded,
+    manualTextareaHeight,
     slashCommandsCount,
     filteredCommands,
     frequentCommands,
@@ -1226,6 +1281,8 @@ export function useChatComposerState({
     handlePaste,
     handleTextareaClick,
     handleTextareaInput,
+    handleTextareaHeightChange,
+    handleTextareaHeightReset,
     syncInputOverlayScroll,
     handleClearInput,
     handleAbortSession,
