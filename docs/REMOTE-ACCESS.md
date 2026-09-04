@@ -303,8 +303,28 @@ The shown port is an example; copy the actual host and port. The hub dials the p
 directly. TLS and the mutually pinned installation keys are both required. ChatMux
 never enables Funnel, operates no relay, and never downgrades `wss://` to `ws://`.
 
-The only supported plaintext transport is an owner-managed SSH local forward. Create
-it manually on the **hub PC**, before enrollment:
+The only supported plaintext transport is a literal-loopback SSH local forward.
+Owners can either request a hub-managed forward through **Easy SSH setup** or
+create one manually.
+
+For **Easy SSH setup**, first install and start ChatMux on the remote PC and ensure
+its SSH account is reachable from the hub. The shipped easy setup forwards to the
+remote backend at `127.0.0.1:3001`; use the manual path below for a different backend
+port. On the hub, open **Settings → Hosts → Add a PC**, choose **Easy SSH setup**,
+and enter `user@host[:ssh-port]` and the SSH password. Review the key-installation
+disclosure, then select **Add with SSH**. The hub installs a dedicated Ed25519
+public key, obtains the peer's single-use pairing token over SSH, creates the local
+forward, and enrolls the peer. There is no separate token-copy step in this mode.
+
+The password is used for authentication and is never saved. The hub stores the
+dedicated private key and known-hosts data privately and uses the key to
+re-establish the tunnel. First contact records the host key; a changed host key
+fails closed and requires owner investigation. Removing the peer stops its tunnel
+and attempts to remove the installed public key from the remote account. These
+operations follow [Fleet RFC revision 4](FLEET-FEDERATION-RFC.md#hub-managed-ssh-forwarding).
+
+For a manual forward, run this on the **hub PC** before enrollment, then use the
+peer token from §8.1:
 
 ```sh
 ssh -N -o ExitOnForwardFailure=yes \
@@ -321,8 +341,8 @@ An explicitly IPv6-bound local forward may instead use
 `ws://[::1]:<local-port>/fleet-ws`. Those two literal loopback hosts are the complete
 allowlist. Non-loopback plaintext, aliases such as `localhost` or `127.1`, URL
 credentials, query strings, fragments, and any path other than `/fleet-ws` fail
-closed. ChatMux does not create, supervise, persist SSH keys for, or automatically
-restart this forward.
+closed. In **SSH loopback forward** mode, the owner manages the SSH process and
+keys; ChatMux does not supervise or restart that manually created forward.
 
 ### 8.3 Offline, syncing, and direct-peer recovery
 
@@ -390,9 +410,10 @@ Fleet scope is limited to the shipped host catalog, session/transcript reads and
 search, chat and prompt control, verified terminal attach/input, session lifecycle,
 and completion events. It does **not** provide remote desktop, a remote IDE or file
 editor, Git/project mutation, cloud or database sync, peer administration from peers,
-fleet-wide updates, arbitrary remote commands, remote plain-shell creation, managed
-SSH/Tailscale setup, a hosted relay, automatic failover, or zero-configuration remote
-reachability.
+fleet-wide updates, arbitrary remote commands, remote plain-shell creation,
+general-purpose SSH/Tailscale setup, a hosted relay, automatic failover, or
+zero-configuration remote reachability. The dedicated hub-managed enrollment
+tunnel described in §8.2 is the supported SSH setup exception.
 
 ## 참고
 
