@@ -40,6 +40,8 @@ test('LiveRelayComposer identifies the target by tmux name without exposing raw 
   assert.ok(html.includes('xhigh effort'));
   assert.ok(html.includes('chatmux2'));
   assert.ok(html.includes('Message chatmux2…'));
+  assert.ok(html.includes('role="separator"'));
+  assert.ok(html.includes('Drag to resize the message input'));
   assert.ok(!html.includes('$117'));
   assert.ok(!html.includes('%123'));
 });

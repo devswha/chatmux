@@ -125,7 +125,8 @@
     "clickToChangeMode": "İzin modunu değiştirmek için tıkla (veya girdide Tab tuşuna bas)",
     "showAllCommands": "Tüm komutları göster",
     "clearInput": "Girdiyi temizle",
-    "scrollToBottom": "En alta git"
+    "scrollToBottom": "En alta git",
+    "resizeHeight": "Mesaj girişini yeniden boyutlandırmak için sürükleyin. Sıfırlamak için çift tıklayın."
   },
   "providerSelection": {
     "title": "AI Asistanını Seç",

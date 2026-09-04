@@ -88,5 +88,8 @@ export interface ChatComposerProps {
   readonly onInputFocusChange?: (focused: boolean) => void;
   readonly placeholder: string;
   readonly isTextareaExpanded: boolean;
+  readonly textareaHeight: number | null;
+  readonly onTextareaHeightChange: (height: number) => void;
+  readonly onTextareaHeightReset: () => void;
   readonly sendByCtrlEnter?: boolean;
 }

@@ -125,7 +125,8 @@
     "clickToChangeMode": "Clicca per cambiare modalità permessi (o premi Tab nell'input)",
     "showAllCommands": "Mostra tutti i comandi",
     "clearInput": "Cancella input",
-    "scrollToBottom": "Scorri in basso"
+    "scrollToBottom": "Scorri in basso",
+    "resizeHeight": "Trascina per ridimensionare il campo del messaggio. Fai doppio clic per ripristinare."
   },
   "providerSelection": {
     "title": "Scegli il tuo assistente AI",
