@@ -6,6 +6,8 @@ import { promisify } from 'node:util';
 
 import { spawn as spawnPty, type IPty } from 'node-pty';
 
+import { parseProcStatState } from '../../services/process-start-time.service.js';
+
 const execFileAsync = promisify(execFile);
 const EXIT_TIMEOUT_MS = 5_000;
 
@@ -33,10 +35,12 @@ async function readOwnedProcess(pid: number): Promise<OwnedPaneProcess> {
   return { pid, processGroupId, startedAtTicks: processStartTicks(stat) };
 }
 
-async function stillOwned(process: OwnedPaneProcess): Promise<boolean> {
+export async function isOwnedPaneRunning(process: OwnedPaneProcess): Promise<boolean> {
   try {
     const stat = await import('node:fs/promises').then(({ readFile }) => readFile(`/proc/${process.pid}/stat`, 'utf8'));
-    return processStartTicks(stat) === process.startedAtTicks;
+    // pidfd signals exit before the parent necessarily reaps /proc. A zombie
+    // retains its start tick but cannot run or receive an escalation signal.
+    return processStartTicks(stat) === process.startedAtTicks && parseProcStatState(stat) !== 'Z';
   } catch (error) {
     if (error instanceof Error && 'code' in error && (error.code === 'ENOENT' || error.code === 'ESRCH')) return false;
     throw error;
@@ -154,7 +158,7 @@ export async function startOwnedTmuxServer(
       try { await run(['kill-server']); } catch { pty.kill('SIGTERM'); }
       const escalation = setTimeout(() => {
         for (const owned of panes) {
-          void stillOwned(owned).then((ownedNow) => {
+          void isOwnedPaneRunning(owned).then((ownedNow) => {
             if (!ownedNow) return;
             try { process.kill(-owned.processGroupId, 'SIGKILL'); } catch (error) {
               if (!(error instanceof Error && 'code' in error && error.code === 'ESRCH')) throw error;
@@ -166,7 +170,7 @@ export async function startOwnedTmuxServer(
       await Promise.all([ptyExit.exited, ...paneExits.map(({ exited }) => exited)]);
       clearTimeout(escalation);
       for (const owned of panes) {
-        if (await stillOwned(owned)) throw new OwnedTmuxError(`Owned pane PID ${owned.pid} survived tmux shutdown.`);
+        if (await isOwnedPaneRunning(owned)) throw new OwnedTmuxError(`Owned pane PID ${owned.pid} survived tmux shutdown.`);
       }
       try { process.kill(pty.pid, 0); } catch (error) {
         if (error instanceof Error && 'code' in error && error.code === 'ESRCH') return;
