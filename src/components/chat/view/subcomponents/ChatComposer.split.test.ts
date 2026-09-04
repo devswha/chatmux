@@ -9,6 +9,7 @@ const COMPOSER_MODULES = [
   './ChatComposerControls.tsx',
   './ChatComposerFeedback.tsx',
   './ChatComposerInputSurface.tsx',
+  './ChatComposerResizeHandle.tsx',
   './chatComposerTypes.ts',
 ] as const;
 

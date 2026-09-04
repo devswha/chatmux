@@ -12,6 +12,7 @@ import {
   PromptInputSubmit,
 } from '../../../../shared/view/ui';
 import { useFleetHost } from '../../../../fleet/FleetSessionRoute';
+import { useChatComposerHeight } from '../../hooks/useChatComposerHeight';
 import { useRelayCommandInventory } from '../../hooks/useRelayCommandInventory';
 import { useRelayComposerMenus } from '../../hooks/useRelayComposerMenus';
 import { useRelayDelivery } from '../../hooks/useRelayDelivery';
@@ -20,6 +21,7 @@ import { useRelayImageAssets } from '../../hooks/useRelayImageAssets';
 import { useRelayInteractivePrompt } from '../../hooks/useRelayInteractivePrompt';
 
 import CommandMenu from './CommandMenu';
+import ChatComposerResizeHandle from './ChatComposerResizeHandle';
 import RelayPromptCard from './RelayPromptCard';
 import RelayStatusLine from './RelayStatusLine';
 
@@ -78,6 +80,7 @@ export default function LiveRelayComposer({
   const displayName = sessionName?.trim() || t('relay.currentSession');
   const [input, setInput] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const composerHeight = useChatComposerHeight(textareaRef);
 
   const fleetHost = useFleetHost();
   const relaySession = {
@@ -208,7 +211,14 @@ export default function LiveRelayComposer({
           onSubmit={handleSubmit}
           onDrop={assets.handleDrop}
           onDragOver={assets.handleDragOver}
+          className={composerHeight.manualHeight !== null ? 'chat-input-expanded' : ''}
         >
+          <ChatComposerResizeHandle
+            textareaRef={textareaRef}
+            textareaHeight={composerHeight.manualHeight}
+            onHeightChange={composerHeight.setManualHeight}
+            onHeightReset={composerHeight.resetManualHeight}
+          />
           <PromptInputBody>
             <PromptInputTextarea
               ref={textareaRef}

@@ -20,7 +20,7 @@ const renderMessage = (
   suppressedAskToolId,
 }));
 
-test('standalone conversation errors keep details collapsed and omit the redundant provider header', () => {
+test('standalone conversation errors keep details collapsed and defer the full body', () => {
   const html = renderMessage({
     type: 'error',
     content: 'Request failed\nInternal stack line',
@@ -29,11 +29,11 @@ test('standalone conversation errors keep details collapsed and omit the redunda
 
   assert.match(html, /<details(?![^>]*\sopen(?:=|\s|>))[^>]*>/);
   assert.match(html, /<summary[^>]*>[\s\S]*Request failed[\s\S]*<\/summary>/);
-  assert.match(html, /Internal stack line/);
+  assert.doesNotMatch(html, /Internal stack line/);
   assert.equal((html.match(/>Error</g) || []).length, 1);
 });
 
-test('non-Bash tool failures expose full output only through a collapsed disclosure', () => {
+test('non-Bash tool failures defer full output behind a collapsed disclosure', () => {
   const html = renderMessage({
     type: 'assistant',
     content: '',
@@ -50,7 +50,26 @@ test('non-Bash tool failures expose full output only through a collapsed disclos
 
   assert.match(html, /<details[^>]*id="tool-result-tool-1"(?![^>]*\sopen(?:=|\s|>))[^>]*>/);
   assert.match(html, /Read Error/);
-  assert.match(html, /Internal lookup detail/);
+  assert.doesNotMatch(html, /Internal lookup detail/);
+});
+
+test('non-Bash successful tool results do not mount closed result content', () => {
+  const html = renderMessage({
+    type: 'assistant',
+    content: '',
+    timestamp: '2026-07-29T12:00:00.000Z',
+    isToolUse: true,
+    toolName: 'exec',
+    toolInput: JSON.stringify({ command: 'diagnostic' }),
+    toolId: 'tool-success',
+    toolResult: {
+      content: 'closed-result-sentinel',
+      isError: false,
+    },
+  });
+
+  assert.match(html, /exec/);
+  assert.doesNotMatch(html, /closed-result-sentinel/);
 });
 
 test('screen-driven multi-question asks hide the inert transcript duplicate', () => {
