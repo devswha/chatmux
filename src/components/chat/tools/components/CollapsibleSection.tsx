@@ -12,6 +12,7 @@ interface CollapsibleSectionProps {
   onTitleClick?: () => void;
   children: React.ReactNode;
   className?: string;
+  unmountOnClose?: boolean;
 }
 
 /**
@@ -26,6 +27,7 @@ export const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
   onTitleClick,
   children,
   className = '',
+  unmountOnClose = false,
 }) => {
   return (
     <Collapsible defaultOpen={open} className={cn('group/section', className)}>
@@ -79,7 +81,7 @@ export const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
         </CollapsibleTrigger>
       )}
 
-      <CollapsibleContent>
+      <CollapsibleContent unmountOnClose={unmountOnClose}>
         <div className="mt-1.5 pl-[18px]">
           {children}
         </div>

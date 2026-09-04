@@ -325,6 +325,7 @@ export const ToolRenderer: React.FC<ToolRendererProps> = memo(({
         showRawParameters={mode === 'input' && showRawParameters}
         rawContent={rawToolInput}
         toolCategory={getToolCategory(toolName)}
+        unmountOnClose={mode === 'result'}
       >
         {contentComponent}
       </CollapsibleDisplay>
