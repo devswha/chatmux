@@ -23,6 +23,7 @@ import { fleetCatalogPaneKey } from '../../catalog/keys.js';
 
 import { FleetReadRpcError } from './errors.js';
 import type { FleetReadServices } from './peer.js';
+import { createToolResultReader } from './tool-result.js';
 
 function json(value: unknown): JsonValue {
   if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
@@ -62,6 +63,13 @@ async function freshSessionTarget(discovery: DiscoveryCollector, localId: string
 
 export function createLocalFleetReadServices(discovery: DiscoveryCollector): FleetReadServices {
   return {
+    toolResult: createToolResultReader({
+      identity: (id) => {
+        const session = sessionsDb.getSessionById(id);
+        return session === null ? null : JSON.stringify([session.provider, session.provider_session_id, session.jsonl_path, session.created_at]);
+      },
+      read: (id, toolId) => sessionsService.fetchToolResult(id, toolId),
+    }),
     sessionMetadata: async (localId) => {
       const session = sessionsDb.getSessionById(localId);
       if (session === null) return null;

@@ -1,4 +1,5 @@
 import type { TmuxPaneTarget } from '../../../../shared/tmux';
+import { hostQualifiedKey } from '../../../fleet/references';
 import {
   requestRemotePaneAction,
   requestRemotePromptResponse,
@@ -20,6 +21,13 @@ export type RelayTransportInput = Readonly<{
   readonly promptId: string;
   readonly askToolId: string;
 }>;
+
+/** Drafts and pending callbacks belong to the full host/pane/process identity. */
+export function relayTargetKey(kind: string, target: RelayTransportTarget): string {
+  return hostQualifiedKey('relay-target', [kind, target.hostId ?? '', target.localId ?? '', target.lane ?? '',
+    target.tmux.socketPath, target.tmux.sessionId, target.tmux.windowId, target.tmux.paneId,
+    String(target.process.pid), String(target.process.startedAtMs)]);
+}
 
 function remoteResponse(result: RemoteActionResult): Response {
   return result.ok

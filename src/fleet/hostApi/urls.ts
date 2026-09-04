@@ -43,6 +43,13 @@ export function hostSessionMessagesUrl(scope: HostScope, localId: string, search
     : `${hostPrefix(scope)}/providers/sessions/${session}/messages${query(search)}`;
 }
 
+export function hostToolResultUrl(scope: HostScope, localId: string, search: string): string {
+  const session = encodeURIComponent(localId);
+  return isLocalHostScope(scope)
+    ? `/api/providers/sessions/${session}/tool-result${query(search)}`
+    : `${hostPrefix(scope)}/providers/sessions/${session}/tool-result${query(search)}`;
+}
+
 /**
  * Slash commands and skills for a session. The local host keeps its existing
  * live-commands endpoint; a peer answers from its own installed inventory.

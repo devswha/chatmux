@@ -9,7 +9,7 @@
  * Failure is non-fatal by design — free-text relay still works without a catalog.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { parseProviderInventory, requestHostJson } from '../../../fleet/hostApi/requests';
 import { hostInventoryUrl, isLocalHostScope, type HostScope } from '../../../fleet/hostApi/urls';
@@ -25,6 +25,7 @@ export type RelayCommandInventoryInput = {
 };
 
 type SkillEntry = { command?: string; name?: string; description?: string };
+const EMPTY_COMMANDS: readonly LiveGjcCommand[] = [];
 
 function localCommands(input: RelayCommandInventoryInput, body: unknown): readonly LiveGjcCommand[] {
   const payload = body as { data?: { skills?: SkillEntry[]; commands?: LiveGjcCommand[] }; skills?: SkillEntry[]; commands?: LiveGjcCommand[] } | null;
@@ -56,21 +57,24 @@ function remoteCommands(input: RelayCommandInventoryInput, value: unknown): read
 }
 
 export function useRelayCommandInventory(input: RelayCommandInventoryInput): readonly LiveGjcCommand[] {
-  const [commands, setCommands] = useState<readonly LiveGjcCommand[]>([]);
   const { commandTrigger, relayKind, workspacePath } = input;
   const { hostId, localHostId, localId } = input.session;
+  const request = useMemo<RelayCommandInventoryInput>(() => ({
+    relayKind, workspacePath, commandTrigger, session: { hostId, localHostId, localId },
+  }), [commandTrigger, hostId, localHostId, localId, relayKind, workspacePath]);
+  const [resolved, setResolved] = useState<{
+    request: RelayCommandInventoryInput;
+    commands: readonly LiveGjcCommand[];
+  } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     const scope: HostScope = { hostId, localHostId };
-    const request: RelayCommandInventoryInput = {
-      relayKind, workspacePath, commandTrigger, session: { hostId, localHostId, localId },
-    };
     void (async () => {
       if (!isLocalHostScope(scope)) {
         if (localId === null) return;
         const result = await requestHostJson(hostInventoryUrl(scope, localId));
-        if (!cancelled && result.ok) setCommands(remoteCommands(request, result.value));
+        if (!cancelled && result.ok) setResolved({ request, commands: remoteCommands(request, result.value) });
         return;
       }
       try {
@@ -79,13 +83,13 @@ export function useRelayCommandInventory(input: RelayCommandInventoryInput): rea
           : await api.providerSkills(relayKind, workspacePath ?? undefined);
         if (!response.ok) return;
         const body: unknown = await response.json().catch(() => null);
-        if (!cancelled) setCommands(localCommands(request, body));
+        if (!cancelled) setResolved({ request, commands: localCommands(request, body) });
       } catch {
         // Non-fatal — the composer still relays free text.
       }
     })();
     return () => { cancelled = true; };
-  }, [commandTrigger, hostId, localHostId, localId, relayKind, workspacePath]);
+  }, [hostId, localHostId, localId, relayKind, request, workspacePath]);
 
-  return commands;
+  return resolved?.request === request ? resolved.commands : EMPTY_COMMANDS;
 }

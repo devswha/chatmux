@@ -36,6 +36,7 @@ export type FleetCollisionFixture = Readonly<{
 export type FleetTmuxNodeName = 'hub' | 'peer-a' | 'peer-b';
 export type TmuxFleetPorts = Readonly<{ hub: number; peerA: number; peerB: number }>;
 export type TmuxFleetHarnessOptions = Partial<TmuxFleetPorts> & Readonly<{
+  tempRoot?: string;
   createNode?: (options: Readonly<{
     fleetRoot: string; name: FleetTmuxNodeName; port: number; workspace: string;
   }>) => Promise<TmuxFleetNode>;

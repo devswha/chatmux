@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sqlite3
 import sys
 from typing import Any
 
@@ -343,6 +344,64 @@ with sync_playwright() as playwright:
     for name, check in fleet_results["checks"].items():
         results["checks"][f"fleet_{name}"] = check
     results["artifacts"].update({f"fleet_{name}": value for name, value in fleet_results["artifacts"].items()})
+
+    # Project bytes may be previewed, but a direct HTML/SVG navigation must not
+    # turn a repository-controlled document into an authenticated app script.
+    database = sqlite3.connect(f"file:{manifest['fleet']['hub']['databasePath']}?mode=ro", uri=True)
+    try:
+        project = database.execute("SELECT project_id FROM projects WHERE project_path = ?", (manifest["workspace"],)).fetchone()
+    finally:
+        database.close()
+    if project is None:
+        raise AssertionError("fixture project was not indexed")
+    sandbox_checks = []
+    for name, document in [
+        ("cua-untrusted.html", '<!doctype html><body>untrusted<script>window.projectScriptRan=true</script>'),
+        ("cua-untrusted.svg", '<svg xmlns="http://www.w3.org/2000/svg"><script>window.projectScriptRan=true</script><text y="20">untrusted</text></svg>'),
+    ]:
+        file_path = Path(manifest["workspace"]) / name
+        file_path.write_text(document, encoding="utf-8")
+        document_page = context.new_page()
+        try:
+            response = document_page.goto(f"{manifest['baseUrl']}/api/projects/{project[0]}/files/content?path={name}", wait_until="load")
+            sandbox_checks.append(response is not None and response.status == 200
+                and response.headers.get("content-security-policy") == "sandbox"
+                and document_page.evaluate("window.projectScriptRan !== true"))
+        finally:
+            document_page.close()
+            file_path.unlink()
+    results["checks"]["project_documents_cannot_execute_as_app"] = {"ok": all(sandbox_checks)}
+
+    # Exercise the actual full-output button through two real peers that share
+    # a session/tool id. Every continuation must stay on the selected peer.
+    full_checks = []
+    for index, (peer, transcript_name) in enumerate(zip(manifest["fleet"]["enrollment"]["peers"], manifest["fleet"]["toolTranscripts"])):
+        transcript = Path(transcript_name)
+        transcript.parent.mkdir(parents=True, exist_ok=True)
+        session_id = manifest["fleet"]["collision"]["appSessionId"]
+        expected = f"fixture-peer-{index}:" + ("한글😀|" * 8000) + f":END-{index}"
+        if not transcript.exists():
+            transcript.write_text(json.dumps({"type": "session_meta", "timestamp": "2026-09-04T00:00:00Z", "payload": {"id": session_id, "cwd": manifest["workspace"]}}) + "\n", encoding="utf-8")
+        with transcript.open("a", encoding="utf-8") as output:
+            for payload in [
+                {"type": "function_call", "name": "exec_command", "arguments": "{}", "call_id": "cua-full-tool"},
+                {"type": "function_call_output", "call_id": "cua-full-tool", "output": expected},
+            ]:
+                output.write(json.dumps({"type": "response_item", "timestamp": "2026-09-04T00:00:01Z", "payload": payload}) + "\n")
+        full_page = context.new_page()
+        requests = []
+        full_page.on("request", lambda request, recorded=requests: recorded.append(request.url) if "/tool-result?" in request.url else None)
+        try:
+            full_page.goto(f"{manifest['baseUrl']}/hosts/{peer['hostId']}/session/{session_id}", wait_until="domcontentloaded")
+            full_page.get_by_role("button", name="Load full output", exact=True).click(timeout=20_000)
+            full_output = full_page.get_by_role("textbox", name="Load full output", exact=True)
+            full_output.wait_for(timeout=20_000)
+            full_checks.append(full_output.input_value() == expected and len(requests) > 1
+                and all(f"/api/hosts/{peer['hostId']}/" in url for url in requests))
+            full_output.screenshot(path=evidence_root / f"remote-full-output-peer-{index}.png")
+        finally:
+            full_page.close()
+    results["checks"]["full_tool_output_host_and_chunk_isolation"] = {"ok": len(full_checks) == 2 and all(full_checks)}
 
 events = input_events(manifest)
 expected_inputs = {

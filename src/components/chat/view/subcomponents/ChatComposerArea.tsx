@@ -7,6 +7,8 @@
 import { ArrowDownIcon } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
+import { useFleetHost } from '../../../../fleet/FleetSessionRoute';
+import { relayTargetKey } from '../../utils/relayTransport';
 import type { ChatInterfaceProps } from '../../types/types';
 import type { useChatInterfaceState } from '../../hooks/useChatInterfaceState';
 import type { ChatSessionSurface } from '../../hooks/useChatSessionSurface';
@@ -47,6 +49,7 @@ export default function ChatComposerArea({
   sendByCtrlEnter,
 }: ChatComposerAreaProps) {
   const { t } = useTranslation('chat');
+  const { storeScope } = useFleetHost();
   const { chat, provider: providerState, session } = surface;
   const { composer, relayAsk } = interfaceState;
 
@@ -82,7 +85,7 @@ export default function ChatComposerArea({
           // key: remount per exact pane target — a draft/in-flight status
           // must never survive a switch to another pane or process generation.
           <LiveRelayComposer
-            key={`${liveSessionKind ?? 'gjc'}:${liveSessionTarget.tmux.paneId}:${liveSessionTarget.process.startedAtMs}`}
+            key={relayTargetKey(liveSessionKind ?? 'gjc', { ...liveSessionTarget, ...(storeScope.hostId ? { hostId: storeScope.hostId } : {}) })}
             target={liveSessionTarget}
             model={liveSessionModel}
             effort={liveSessionEffort}

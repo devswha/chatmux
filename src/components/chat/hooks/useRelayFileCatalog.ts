@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { api } from '../../../utils/api';
+import { isLocalHostScope, type HostScope } from '../../../fleet/hostApi/urls';
 import {
   flattenProjectFileTree,
   normalizeWorkspacePath,
@@ -24,6 +25,7 @@ type WorkspaceProject = {
 };
 
 const LOAD_DEBOUNCE_MS = 200;
+const EMPTY_FILES: readonly MentionableFile[] = [];
 
 async function loadFiles(workspacePath: string): Promise<readonly MentionableFile[] | null> {
   const projectsResponse = await api.projects();
@@ -60,7 +62,10 @@ export type RelayFileCatalog = {
   readonly request: () => void;
 };
 
-export function useRelayFileCatalog(workspacePath: string | null): RelayFileCatalog {
+export function useRelayFileCatalog(path: string | null, scope?: HostScope): RelayFileCatalog {
+  // Fleet does not expose a remote file-tree RPC. A matching cwd on the hub
+  // never makes its file tree the peer's inventory.
+  const workspacePath = scope && !isLocalHostScope(scope) ? null : path;
   const [files, setFiles] = useState<readonly MentionableFile[]>([]);
   const [wanted, setWanted] = useState(false);
   const loadedRef = useRef<string | null>(null);
@@ -114,5 +119,5 @@ export function useRelayFileCatalog(workspacePath: string | null): RelayFileCata
   }, [wanted, workspacePath]);
 
   const request = useCallback(() => setWanted(true), []);
-  return { files, request };
+  return { files: workspacePath !== null && loadedRef.current === workspacePath ? files : EMPTY_FILES, request };
 }

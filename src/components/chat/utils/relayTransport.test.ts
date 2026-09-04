@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { dispatchRelay, interruptRelay } from './relayTransport';
+import { dispatchRelay, interruptRelay, relayTargetKey } from './relayTransport';
 
 const HOST = '22222222-2222-4222-8222-222222222222';
 const target = {
@@ -9,6 +9,18 @@ const target = {
   tmux: { socketPath: '/tmp/peer.sock', sessionId: '$1', windowId: '@1', paneId: '%1' },
   process: { pid: 41, startedAtMs: 8_000 },
 };
+
+test('relay state keys distinguish hosts, sockets, panes, and processes even at equal start times', () => {
+  const original = relayTargetKey('codex', target);
+  for (const next of [
+    { ...target, hostId: '33333333-3333-4333-8333-333333333333' },
+    { ...target, tmux: { ...target.tmux, socketPath: '/tmp/other.sock' } },
+    { ...target, tmux: { ...target.tmux, sessionId: '$2' } },
+    { ...target, tmux: { ...target.tmux, windowId: '@2' } },
+    { ...target, process: { ...target.process, pid: 42 } },
+  ]) assert.notEqual(relayTargetKey('codex', next), original);
+  assert.equal(relayTargetKey('codex', { ...target, process: { ...target.process } }), original);
+});
 
 test('Given a remote relay, when text, prompt, and interrupt are sent, then every request remains host qualified', async (t) => {
   const originalFetch = globalThis.fetch;

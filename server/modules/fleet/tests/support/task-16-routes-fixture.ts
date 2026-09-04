@@ -74,6 +74,7 @@ function remoteClients(record: (call: RemoteCall) => void, fail: () => Error | n
   return {
     reads: {
       metadata: (target) => note('metadata', target.hostId, target.localId, { source: target.hostId }),
+      toolResult: (target) => note('toolResult', target.hostId, target.localId, { source: target.hostId }),
       history: (target) => note('history', target.hostId, target.localId, { source: target.hostId }),
       search: (target, options) => note('search', target.hostId, target.localId, { source: target.hostId, query: options.query }),
       capturePane: (target) => note('capturePane', target.hostId, target.localId, { source: target.hostId }),

@@ -7,13 +7,12 @@ import type {
   ClaudePermissionSuggestion,
   PermissionGrantResult,
   Provider,
-  ToolResult,
 } from '../../types/types';
 import { formatUsageLimitText } from '../../utils/chatFormatting';
 import type { Project } from '../../../../types/app';
 import { ToolRenderer, shouldHideToolResult } from '../../tools';
 import { Reasoning, ReasoningTrigger, ReasoningContent } from '../../../../shared/view/ui';
-import { authenticatedFetch } from '../../../../utils/api';
+import { useFullToolResult } from '../../hooks/useFullToolResult';
 
 import ChatMessageImages from './ChatMessageImages';
 import { Markdown } from './Markdown';
@@ -67,15 +66,10 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
     () => formatUsageLimitText(String(message.content || '')),
     [message.content]
   );
-  const [fullToolResult, setFullToolResult] = useState<ToolResult | null>(null);
-  const [isLoadingFullToolResult, setIsLoadingFullToolResult] = useState(false);
-  const [fullToolResultError, setFullToolResultError] = useState(false);
+  const { fullToolResult, isLoadingFullToolResult, fullToolResultError, loadFullToolResult } = useFullToolResult(message.sessionId, message.toolId);
   const [isToolErrorOpen, setIsToolErrorOpen] = useState(false);
   const [isConversationErrorOpen, setIsConversationErrorOpen] = useState(false);
   useEffect(() => {
-    setFullToolResult(null);
-    setIsLoadingFullToolResult(false);
-    setFullToolResultError(false);
     setIsToolErrorOpen(false);
   }, [message.sessionId, message.toolId]);
   useEffect(() => {
@@ -101,33 +95,6 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
 
   const formattedTime = useMemo(() => new Date(message.timestamp).toLocaleTimeString(), [message.timestamp]);
   const shouldHideThinkingMessage = Boolean(message.isThinking && !showThinking);
-
-  const loadFullToolResult = async () => {
-    if (!message.sessionId || !message.toolId || isLoadingFullToolResult) return;
-    setIsLoadingFullToolResult(true);
-    setFullToolResultError(false);
-    try {
-      const params = new URLSearchParams({ toolId: message.toolId });
-      const response = await authenticatedFetch(
-        `/api/providers/sessions/${encodeURIComponent(message.sessionId)}/tool-result?${params}`,
-      );
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const body = await response.json();
-      const data = body?.data ?? body;
-      const result = data.toolResult as ToolResult | null | undefined;
-      if (!result) {
-        throw new Error('Missing tool result');
-      }
-      const content = typeof result.content === 'string'
-        ? result.content
-        : JSON.stringify(result.content ?? '', null, 2);
-      setFullToolResult({ ...result, content });
-    } catch {
-      setFullToolResultError(true);
-    } finally {
-      setIsLoadingFullToolResult(false);
-    }
-  };
 
   if (shouldHideThinkingMessage) {
     return null;

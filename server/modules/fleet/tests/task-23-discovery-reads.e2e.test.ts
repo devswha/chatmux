@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
+import { appendFile, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import test, { after } from 'node:test';
 
@@ -47,6 +47,43 @@ test('task-23 discovery and read routing across two colliding peers', {
   const catalogB = await fleet.awaitCatalog(fleet.hostIds.b, (snap) => snap.sessions.length > 0, 'peer B catalog');
   await fleet.awaitPeerState(fleet.hostIds.a, 'online');
   await fleet.awaitPeerState(fleet.hostIds.b, 'online');
+
+  await t.test('complete tool output stays on its owning peer across bounded chunks', async () => {
+    const toolId = 'colliding-large-tool';
+    for (const [peer, hostId, label] of [
+      [fleet.agents.a, fleet.hostIds.a, 'peer-alpha'],
+      [fleet.agents.b, fleet.hostIds.b, 'peer-bravo'],
+    ] as const) {
+      const content = `${label}:${'한😀\u0001'.repeat(12_000)}:end`;
+      await appendFile(peer.transcriptPath, [
+        { type: 'response_item', timestamp: '2026-09-04T00:00:00Z', payload: { type: 'function_call', name: 'exec_command', arguments: '{}', call_id: toolId } },
+        { type: 'response_item', timestamp: '2026-09-04T00:00:01Z', payload: { type: 'function_call_output', call_id: toolId, output: content } },
+      ].map((line) => JSON.stringify(line)).join('\n') + '\n');
+      const parts: string[] = [];
+      let offset = 0;
+      let revision: string | null = null;
+      while (true) {
+        const params = new URLSearchParams({ toolId, offset: String(offset) });
+        if (revision !== null) params.set('revision', revision);
+        const response = await fleet.hostRequest('GET', `/api/hosts/${hostId}/providers/sessions/${collision.appSessionId}/tool-result?${params}`);
+        assert.equal(response.status, 200, JSON.stringify(response.body));
+        const part = data(response.body);
+        assert.equal(part.toolId, toolId);
+        assert.equal(part.offset, offset);
+        if (revision !== null) assert.equal(part.revision, revision);
+        revision = String(part.revision);
+        parts.push(String(part.content));
+        if (part.nextOffset === null) break;
+        assert.ok(Number(part.nextOffset) > offset);
+        offset = Number(part.nextOffset);
+        assert.ok(parts.length < 100, 'full output must make bounded progress');
+      }
+      assert.equal(parts.join(''), content);
+      assert.ok(parts.length > 1);
+    }
+    const local = await fleet.hostRequest('GET', `/api/providers/sessions/${collision.appSessionId}/tool-result?toolId=${toolId}`);
+    assert.equal(local.status, 404, 'the hub must not acquire the peers\' tool output');
+  });
 
   await t.test('colliding identities stay distinct per host in the hub catalog', async () => {
     // Given: both peers publish the same session/project ids and tmux tuple.

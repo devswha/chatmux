@@ -17,7 +17,7 @@ import {
   isLocalHostScope,
   type HostScope,
 } from '../../../fleet/hostApi/urls';
-import type { TmuxPaneTarget } from '../../../../shared/tmux';
+import { tmuxPaneIdentityKey, type TmuxPaneTarget } from '../../../../shared/tmux';
 import { api } from '../../../utils/api';
 
 export type RelayInteractivePrompt = {
@@ -58,15 +58,18 @@ function asPrompt(value: unknown, field: 'prompt' | 'approval' = 'prompt'): Rela
     && typeof (prompt as { id?: unknown }).id === 'string'
     && typeof (prompt as { question?: unknown }).question === 'string'
     && Array.isArray((prompt as { options?: unknown }).options)
+    && (prompt as { options: unknown[] }).options.every((option) => option !== null && typeof option === 'object' && typeof (option as { label?: unknown }).label === 'string')
     ? prompt as RelayInteractivePrompt
     : null;
 }
 
 export function useRelayInteractivePrompt(input: RelayInteractivePromptInput): RelayInteractivePromptState {
-  const [prompt, setPrompt] = useState<RelayInteractivePrompt | null>(null);
   const { relayKind, target } = input;
   const { hostId, localHostId, localId } = input.session;
-  const dismiss = useCallback(() => setPrompt(null), []);
+  const key = JSON.stringify([relayKind, hostId, localHostId, localId, tmuxPaneIdentityKey(target.tmux), target.process.pid, target.process.startedAtMs]);
+  const [resolved, setResolved] = useState<{ key: string; prompt: RelayInteractivePrompt | null } | null>(null);
+  const setPrompt = useCallback((prompt: RelayInteractivePrompt | null) => setResolved({ key, prompt }), [key]);
+  const dismiss = useCallback(() => setResolved((current) => current?.key === key ? { key, prompt: null } : current), [key]);
 
   useEffect(() => {
     if (!PROMPT_PROVIDERS.has(relayKind)) {
@@ -103,10 +106,12 @@ export function useRelayInteractivePrompt(input: RelayInteractivePromptInput): R
           ? await api.liveSessionInteractivePrompt(target.tmux, target.process)
           : await api.externalCliSessionInteractivePrompt(target.tmux, target.process);
         const body: unknown = await response.json().catch(() => null);
-        if (cancelled || !response.ok) return;
+        if (cancelled) return;
+        if (!response.ok) { setPrompt(null); return; }
         setPrompt(asPrompt((body as { data?: unknown } | null)?.data));
       } catch {
         // Best effort. Free-text relay remains available if the read fails.
+        if (!cancelled) setPrompt(null);
       } finally {
         inFlight = false;
       }
@@ -117,7 +122,7 @@ export function useRelayInteractivePrompt(input: RelayInteractivePromptInput): R
       cancelled = true;
       clearInterval(timer);
     };
-  }, [hostId, localHostId, localId, relayKind, target]);
+  }, [hostId, localHostId, localId, relayKind, setPrompt, target]);
 
-  return { prompt, dismiss };
+  return { prompt: resolved?.key === key ? resolved.prompt : null, dismiss };
 }

@@ -14,30 +14,32 @@ import { useFleetHost } from '../../../fleet/FleetSessionRoute';
 import type { LLMProvider, Project } from '../../../types/app';
 
 import { loadSlashCommands, type SlashCommand } from './slashCommandCatalog';
+const EMPTY_COMMANDS: SlashCommand[] = [];
 
 export function useSlashCommandCatalog(
   selectedProject: Project | null,
   provider: LLMProvider,
 ): SlashCommand[] {
-  const [commands, setCommands] = useState<SlashCommand[]>([]);
   const { storeScope, activeSession } = useFleetHost();
   const { hostId, localHostId } = storeScope;
   const localId = activeSession?.localId ?? null;
+  const request = JSON.stringify([hostId, localHostId, localId, provider,
+    selectedProject?.projectId, selectedProject?.fullPath, selectedProject?.path]);
+  const [resolved, setResolved] = useState<{ request: typeof request; commands: SlashCommand[] } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     if (!selectedProject) {
-      setCommands([]);
       return undefined;
     }
     void loadSlashCommands(selectedProject, provider, { hostId, localHostId, localId })
-      .then((loaded) => { if (!cancelled) setCommands(loaded); })
+      .then((loaded) => { if (!cancelled) setResolved({ request, commands: loaded }); })
       .catch((error: unknown) => {
         console.error('Error fetching slash commands:', error);
-        if (!cancelled) setCommands([]);
+        if (!cancelled) setResolved({ request, commands: [] });
       });
     return () => { cancelled = true; };
-  }, [hostId, localHostId, localId, provider, selectedProject]);
+  }, [hostId, localHostId, localId, provider, request, selectedProject]);
 
-  return commands;
+  return resolved?.request === request ? resolved.commands : EMPTY_COMMANDS;
 }

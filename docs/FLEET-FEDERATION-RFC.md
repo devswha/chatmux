@@ -14,6 +14,29 @@ as fleet enums. Everything else is unchanged from revision 2.
 
 Revision 4 (2026-09-03): permits hub-managed SSH local forwards for enrollment, allowing the hub to create and supervise the tunnel while securely handling host keys and prohibiting password retention. Everything else is unchanged from revision 3.
 
+Revision 5 (2026-09-04): adds bounded full-tool-output reads under the existing
+`session.read` operation/capability. Other operations and descriptor fields are unchanged.
+
+### Full tool output
+
+- The owner-only host-qualified tool-result endpoint MUST resolve the addressed
+  installation and session; it MUST NOT fall back to the hub's matching local ID.
+- `session.read` MAY use `{ read: "tool_result", toolId, offset, revision,
+  deadlineAtMs }`. `toolId` is 1–500 characters without NUL, `offset` is a
+  non-negative byte offset, and `revision` is null for the first read or the
+  returned SHA-256 revision for subsequent reads.
+- Responses carry `toolId`, `revision`, `content`, `isError`, `offset`,
+  `nextOffset` and `totalBytes`. Each content chunk contains at most 8 KiB of
+  complete UTF-8 characters, leaving JSON escaping/envelope headroom within the
+  unchanged 64 KiB frame limit. `nextOffset: null` marks completion.
+- A content revision is a read consistency marker, never action authority.
+  A changed revision or invalid byte boundary MUST fail the read. The browser
+  MUST verify the target, revision and offsets, and cancel/ignore responses
+  after switching host/session/tool. It MUST NOT combine different revisions.
+- Earlier peers may reject the new read selector using their existing closed
+  error response. This is surfaced as unavailable full output, never a local
+  fallback, protocol downgrade, or a reason to replay a mutation.
+
 ## Topology and authority
 
 - A fleet MUST contain one designated hub and at most nine enrolled full peers (ten
