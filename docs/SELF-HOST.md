@@ -168,8 +168,15 @@ sync, failover, or fleet updater.
 
 Use Tailscale Serve HTTPS/WSS by default. The saved peer URL is the peer's actual
 Serve host and port with `/fleet-ws`, for example
-`wss://peer.example.ts.net:8443/fleet-ws`. Plain `ws://` is rejected except when the
-owner has manually created a local SSH forward on the hub:
+`wss://peer.example.ts.net:8443/fleet-ws`. Plain `ws://` is restricted to a
+literal-loopback SSH local forward, created manually or through the hub owner's
+**Easy SSH setup** action. Easy setup requires an already-installed remote ChatMux
+backend on `127.0.0.1:3001` and a reachable SSH account. It installs a dedicated key,
+obtains the pairing token, and manages the tunnel without saving the password.
+Changed host keys fail closed; investigate the peer identity before reconnecting.
+See [the SSH setup contract](REMOTE-ACCESS.md#82-default-transport-tailscale-httpswss).
+
+For a manually managed tunnel or a different peer backend port, run on the hub:
 
 ```sh
 ssh -N -o ExitOnForwardFailure=yes \
@@ -177,13 +184,13 @@ ssh -N -o ExitOnForwardFailure=yes \
 ```
 
 That mode accepts only `ws://127.0.0.1:8022/fleet-ws` or an explicitly bound
-`ws://[::1]:<port>/fleet-ws`; there is no automatic downgrade or SSH process/key
-management.
+`ws://[::1]:<port>/fleet-ws`. There is no automatic transport downgrade. The owner
+manages the process and keys in this manual mode.
 
 Operational rules:
 
 1. Enroll only from the hub owner's **Settings → Hosts** surface, using a single-use
-   ten-minute token created on the peer.
+   ten-minute token created on the peer. Easy SSH setup obtains that token over SSH.
 2. Treat **Syncing** as read-only recovery and wait for **Online** before issuing a
    mutation. Treat **Offline** as a direct-path failure; repair reachability and use
    **Reconnect**. Never retry an uncertain mutation automatically.
@@ -238,8 +245,9 @@ See [REMOTE-ACCESS.md §8](REMOTE-ACCESS.md#8-multi-pc-fleet-one-hub-and-full-pe
 for the complete enrollment and recovery contract.
 
 Remote desktop, remote IDE/file/Git/project mutation, cloud sync, arbitrary command
-RPC, remote plain-shell creation, managed VPN/SSH, automatic failover, and
-zero-configuration reachability are outside fleet scope.
+RPC, remote plain-shell creation, general-purpose VPN/SSH management, automatic
+failover, and zero-configuration reachability are outside fleet scope. The
+dedicated enrollment tunnel is governed by Fleet RFC revision 4.
 
 ## Manual recovery cutover
 

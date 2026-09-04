@@ -1,6 +1,6 @@
 # ChatMux 제품 범위와 로드맵
 
-기준일: 2026-08-29
+기준일: 2026-09-04
 
 이 문서는 ChatMux의 제품 범위와 작업 우선순위에 대한 단일 기준이다.
 ChatMux는 tmux에서 이미 실행 중인 코딩 에이전트를 발견하고, 읽고, 제어하는
@@ -10,7 +10,7 @@ ChatMux는 tmux에서 이미 실행 중인 코딩 에이전트를 발견하고, 
 
 > **tmux가 주인이고 ChatMux는 창문이다.**
 
-사용자는 Gajae Code, Claude Code, Codex, Cursor, OpenCode, Oh My Pi 같은
+사용자는 Gajae Code, Claude Code, Codex, Cursor, OpenCode, Oh My Pi, Oh My OpenAgent 같은
 에이전트를 평소처럼 tmux에서 실행한다. ChatMux는 그 프로세스를 소유권
 이관이나 별도 등록 없이 찾아 브라우저와 모바일 웹에 표시한다.
 
@@ -42,7 +42,7 @@ ChatMux가 제공하는 핵심 가치는 다음과 같다.
 
 ## 현재 기준선
 
-- Gajae Code, Claude Code, Codex, Cursor, OpenCode, Oh My Pi와 SSH tmux
+- Gajae Code, Claude Code, Codex, Cursor, OpenCode, Oh My Pi, Oh My OpenAgent와 SSH tmux
   세션을 자동 발견한다.
 - provider-native session store를 인덱싱하고, 연결 가능한 외부 세션을
   구조화된 transcript와 composer로 연다.
@@ -54,7 +54,8 @@ ChatMux가 제공하는 핵심 가치는 다음과 같다.
   표시한다.
 - owner는 한 hub에 최대 아홉 full peer를 등록해 host별 session, transcript, verified
   terminal/control surface를 사용할 수 있다. 기본 peer transport는 Tailscale
-  HTTPS/WSS다. 예외는 owner가 직접 만든 loopback SSH local forward뿐이다.
+  HTTPS/WSS다. 예외는 owner가 직접 만들거나 **Easy SSH setup**으로 hub에
+  생성을 요청한 loopback SSH local forward다.
 
 ## 범위 밖
 
@@ -71,7 +72,8 @@ ChatMux가 제공하는 핵심 가치는 다음과 같다.
   선택한 VPN·터널·포트포워딩에 위임한다)
 - Live Activity, Apple Watch 같은 네이티브 알림 표면
 - provider가 제공하는 CLI, 인증, sandbox, 모델 실행 기능의 재구현
-- zero-config 원격 도달성, ChatMux가 관리하는 Tailscale/SSH 설정 또는 키
+- zero-config 원격 도달성, ChatMux가 관리하는 Tailscale 또는 범용 SSH 설정·키
+  (Fleet RFC revision 4의 owner 요청 기반 전용 SSH 터널·키는 지원)
 
 Electron 셸, 데스크톱 패키징, 전용 알림 채널과 원격 target 확장 코드는
 2026-07-23 제거를 확정했다. 웹/PWA 외의 전달 표면은 유지하지 않는다.
@@ -148,8 +150,10 @@ mosh, et.rs)도 모두 Tailscale 또는 포트 개방으로 수렴한다.
 - [x] one hub + 최대 nine full peers (총 ten PCs), owner-only enrollment
 - [x] single-use 10-minute pairing code와 양방향 installation-key pinning
 - [x] Tailscale Serve HTTPS/WSS 기본 경로, plaintext downgrade 없음
-- [x] owner가 수동 생성한 SSH local forward에 한해 literal
+- [x] owner가 수동 생성하거나 hub에 명시적으로 생성을 요청한 SSH local forward에 한해 literal
       `ws://127.0.0.1` 또는 `ws://[::1]` 허용
+- [x] **Easy SSH setup**으로 전용 키 설치·터널 관리·페어링 자동 수행
+      (원격 ChatMux 설치와 SSH 도달성은 사전 준비, 비밀번호는 미보관)
 - [x] host-qualified catalog/session/chat/verified terminal/completion routing
 - [x] `offline`·`syncing`·`revoked`·`incompatible` fail-closed 상태와 명시적 reconnect
 - [x] local-first revoke, peer 직접 UI 복구, installation-key loss revoke/re-pair
@@ -191,3 +195,4 @@ Fleet는 remote desktop/IDE, cloud sync, relay, 자동 failover, fleet updater�
 | 2026-07-27 | 릴레이 서버 운영과 자체 모바일 앱을 범위 밖으로 확정. 원격 도달성은 사용자 선택에 위임 ([REMOTE-ACCESS.md](REMOTE-ACCESS.md)) |
 | 2026-08-27 | one hub + nine full peers fleet를 현재 기능으로 기록. Tailscale WSS 기본, literal loopback SSH 예외, owner-only enrollment, direct-peer recovery와 hub-first update를 계약으로 확정 |
 | 2026-08-29 | P1·P2·P4를 현재 기능으로 기록. P3은 terminal fallback만 현재 기능이고 custom agent 감지, 여러 tmux 서버 discovery, 진단 화면은 열어 둔다 |
+| 2026-09-03 | Fleet RFC revision 4와 #101에서 owner 요청 기반 SSH 간편 등록·전용 터널 관리를 추가. 기존 수동 loopback forward 경로도 유지 |

@@ -53,8 +53,8 @@ chatmux/
 ├── server/           # Express backend
 │   ├── routes/       # API route handlers
 │   ├── middleware/   # Express middleware
-│   ├── database/     # SQLite database layer
-│   └── tools/        # CLI tool integrations
+│   ├── modules/      # Domain routes, database, providers, fleet, and WebSocket
+│   └── shared/       # Backend contracts and utilities
 ├── shared/           # Code shared between client and server
 └── public/           # Static assets, icons, PWA manifest
 ```
@@ -84,7 +84,7 @@ chatmux/
 - Documentation improvements are always welcome
 - Keep language clear and concise
 - Keep installation and self-hosting instructions aligned with [the self-hosting guide](docs/SELF-HOST.md)
-- Multi-PC documentation must preserve the shipped contract in [REMOTE-ACCESS.md §8](docs/REMOTE-ACCESS.md#8-multi-pc-fleet-one-hub-and-full-peers): one hub plus at most nine full peers, owner-only enrollment, Tailscale HTTPS/WSS by default, and only literal loopback `ws://` behind an owner-created SSH forward. Do not describe a relay, downgrade, automatic failover, fleet updater, cloud sync, remote desktop/IDE, arbitrary commands, or zero-configuration reachability.
+- Multi-PC documentation must preserve the shipped contract in [REMOTE-ACCESS.md §8](docs/REMOTE-ACCESS.md#8-multi-pc-fleet-one-hub-and-full-peers) and [Fleet RFC revision 4](docs/FLEET-FEDERATION-RFC.md#hub-managed-ssh-forwarding): one hub plus at most nine full peers, owner-only enrollment, Tailscale HTTPS/WSS by default, and only literal loopback `ws://` behind an owner-managed or explicitly requested hub-managed SSH forward. Do not describe a relay, downgrade, automatic failover, fleet updater, cloud sync, remote desktop/IDE, arbitrary commands, or zero-configuration reachability.
 
 ## Commit Convention
 

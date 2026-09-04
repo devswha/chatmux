@@ -59,7 +59,7 @@ server/modules/providers/list/<provider>/
   <provider>-session-synchronizer.provider.ts
 ```
 
-The existing provider folders are `claude`, `codex`, `cursor`, `gjc`, `omp`, and `opencode`.
+The existing provider folders are `claude`, `codex`, `cursor`, `gjc`, `omp`, `omo`, and `opencode`.
 
 ## What Each Facet Does
 

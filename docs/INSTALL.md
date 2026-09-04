@@ -262,8 +262,15 @@ Use the actual HTTPS host and port printed by `chatmux status`; do not assume
 `8443`. Both PCs must be able to reach that Tailscale Serve address. ChatMux
 never downgrades WSS to plaintext and does not provide a relay.
 
-If direct WSS is unavailable, the owner must first create this local forward on
-the **hub PC** and keep that SSH process running:
+If direct WSS is unavailable, choose **Easy SSH setup** on the hub to connect to an
+already-installed remote ChatMux backend at `127.0.0.1:3001`. Enter the reachable
+`user@host[:ssh-port]` and SSH password, review the dedicated-key disclosure, then
+select **Add with SSH**. The hub obtains the pairing token and manages the forward;
+the password is never saved. Changed host keys fail closed. See
+[the SSH setup details](REMOTE-ACCESS.md#82-default-transport-tailscale-httpswss).
+
+Alternatively, create this local forward on the **hub PC** and keep that SSH
+process running. Use this manual mode when the peer backend uses a different port:
 
 ```sh
 ssh -N -o ExitOnForwardFailure=yes \
@@ -274,8 +281,8 @@ Select **SSH loopback forward** and enter exactly
 `ws://127.0.0.1:8022/fleet-ws`. The only other accepted host spelling is
 `ws://[::1]:<port>/fleet-ws` for an explicitly IPv6-bound local forward.
 Non-loopback `ws://`, alternate loopback spellings, credentials, query strings,
-and paths other than `/fleet-ws` are rejected. ChatMux does not create, store,
-or restart the SSH forward.
+and paths other than `/fleet-ws` are rejected. The owner manages the process and
+keys for this manually created forward.
 
 After enrollment, **Online** is usable. **Syncing** means the hub is obtaining a
 fresh peer snapshot and remote writes are suspended. **Offline** means the peer
