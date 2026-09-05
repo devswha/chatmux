@@ -14,6 +14,7 @@ import {
   readTmuxProcessGeneration,
   sameTmuxPaneIdentity,
 } from './tmux-pane-actions.service.js';
+import { copyLocalTmuxSocketEvidence } from './local-tmux-discovery.service.js';
 
 const verifiedTmuxActionTarget = Symbol('VerifiedTmuxActionTarget');
 
@@ -45,8 +46,10 @@ export function createVerifiedTmuxActionTarget(
   providerSessionId: string | null = null,
   binding: ExternalSessionBinding | null = null,
 ): VerifiedTmuxActionTarget {
+  const identity = Object.freeze({ ...tmux });
+  copyLocalTmuxSocketEvidence(tmux, identity);
   return Object.freeze({
-    tmux: Object.freeze({ ...tmux }),
+    tmux: identity,
     process: Object.freeze({ ...process }),
     kind,
     tmuxName,
@@ -85,9 +88,9 @@ export async function assertFreshExternalTmuxTarget(
     });
   }
 
-  await (deps.assertPaneIdentity ?? assertTmuxPaneIdentity)(tmux);
+  await (deps.assertPaneIdentity ?? assertTmuxPaneIdentity)(target.tmux);
   return createVerifiedTmuxActionTarget(
-    tmux,
+    target.tmux,
     process,
     target.kind,
     target.tmuxName,

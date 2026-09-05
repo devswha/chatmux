@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 
 import type { TmuxPaneIdentity } from '../../../../shared/tmux.js';
 
+import { assertLocalTmuxSocket, copyLocalTmuxSocketEvidence, rememberLocalTmuxSocket, sameLocalTmuxSocket } from './local-tmux-discovery.service.js';
 import { runTmux } from './builtin-relay.service.js';
 
 const ATTACH_CAPABILITY_TTL_MS = 60_000;
@@ -26,10 +27,11 @@ export async function readTmuxPaneGeneration(tmux: TmuxPaneIdentity): Promise<st
   const result = await runTmux([
     '-S', tmux.socketPath,
     'display-message', '-p', '-t', tmux.paneId,
-    '#{pane_pid}',
+    '#{session_id}\t#{window_id}\t#{pane_id}\t#{pane_pid}',
   ]);
-  const generation = result.output.trim();
-  return result.code === 0 && generation ? generation : null;
+  const [sessionId, windowId, paneId, generation] = result.output.trim().split('\t');
+  return result.code === 0 && sessionId === tmux.sessionId && windowId === tmux.windowId
+    && paneId === tmux.paneId && /^\d+$/.test(generation ?? '') ? generation : null;
 }
 
 function samePane(a: TmuxPaneIdentity, b: TmuxPaneIdentity): boolean {
@@ -57,6 +59,15 @@ export function createAttachCapabilityService(
   const maxRecords = options.maxRecords ?? MAX_ATTACH_CAPABILITIES;
   const readPaneGeneration = options.readPaneGeneration ?? readTmuxPaneGeneration;
 
+  const readCheckedGeneration = async (tmux: TmuxPaneIdentity): Promise<string | null> => {
+    const before = await assertLocalTmuxSocket(tmux);
+    const generation = await readPaneGeneration(tmux);
+    const after = await assertLocalTmuxSocket(tmux);
+    if (before && (!after || !sameLocalTmuxSocket(before, after))) return null;
+    if (after) rememberLocalTmuxSocket(tmux, after);
+    return generation && after ? `${generation}\0${after.generation}` : generation;
+  };
+
   const remove = (token: string, record = records.get(token)): void => {
     if (!record) return;
     records.delete(token);
@@ -82,7 +93,7 @@ export function createAttachCapabilityService(
       pruneExpired();
       let generation: string | null;
       try {
-        generation = await readPaneGeneration(tmux);
+        generation = await readCheckedGeneration(tmux);
       } catch {
         return null;
       }
@@ -95,9 +106,11 @@ export function createAttachCapabilityService(
       if (previous) remove(previous);
       enforceLimit();
       const token = randomBytes(32).toString('base64url');
+      const identity = Object.freeze({ ...tmux });
+      copyLocalTmuxSocketEvidence(tmux, identity);
       records.set(token, Object.freeze({
         principal,
-        tmux: Object.freeze({ ...tmux }),
+        tmux: identity,
         generation,
         expiresAtMs: now() + ttlMs,
       }));
@@ -113,7 +126,7 @@ export function createAttachCapabilityService(
       }
 
       try {
-        const generation = await readPaneGeneration(tmux);
+        const generation = await readCheckedGeneration(record.tmux);
         if (record.expiresAtMs <= now()) {
           remove(token, record);
           return false;

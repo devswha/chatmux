@@ -1,6 +1,6 @@
-# P2 Discovery Stream RFC (M4a) — rev.2
+# P2 Discovery Stream RFC (M4a) — rev.3
 
-상태: **승인 대기(approval gate)** — 본 문서는 구현이 아니라 승인 게이트다. 승인 전 B12~B15 제품 소스 착수 금지(승인 계획 §5 B14 «승인 게이트», §9.2 BLOCK).
+상태: rev.2의 역사적 승인 게이트 기록은 아래에 보존한다. **rev.3의 명시적 로컬 tmux socket 지원(§4.1.1)은 2026-09-05 사용자 요청으로 승인되었다.** 이 승인은 해당 범위의 계약 개정과 구현을 함께 허용하며 다른 계약을 확대하지 않는다.
 
 대상 백로그: B12(단일 수집기/권위 스냅샷), B13(epoch + reconnect snapshot→delta), B14(unavailable vs 종료 구분 + 응답 계약 신설), B15(폴링 제거 + 상수 비용 측정).
 
@@ -14,6 +14,7 @@
 
 | rev | 사유 | 반영 내용 | 추적 |
 |---|---|---|---|
+| **rev.3** | 2026-09-05 owner-authorized explicit local socket inventory | §4.1.1: bounded configuration, socket-qualified identity, partial failure and action safety; default unchanged | `docs/TMUX-DISCOVERY.md` |
 | rev.1 | 최초 작성 | §1~§10 + 부록 A/B | — |
 | **rev.2** | critic **ITERATE** 판정, required_changes 6건 | 아래 6행 | 부록 B |
 | rev.2 / RC1 | 4번째 폴링(live roster 5s) 누락 | §2.1에 **C0** 행 신설(절 제목 «폴링 4종(타이머 5개)»), §2.4 유일 호출부 명시, §2.6 `R_live` 재계산, §6.2 grace 근거 재산정(2초→5초, lane별 분리), §7.1 제거 대상 추가, §7.3 assert A/B/G 재작성 + U16, §8 B15-3 확장, §8.1 잔상 상한표, 부록 A #3·#7, 부록 B |
@@ -223,6 +224,57 @@ R'(N) = (2 + S)/C_SCAN + c_live/C_SCAN                        # 수집기 1개, 
 5. **(rev.2)** `pane.*` 구독 레지스트리에 **무효화 신호만** 공급한다(N3-d, §5.7 P4).
 
 비책임: HTTP 응답 조립, authorization, tmux 쓰기, pane 캡처.
+
+### 4.1.1 Explicit local tmux socket inventory (rev.3, normative)
+
+- The owner MAY set `CHATMUX_TMUX_SOCKETS` in the existing server environment.
+  Its value MUST be a JSON array of **1–8** objects, each containing exactly one
+  `name` (`tmux -L`) or `path` (`tmux -S`). Names MUST match
+  `[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}`; paths MUST be absolute, normalized, at most
+  4,096 UTF-8 bytes, and contain no control characters. The encoded inventory
+  MUST be at most 32 KiB. Invalid or duplicate entries MUST fail closed as a
+  whole; invalid configuration MUST NOT fall back to the default server.
+- An unset or empty value MUST preserve the existing unqualified `tmux`
+  discovery behavior, including tmux's inherited environment selection. An
+  explicit inventory replaces that implicit selection: the owner MUST include
+  `{"name":"default"}` when that server is wanted. No filesystem enumeration,
+  shell evaluation, glob expansion, automatic server/session/agent creation, or
+  client-supplied inventory is allowed. `-L` uses the service account UID and
+  tmux's `TMUX_TMPDIR` (or `/tmp`), independent of inherited `TMUX`.
+- The host capture MUST inspect at most K configured sockets (`1 <= K <= 8`)
+  and take **one shared `ps` roster** per full capture. A lightweight capture
+  MUST run at most K `list-panes` commands and no `ps`. Each child MUST have a
+  timeout and output bound; cancellation MUST stop only collector children.
+  Filesystem waits MUST have a logical deadline and cancellation; uncancellable
+  underlying work MUST remain globally bounded until completion. Superseded
+  capture generations MUST drain before a new inventory capture starts.
+  Cost is O(K + host processes), independent of browser count N. The original
+  §7 single-socket bounds are the K=1 case; multiply only its `list-panes` term
+  by K. The existing single collector and in-flight sharing remain mandatory.
+- Inventory membership and exact socket-qualified pane identity MUST be reused
+  by collection and fresh actions. Equal session/window/pane IDs on different
+  sockets MUST stay distinct through `tmuxPaneIdentityKey`. A matching cwd,
+  label, pane ID, old display row, or another healthy socket MUST NOT authorize
+  an action. Every explicit socket MUST be an owner-owned Unix socket; symlink
+  leaves, changed filesystem identity during inspection, reported socket
+  mismatches and inaccessible sockets MUST fail closed. Request-time actions
+  MUST recheck that the exact socket remains in the explicit inventory and
+  retain existing pane/process/provider generation checks. Filesystem evidence
+  is server-private and MUST NOT become a browser credential.
+- Capture results MUST keep successful socket evidence separate from failed
+  sockets. Failed sockets yield **no fresh panes**, and unavailable MUST NOT
+  mean confirmed empty. A partial capture MUST report aggregate `ok: false`;
+  current lane adapters MAY conservatively retain the complete prior display
+  snapshot until a complete capture succeeds. This can delay healthy-socket
+  display updates and fresh actions during an outage, but MUST NOT erase their
+  prior rows, manufacture stale action targets, or reset missing-row grace as
+  if failed sockets had succeeded. Fresh captures MUST never contain retained
+  panes. A successful zero-pane capture is distinct from a failed command.
+- Per-socket outcomes, configuration, resolved paths, ownership/inode evidence,
+  and raw command failures MUST remain server-private. Public diagnostics MAY
+  expose bounded counts and closed reason codes only, never socket names,
+  paths, argv, labels, or exception text. Fleet descriptors and host-qualified
+  action routing remain governed by the existing Fleet RFC.
 
 ### 4.2 스냅샷 구조체
 

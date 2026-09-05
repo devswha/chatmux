@@ -79,7 +79,7 @@ esac
   process.env.PATH = `${bin}${path.delimiter}${previousPath ?? ''}`;
   try {
     process.env.CHATMUX_LIVE_TMUX_OUTPUT = '';
-    assert.equal((await getLiveGjcSessionsDetailed()).ok, false);
+    assert.equal((await getLiveGjcSessionsDetailed()).ok, true);
 
     process.env.CHATMUX_LIVE_TMUX_OUTPUT = '/tmp/chatmux.sock\t$1\t@1\t%1\tlive\t1\tgjc\t/tmp\n';
     const result = await getLiveGjcSessionsDetailed();
@@ -129,7 +129,7 @@ esac
     const result = await getLiveGjcSessionsDetailed();
     assert.equal(result.ok, true);
     assert.equal(result.sessions.length, 1);
-    assert.equal(result.sessions[0].id, `${IDLE_GJC_ID_PREFIX}restart:%91`);
+    assert.match(result.sessions[0].id, /^idle-gjc:[a-f0-9]{64}$/);
     assert.equal(result.sessions[0].process, null);
     assert.notEqual(result.sessions[0].id, staleSessionId);
   } finally {
@@ -343,20 +343,16 @@ esac
       `${secondAgent.pid} 99999995 /usr/local/bin/gjc`,
     ].join('\n');
 
-    const expectedSyntheticIds = [
-      `${IDLE_GJC_ID_PREFIX}first:%94`,
-      `${IDLE_GJC_ID_PREFIX}second:%95`,
-    ];
     const result = await getLiveGjcSessionsDetailed();
     assert.equal(result.ok, true);
-    assert.deepEqual(
-      result.sessions.map((session) => session.id).sort(),
-      expectedSyntheticIds,
-    );
+    assert.equal(result.sessions.length, 2);
+    assert.equal(new Set(result.sessions.map((session) => session.id)).size, 2);
+    for (const session of result.sessions) assert.match(session.id, /^idle-gjc:[a-f0-9]{64}$/);
     assert.ok(result.sessions.every((session) => (
       session.id !== firstSessionId && session.id !== secondSessionId
     )));
 
+    const expectedSyntheticIds = result.sessions.map((session) => session.id).sort();
     const secondExit = new Promise<void>((resolve) => secondAgent.once('exit', () => resolve()));
     secondAgent.kill('SIGKILL');
     await secondExit;

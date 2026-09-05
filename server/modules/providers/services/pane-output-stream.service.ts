@@ -137,7 +137,7 @@ export function createPaneOutputStream(options: PaneOutputStreamOptions = {}) {
     const generation = entry.generation;
     entry.inFlight = (async () => {
       if (!await ensureTarget(entry, generation) || !current(entry, generation)) return;
-      try { await assertIdentity(entry.tmux); } catch { if (current(entry, generation)) invalidate(entry, 'pane_identity_changed'); return; }
+      try { await assertIdentity(entry.target!.tmux); } catch { if (current(entry, generation)) invalidate(entry, 'pane_identity_changed'); return; }
       // Identity inspection can take long enough for the target lease to expire.
       if (!await ensureTarget(entry, generation) || !current(entry, generation) || !entry.target) return;
       let output: string;
