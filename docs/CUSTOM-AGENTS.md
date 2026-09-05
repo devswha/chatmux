@@ -50,6 +50,16 @@ At most 128 candidate PIDs are considered per scan. Records may contain at most
 the existing shell fallback.
 
 Only the pane root or the sole direct child of its interactive shell can match.
+For a shell child, the root's live argv must name the same shell as the snapshot:
+`sh`, `bash`, `dash`, `zsh`, `ksh`, `fish`, or `nu`, by basename or absolute path,
+optionally prefixed with the login-shell `-`. Supported invocations have no
+arguments or only `-i`/`-l` options (combined short flags are supported except for
+`nu`). Bash also accepts `--login`, `--noprofile`, and `--norc` before short flags.
+Command modes such as `-c`/`-lc`, script operands, other option forms, and changed
+executables retain the ordinary shell representation, even with a matching
+foreground child. Snapshot command text alone cannot establish an interactive
+shell.
+
 Multiple shell children, including pipelines or unrelated background jobs, keep
 the ordinary shell representation. Exact NUL-delimited argv must match a rule,
 the process must own the terminal foreground group, and shell/child terminal and lineage evidence must

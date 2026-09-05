@@ -11,6 +11,8 @@ const WRAPPERS = new Set([
   'tmux', 'screen', 'npm', 'npx', 'pnpm', 'yarn', 'corepack', 'uv', 'uvx',
 ]);
 const INTERPRETERS = /^(?:node|nodejs|bun|deno|python(?:\d+(?:\.\d+)*)?|ruby|perl|php)$/;
+const INTERACTIVE_SHELLS = new Set(['sh', 'bash', 'dash', 'zsh', 'ksh', 'fish', 'nu']);
+const BASH_STARTUP_OPTIONS = new Set(['--login', '--noprofile', '--norc']);
 
 export type CustomTerminalAgentRule = Readonly<{ command: string; argv: readonly string[] }>;
 export type CustomProcessRecordReader = (pid: number, record: 'stat' | 'cmdline') => Promise<string | null>;
@@ -69,6 +71,23 @@ export function matchesCustomTerminalAgent(argv: readonly string[], rules: reado
     && argv.length === rule.argv.length + 1
     && rule.argv.every((token, index) => token === argv[index + 1])
   ));
+}
+
+/** A bounded, exact option allowlist for live pane-shell argv; never unwrap commands. */
+export function isCustomTerminalShellInvocation(comm: string, argv: readonly string[]): boolean {
+  if (!INTERACTIVE_SHELLS.has(comm) || !argv.length || argv.length > 17) return false;
+  const executable = argv[0].startsWith('-') ? argv[0].slice(1) : argv[0];
+  if (!commandToken(executable) || posix.basename(executable) !== comm) return false;
+  let sawShortOption = false;
+  for (const option of argv.slice(1)) {
+    if (option.length > 256) return false;
+    if (comm === 'bash' && !sawShortOption && BASH_STARTUP_OPTIONS.has(option)) continue;
+    // No operands or options that consume a command/script are supported, even
+    // when -i is also present. Nu's short options are accepted separately.
+    if (!(comm === 'nu' ? /^-[il]$/ : /^-[il]+$/).test(option)) return false;
+    sawShortOption = true;
+  }
+  return true;
 }
 
 type CustomProcessIdentity = Readonly<{

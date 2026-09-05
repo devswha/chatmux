@@ -8,7 +8,7 @@ import { tmuxPaneIdentityKey } from '../../../../../shared/tmux.js';
 import type { ExternalCliKind, ExternalCliSession, ExternalLocalCliKind, ExternalPane, ProcessTreeEntry, ExternalSessionBinding } from './contracts-and-resume.js';
 import { CLAUDE_SESSION_ID_RE, CODEX_THREAD_ID_RE, extractExternalResumeSessionId } from './contracts-and-resume.js';
 import type { CustomProcessEvidence, CustomTerminalAgentDetectionOptions } from './custom-terminal-agents.js';
-import { couldMatchCustomCommand, matchesCustomTerminalAgent, readCustomProcessEvidence, readCustomTerminalAgents } from './custom-terminal-agents.js';
+import { couldMatchCustomCommand, isCustomTerminalShellInvocation, matchesCustomTerminalAgent, readCustomProcessEvidence, readCustomTerminalAgents } from './custom-terminal-agents.js';
 
 
 export function parseClaudeRuntimeSession(
@@ -255,6 +255,7 @@ export async function classifyCustomTerminalSessions(
         && observed.tty === root.tty && observed.sid === root.sid
         && observed.foregroundPgid === root.foregroundPgid
         && (proc.pid === root.pid || observed.ppid === root.pid)
+        && (proc.pid === root.pid || isCustomTerminalShellInvocation(candidate.root.comm, root.argv))
         && (proc.pid === root.pid || (root.ppid !== proc.pid && root.startTicks <= observed.startTicks))
         && [proc.comm, observed.argv[0].split('/').at(-1)].includes(candidate.pane.command)
         && couldMatchCustomCommand(proc.comm, [{ command: observed.argv[0], argv: [] }])

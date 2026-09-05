@@ -100,18 +100,20 @@ test('matching requires complete case-sensitive executable and argument tokens, 
 });
 
 test('unset config, invalid config, unknown commands and unsupported platforms perform no additional reads', async () => {
-  for (const env of [{}, config([]), { CHATMUX_CUSTOM_TERMINAL_AGENTS: 'malformed' }, config([{ command: 'different-agent', argv: [] }])]) {
-    const f = fixture();
-    assert.deepEqual(await f.classify(env), f.base());
-    assert.deepEqual(f.reads, []);
-  }
-  for (const platform of ['darwin', 'win32'] as const) {
-    const f = fixture();
-    const sessions = f.base();
-    assert.equal(await classifyCustomTerminalSessions({ sessions, panes: f.panes, procs: f.procs }, {
-      env: config(), platform, readProcessRecord: f.readProcessRecord,
-    }), sessions);
-    assert.deepEqual(f.reads, []);
+  for (const rootIsShell of [false, true]) {
+    for (const env of [{}, config([]), { CHATMUX_CUSTOM_TERMINAL_AGENTS: 'malformed' }, config([{ command: 'different-agent', argv: [] }])]) {
+      const f = fixture(rootIsShell);
+      assert.deepEqual(await f.classify(env), f.base());
+      assert.deepEqual(f.reads, []);
+    }
+    for (const platform of ['darwin', 'win32'] as const) {
+      const f = fixture(rootIsShell);
+      const sessions = f.base();
+      assert.equal(await classifyCustomTerminalSessions({ sessions, panes: f.panes, procs: f.procs }, {
+        env: config(), platform, readProcessRecord: f.readProcessRecord,
+      }), sessions);
+      assert.deepEqual(f.reads, []);
+    }
   }
 });
 
@@ -120,6 +122,79 @@ test('matching pane root and foreground shell child remain shell rows with only 
     const f = fixture(child);
     assert.deepEqual(await f.classify(), [{ ...f.base()[0], agentPid: child ? 101 : 100 }]);
     assert.equal(f.reads.filter(([, record]) => record === 'cmdline').length, child ? 2 : 1);
+  }
+});
+
+test('a bash -c launch wrapper with a sole foreground custom child remains unclassified', async () => {
+  const f = fixture(true);
+  f.procs[0].args = "bash -c 'my-agent chat; sleep 60'";
+  f.records.get(100)!.cmdline = 'bash\0-c\0my-agent chat; sleep 60\0';
+  assert.deepEqual(await f.classify(), f.base());
+});
+
+test('a stale bash snapshot whose live argv is Python cannot classify its custom child', async () => {
+  const f = fixture(true);
+  f.records.get(100)!.cmdline = '/usr/bin/python3\0/opt/launcher.py\0';
+  assert.deepEqual(await f.classify(), f.base());
+});
+
+test('supported live default, login and interactive shells retain their sole foreground child', async () => {
+  for (const shell of ['sh', 'bash', 'dash', 'zsh', 'ksh', 'fish', 'nu']) {
+    const invocations = [
+      [shell], [`/bin/${shell}`], [`-${shell}`], [`/bin/${shell}`, '-i'],
+      [shell, '-l'], [`-${shell}`, '-i'], [shell, '-i', '-l'],
+      ...(shell === 'nu' ? [] : [[shell, '-il'], [shell, '-li']]),
+      ...(shell === 'bash' ? [
+        [shell, '--login'], [shell, '--noprofile', '--norc'],
+        [shell, '--noprofile', '--norc', '--login', '-i'],
+      ] : []),
+    ];
+    for (const argv of invocations) {
+      const f = fixture(true);
+      // Snapshot display args must not replace the current NUL-delimited argv.
+      f.procs[0] = { ...f.procs[0], comm: shell, args: `${shell} -c stale-wrapper` };
+      f.records.get(100)!.cmdline = `${argv.join('\0')}\0`;
+      assert.deepEqual(await f.classify(), [{ ...f.base()[0], agentPid: 101 }], JSON.stringify(argv));
+    }
+  }
+});
+
+test('live shell command modes, scripts, unsupported options and executable mismatches fail closed', async () => {
+  for (const argv of [
+    ['bash', '-lc', 'my-agent chat; sleep 60'], ['bash', '-ic', 'my-agent chat'],
+    ['bash', '-i', '-c', 'my-agent chat'], ['bash', '--norc', '-lic', 'my-agent chat'],
+    ['bash', '/opt/launcher.sh'], ['bash', '-i', '/opt/launcher.sh'],
+    ['bash', '--', '/opt/launcher.sh'], ['bash', '--noprofile', '--norc', '/opt/launcher.sh'],
+    ['bash', '-s'], ['bash', '+i'], ['bash', '--command=my-agent'],
+    ['bash', '--rcfile', '/opt/launcher.sh'], ['bash', '--norc\n'],
+    ['bash', '-i', '--norc'], ['bash', '-i\n'], ['bash', '-illegal'],
+    ['/usr/bin/zsh'], ['other-bash'], ['/opt/bash/python3', '/opt/launcher.py'],
+    ['./bash'], ['/bin//bash'], ['/bin/../bin/bash'],
+  ]) {
+    const f = fixture(true);
+    f.records.get(100)!.cmdline = `${argv.join('\0')}\0`;
+    assert.deepEqual(await f.classify(), f.base(), JSON.stringify(argv));
+  }
+});
+
+test('live shell or child foreground and generation changes invalidate custom child evidence', async () => {
+  for (const target of [100, 101]) {
+    for (const changed of [{ startTicks: 9999 }, { foregroundPgid: 102 }, { ppid: 300 }, null]) {
+      const f = fixture(true);
+      let statReads = 0;
+      const sessions = f.base();
+      const result = await classifyCustomTerminalSessions({ sessions, panes: f.panes, procs: f.procs }, {
+        env: config(), platform: 'linux',
+        readProcessRecord: async (pid, record) => {
+          const value = await f.readProcessRecord(pid, record);
+          if (pid !== target || record !== 'stat' || ++statReads !== 2) return value;
+          return changed === null ? null : stat(pid, {
+            ppid: pid === 100 ? 1 : 100, pgid: pid, foregroundPgid: 101, ...changed,
+          });
+        },
+      });
+      assert.deepEqual(result, sessions, JSON.stringify({ target, changed }));
+    }
   }
 });
 
