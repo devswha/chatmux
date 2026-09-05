@@ -179,11 +179,11 @@ export default function CommandPalette({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogContent aria-labelledby={titleId} className="max-w-xl overflow-hidden p-0">
+      <DialogContent aria-labelledby={titleId} className="flex max-h-[90dvh] w-[calc(100vw-1rem)] max-w-xl flex-col overflow-hidden p-0">
         <DialogTitle id={titleId}>Command palette</DialogTitle>
-        <Command label="Command palette" onKeyDown={handleKeyDown}>
+        <Command label="Command palette" className="min-h-0 flex-1" onKeyDown={handleKeyDown}>
           {page && (
-            <div className="flex items-center gap-2 border-b px-3 py-2">
+            <div className="flex shrink-0 items-center gap-2 border-b px-3 py-2">
               <span className="inline-flex items-center gap-1 rounded-md bg-accent px-2 py-0.5 text-xs font-medium text-accent-foreground">
                 {PAGE_LABELS[page]}
                 <button
@@ -203,7 +203,7 @@ export default function CommandPalette({
             value={search}
             onValueChange={setSearch}
           />
-          <div className="flex items-center gap-2 border-b px-3 py-1">
+          <div className="flex shrink-0 items-center gap-2 border-b px-3 py-1">
             <div className="min-w-0 flex-1 text-xs text-muted-foreground">
               <p>{t('sessionPins.browserOnly', { count: pins.length, limit: MAX_PINNED_SESSIONS })}</p>
               {currentSession && (
@@ -213,8 +213,18 @@ export default function CommandPalette({
               {storageUnavailable && <p role="status">{t('sessionPins.storageUnavailable')}</p>}
             </div>
             {currentSession && pinControl(currentPin, t('sessionPins.current'))}
+            <button
+              type="button"
+              aria-label={t('buttons.close')}
+              title={t('buttons.close')}
+              onKeyDown={(event) => event.stopPropagation()}
+              onClick={() => setOpen(false)}
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <X className="h-4 w-4" aria-hidden />
+            </button>
           </div>
-          <CommandList>
+          <CommandList className="min-h-0 flex-1">
             <CommandEmpty>No results.</CommandEmpty>
 
             {showSessions && <PinnedSessionGroup pins={pins} inventory={inventory} onOpen={openPin} onUnpin={unpin} />}

@@ -21,16 +21,18 @@ async function translated(element: ReactElement) {
 
 test('palette launcher uses the registered open callback without keyboard synthesis', async (t) => {
   let opened = 0;
+  const order: string[] = [];
   function Register() {
-    usePaletteOpsRegister({ openCommandPalette: () => { opened++; } });
+    usePaletteOpsRegister({ openCommandPalette: () => { opened++; order.push('open'); } });
     return <CommandPaletteButton />;
   }
   let renderer!: TestRenderer.ReactTestRenderer;
   const element = await translated(<PaletteOpsProvider><Register /></PaletteOpsProvider>);
   act(() => { renderer = TestRenderer.create(element); });
   t.after(() => act(() => renderer.unmount()));
-  act(() => renderer.root.findByType('button').props.onClick());
+  act(() => renderer.root.findByType('button').props.onClick({ currentTarget: { focus: () => order.push('focus') } }));
   assert.equal(opened, 1);
+  assert.deepEqual(order, ['focus', 'open'], 'the dialog can restore focus to the touch launcher');
 });
 
 test('Pin and Unpin are native touch-sized buttons; keyboard events cannot activate the selected navigation row', async (t) => {

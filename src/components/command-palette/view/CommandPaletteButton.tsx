@@ -12,7 +12,7 @@ export default function CommandPaletteButton() {
       aria-label={t('sessionPins.openPalette')}
       aria-haspopup="dialog"
       title={t('sessionPins.openPalette')}
-      onClick={openCommandPalette}
+      onClick={(event) => { event.currentTarget.focus(); openCommandPalette(); }}
       className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <Search className="h-4 w-4" aria-hidden />
