@@ -59,6 +59,8 @@
     "shiftTab": "Maj+Tab",
     "arrowUp": "Flèche haut",
     "arrowDown": "Flèche bas",
+    "arrowLeft": "Flèche gauche",
+    "arrowRight": "Flèche droite",
     "scrollDown": "Défiler vers le bas",
     "handle": {
       "closePanel": "Fermer le panneau de raccourcis",

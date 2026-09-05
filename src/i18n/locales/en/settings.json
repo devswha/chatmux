@@ -155,6 +155,8 @@
     "shiftTab": "Shift+Tab",
     "arrowUp": "Arrow Up",
     "arrowDown": "Arrow Down",
+    "arrowLeft": "Arrow Left",
+    "arrowRight": "Arrow Right",
     "scrollDown": "Scroll Down",
     "handle": {
       "closePanel": "Close shortcuts panel",
