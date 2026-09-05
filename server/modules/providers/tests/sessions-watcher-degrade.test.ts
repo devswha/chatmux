@@ -5,6 +5,7 @@ import {
   GJC_WATCH_DEGRADED_RETRY_MS,
   GJC_WATCH_MAX_FAST_FAILURES,
   getGjcWatcherHealth,
+  getSessionIndexingDiagnostics,
   nextGjcWatcherRestartDelayMs,
 } from '@/modules/providers/services/sessions-watcher.service.js';
 
@@ -41,4 +42,16 @@ test('watcher health starts clean and its shape is stable for status surfaces', 
     degraded: false,
     enospcObserved: false,
   });
+});
+
+test('indexing diagnostics are bounded metadata and cannot mutate watcher state', () => {
+  const first = getSessionIndexingDiagnostics();
+  assert.deepEqual(first, {
+    pending: 0, active: 0, reconciling: 0, reconciliationPending: 0,
+    maxPending: 448, maxActive: 4, overflowed: 0, failures: 0, closed: true,
+  });
+  first.pending = 123;
+  for (let read = 0; read < 1_000; read += 1) {
+    assert.equal(getSessionIndexingDiagnostics().pending, 0);
+  }
 });
