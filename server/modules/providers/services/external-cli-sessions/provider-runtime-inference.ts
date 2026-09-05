@@ -225,7 +225,7 @@ export function applyInferredProviderSessionIds(
   authoritativeTargetKeys: ReadonlySet<string> = new Set(),
 ): ExternalCliSession[] {
   return sessions.map((session) => {
-    if (session.connectionIssue) {
+    if (session.connectionIssue || session.kind === 'shell' || session.kind === 'ssh') {
       const { providerSessionId: _providerSessionId, binding: _binding, ...unbound } = session;
       return unbound;
     }
