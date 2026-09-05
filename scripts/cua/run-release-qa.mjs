@@ -116,6 +116,7 @@ try {
   const env = { CUA_CDP_URL: `http://127.0.0.1:${cdpPort}`, CUA_EVIDENCE_DIR: evidence };
   await run('npm', ['run', 'cua:ui:evidence'], env);
   await run('npm', ['run', 'cua:ui:interactions'], env);
+  await run('npm', ['run', 'cua:mobile'], env);
 } catch (error) {
   failure = error;
 } finally {
@@ -129,9 +130,9 @@ try {
 if (failure !== undefined) throw failure;
 
 const readJson = async (name) => JSON.parse(await readFile(path.join(evidence, name), 'utf8'));
-const [ui, fleetUi, interactions, stopped] = await Promise.all([
+const [ui, fleetUi, interactions, mobile, stopped] = await Promise.all([
   readJson('ui-scenarios.json'), readJson('fleet-ui-scenarios.json'),
-  readJson('ui-interactions.json'), readJson('stopped.json'),
+  readJson('ui-interactions.json'), readJson('mobile-interactions.json'), readJson('stopped.json'),
 ]);
 const artifacts = [
   'desktop-chat.png', 'desktop-cli.png', 'mobile-chat.png', 'mobile-agents.png',
@@ -153,6 +154,7 @@ const requirements = {
     && fleetUi.checks.resync_and_recovery.ok && fleetUi.checks.incompatible_fail_closed.ok
     && fleetUi.checks.unknown_outcome_visible.ok,
   refreshCreateSwitchReorderInterruptError: interactions.ok,
+  mobileTouchRotationAndPaneIsolation: mobile.ok,
   desktopMobileVisualAndAccessibility: ui.checks.desktop_layout.ok
     && ui.checks.mobile_layout.ok && fleetUi.checks.mobile_layout_and_ax.ok,
   ownedResourcesStopped: stopped.cleanupError === null,

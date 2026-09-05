@@ -41,7 +41,15 @@ the operator's real Claude, Codex, Cursor, OpenCode, OMO, OMP, or GJC binary.
    ```sh
    npm run cua:ui:evidence
    npm run cua:ui:interactions
+   npm run cua:mobile
    ```
+
+   `cua:mobile` uses fresh touch-enabled Chrome contexts at 320px and 390px,
+   including landscape rotation and a short viewport. It checks menus, long
+   input, drag resizing, chat/terminal switching, and delivery to the exact
+   fixture pane. Set `CUA_MOBILE_WEBKIT=1` to repeat the supported interactions
+   in WebKit after installing its Playwright browser. Browser emulation does
+   not prove behavior on physical iOS/Android keyboards or devices.
 
 4. Build the client, then capture native Computer Use and installed-PWA evidence
    in a private Xvfb, DBus, GNOME, HOME, runtime directory, and Chrome profile.
@@ -53,6 +61,11 @@ the operator's real Claude, Codex, Cursor, OpenCode, OMO, OMP, or GJC binary.
    npm run build:client
    CUA_EVIDENCE_DIR=/absolute/evidence/run npm run cua:isolated:desktop
    ```
+
+   The disposable Chrome profile uses the basic password store because the
+   private GNOME session has no unlocked keyring. It contains no operator
+   credentials. Native focus verification explicitly activates the window
+   belonging to that owned Chrome PID before checking its focus.
 
    On a developer workstation where the nested GNOME/Chrome session cannot
    commit loopback documents, use the existing signed-in X11 desktop with a

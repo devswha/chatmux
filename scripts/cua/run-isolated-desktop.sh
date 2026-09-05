@@ -101,8 +101,10 @@ EOF
 
 mkfifo "$WORK/chrome-output"
 exec {CHROME_OUTPUT}<>"$WORK/chrome-output"
+# This disposable profile stores no credentials. A private GNOME session has no
+# unlocked keyring; waiting for libsecret can stall Chrome's first navigation.
 env -u GTK_MODULES -u GDK_BACKEND -u NO_AT_BRIDGE "$CHROME" --no-sandbox --disable-gpu --enable-logging=stderr --v=1 --force-renderer-accessibility --no-first-run \
-  --no-default-browser-check --no-proxy-server --disable-background-networking --disable-component-update \
+  --password-store=basic --no-default-browser-check --no-proxy-server --disable-background-networking --disable-component-update \
   --disable-default-apps --disable-extensions --disable-sync \
   --disable-features=LocalNetworkAccessChecks,LocalNetworkAccessChecksWebRTC,LocalNetworkAccessChecksWarnings \
   --ip-address-space-overrides=127.0.0.0/8=public \
@@ -132,7 +134,20 @@ await writeFile(file, `${JSON.stringify(value, null, 2)}\n`);
 NODE
 stop_pid "$NOTIFY_PID"
 
-CUA_DRIVER_PATH=$DRIVER CUA_TOOLS=get_app_state,doctor,list_apps,list_windows,focused_window,screenshot \
+CUA_DRIVER_PATH=$DRIVER CUA_TOOLS=list_windows CUA_EVIDENCE_DIR=$WORK/window-discovery \
+  node "$ROOT/scripts/cua/mcp-evidence.mjs" >/dev/null
+WINDOW_ID=$(node --input-type=module - "$WORK/window-discovery/computer-use-mcp.json" "$CHROME_PID" <<'NODE'
+import { readFile } from 'node:fs/promises';
+const [file, pid] = process.argv.slice(2);
+const evidence = JSON.parse(await readFile(file, 'utf8'));
+const windows = evidence.calls.find((entry) => entry.name === 'list_windows')?.result?.structuredContent?.windows;
+const window = windows?.find((entry) => entry.pid === Number(pid));
+if (!window) throw new Error('The owned Chrome window was not found.');
+process.stdout.write(String(window.window_id));
+NODE
+)
+CUA_DRIVER_PATH=$DRIVER CUA_TOOLS=get_app_state,doctor,list_apps,list_windows,activate_window,focused_window,screenshot \
+  CUA_TOOL_ARGUMENTS="{\"get_app_state\":{\"pid\":$CHROME_PID,\"include_screenshot\":false},\"activate_window\":{\"window_id\":$WINDOW_ID}}" \
   node "$ROOT/scripts/cua/mcp-evidence.mjs"
 CUA_CHROME_USER_DATA_DIR=$PROFILE CUA_CHROME_PROFILE=Default node "$ROOT/scripts/cua/pwa-evidence.mjs"
 node --input-type=module - "$EVIDENCE/computer-use-mcp.json" "$EVIDENCE/isolated-desktop.json" <<'NODE'
