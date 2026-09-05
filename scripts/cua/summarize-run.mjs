@@ -21,15 +21,18 @@ function requirement(id, ok, present, evidence, detail = null) {
 }
 function call(report, name) { return report?.calls?.find((entry) => entry.name === name) ?? null; }
 
-const [fixture, ui, fleet, interactions, mobile, release, regressions, mcp, pwa, desktop, gates, stopped] = await Promise.all([
+const [fixture, ui, fleet, interactions, mobile, improvements, release, regressions, mcp, pwa, desktop, gates, stopped] = await Promise.all([
   json('fixture.json'), json('ui-scenarios.json'), json('fleet-ui-scenarios.json'),
-  json('ui-interactions.json'), json('mobile-interactions.json'), json('release-summary.json'), json('regressions.json'),
+  json('ui-interactions.json'), json('mobile-interactions.json'), json('improvement-interactions.json'),
+  json('release-summary.json'), json('regressions.json'),
   json('computer-use-mcp.json'), json('pwa-environment.json'), json('isolated-desktop.json'),
   json('release-gates.json'), json('stopped.json'),
 ]);
 const requiredNames = [
   'fixture.json', 'ui-scenarios.json', 'fleet-ui-scenarios.json', 'ui-interactions.json',
   'mobile-interactions.json', 'mobile-chromium-320-chat.png', 'mobile-chromium-390-chat.png',
+  'improvement-interactions.json', 'improvements-chromium-1440-excerpt.png',
+  'improvements-chromium-320-pins.png', 'improvements-chromium-390-diagnostics.png',
   'release-summary.json', 'desktop-chat.png', 'desktop-cli.png', 'mobile-chat.png', 'mobile-agents.png',
   'desktop-interactions.png', 'desktop-session-switch.png', 'fleet-desktop-host-groups.png',
   'fleet-desktop-ax.json', 'fleet-mobile-host-groups.png', 'fleet-mobile-ax.json',
@@ -52,6 +55,7 @@ const requirements = [
   requirement('local-remote-chat-terminal-actions-states-deep-links', fleet?.ok === true && ui?.ok === true, fleet !== null && ui !== null, 'ui-scenarios.json and fleet-ui-scenarios.json'),
   requirement('create-switch-reorder-interrupt-error-command-menus', interactions?.ok === true, interactions !== null, 'ui-interactions.json', interactions?.checks),
   requirement('mobile-touch-long-draft-rotation-and-pane-isolation', mobile?.ok === true && mobile?.cases?.length >= 2, mobile !== null, 'mobile-interactions.json'),
+  requirement('operator-improvements-desktop-and-mobile', improvements?.ok === true && improvements?.cases?.length >= 3, improvements !== null, 'improvement-interactions.json'),
   requirement('desktop-mobile-visual-accessibility', ui?.checks?.desktop_layout?.ok === true && ui?.checks?.mobile_layout?.ok === true && fleet?.checks?.mobile_layout_and_ax?.ok === true, ui !== null && fleet !== null, 'browser screenshots and accessibility trees'),
   requirement('full-regressions-and-build', regressions?.ok === true, regressions !== null, 'regressions.json'),
   requirement('official-computer-use-task-owned-window-focus', desktop?.ok === true && doctor?.readiness?.can_query_windows === true && doctor?.readiness?.can_focus_windows === true && appState?.accessibility_tree_raw_count > 0 && windows?.windows?.length > 0 && focused?.focused_window && screenshot?.images?.length > 0, desktop !== null && mcp !== null, 'computer-use-provision.json, isolated-desktop.json, computer-use-mcp.json'),

@@ -58,10 +58,182 @@ def check_excerpt(page, mobile, evidence, case_name, checks):
     checks['excerpt_close_reset_focus_and_escape'] = True
 
 
+def activate(locator, mobile):
+    locator.tap() if mobile else locator.click()
+
+
+def open_sidebar(page, mobile):
+    if mobile and not page.get_by_role('button', name='Close sidebar', exact=True).is_visible():
+        page.get_by_role('button', name='Open menu', exact=True).tap()
+
+
+def check_pins(page, mobile, manifest, evidence, name, checks):
+    def palette():
+        expect(page.locator('textarea').first).to_be_visible(timeout=30_000)
+        activate(page.get_by_role('button', name='Search and pinned sessions', exact=True), mobile)
+        dialog = page.get_by_role('dialog', name='Command palette', exact=True)
+        expect(dialog).to_be_visible()
+        return dialog
+
+    dialog = palette()
+    current = dialog.get_by_role('button', name='Pin current session', exact=True)
+    expect(current).to_be_enabled()
+    activate(current, mobile)
+    expect(dialog.get_by_role('button', name='Unpin current session', exact=True)).to_have_attribute('aria-pressed', 'true')
+    local_host = page.locator('[data-host-local="true"]').get_attribute('data-host-id')
+    expect(dialog.get_by_role('group', name='Pinned sessions', exact=True)).to_be_visible()
+    activate(dialog.get_by_role('button', name='Close', exact=True), mobile)
+    page.reload(wait_until='domcontentloaded')
+    dialog = palette()
+    expect(dialog.get_by_role('button', name='Unpin current session', exact=True)).to_have_attribute('aria-pressed', 'true')
+    activate(dialog.get_by_role('button', name='Close', exact=True), mobile)
+    # The pairing result owns the installation ID; the harness node's synthetic
+    # hostId is not the identity the running peer generated during bootstrap.
+    peer = manifest['fleet']['enrollment']['peers'][0]['hostId']
+    session = manifest['fleet']['collision']['appSessionId']
+    page.goto(f"{manifest['baseUrl']}/hosts/{peer}/session/{session}", wait_until='domcontentloaded')
+    dialog = palette()
+    current = dialog.get_by_role('button', name='Pin current session', exact=True)
+    expect(current).to_be_enabled(timeout=30_000)
+    activate(current, mobile)
+    group = dialog.get_by_role('group', name='Pinned sessions', exact=True)
+    expect(group.get_by_role('option')).to_have_count(2)
+    activate(group.get_by_role('option').filter(has_text=local_host), mobile)
+    expect(page).to_have_url(f"{manifest['baseUrl']}/session/{SESSION}")
+    dialog = palette()
+    expect(dialog.get_by_role('group', name='Pinned sessions', exact=True).get_by_role('option')).to_have_count(2)
+    page.screenshot(path=str(evidence / f'{name}-pins.png'))
+    if mobile:
+        original = page.viewport_size
+        page.set_viewport_size({'width': 844, 'height': 340})
+        box, viewport = dialog.bounding_box(), page.viewport_size
+        assert box['x'] >= 0 and box['y'] >= 0
+        assert box['x'] + box['width'] <= viewport['width'] + 1
+        assert box['y'] + box['height'] <= viewport['height'] + 1
+        expect(dialog.get_by_role('button', name='Close', exact=True)).to_be_in_viewport()
+        page.set_viewport_size(original)
+        checks['pins_short_landscape'] = True
+    activate(dialog.get_by_role('button', name='Close', exact=True), mobile)
+    expect(dialog).to_have_count(0)
+    expect(page.get_by_role('button', name='Search and pinned sessions', exact=True)).to_be_focused()
+    checks['pins_explicit_selection_persistence_and_cross_host_navigation'] = True
+    checks['pins_close_and_focus_restore'] = True
+
+
+def check_diagnostics(page, mobile, evidence, name, checks):
+    open_sidebar(page, mobile)
+    activate(page.get_by_role('button', name='Settings', exact=True), mobile)
+    dialog = page.get_by_role('dialog', name='Settings', exact=True)
+    with page.expect_response(lambda response: response.url.endswith('/api/settings/diagnostics')) as initial:
+        activate(dialog.get_by_role('button', name='Diagnostics', exact=True), mobile)
+    response = initial.value
+    assert response.status == 200
+    assert response.headers['cache-control'] == 'no-store'
+    summary = response.json()
+    assert summary['schemaVersion'] == 1
+    for field in ['socketPath', 'transcriptPath', 'attachCapability', 'commandLine', 'privateKey', 'tmuxName']:
+        assert field not in json.dumps(summary)
+    heading = dialog.get_by_role('heading', name='Session discovery', exact=True)
+    expect(heading).to_be_visible()
+    assert page.evaluate('document.documentElement.scrollWidth <= innerWidth + 1')
+    page.screenshot(path=str(evidence / f'{name}-diagnostics.png'))
+    refresh = dialog.get_by_role('button', name='Refresh summary', exact=True)
+    for status, code in [(403, 'owner_required'), (503, 'diagnostics_unavailable')]:
+        page.route('**/api/settings/diagnostics', lambda route, status=status, code=code: route.fulfill(status=status, json={'error': code}))
+        with page.expect_response(lambda response: response.url.endswith('/api/settings/diagnostics') and response.status == status):
+            activate(refresh, mobile)
+        expect(dialog.get_by_role('alert')).to_be_visible()
+        expect(heading).to_have_count(0)
+        page.unroute('**/api/settings/diagnostics')
+        with page.expect_response(lambda response: response.url.endswith('/api/settings/diagnostics') and response.status == 200):
+            activate(refresh, mobile)
+        expect(heading).to_be_visible()
+    activate(dialog.get_by_role('button', name='Close', exact=True), mobile)
+    expect(dialog).to_have_count(0)
+    checks['diagnostics_owner_projection_and_headers'] = True
+    checks['diagnostics_denial_failure_and_recovery'] = True
+    checks['diagnostics_narrow_layout'] = True
+
+
+def check_attention(page, mobile, checks):
+    open_sidebar(page, mobile)
+    for value in ['input', 'failure', 'connection', 'all']:
+        control = page.locator(f'[data-attention-filter="{value}"]')
+        expect(control).to_be_visible()
+        activate(control, mobile)
+        expect(control).to_have_attribute('aria-pressed', 'true')
+        assert page.locator('[data-attention-filter][aria-pressed="true"]').count() == 1
+    expect(page.get_by_text('cua-01-omo', exact=True).first).to_be_visible()
+    expect(page.locator('[data-attention-next]')).to_be_visible()
+    checks['local_attention_filters_and_restore'] = True
+
+
+def check_reconnect(page, checks):
+    # Capture DOM transitions before closing only this fixture page's main socket.
+    page.evaluate("""() => {
+      const read = () => Array.from(document.querySelectorAll('[role=status]'))
+        .map(node => node.textContent).find(text => /local session list/i.test(text)) || '';
+      window.__featureFreshness = [read()];
+      window.__featureObserver = new MutationObserver(() => {
+        const next = read();
+        if (next && next !== window.__featureFreshness.at(-1)) window.__featureFreshness.push(next);
+      });
+      window.__featureObserver.observe(document.body, {childList:true, subtree:true, characterData:true});
+      window.__featureReconnectFrameStart = window.__featureFrames.length;
+      const socket = window.__featureSockets.find(socket => new URL(socket.url).pathname === '/ws' && socket.readyState === WebSocket.OPEN);
+      if (!socket) throw new Error('Owned main WebSocket is unavailable');
+      socket.close(1000, 'fixture reconnect check');
+    }""")
+    page.wait_for_function("""() => window.__featureFreshness.some(text => text.includes('Reconnecting local session list'))
+      && window.__featureFreshness.at(-1).includes('Local session list up to date')""", timeout=30_000)
+    kinds = page.evaluate('window.__featureFrames.slice(window.__featureReconnectFrameStart)')
+    assert 'discovery.subscribe' in kinds
+    forbidden = {'chat.send', 'session.spawn', 'terminal.input', 'pane.send', 'claude-command',
+                 'codex-command', 'cursor-command', 'opencode-command', 'omp-command', 'omo-command', 'gjc-command'}
+    assert not forbidden.intersection(kinds)
+    page.evaluate('window.__featureObserver.disconnect()')
+    checks['reconnect_discovery_status_and_no_write_replay'] = True
+
+
+def check_terminal_accessibility(page, mobile, evidence, name, checks):
+    open_sidebar(page, mobile)
+    activate(page.get_by_text('cua-03-codex', exact=True).first.locator('xpath=ancestor::button[1]'), mobile)
+    activate(page.get_by_role('tab', name='CLI output', exact=True), mobile)
+    expect(page.locator('.xterm-screen')).to_be_visible(timeout=20_000)
+    opener = page.get_by_role('button', name='Open shortcuts panel', exact=True)
+    if opener.is_visible(): activate(opener, mobile)
+    for modifier in ['Ctrl', 'Alt']:
+        button = page.get_by_role('button', name=modifier, exact=True)
+        expect(button).to_have_attribute('aria-pressed', 'false')
+        activate(button, mobile)
+        expect(button).to_have_attribute('aria-pressed', 'true')
+        activate(button, mobile)
+        expect(button).to_have_attribute('aria-pressed', 'false')
+    for direction in ['Up', 'Down', 'Left', 'Right']:
+        expect(page.get_by_role('button', name=f'Arrow {direction}', exact=True)).to_be_visible()
+    page.screenshot(path=str(evidence / f'{name}-terminal.png'))
+    activate(page.get_by_role('tab', name='Chat', exact=True), mobile)
+    expect(page.locator('textarea').first).to_be_visible()
+    checks['terminal_modifier_state_arrow_names_and_roundtrip'] = True
+
+
 def run_case(browser, engine, width, height, mobile, manifest, evidence):
     context = browser.new_context(viewport={'width': width, 'height': height},
-                                  is_mobile=mobile, has_touch=mobile, device_scale_factor=1)
+                                  is_mobile=mobile, has_touch=mobile, device_scale_factor=1, locale='en-US', service_workers='block')
     context.add_init_script("Object.defineProperty(navigator, 'clipboard', {configurable:true, value:{writeText:async text=>{window.__excerptCopied=text;}}})")
+    context.add_init_script("""(() => {
+      const OriginalSocket = window.WebSocket;
+      window.__featureSockets = []; window.__featureFrames = [];
+      window.WebSocket = class extends OriginalSocket {
+        constructor(...args) { super(...args); window.__featureSockets.push(this); }
+        send(data) {
+          if (new URL(this.url).pathname === '/ws' && typeof data === 'string') {
+            try { const value = JSON.parse(data); window.__featureFrames.push(value.type || value.kind || 'unknown'); } catch {}
+          }
+          return super.send(data);
+        }
+      };
+    })();""")
     page = context.new_page()
     page.set_default_timeout(15_000)
     errors, checks = [], {}
@@ -72,6 +244,11 @@ def run_case(browser, engine, width, height, mobile, manifest, evidence):
     try:
         page.goto(f"{manifest['baseUrl']}/session/{SESSION}", wait_until='domcontentloaded')
         check_excerpt(page, mobile, evidence, name, checks)
+        check_pins(page, mobile, manifest, evidence, name, checks)
+        check_diagnostics(page, mobile, evidence, name, checks)
+        check_attention(page, mobile, checks)
+        check_reconnect(page, checks)
+        check_terminal_accessibility(page, mobile, evidence, name, checks)
         assert not errors, errors
         checks['no_page_errors'] = True
         result['ok'] = True

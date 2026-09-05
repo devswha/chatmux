@@ -114,6 +114,8 @@ try {
   ], { cwd: root, stdio: ['ignore', 'ignore', 'pipe'] });
   await outputSignal(chrome, 'stderr', /DevTools listening on/, 'Chrome DevTools readiness');
   const env = { CUA_CDP_URL: `http://127.0.0.1:${cdpPort}`, CUA_EVIDENCE_DIR: evidence };
+  // Use the initial paired identities before fleet recovery scenarios replace them.
+  await run('npm', ['run', 'cua:improvements'], env);
   await run('npm', ['run', 'cua:ui:evidence'], env);
   await run('npm', ['run', 'cua:ui:interactions'], env);
   await run('npm', ['run', 'cua:mobile'], env);
@@ -130,9 +132,10 @@ try {
 if (failure !== undefined) throw failure;
 
 const readJson = async (name) => JSON.parse(await readFile(path.join(evidence, name), 'utf8'));
-const [ui, fleetUi, interactions, mobile, stopped] = await Promise.all([
+const [ui, fleetUi, interactions, mobile, improvements, stopped] = await Promise.all([
   readJson('ui-scenarios.json'), readJson('fleet-ui-scenarios.json'),
-  readJson('ui-interactions.json'), readJson('mobile-interactions.json'), readJson('stopped.json'),
+  readJson('ui-interactions.json'), readJson('mobile-interactions.json'),
+  readJson('improvement-interactions.json'), readJson('stopped.json'),
 ]);
 const artifacts = [
   'desktop-chat.png', 'desktop-cli.png', 'mobile-chat.png', 'mobile-agents.png',
@@ -140,6 +143,8 @@ const artifacts = [
   'fleet-mobile-host-groups.png', 'fleet-mobile-ax.json', 'desktop-interactions.png',
   'desktop-session-switch.png',
   'mobile-chromium-320-chat.png', 'mobile-chromium-390-chat.png',
+  'improvements-chromium-1440-excerpt.png', 'improvements-chromium-320-pins.png',
+  'improvements-chromium-390-diagnostics.png',
 ];
 const artifactResults = await Promise.all(artifacts.map(async (name) => ({
   name, bytes: (await stat(path.join(evidence, name))).size,
@@ -156,6 +161,7 @@ const requirements = {
     && fleetUi.checks.unknown_outcome_visible.ok,
   refreshCreateSwitchReorderInterruptError: interactions.ok,
   mobileTouchRotationAndPaneIsolation: mobile.ok,
+  operatorImprovementsAcrossViewports: improvements.ok && improvements.cases.length >= 3,
   desktopMobileVisualAndAccessibility: ui.checks.desktop_layout.ok
     && ui.checks.mobile_layout.ok && fleetUi.checks.mobile_layout_and_ax.ok,
   ownedResourcesStopped: stopped.cleanupError === null,
