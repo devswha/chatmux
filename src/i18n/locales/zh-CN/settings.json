@@ -59,6 +59,8 @@
     "shiftTab": "Shift+Tab",
     "arrowUp": "上箭头",
     "arrowDown": "下箭头",
+    "arrowLeft": "向左箭头",
+    "arrowRight": "向右箭头",
     "scrollDown": "滚动到底部",
     "handle": {
       "closePanel": "关闭快捷键面板",

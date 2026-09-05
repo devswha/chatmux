@@ -59,6 +59,8 @@
     "shiftTab": "Shift+Tab",
     "arrowUp": "Freccia su",
     "arrowDown": "Freccia giù",
+    "arrowLeft": "Freccia sinistra",
+    "arrowRight": "Freccia destra",
     "scrollDown": "Scorri giù",
     "handle": {
       "closePanel": "Chiudi pannello scorciatoie",
