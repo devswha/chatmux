@@ -1,4 +1,98 @@
 {
+  "diagnostics": {
+    "title": "진단",
+    "description": "현재 ChatMux 서버의 캐시된 진단 정보입니다. 새로고침은 최대 2초 된 요약 캐시를 읽으며, 스캔을 시작하거나 실행 중인 세션을 변경하지 않습니다.",
+    "refresh": "요약 새로고침",
+    "loading": "진단 정보 불러오는 중…",
+    "unknown": "확인 불가",
+    "sampledAt": "{{time}}에 수집한 요약입니다. 아래 경과 시간은 수집 시점 기준입니다.",
+    "seconds_other": "{{count}}초",
+    "discovery": "세션 탐색",
+    "freshness": "최근 탐색 관측",
+    "mode": "수집기 모드",
+    "scanAge": "관측 후 경과 시간",
+    "fullScanAge": "마지막 전체 스캔 성공 후 경과 시간",
+    "scanning": "탐색이 진행 중입니다.",
+    "freshnessStates": {
+      "waiting": "아직 관측 없음",
+      "fresh": "최근 30초 이내",
+      "stale": "30초 이상 경과",
+      "unavailable": "확인 불가"
+    },
+    "modes": {
+      "active": "활성",
+      "idle": "유휴",
+      "stopped": "중지",
+      "disposed": "종료됨",
+      "unknown": "확인 불가"
+    },
+    "lanes": {
+      "external": "외부 CLI 세션",
+      "live": "실시간 GJC 세션"
+    },
+    "laneStates": {
+      "waiting": "아직 스캔 결과 없음",
+      "ok": "마지막 스캔 성공",
+      "failing": "스캔 실패 감지",
+      "degraded": "탐색 기능 저하"
+    },
+    "rowCounts": "캐시된 항목 {{rows}}개 · 오래된 항목 {{stale}}개",
+    "failures_other": "연속 실패 {{count}}회",
+    "truncated": "개수는 캐시의 처음 1,000개 항목 기준입니다. 나머지 항목은 집계에서 제외됩니다.",
+    "connectionIssues": "연결 문제 원인",
+    "issueDescription": "오래된 항목을 포함한 캐시 기준 개수입니다. 세션 이름이나 경로는 포함하지 않습니다.",
+    "watcher": "GJC 대화 기록 감시",
+    "watcherDescription": "기존 감시기가 보고한 실패 정보입니다. 실패 보고가 없어도 감시기의 실행 여부를 보장하지는 않습니다.",
+    "watcherStates": {
+      "no_failures_reported": "보고된 실패 없음",
+      "retrying": "실패 보고됨 · 재시도 대기",
+      "degraded": "기능 저하 · 긴 간격으로 재시도",
+      "unavailable": "감시 상태 확인 불가"
+    },
+    "eventLoop": "서버 이벤트 루프 사용률",
+    "eventLoopDescription": "서버 시작 이후 누적 활성 비율입니다. CPU 사용률이나 현재 응답 지연을 뜻하지 않습니다.",
+    "errors": {
+      "owner": "이 서버의 소유자로 로그인해야 진단을 볼 수 있습니다. 로컬 전용 접근은 서버에서 직접 ChatMux를 여세요.",
+      "unavailable": "진단 정보를 읽지 못했습니다. 연결 상태를 확인하고 요약을 새로고침하세요. 계속되면 해당 서버에서 chatmux status를 실행하세요."
+    },
+    "recovery": {
+      "waiting": "세션 목록을 열어 일반 탐색을 사용한 뒤 돌아와 요약을 새로고침하세요. 아직 사용하지 않은 수집기에는 관측 정보가 없을 수 있습니다.",
+      "discovery": "세션 목록이 다시 연결되는지 확인한 뒤 요약을 새로고침하세요. 탐색 지연이나 실패가 계속되면 서버에서 chatmux status와 로컬 서비스 로그를 확인하세요. 기존 tmux 작업은 유지하세요.",
+      "watchLimit": "감시기가 시스템 감시 한도 문제를 보고했습니다. 호스트 관리자에게 inotify 감시 수·인스턴스 한도와 다른 감시 프로세스를 확인하도록 요청하세요. 반복 재시작으로 한도 소진이 해결되지는 않습니다.",
+      "watcher": "서버에서 GJC 설치와 ChatMux 서비스 로그를 확인하세요. 재시도 일정은 감시기가 관리하며 이 화면에서 재시작하지 않습니다. 기존 tmux 세션은 계속 실행할 수 있습니다.",
+      "terminal": "대화 기록을 검증할 수 없으면 ChatMux의 검증된 터미널 연결을 사용하세요. 연결이 거부되면 기존 터미널에서 정확한 tmux pane을 확인한 뒤 입력하세요."
+    },
+    "reasons": {
+      "agent_user_mismatch": {
+        "title": "에이전트 사용자 불일치",
+        "guidance": "ChatMux와 에이전트가 의도한 OS 사용자로 실행되는지 확인하세요. 신원을 검증할 때까지 에이전트의 기존 터미널을 사용하세요."
+      },
+      "agent_home_mismatch": {
+        "title": "에이전트 홈 불일치",
+        "guidance": "서비스 계정과 홈 설정이 에이전트 환경에 맞는지 확인하세요. 불일치를 우회하려고 자격 증명이나 대화 기록을 다른 계정에 복사하지 마세요."
+      },
+      "agent_context_unreadable": {
+        "title": "에이전트 실행 정보 접근 불가",
+        "guidance": "호스트의 프로세스 조회 권한을 확인하세요. 신원 근거를 확인할 수 없는 동안 기존 터미널에서 세션을 사용하세요."
+      },
+      "tmux_socket_owner_mismatch": {
+        "title": "tmux 소유자 불일치",
+        "guidance": "tmux 서버 소유 계정을 확인하세요. 소켓 권한을 완화하는 대신 의도한 계정으로 연결하세요."
+      },
+      "tmux_pane_ambiguous": {
+        "title": "tmux pane 식별 불확실",
+        "guidance": "기존 터미널에서 대상 pane을 직접 확인하세요. 작업 디렉터리가 같다는 사실만으로 안전한 대상을 선택할 수는 없습니다."
+      },
+      "transcript_ambiguous": {
+        "title": "대화 기록 연결 불확실",
+        "guidance": "제공자 세션 연결이 불확실하면 검증된 터미널 연결을 사용하세요. 디렉터리만으로 대화 기록을 선택하지 마세요."
+      },
+      "transcript_permission_denied": {
+        "title": "대화 기록 접근 거부",
+        "guidance": "서비스 계정의 제공자 저장소 접근 권한을 서버에서 확인하세요. 비공개 기록을 공개하지 말고 검증된 터미널 연결을 사용하세요."
+      }
+    }
+  },
   "title": "설정",
   "tabs": {
     "account": "계정",

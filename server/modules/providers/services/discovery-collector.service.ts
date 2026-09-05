@@ -109,6 +109,15 @@ export type DiscoveryCollector = {
   ensureFresh(maxAgeMs: number, forceFull?: boolean): Promise<void>;
   currentSnapshot(): DiscoverySnapshot;
   currentDetailed(): DiscoveryDetailedSnapshot;
+  /** Read-only operational metadata; never starts or refreshes discovery. */
+  getState?(): Readonly<{
+    running: boolean;
+    active: boolean;
+    scanning: boolean;
+    disposed: boolean;
+    lastFullScanAtMs: number | null;
+    consecutiveFailures: Readonly<Record<DiscoveryLane, number>>;
+  }>;
   onSnapshot(listener: (snapshot: DiscoverySnapshot) => void): () => void;
 };
 
@@ -531,6 +540,17 @@ export function createDiscoveryCollector(options: DiscoveryCollectorOptions = {}
     },
     currentSnapshot: () => snapshot,
     currentDetailed: () => detailed,
+    getState: () => ({
+      running: timer !== null,
+      active,
+      scanning: currentTick !== null,
+      disposed,
+      lastFullScanAtMs,
+      consecutiveFailures: {
+        external: laneState.external.failures,
+        live: laneState.live.failures,
+      },
+    }),
     onSnapshot(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);

@@ -9,6 +9,7 @@ import AgentsSettingsTab from '../view/tabs/agents-settings/AgentsSettingsTab';
 import AppearanceSettingsTab from '../view/tabs/AppearanceSettingsTab';
 import AccessSettingsTab from '../view/tabs/AccessSettingsTab';
 import { FleetSettingsTab } from '../view/tabs/FleetSettingsTab';
+import DiagnosticsSettingsTab from '../view/tabs/DiagnosticsSettingsTab';
 import { useAuth } from '../../auth';
 import { isFleetOwner } from '../fleet/fleetOwner';
 import { useSettingsController } from '../hooks/useSettingsController';
@@ -77,7 +78,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }: Set
   }, [fleetOwner, initialTab, isOpen, setActiveTab]);
 
   useEffect(() => {
-    if (!fleetOwner && activeTab === 'fleet') setActiveTab('appearance');
+    if (!fleetOwner && (activeTab === 'fleet' || activeTab === 'diagnostics')) setActiveTab('appearance');
   }, [activeTab, fleetOwner, setActiveTab]);
 
   useEffect(() => {
@@ -165,6 +166,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }: Set
 
               {activeTab === 'access' && <AccessSettingsTab />}
               {activeTab === 'fleet' && fleetOwner && <FleetSettingsTab />}
+              {activeTab === 'diagnostics' && fleetOwner && <DiagnosticsSettingsTab />}
             </div>
           </main>
         </div>
