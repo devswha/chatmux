@@ -24,6 +24,7 @@ import {
     getCurrentTmuxPaneIdentity,
     getCurrentTmuxPaneIdentityState,
     getGjcWatcherHealth,
+    getSessionIndexingDiagnostics,
     initializeSessionsWatcher,
     onTranscriptChanged,
     readTmuxPaneIdentity,
@@ -362,6 +363,7 @@ app.use('/api/auth', authRoutes);
 const ownerDiagnostics = createDiagnosticsService({
     collector: () => discoveryCollector,
     watcher: getGjcWatcherHealth,
+    indexing: getSessionIndexingDiagnostics,
 });
 app.use('/api/settings/diagnostics', createDiagnosticsRouter({
     authMode: AUTH_MODE,

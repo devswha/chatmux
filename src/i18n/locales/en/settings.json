@@ -51,6 +51,26 @@
       "degraded": "Degraded; slow retry backoff",
       "unavailable": "Watcher status unavailable"
     },
+    "indexing": {
+      "title": "Transcript indexing",
+      "description": "Cached counters for downstream transcript indexing. Refreshing this summary does not start indexing or reconciliation.",
+      "admission": "Queue admission",
+      "states": {
+        "accepting": "Accepting work",
+        "closed": "Queue closed",
+        "unavailable": "Queue status unavailable"
+      },
+      "pending": "Pending files / limit",
+      "active": "Active operations / limit",
+      "withLimit": "{{value}} / {{limit}}",
+      "reconciling": "Active reconciliation steps",
+      "reconciliationPending": "Providers awaiting or undergoing reconciliation",
+      "overflowed": "Overflow events (total)",
+      "failures": "Indexing failures (total)",
+      "scope": "An accepting queue may be idle or paused during startup. This does not establish watcher or agent liveness. Initial bulk synchronization is excluded.",
+      "totals": "Totals reset with the scheduler. Displayed counters are capped at 1,000,000; unavailable values do not mean zero.",
+      "recovery": "Overflow schedules reconciliation. Wait and refresh the summary; if counts keep increasing, check local ChatMux service logs. Keep existing tmux work running."
+    },
     "eventLoop": "Server event loop utilization",
     "eventLoopDescription": "Cumulative active share since server start. This is neither CPU usage nor a measurement of current response latency.",
     "errors": {

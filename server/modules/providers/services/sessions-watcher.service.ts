@@ -8,6 +8,19 @@ import { projectsDb, sessionsDb } from '@/modules/database/index.js';
 import { generateDisplayName } from '@/modules/projects/index.js';
 import { GjcSessionWatcher } from '@/modules/providers/services/gjc-session-watcher.service.js';
 import { sessionSynchronizerService } from '@/modules/providers/services/session-synchronizer.service.js';
+import {
+  PERIODIC_SESSION_INDEX_PROVIDERS,
+  reconcilePeriodicSessionIndex,
+  reconcileSessionIndexFiles,
+  sessionIndexScanScope,
+} from '@/modules/providers/services/session-indexing-reconciliation.js';
+import {
+  createSessionIndexingScheduler,
+  INDEXING_MAX_ACTIVE,
+  INDEXING_MAX_PENDING_PER_PROVIDER,
+  type SessionIndexingDiagnostics,
+  type SessionIndexReconciliationMode,
+} from '@/modules/providers/services/session-indexing-scheduler.js';
 import { WS_OPEN_STATE, connectedClients } from '@/modules/websocket/index.js';
 import type { LLMProvider } from '@/shared/types.js';
 
@@ -43,11 +56,11 @@ const PROVIDER_WATCH_PATHS: Array<{ provider: LLMProvider; rootPath: string }> =
 ];
 
 const GJC_TERMINAL_RECEIPT_ROOT = path.join(os.homedir(), '.gjc', 'agent', 'terminal-sessions');
-const GJC_WATCH_PATHS = [...new Set([
+const GJC_TRANSCRIPT_ROOTS = [...new Set([
   path.join(os.homedir(), '.gjc', 'agent', 'sessions'),
   path.resolve(process.env.GJC_LIVE_SESSION_DIR || path.join(os.tmpdir(), 'gjc-live-sessions')),
-  GJC_TERMINAL_RECEIPT_ROOT,
 ])];
+const GJC_WATCH_PATHS = [...new Set([...GJC_TRANSCRIPT_ROOTS, GJC_TERMINAL_RECEIPT_ROOT])];
 
 const WATCHER_IGNORED_PATTERNS = [
   '**/node_modules/**',
@@ -61,8 +74,6 @@ const WATCHER_IGNORED_PATTERNS = [
 
 const PROJECTS_UPDATE_DEBOUNCE_MS = 500;
 const PROJECTS_UPDATE_MAX_WAIT_MS = 2_000;
-const FILE_UPDATE_DEBOUNCE_MS = 150;
-const FILE_UPDATE_MAX_WAIT_MS = 1_000;
 const WATCHER_FALLBACK_RECONCILE_MS = 60_000;
 
 const watchers: FSWatcher[] = [];
@@ -135,19 +146,17 @@ let pendingWatcherFlushTimer: ReturnType<typeof setTimeout> | null = null;
 let watcherRefreshInFlight = false;
 let watcherRescheduleAfterRefresh = false;
 let watcherFallbackTimer: ReturnType<typeof setInterval> | null = null;
-let watcherFallbackTask: Promise<void> | null = null;
-let watcherFallbackAbortController: AbortController | null = null;
-let watcherFallbackGeneration = 0;
-type PendingFileUpdate = {
-  eventType: WatcherEventType;
-  filePath: string;
-  provider: LLMProvider;
-  signal?: AbortSignal;
-  startedAtMs: number;
-  timer: ReturnType<typeof setTimeout> | null;
-};
-const pendingFileUpdates = new Map<string, PendingFileUpdate>();
-const fileUpdatesInFlight = new Set<string>();
+const INDEXING_PROVIDERS = [...PROVIDER_WATCH_PATHS.map(({ provider }) => provider), 'gjc'] as const;
+let indexingScheduler: ReturnType<typeof createSessionIndexingScheduler> | null = null;
+
+/** Bounded cached metadata only: no scan, paths, session identities, or I/O. */
+export function getSessionIndexingDiagnostics(): SessionIndexingDiagnostics {
+  return indexingScheduler?.diagnostics() ?? {
+    pending: 0, active: 0, reconciling: 0, reconciliationPending: 0,
+    maxPending: INDEXING_PROVIDERS.length * INDEXING_MAX_PENDING_PER_PROVIDER,
+    maxActive: INDEXING_MAX_ACTIVE, overflowed: 0, failures: 0, closed: true,
+  };
+}
 
 /**
  * Filters watcher events to provider-specific session artifact file types.
@@ -339,7 +348,7 @@ async function onUpdate(
   provider: LLMProvider,
   signal?: AbortSignal
 ): Promise<void> {
-  if (signal?.aborted) {
+  if (signal?.aborted || sessionWatchersClosing) {
     return;
   }
   if (!isWatcherTargetFile(provider, filePath)) {
@@ -370,53 +379,16 @@ async function onUpdate(
         : null,
     );
 
-    console.log(`Session synchronization triggered by ${eventType} event for provider "${provider}"`, {
-      filePath,
-      sessionId: result.sessionId,
-    });
     queuePendingWatcherUpdate(eventType, provider, result.sessionId);
   } catch (error) {
     if (signal?.aborted) {
       return;
     }
-    const message = error instanceof Error ? error.message : String(error);
     markTranscriptChanged(provider);
-    console.error(`Session watcher sync failed for provider "${provider}"`, {
-      eventType,
-      filePath,
-      error: message,
-    });
+    // The scheduler records bounded failure metadata and retries reconciliation.
+    // Provider errors can include private transcript paths; never log them here.
+    throw error;
   }
-}
-
-function fileUpdateKey(provider: LLMProvider, filePath: string): string {
-  return `${provider}\0${filePath}`;
-}
-
-function scheduleFileUpdate(entry: PendingFileUpdate, key: string): void {
-  if (entry.timer) clearTimeout(entry.timer);
-  const elapsedMs = Date.now() - entry.startedAtMs;
-  const delayMs = Math.min(
-    FILE_UPDATE_DEBOUNCE_MS,
-    Math.max(0, FILE_UPDATE_MAX_WAIT_MS - elapsedMs),
-  );
-  entry.timer = setTimeout(() => {
-    entry.timer = null;
-    if (fileUpdatesInFlight.has(key)) {
-      entry.startedAtMs = Date.now();
-      scheduleFileUpdate(entry, key);
-      return;
-    }
-    pendingFileUpdates.delete(key);
-    fileUpdatesInFlight.add(key);
-    void onUpdate(entry.eventType, entry.filePath, entry.provider, entry.signal)
-      .finally(() => {
-        fileUpdatesInFlight.delete(key);
-        const queued = pendingFileUpdates.get(key);
-        if (queued && !queued.timer) scheduleFileUpdate(queued, key);
-      });
-  }, delayMs);
-  entry.timer.unref?.();
 }
 
 function queueFileUpdate(
@@ -425,25 +397,46 @@ function queueFileUpdate(
   provider: LLMProvider,
   signal?: AbortSignal,
 ): void {
-  if (!isWatcherTargetFile(provider, filePath) || signal?.aborted) return;
-  const key = fileUpdateKey(provider, filePath);
-  const existing = pendingFileUpdates.get(key);
-  if (existing) {
-    existing.eventType = eventType === 'add' ? 'add' : existing.eventType;
-    existing.signal = signal;
-    scheduleFileUpdate(existing, key);
+  if (sessionWatchersClosing || !isWatcherTargetFile(provider, filePath) || signal?.aborted) return;
+  if (provider === 'gjc' && isGjcTerminalReceiptPath(filePath)) {
+    // Discovery bindings never wait behind transcript indexing admission.
+    markTranscriptChanged('gjc');
     return;
   }
-  const entry: PendingFileUpdate = {
-    eventType,
-    filePath,
-    provider,
+  indexingScheduler?.enqueue({ eventType, filePath, provider, signal });
+}
+
+async function* reconcileProviderIndex(
+  provider: LLMProvider,
+  signal: AbortSignal,
+  mode: SessionIndexReconciliationMode,
+): AsyncGenerator<void> {
+  if (mode === 'incremental') {
+    yield* reconcilePeriodicSessionIndex({
+      provider, signal,
+      reconcile: (target, abortSignal) => sessionSynchronizerService.reconcileProvider(target, abortSignal),
+      onIndexed: (target, sessionId) => {
+        markTranscriptChanged(target, providerSessionIdForIndexed(target, sessionId));
+        queuePendingWatcherUpdate('change', target, sessionId);
+      },
+    });
+    return;
+  }
+  // Receipts only invalidate discovery. Their tree is never a transcript scan root.
+  if (provider === 'gjc') markTranscriptChanged('gjc');
+  const roots = provider === 'gjc'
+    ? GJC_TRANSCRIPT_ROOTS
+    : PROVIDER_WATCH_PATHS.filter((entry) => entry.provider === provider).map((entry) => entry.rootPath);
+  // GJC's existing reconcileProvider() filters by the shared startup cursor;
+  // non-pi providers do not implement that optional method. A streaming
+  // file walk recovers dropped changes even if startup advances the cursor
+  // while events are waiting. It neither reads nor advances that cursor.
+  yield* reconcileSessionIndexFiles({
+    ...sessionIndexScanScope(provider, roots, GJC_TERMINAL_RECEIPT_ROOT),
     signal,
-    startedAtMs: Date.now(),
-    timer: null,
-  };
-  pendingFileUpdates.set(key, entry);
-  scheduleFileUpdate(entry, key);
+    isTarget: (filePath) => isWatcherTargetFile(provider, filePath),
+    index: (filePath) => onUpdate('change', filePath, provider, signal),
+  });
 }
 
 function clearGjcWatcherRestartTimer(): void {
@@ -476,17 +469,6 @@ function scheduleGjcWatcherRestart(): void {
     void startGjcSessionWatcher(true);
   }, schedule.delayMs);
   gjcWatcherRestartTimer.unref?.();
-}
-
-/** Rescans the GJC roots after the watcher lost events, as the startup reconcile does. */
-async function reconcileGjcTranscriptsAfterGap(signal: AbortSignal): Promise<void> {
-  if (signal.aborted || sessionWatchersClosing) return;
-  const reconciliation = await sessionSynchronizerService.reconcileProvider('gjc', signal);
-  if (signal.aborted || sessionWatchersClosing) return;
-  for (const sessionId of reconciliation.sessionIds) {
-    markTranscriptChanged('gjc', providerSessionIdForIndexed('gjc', sessionId));
-    queuePendingWatcherUpdate('change', 'gjc', sessionId);
-  }
 }
 
 async function runGjcSessionWatcherStart(
@@ -532,7 +514,9 @@ async function runGjcSessionWatcherStart(
     onEvent: (event, signal) => queueFileUpdate(event.kind, event.path, 'gjc', signal),
     // The native watcher (or this client) dropped events under a burst. One
     // provider-wide reconcile closes the gap; the watcher keeps running.
-    onResync: (signal) => reconcileGjcTranscriptsAfterGap(signal),
+    onResync: (signal) => {
+      if (!signal.aborted) indexingScheduler?.requestReconciliation('gjc');
+    },
     onFailure: reportFailure,
     diagnostic: (message) => console.error(message),
   });
@@ -550,25 +534,7 @@ async function runGjcSessionWatcherStart(
     }
     if (gjcWatcherStarting === watcher) gjcWatcherStarting = null;
     gjcWatcher = watcher;
-    if (reconcileAfterStart) {
-      const reconciliation = await sessionSynchronizerService.reconcileProvider('gjc', signal);
-      if (
-        failureReported
-        || sessionWatchersClosing
-        || generation !== gjcWatcherGeneration
-      ) {
-        if (gjcWatcher === watcher) gjcWatcher = null;
-        await watcher.close();
-        return;
-      }
-      for (const sessionId of reconciliation.sessionIds) {
-        markTranscriptChanged(
-          'gjc',
-          providerSessionIdForIndexed('gjc', sessionId),
-        );
-        queuePendingWatcherUpdate('change', 'gjc', sessionId);
-      }
-    }
+    if (reconcileAfterStart) indexingScheduler?.requestReconciliation('gjc');
     if (
       failureReported
       || sessionWatchersClosing
@@ -608,49 +574,11 @@ function startGjcSessionWatcher(reconcileAfterStart = false): Promise<void> {
   return trackedTask;
 }
 
-function fallbackPassIsActive(generation: number, signal: AbortSignal): boolean {
-  return !signal.aborted
-    && !sessionWatchersClosing
-    && generation === watcherFallbackGeneration;
-}
-
 function startWatcherFallbackPass(): void {
-  if (watcherFallbackTask) return;
-
-  const generation = watcherFallbackGeneration;
-  const controller = new AbortController();
-  watcherFallbackAbortController = controller;
-  const { signal } = controller;
-  let task: Promise<void> | null = null;
-  task = (async () => {
-    try {
-      for (const { provider } of PROVIDER_WATCH_PATHS) {
-        if (!fallbackPassIsActive(generation, signal)) return;
-        try {
-          const reconciliation = await sessionSynchronizerService.reconcileProvider(provider, signal);
-          if (!fallbackPassIsActive(generation, signal)) return;
-          for (const sessionId of reconciliation.sessionIds) {
-            if (!fallbackPassIsActive(generation, signal)) return;
-            markTranscriptChanged(
-              provider,
-              providerSessionIdForIndexed(provider, sessionId),
-            );
-            queuePendingWatcherUpdate('change', provider, sessionId);
-          }
-        } catch {
-          if (!fallbackPassIsActive(generation, signal)) return;
-          // Native watcher events remain primary; the next bounded fallback
-          // pass retries a missed or temporarily unreadable provider root.
-        }
-      }
-    } finally {
-      if (watcherFallbackTask === task) {
-        watcherFallbackTask = null;
-        watcherFallbackAbortController = null;
-      }
-    }
-  })();
-  watcherFallbackTask = task;
+  if (sessionWatchersClosing) return;
+  for (const provider of PERIODIC_SESSION_INDEX_PROVIDERS) {
+    indexingScheduler?.requestReconciliation(provider, 'incremental');
+  }
 }
 
 /**
@@ -658,11 +586,22 @@ function startWatcherFallbackPass(): void {
  */
 export async function initializeSessionsWatcher(): Promise<void> {
   console.log('Setting up session watchers');
+  if (indexingScheduler) return;
   sessionWatchersClosing = false;
+  const scheduler = createSessionIndexingScheduler({
+    providers: INDEXING_PROVIDERS,
+    paused: true,
+    run: (update, signal) => onUpdate(update.eventType, update.filePath, update.provider, signal),
+    reconcile: reconcileProviderIndex,
+  });
+  indexingScheduler = scheduler;
 
   await startGjcSessionWatcher();
+  if (sessionWatchersClosing || indexingScheduler !== scheduler) return;
 
   const initialSync = await sessionSynchronizerService.synchronizeSessions();
+  if (sessionWatchersClosing || indexingScheduler !== scheduler) return;
+  scheduler.start();
   console.log('Initial session synchronization complete', {
     processedByProvider: initialSync.processedByProvider,
     failures: initialSync.failures,
@@ -671,6 +610,7 @@ export async function initializeSessionsWatcher(): Promise<void> {
   for (const { provider, rootPath } of PROVIDER_WATCH_PATHS) {
     try {
       await fsPromises.mkdir(rootPath, { recursive: true });
+      if (sessionWatchersClosing || indexingScheduler !== scheduler) return;
 
       const watcher = chokidar.watch(rootPath, {
         ignored: WATCHER_IGNORED_PATTERNS,
@@ -719,20 +659,15 @@ export async function initializeSessionsWatcher(): Promise<void> {
  */
 export async function closeSessionsWatcher(): Promise<void> {
   sessionWatchersClosing = true;
-  watcherFallbackGeneration += 1;
   gjcWatcherGeneration += 1;
   clearGjcWatcherRestartTimer();
   clearPendingWatcherFlushTimer();
-  for (const pending of pendingFileUpdates.values()) {
-    if (pending.timer) clearTimeout(pending.timer);
-  }
-  pendingFileUpdates.clear();
+  const scheduler = indexingScheduler;
+  const indexingCloseTask = scheduler?.close();
   if (watcherFallbackTimer) {
     clearInterval(watcherFallbackTimer);
     watcherFallbackTimer = null;
   }
-  watcherFallbackAbortController?.abort();
-  const fallbackTask = watcherFallbackTask;
   for (const controller of gjcWatcherStartAbortControllers) {
     controller.abort();
   }
@@ -760,9 +695,7 @@ export async function closeSessionsWatcher(): Promise<void> {
     ...startTasks.map((task) => task.catch(() => {
       console.error('Failed to stop GJC native session watcher startup.');
     })),
-    fallbackTask?.catch(() => {
-      console.error('Failed to stop session watcher fallback reconciliation.');
-    }),
+    indexingCloseTask,
   ]);
   watchers.length = 0;
   gjcWatcherRestartDelayMs = 1_000;
@@ -772,6 +705,5 @@ export async function closeSessionsWatcher(): Promise<void> {
   pendingWatcherUpdateStartedAt = null;
   watcherRefreshInFlight = false;
   watcherRescheduleAfterRefresh = false;
-  watcherFallbackTask = null;
-  watcherFallbackAbortController = null;
+  if (indexingScheduler === scheduler) indexingScheduler = null;
 }

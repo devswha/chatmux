@@ -24,6 +24,10 @@ export function summary(): OwnerDiagnostics {
       connectionIssues: [],
     },
     gjcWatcher: { status: 'no_failures_reported', consecutiveFailures: 0, watchLimitObserved: false },
+    indexing: {
+      status: 'accepting', pending: 12, active: 3, maxPending: 448, maxActive: 4,
+      reconciling: 1, reconciliationPending: 2, overflowed: 25, failures: 6,
+    },
     eventLoop: { utilization: 0.25 },
   };
 }
