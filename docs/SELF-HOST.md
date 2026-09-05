@@ -21,7 +21,10 @@ artifact only.
 | `~/.local/share/chatmux` | Canonical Git checkout for source review and manual upstream intake. It is not a release payload. |
 | `~/.chatmux/releases/<version>` | Immutable unpacked server artifacts. |
 | `~/.chatmux/current` | Symlink to the release used by the service. |
-| `~/.chatmux/data` | Persistent application data, including user-managed database, assets, and cache paths. |
+| `~/.chatmux/data` | Installer-configured database (`auth.db`), installation identity, and fleet SSH keys. Custom database paths may place these elsewhere. |
+| `~/.chatmux/assets` | Uploaded image assets; separate from the database directory. |
+| `~/.chatmux/update` | Durable release-update jobs, progress, and completion ordering. |
+| `~/.chatmux/chatmux.env` | Managed service configuration, including `DATABASE_PATH`. |
 | `~/.config/systemd/user/chatmux.service` | Per-user systemd service. |
 
 A release deployment must never create, replace, or delete the checkout.
@@ -136,7 +139,7 @@ Installation automatically selects the access path:
 - **Password** is the fallback when Tailscale is unavailable
   (`chatmux access enable password [address] [--session-days <n>]`, rotate with
   `chatmux access password`). It serves a browser login so phones need no VPN
-  app. Sessions renew on use (sliding window, 1–365 days): active devices never
+  app. Its default bind is `0.0.0.0` (all IPv4 interfaces). Sessions renew on use (sliding window, 1–365 days): active devices never
   re-login, idle ones expire, and logout or rotation revokes immediately.
   Restrict the bind with `chatmux access enable password 127.0.0.1`, and put a
   TLS proxy in front before any public exposure.
@@ -199,8 +202,10 @@ Operational rules:
    continuing. There is no fleet-wide update action or protocol downgrade.
 4. If the hub is unavailable, open each peer's own address from its local
    `chatmux status`. Local sessions and recovery remain usable without the hub.
-5. Back up each PC's complete `~/.chatmux/data` independently. Fleet enrollment does
-   not back up or synchronize peer data.
+5. Follow the [backup and recovery runbook](#owner-managed-backup-and-recovery) on
+   each PC independently, including any custom database location and the separate
+   assets and update directories. Fleet enrollment does not back up or synchronize
+   peer data.
 
 Revocation is local-first. The hub's **Revoke grant** blocks that peer locally before
 attempting remote revocation; an unreachable peer is reported separately and remains
@@ -249,13 +254,195 @@ RPC, remote plain-shell creation, general-purpose VPN/SSH management, automatic
 failover, and zero-configuration reachability are outside fleet scope. The
 dedicated enrollment tunnel is governed by Fleet RFC revision 4.
 
+## Owner-managed backup and recovery
+
+ChatMux does not automatically back up or restore its database. This runbook uses
+owner-operated filesystem copies while ChatMux writers are stopped; it does not
+change the updater's rollback contract. Repeat it independently on the hub and
+each peer before a migration or recovery cutover.
+
+### Record the recovery set
+
+Run `chatmux status` and inspect the installed service configuration locally before
+stopping it. Record the exact release version, `current` target, configured port,
+access mode, database path, and public installation ID/fingerprint. Keep this
+inventory private with the backup; do not paste environment files, database rows,
+keys, or unredacted service journals into issues or release assets.
+
+| Include | Location and reason |
+|---|---|
+| SQLite database and existing sidecars | The effective `DATABASE_PATH`, including any `-wal`, `-shm`, and `-journal` files. The installer uses `~/.chatmux/data/auth.db`; the unconfigured source runtime defaults to `~/.chatmux/auth.db`. This includes configuration/auth secrets, revocations, push keys/subscriptions, fleet grants, and migration history as well as indexes. |
+| Complete installation identity and SSH state | `installation-identity/` and, when present, `fleet-ssh/` beside the configured database. Keep the installation ID and key pair together, plus the dedicated SSH keys and `known_hosts`. |
+| Uploaded assets | `~/.chatmux/assets`, which does not move with `DATABASE_PATH`. Include other explicitly configured external data locations or symlink targets in the owner's inventory. |
+| Configuration and deployment evidence | `~/.chatmux/chatmux.env`, the installed `chatmux.service` and its drop-ins, any additional environment files referenced by the unit, and the management CLI at `~/.local/bin/chatmux`. Preserve exact release metadata/checksums and the current/prior release selections. |
+| Updater records and service journals | The complete `~/.chatmux/update` directory, plus relevant user-systemd journal exports. For a retained source deployment, also preserve its deployment records, environment file, and `~/.chatmux/self-update.log` if present. These are private recovery evidence, not instructions to replay. |
+
+ChatMux's SQLite database is not a backup of running processes, project files, or
+provider-native session stores. Protect those separately using the provider's and
+owner's existing procedures. Do not stop tmux or agent processes to snapshot
+ChatMux; a ChatMux restore does not recreate or rewind their work.
+
+### Quiesce and copy
+
+1. Arrange a maintenance window with other owners. Stop new browser mutations,
+   updates, installer runs, access/fleet CLI changes, and other scheduled writers
+   against this installation. Let an active update finish before taking a routine
+   backup. Check detached units as well as the app:
+
+   ```sh
+   systemctl --user list-units --all --type=service \
+     'chatmux-release-update-*' 'chatmux-self-update-*'
+   ```
+
+   A detached worker can restart `chatmux.service`; stopping the app alone is
+   insufficient. If an update is stuck, inspect its exact unit and durable phase
+   first. Stop only that identified worker if incident recovery requires it, then
+   retain its records and both releases. Never kill unrelated user units, tmux, or
+   agents, or remove an updater lock to force progress.
+2. Stop this app and verify it is inactive. Confirm again that no detached worker,
+   manual installer, source deployment process, or other process can write these
+   paths or restart the app. If that cannot be established, do not copy yet.
+
+   ```sh
+   systemctl --user stop chatmux.service
+   systemctl --user is-active chatmux.service
+   ```
+
+   `inactive` with a nonzero exit status is expected. Keep writers stopped through
+   the copy. Do not delete or separate SQLite journals from their database, even
+   after a crash; recovery may need them.
+3. As the installation owner, create a private snapshot outside the managed root.
+   The example copies the entire managed root, including existing release/runtime
+   files; allow enough disk space. Use a real, owner-owned backup directory with
+   mode `0700`, not a symlink, and a filesystem that preserves Unix permissions.
+
+   ```sh
+   set -eu
+   umask 077
+   CHATMUX_BACKUP_PARENT="$HOME/chatmux-backups"
+   test ! -L "$CHATMUX_BACKUP_PARENT" || exit 1
+   mkdir -p "$CHATMUX_BACKUP_PARENT"
+   test "$(stat -c %u "$CHATMUX_BACKUP_PARENT")" = "$(id -u)" || exit 1
+   chmod 700 "$CHATMUX_BACKUP_PARENT"
+   CHATMUX_BACKUP="$(mktemp -d "$CHATMUX_BACKUP_PARENT/snapshot.XXXXXX")"
+   tar -cf "$CHATMUX_BACKUP/chatmux.tar" -C "$HOME" .chatmux
+   tar -cf "$CHATMUX_BACKUP/cli.tar" -C "$HOME/.local/bin" chatmux
+   cp -p "$HOME/.config/systemd/user/chatmux.service" "$CHATMUX_BACKUP/chatmux.service"
+   journalctl --user -u chatmux.service --no-pager > "$CHATMUX_BACKUP/chatmux-service.log"
+   chmod 600 "$CHATMUX_BACKUP"/*
+   ```
+
+   Stop on any copy/export error. This archive does not follow symlinks or include
+   external paths. **Before resuming**, add the configured database and its
+   sidecars, identity/SSH directories if outside `~/.chatmux`, unit drop-ins,
+   external environment/data files, and the relevant exact updater-unit journal
+   export. Keep all copies within this same stopped-writer interval. For a
+   dedicated custom database directory, for example:
+
+   ```sh
+   tar -cf "$CHATMUX_BACKUP/custom-data.tar" -C /absolute/dedicated-db-directory .
+   ```
+
+   If that directory is shared with other applications, archive only the
+   inventoried database family and ChatMux identity/SSH directories. Do not
+   blindly archive or restore the whole shared parent.
+4. Save the inventory with the snapshot and hash all its files after the last
+   export. Do not change the snapshot after creating this manifest:
+
+   ```sh
+   (cd "$CHATMUX_BACKUP" && sha256sum -- * > SHA256SUMS)
+   chmod 600 "$CHATMUX_BACKUP/SHA256SUMS"
+   ```
+
+   Keep an encrypted copy on separate owner-controlled storage and test recovery
+   before relying on it. A hash detects accidental changes; it does not make an
+   untrusted backup safe. Once the copy is complete, a routine backup can end by
+   starting only `chatmux.service` and checking its configured health endpoint.
+   During incident recovery, keep it stopped until the steps below are complete.
+
+### Restore a snapshot
+
+1. Quiesce the same writers. Fence the old installation before restoring its
+   identity onto a replacement host: **never run two live copies of the same
+   installation ID/key pair**. Keep a restored host isolated from browser and
+   fleet traffic until configuration and revocations are reviewed. Use the direct
+   local owner terminal; do not reroute pending hub actions to another peer.
+2. Verify `SHA256SUMS`, then extract into a new owner-only staging directory,
+   preserving modes. Do not unpack over the live root. Inspect the inventory and
+   symlinks; restore only known, owner-controlled files. Make a disposable copy of
+   the staged database **with its sidecars** for SQLite verification. With Python
+   3 available, the following checks that copy without starting ChatMux; replace
+   the argument with its actual staged path:
+
+   ```sh
+   python3 - /absolute/disposable-copy/auth.db <<'PY'
+   import pathlib
+   import sqlite3
+   import sys
+
+   database = pathlib.Path(sys.argv[1]).resolve()
+   # mode=rw refuses a missing DB but permits journal recovery on this copy.
+   with sqlite3.connect(database.as_uri() + "?mode=rw", uri=True) as connection:
+       if connection.execute("PRAGMA integrity_check").fetchall() != [("ok",)]:
+           raise SystemExit("SQLite integrity check failed")
+       if connection.execute("PRAGMA foreign_key_check").fetchall():
+           raise SystemExit("SQLite foreign-key check failed")
+   print("SQLite recovery checks passed")
+   PY
+   ```
+
+   Stop if verification fails. Check the recorded release/schema migration history
+   and representative data/assets too; SQLite integrity alone does not prove
+   application compatibility. Do not open the original backup to repair it.
+3. Preserve the failed installation's data, configuration, and current updater
+   journal in a private quarantine. Restore the matching database family,
+   complete identity/SSH directories, assets, and reviewed configuration from one
+   snapshot. Replace dedicated data directories as a set; never overlay an older
+   `auth.db` onto newer `-wal`/`-shm`/`-journal` files or mix individual identity keys.
+   For a shared custom database parent, replace only the inventoried ChatMux
+   files. Keep the configured paths consistent with the restored configuration.
+   Restore the reviewed service unit/drop-ins and management CLI at their recorded
+   paths, preserving the CLI's executable bit and checking its target release.
+   The managed root and identity directories must be owner-owned `0700`; identity
+   files, database/sidecars, keys, and private environment files must be `0600`.
+4. Select the verified release recorded with that snapshot, or a release with
+   explicit compatibility evidence. Confirm its entry point and metadata before
+   the manual cutover below. Retain the live updater's incident records; do not
+   overwrite them with an older snapshot to clear an active/failed job. After total
+   storage loss, preserve recovered updater records for inspection and allow the
+   existing inactive-worker reconciliation to report recovery needs. Do not edit
+   job phases, clear locks, launch saved worker commands, or replay update jobs.
+5. Before reconnecting, review grants, allowed accounts, and password revocations
+   made since the snapshot: restoring SQLite can roll those changes back. Reapply
+   known revocations through the existing owner CLI (`chatmux fleet revoke`,
+   `chatmux access revoke`); in password mode use `chatmux access password` to
+   invalidate restored browser sessions. Run these commands with the effective
+   restored `DATABASE_PATH` explicitly set (for example,
+   `DATABASE_PATH=/absolute/restored/auth.db chatmux fleet revoke <installation-id>`);
+   a service-only environment override is not inherited by a terminal CLI. Use the
+   CLI/runtime from the selected compatible release. Do not reuse saved pairing codes. If
+   trust changes cannot be reconciled, revoke the old identity on counterparts
+   and follow [installation-key replacement](#installation-key-replacement).
+6. Run `systemctl --user daemon-reload` after restoring the unit/drop-ins, then
+   start `chatmux.service`, verify its exact health version, compare the public
+   installation ID/fingerprint, and inspect the direct UI. Check known sessions
+   and assets by reading them; tmux/provider state remains authoritative. Reconnect
+   peers and wait for a fresh snapshot and **Online** before new input. Never replay
+   queued sends, approvals, terminations, or uncertain mutations from before the
+   outage. Reopen the session so exact pane, process generation, provider binding,
+   and live prompt checks run again at the next action boundary. Keep the failed
+   data and backup until recovery is accepted.
+
 ## Manual recovery cutover
 
 Use this terminal procedure only after a bootstrap/recovery decision or a durable
 `manual_required`/`failed_rollback` job. Ordinary compatible release updates use
 the owner-only mobile action; do not turn this into a parallel routine deployment
 path. A recovery cutover changes only the `current` symlink and then restarts the
-service. Download and checksum-verify the approved artifact exactly as described
+service. First quiesce the application and updater writers and preserve a complete
+[recovery snapshot](#owner-managed-backup-and-recovery). Check the target's exact
+database rollback declaration before starting it: a newer release may migrate the
+database on first boot. Download and checksum-verify the approved artifact exactly as described
 in [INSTALL.md](INSTALL.md); do not use a moving `latest` URL.
 
 1. Record the active release before touching `current`.
@@ -282,13 +469,23 @@ systemctl --user --no-pager --full status chatmux.service
 curl --fail http://127.0.0.1:3001/health
 ```
 
-If the service or health check fails, perform the rollback immediately rather
-than troubleshooting against a partially accepted release.
+If the service or health check fails, stop the failed service and inspect the
+recorded version and update phase. Use the rollback below only when its database
+compatibility precondition holds; otherwise keep it stopped and recover the
+matching pre-upgrade data snapshot and release together.
 
 ## Rollback
 
 `previous-release` contains the release path captured by the cutover commands.
-Validate it is an installed release before atomically restoring it.
+Validate it is an installed release before atomically restoring it. **Do not run
+the commands below against a database that the prior release cannot read.** The
+release that migrated the database must explicitly list the exact prior version
+in `database.rollbackCompatibleFrom` in its verified `release-update-metadata.json`,
+with the release CI compatibility proof. A matching schema number or an existing
+release directory alone is not that proof. If the declaration is missing or the
+database's migration history is uncertain, use the [data recovery procedure](#restore-a-snapshot)
+with its matching release instead. Quiesce all application/updater writers before
+either path; do not race a detached rollback worker.
 
 ```sh
 RUNTIME="$HOME/.chatmux"
