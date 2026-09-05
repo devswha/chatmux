@@ -21,6 +21,9 @@ const fixturePs = path.join(fixtureBin, 'ps');
 // Route imports bind their process runners at module evaluation time. These command
 // fixtures make the complete HTTP path deterministic without changing product DI.
 await writeFile(fixtureTmux, `#!/bin/sh
+if [ -n "$CHATMUX_CONTRACT_TMUX_LOG" ]; then
+  printf '%s\\n' "$*" >> "$CHATMUX_CONTRACT_TMUX_LOG"
+fi
 if [ -n "$CHATMUX_CONTRACT_TMUX_FAIL" ]; then exit 1; fi
 case "$*" in
   *list-panes*)

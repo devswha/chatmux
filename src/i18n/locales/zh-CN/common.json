@@ -31,6 +31,12 @@
     "completed": "已完成",
     "inProgress": "进行中"
   },
+  "discoveryFreshness": {
+    "reconnecting": "正在重新连接本机会话列表…",
+    "refreshing": "正在刷新本机会话列表…",
+    "current": "本机会话列表已更新",
+    "unavailable": "无法确认本机会话列表是否最新"
+  },
   "messages": {
     "savedSuccessfully": "保存成功",
     "deletedSuccessfully": "删除成功",

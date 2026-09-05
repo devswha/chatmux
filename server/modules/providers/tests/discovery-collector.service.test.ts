@@ -126,6 +126,21 @@ test('discovery collector publishes GJC provider failures as error activity', as
   );
 });
 
+test('GJC binding changes propagate independently of pane lineage and advance discovery', async () => {
+  const state = scans();
+  let previousRevision = 0;
+  for (const binding of ['observed', 'inferred', undefined] as const) {
+    state.live([{ ...live, binding }]);
+    await state.collector.tick();
+    const snapshot = state.collector.currentSnapshot();
+    const row = snapshot.rows.find((value) => value.lane === 'live');
+    assert.equal(row?.binding, binding);
+    assert.equal(row?.tmuxActionable, true, 'pane lineage remains independent of the transcript binding');
+    assert.ok(snapshot.revision > previousRevision);
+    previousRevision = snapshot.revision;
+  }
+});
+
 test('unavailable lanes retain rows and only degrade health after the threshold', async () => {
   const state = scans();
   await state.collector.tick();

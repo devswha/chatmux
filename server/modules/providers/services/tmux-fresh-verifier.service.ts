@@ -23,7 +23,7 @@ export type VerifiedTmuxActionTarget = Readonly<{
   kind: ExternalCliKind | 'gjc';
   tmuxName: string | null;
   providerSessionId: string | null;
-  /** How `providerSessionId` was tied to this process; null when unknown or not applicable (gjc). */
+  /** Transcript binding evidence; null when absent. Pane verification is independent. */
   binding: ExternalSessionBinding | null;
   readonly [verifiedTmuxActionTarget]: true;
 }>;

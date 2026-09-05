@@ -31,6 +31,12 @@
     "completed": "Завершено",
     "inProgress": "В процессе"
   },
+  "discoveryFreshness": {
+    "reconnecting": "Повторное подключение списка локальных сеансов…",
+    "refreshing": "Обновление списка локальных сеансов…",
+    "current": "Список локальных сеансов актуален",
+    "unavailable": "Список локальных сеансов не актуален"
+  },
   "messages": {
     "savedSuccessfully": "Успешно сохранено",
     "deletedSuccessfully": "Успешно удалено",

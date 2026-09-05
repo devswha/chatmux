@@ -31,6 +31,12 @@
     "completed": "Completed",
     "inProgress": "In Progress"
   },
+  "discoveryFreshness": {
+    "reconnecting": "Reconnecting local session list…",
+    "refreshing": "Refreshing local session list…",
+    "current": "Local session list up to date",
+    "unavailable": "Local session list not current"
+  },
   "messages": {
     "savedSuccessfully": "Saved successfully",
     "deletedSuccessfully": "Deleted successfully",

@@ -199,6 +199,7 @@ esac
     assert.equal(result.ok, true);
     assert.equal(result.sessions.length, 1);
     assert.equal(result.sessions[0].id, parentSessionId);
+    assert.equal(result.sessions[0].binding, 'inferred', 'cwd/time receipt cannot authorize transcript writes');
     assert.equal(result.sessions[0].process?.pid, process.pid);
     assert.notEqual(result.sessions[0].id, subagentSessionId);
   } finally {
@@ -275,6 +276,7 @@ esac
     assert.equal(result.ok, true);
     assert.equal(result.sessions.length, 1);
     assert.equal(result.sessions[0].id, exactSessionId);
+    assert.equal(result.sessions[0].binding, 'observed', 'the exact process resume id proves this transcript');
     assert.equal(result.sessions[0].process?.pid, agent.pid);
     assert.notEqual(result.sessions[0].id, heuristicSessionId);
   } finally {

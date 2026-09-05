@@ -3,9 +3,12 @@ import { spawn } from 'node:child_process';
 import { isCursorCliProcess } from '@/modules/providers/list/cursor/cursor-cli-command.js';
 
 import { recordHostCommand } from '../host-command-metrics.service.js';
+import { tmuxPaneIdentityKey } from '../../../../../shared/tmux.js';
 
 import type { ExternalCliKind, ExternalCliSession, ExternalLocalCliKind, ExternalPane, ProcessTreeEntry, ExternalSessionBinding } from './contracts-and-resume.js';
 import { CLAUDE_SESSION_ID_RE, CODEX_THREAD_ID_RE, extractExternalResumeSessionId } from './contracts-and-resume.js';
+import type { CustomProcessEvidence, CustomTerminalAgentDetectionOptions } from './custom-terminal-agents.js';
+import { couldMatchCustomCommand, isCustomTerminalShellInvocation, matchesCustomTerminalAgent, readCustomProcessEvidence, readCustomTerminalAgents } from './custom-terminal-agents.js';
 
 
 export function parseClaudeRuntimeSession(
@@ -189,6 +192,78 @@ export function classifyExternalSessions(args: {
     || a.tmux.windowId.localeCompare(b.tmux.windowId)
     || a.tmux.paneId.localeCompare(b.tmux.paneId)
   ));
+}
+
+/** Optional exact-argv evidence enriches only existing shell rows, never providers. */
+export async function classifyCustomTerminalSessions(
+  args: { sessions: ExternalCliSession[]; panes: ExternalPane[]; procs: ProcessTreeEntry[] },
+  options: CustomTerminalAgentDetectionOptions = {},
+): Promise<ExternalCliSession[]> {
+  const rules = readCustomTerminalAgents(options.env);
+  if (!rules.length || (options.platform ?? process.platform) !== 'linux') return args.sessions;
+  const procByPid = new Map(args.procs.map((proc) => [proc.pid, proc]));
+  // A duplicate PID makes the snapshot ambiguous; never pick whichever entry won.
+  if (procByPid.size !== args.procs.length) return args.sessions;
+  const children = new Map<number, ProcessTreeEntry[]>();
+  for (const proc of args.procs) {
+    const siblings = children.get(proc.ppid) ?? [];
+    siblings.push(proc);
+    children.set(proc.ppid, siblings);
+  }
+  const candidates = new Map<ExternalCliSession, { root: ProcessTreeEntry; procs: ProcessTreeEntry[]; pane: ExternalPane }>();
+  const panesByIdentity = new Map<string, ExternalPane[]>();
+  for (const pane of args.panes) {
+    const key = tmuxPaneIdentityKey(pane.tmux);
+    panesByIdentity.set(key, [...(panesByIdentity.get(key) ?? []), pane]);
+  }
+  const readPids = new Set<number>();
+  for (const session of args.sessions) {
+    if (session.kind !== 'shell') continue;
+    const panes = panesByIdentity.get(tmuxPaneIdentityKey(session.tmux)) ?? [];
+    if (panes.length !== 1) continue;
+    const pane = panes[0];
+    const root = procByPid.get(pane.pid);
+    if (!root) continue;
+    const owned = isInteractiveShellProcess(root) ? children.get(root.pid) ?? [] : [root];
+    // Pipelines and multiple shell jobs have no unique process owner in this
+    // snapshot. Even an unreadable/unconfigured sibling must not be ignored.
+    if (owned.length !== 1) continue;
+    const possible = owned
+      .filter((proc) => !processCliKind(proc) && couldMatchCustomCommand(proc.comm, rules));
+    if (!possible.length) continue;
+    candidates.set(session, { root, procs: possible, pane });
+    readPids.add(root.pid);
+    for (const proc of possible) readPids.add(proc.pid);
+    if (readPids.size > 128) return args.sessions;
+  }
+  const evidence = new Map<number, CustomProcessEvidence | null>();
+  const pending = [...readPids];
+  await Promise.all(Array.from({ length: Math.min(8, pending.length) }, async () => {
+    for (let pid = pending.pop(); pid !== undefined; pid = pending.pop()) {
+      evidence.set(pid, await readCustomProcessEvidence(pid, options.readProcessRecord));
+    }
+  }));
+  return args.sessions.map((session) => {
+    const candidate = candidates.get(session);
+    if (!candidate) return session;
+    const root = evidence.get(candidate.root.pid);
+    if (!root || root.ppid !== candidate.root.ppid) return session;
+    const matches = candidate.procs.filter((proc) => {
+      const observed = evidence.get(proc.pid);
+      return observed && observed.ppid === proc.ppid
+        && observed.pgid === observed.foregroundPgid
+        && observed.tty === root.tty && observed.sid === root.sid
+        && observed.foregroundPgid === root.foregroundPgid
+        && (proc.pid === root.pid || observed.ppid === root.pid)
+        && (proc.pid === root.pid || isCustomTerminalShellInvocation(candidate.root.comm, root.argv))
+        && (proc.pid === root.pid || (root.ppid !== proc.pid && root.startTicks <= observed.startTicks))
+        && [proc.comm, observed.argv[0].split('/').at(-1)].includes(candidate.pane.command)
+        && couldMatchCustomCommand(proc.comm, [{ command: observed.argv[0], argv: [] }])
+        && matchesCustomTerminalAgent(observed.argv, rules);
+    });
+    if (matches.length !== 1) return session;
+    return { ...session, agentPid: matches[0].pid };
+  });
 }
 
 export type ExternalCliSessionCommandRunner = (
