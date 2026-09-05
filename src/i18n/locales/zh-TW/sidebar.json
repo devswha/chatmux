@@ -56,13 +56,31 @@
       "running": "代理程式正在回應或執行工具",
       "waitingUser": "等待中",
       "waitingUserTitle": "目前回合已完成，正在等待你的下一次輸入",
-      "approvalPending": "等待核准",
-      "approvalPendingTitle": "代理程式正在等待你的選擇或核准",
-      "approvalPendingAttach": "連線到「{{name}}」以回覆等待中的核准",
+      "approvalPending": "需要回覆",
+      "approvalPendingTitle": "代理需要你的回覆",
+      "approvalPendingAttach": "連線至「{{name}}」終端以回覆代理",
       "notStarted": "待開始",
       "notStartedTitle": "尚未傳送第一則訊息",
       "unknown": "無法確認",
       "unknownTitle": "無法根據提供者記錄安全地判定目前狀態"
+    }
+  },
+  "attention": {
+    "scope": "本機 · 僅限已回報的本機工作階段",
+    "filterLabel": "依待處理狀態篩選本機工作階段",
+    "all": "全部本機",
+    "input": "需要回覆",
+    "failure": "失敗",
+    "connection": "連線問題",
+    "nextAttention": "下一個待處理工作階段",
+    "nextMatch": "下一個符合的工作階段",
+    "empty": "已回報的本機工作階段中沒有符合項目。",
+    "status": {
+      "running": "代理正在回覆或執行工具",
+      "ready": "已準備好接收下一個指令",
+      "input": "代理需要你的回覆",
+      "error": "代理回報了失敗",
+      "connection": "連線發生問題，無法確認代理狀態"
     }
   }
 }

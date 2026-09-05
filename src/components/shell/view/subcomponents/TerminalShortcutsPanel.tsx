@@ -37,6 +37,13 @@ const ARROW_ICONS = {
   right: ArrowRight,
 } as const;
 
+const ARROW_LABELS = {
+  up: 'terminalShortcuts.arrowUp',
+  down: 'terminalShortcuts.arrowDown',
+  left: 'terminalShortcuts.arrowLeft',
+  right: 'terminalShortcuts.arrowRight',
+} as const;
+
 type TerminalShortcutsPanelProps = {
   wsRef: MutableRefObject<WebSocket | null>;
   terminalRef: MutableRefObject<Terminal | null>;
@@ -120,7 +127,7 @@ export default function TerminalShortcutsPanel({
           title={t('terminalShortcuts.paste', { defaultValue: 'Paste' })}
           aria-label={t('terminalShortcuts.paste', { defaultValue: 'Paste' })}
         >
-          <Clipboard className="h-4 w-4" />
+          <Clipboard className="h-4 w-4" aria-hidden="true" />
         </button>
 
         {MOBILE_KEYS.map((key) => {
@@ -137,6 +144,7 @@ export default function TerminalShortcutsPanel({
                 onPointerDown={preventFocusSteal}
                 onClick={toggle}
                 disabled={!isConnected}
+                aria-pressed={isActive}
                 className={isActive ? KEY_BTN_ACTIVE : KEY_BTN}
               >
                 {key.label}
@@ -154,8 +162,10 @@ export default function TerminalShortcutsPanel({
                 onClick={() => sendInput(key.sequence)}
                 disabled={!isConnected}
                 className={ICON_BTN}
+                title={t(ARROW_LABELS[key.icon])}
+                aria-label={t(ARROW_LABELS[key.icon])}
               >
-                <Icon className="h-4 w-4" />
+                <Icon className="h-4 w-4" aria-hidden="true" />
               </button>
             );
           }
@@ -183,7 +193,7 @@ export default function TerminalShortcutsPanel({
           title={t('terminalShortcuts.scrollDown')}
           aria-label={t('terminalShortcuts.scrollDown')}
         >
-          <ArrowDownToLine className="h-4 w-4" />
+          <ArrowDownToLine className="h-4 w-4" aria-hidden="true" />
         </button>
       </div>
     </div>
