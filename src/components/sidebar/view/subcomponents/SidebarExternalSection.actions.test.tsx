@@ -102,7 +102,7 @@ test('M5b B8: the asking_user badge is a separate clickable attach entry point, 
   // HTML), and it retains the translated accessible attach action.
   const approvalButtonMatch = html.match(/<button type="button"[^>]*aria-label="[^"]*claude-ask[^"]*"[^>]*>/);
   assert.ok(approvalButtonMatch, html);
-  assert.ok(html.includes('claude-ask') && html.includes('에 연결해 대기 중인 승인에 답하기'));
+  assert.ok(html.includes('claude-ask') && html.includes('터미널에 연결하여 에이전트에 응답'));
 
   // The badge button's own closing tag ends the only place its INPUT label may
   // legitimately appear; the row's own open button must not repeat it.

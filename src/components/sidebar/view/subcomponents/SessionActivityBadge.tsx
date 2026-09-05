@@ -1,6 +1,7 @@
 import { Fragment } from 'react';
+import { useTranslation } from 'react-i18next';
 
-export type SessionActivityState = 'running' | 'ready' | 'input' | 'error';
+export type SessionActivityState = 'running' | 'ready' | 'input' | 'error' | 'connection';
 
 const STATUS_CONFIG = {
   running: {
@@ -23,6 +24,11 @@ const STATUS_CONFIG = {
     className: 'bg-red-500/15 text-red-600 dark:text-red-400',
     dotClassName: 'bg-red-500',
   },
+  connection: {
+    label: 'LINK',
+    className: 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
+    dotClassName: 'bg-amber-500',
+  },
 } satisfies Record<SessionActivityState, {
   label: string;
   className: string;
@@ -34,13 +40,15 @@ type SessionActivityBadgeProps = {
 };
 
 export default function SessionActivityBadge({ state }: SessionActivityBadgeProps) {
+  const { t } = useTranslation('sidebar');
   const config = STATUS_CONFIG[state];
   return (
     <Fragment>
       <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${config.dotClassName}`} aria-hidden />
-      <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${config.className}`}>
+      <span title={t(`attention.status.${state}`)} aria-hidden className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${config.className}`}>
         {config.label}
       </span>
+      <span className="sr-only">{t(`attention.status.${state}`)}</span>
     </Fragment>
   );
 }

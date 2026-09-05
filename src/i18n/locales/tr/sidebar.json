@@ -56,13 +56,31 @@
       "running": "Aracı yanıt veriyor veya araçları çalıştırıyor",
       "waitingUser": "Bekliyor",
       "waitingUserTitle": "Geçerli tur tamamlandı ve sonraki girdinizi bekliyor",
-      "approvalPending": "Onay bekliyor",
-      "approvalPendingTitle": "Aracı seçiminizi veya onayınızı bekliyor",
-      "approvalPendingAttach": "Bekleyen onayı yanıtlamak için '{{name}}' oturumuna bağlan",
+      "approvalPending": "Yanıt gerekli",
+      "approvalPendingTitle": "Ajan yanıtınızı bekliyor",
+      "approvalPendingAttach": "Ajana yanıt vermek için '{{name}}' terminaline bağlan",
       "notStarted": "Hazır",
       "notStartedTitle": "Henüz ilk mesaj gönderilmedi",
       "unknown": "Kullanılamıyor",
       "unknownTitle": "Geçerli durum sağlayıcı kayıtlarından güvenle belirlenemiyor"
+    }
+  },
+  "attention": {
+    "scope": "Bu makine · yalnızca bildirilen yerel oturumlar",
+    "filterLabel": "Yerel oturumları ilgi gereksinimine göre filtrele",
+    "all": "Tüm yereller",
+    "input": "Yanıt gerekli",
+    "failure": "Hatalar",
+    "connection": "Bağlantı sorunları",
+    "nextAttention": "İlgi gerektiren sonraki oturum",
+    "nextMatch": "Sonraki eşleşen oturum",
+    "empty": "Bildirilen yerel oturumlar arasında bu filtreyle eşleşen yok.",
+    "status": {
+      "running": "Ajan yanıt veriyor veya araç çalıştırıyor",
+      "ready": "Sonraki talimat için hazır",
+      "input": "Ajan yanıtınızı bekliyor",
+      "error": "Ajan bir hata bildirdi",
+      "connection": "Bağlantı sorunu; ajanın durumu bilinmiyor"
     }
   }
 }

@@ -41,9 +41,9 @@
       "running": "エージェントが応答中またはツールを実行中です",
       "waitingUser": "待機中",
       "waitingUserTitle": "現在のターンは完了し、次の入力を待っています",
-      "approvalPending": "承認待ち",
-      "approvalPendingTitle": "エージェントが選択または承認を待っています",
-      "approvalPendingAttach": "'{{name}}' に接続して承認待ちに答える",
+      "approvalPending": "応答が必要",
+      "approvalPendingTitle": "エージェントへの応答が必要",
+      "approvalPendingAttach": "「{{name}}」のターミナルに接続してエージェントに応答",
       "notStarted": "開始前",
       "notStartedTitle": "まだ最初のメッセージを送信していません",
       "unknown": "確認不可",
@@ -64,5 +64,23 @@
     "enable": "このセッションでアシスタントの返信準備完了通知を有効にする",
     "timeout": "アシスタントの返信準備完了通知がタイムアウトしました。もう一度お試しください。",
     "conflict": "アシスタントの返信通知設定が変更されました。もう一度お試しください。"
+  },
+  "attention": {
+    "scope": "このマシン · 報告されたローカルセッションのみ",
+    "filterLabel": "対応状況でローカルセッションを絞り込む",
+    "all": "ローカルすべて",
+    "input": "応答が必要",
+    "failure": "失敗",
+    "connection": "接続の問題",
+    "nextAttention": "次の対応が必要なセッション",
+    "nextMatch": "次の該当セッション",
+    "empty": "この条件に一致するローカルセッションの報告はありません。",
+    "status": {
+      "running": "エージェントが応答またはツールを実行中",
+      "ready": "次の指示を受付可能",
+      "input": "エージェントへの応答が必要",
+      "error": "エージェントが失敗を報告",
+      "connection": "接続の問題によりエージェントの状態を確認できません"
+    }
   }
 }
