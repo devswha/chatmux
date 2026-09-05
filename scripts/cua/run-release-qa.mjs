@@ -139,6 +139,7 @@ const artifacts = [
   'fleet-desktop-host-groups.png', 'fleet-desktop-ax.json', 'fleet-remote-terminal.png',
   'fleet-mobile-host-groups.png', 'fleet-mobile-ax.json', 'desktop-interactions.png',
   'desktop-session-switch.png',
+  'mobile-chromium-320-chat.png', 'mobile-chromium-390-chat.png',
 ];
 const artifactResults = await Promise.all(artifacts.map(async (name) => ({
   name, bytes: (await stat(path.join(evidence, name))).size,
