@@ -172,5 +172,17 @@
       "updateAvailable": "Update verfügbar",
       "closeSidebar": "Seitenleiste schließen"
     }
+  },
+  "sessionPins": {
+    "heading": "Angeheftete Sitzungen",
+    "pin": "{{name}} anheften",
+    "unpin": "{{name}} lösen",
+    "current": "aktuelle Sitzung",
+    "openPalette": "Suche und angeheftete Sitzungen",
+    "browserOnly": "Dieser Browser: {{count}} / {{limit}} angeheftet. Sitzungen unten anheften.",
+    "unavailable": "Sitzung nicht verfügbar",
+    "host": "Host",
+    "limit": "Zuerst eine Sitzung lösen (höchstens {{count}}).",
+    "storageUnavailable": "Browserspeicher nicht verfügbar. Die Liste bleibt nur bis zum Schließen dieser Seite erhalten."
   }
 }

@@ -202,5 +202,17 @@
       "closeSidebar": "Kenar çubuğunu kapat",
       "progress": "Güncelleme ilerlemesi"
     }
+  },
+  "sessionPins": {
+    "heading": "Sabitlenen oturumlar",
+    "pin": "{{name}} oturumunu sabitle",
+    "unpin": "{{name}} oturumunun sabitlemesini kaldır",
+    "current": "geçerli oturum",
+    "openPalette": "Arama ve sabitlenen oturumlar",
+    "browserOnly": "Bu tarayıcı: {{count}} / {{limit}} sabitlendi. Aşağıdaki oturumları sabitleyin.",
+    "unavailable": "Oturum kullanılamıyor",
+    "host": "Ana makine",
+    "limit": "Başka bir oturum eklemek için bir sabitlemeyi kaldırın (sınır: {{count}}).",
+    "storageUnavailable": "Tarayıcı depolaması kullanılamıyor. Liste bu sayfa kapanana kadar saklanır."
   }
 }

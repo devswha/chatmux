@@ -202,5 +202,17 @@
       "closeSidebar": "关闭侧边栏",
       "progress": "更新进度"
     }
+  },
+  "sessionPins": {
+    "heading": "固定的会话",
+    "pin": "固定{{name}}",
+    "unpin": "取消固定{{name}}",
+    "current": "当前会话",
+    "openPalette": "搜索和固定的会话",
+    "browserOnly": "此浏览器：已固定 {{count}} / {{limit}} 个。可固定下方会话。",
+    "unavailable": "会话不可用",
+    "host": "主机",
+    "limit": "请先取消固定一个会话再添加（上限 {{count}} 个）。",
+    "storageUnavailable": "浏览器存储不可用。固定列表仅保留到此页面关闭。"
   }
 }

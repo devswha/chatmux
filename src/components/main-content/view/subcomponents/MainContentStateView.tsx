@@ -2,6 +2,7 @@ import { Folder } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import type { MainContentStateViewProps } from '../../types/types';
+import CommandPaletteButton from '../../../command-palette/view/CommandPaletteButton';
 
 import MobileMenuButton from './MobileMenuButton';
 
@@ -12,11 +13,10 @@ export default function MainContentStateView({ mode, isMobile, onMenuClick }: Ma
 
   return (
     <div className="flex h-full flex-col">
-      {isMobile && (
-        <div className="pwa-header-safe flex-shrink-0 border-b border-border/50 bg-background p-2 sm:p-3">
-          <MobileMenuButton onMenuClick={onMenuClick} compact />
-        </div>
-      )}
+      <div className="pwa-header-safe flex flex-shrink-0 items-center justify-between border-b border-border/50 bg-background p-2 sm:p-3">
+        {isMobile && <MobileMenuButton onMenuClick={onMenuClick} compact />}
+        <CommandPaletteButton />
+      </div>
 
       {isLoading ? (
         <div className="flex flex-1 items-center justify-center">

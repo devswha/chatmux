@@ -202,5 +202,17 @@
       "updateAvailable": "Mise à jour disponible",
       "closeSidebar": "Masquer la barre latérale"
     }
+  },
+  "sessionPins": {
+    "heading": "Sessions épinglées",
+    "pin": "Épingler {{name}}",
+    "unpin": "Désépingler {{name}}",
+    "current": "session actuelle",
+    "openPalette": "Recherche et sessions épinglées",
+    "browserOnly": "Ce navigateur : {{count}} / {{limit}} épinglées. Épinglez les sessions ci-dessous.",
+    "unavailable": "Session indisponible",
+    "host": "Hôte",
+    "limit": "Désépinglez une session pour en ajouter une autre (limite : {{count}}).",
+    "storageUnavailable": "Le stockage du navigateur est indisponible. La liste sera conservée jusqu’à la fermeture de cette page."
   }
 }

@@ -2,6 +2,7 @@ import { useCallback, useRef, useState, useEffect } from 'react';
 
 
 import type { MainContentHeaderProps } from '../../types/types';
+import CommandPaletteButton from '../../../command-palette/view/CommandPaletteButton';
 
 import MobileMenuButton from './MobileMenuButton';
 import MainContentTabSwitcher from './MainContentTabSwitcher';
@@ -50,6 +51,7 @@ export default function MainContentHeader({
         </div>
 
         <div className="flex min-w-0 flex-shrink items-center gap-1.5 sm:flex-shrink-0">
+        <CommandPaletteButton />
         <div className="relative min-w-0 flex-shrink overflow-hidden sm:flex-shrink-0">
           {canScrollLeft && (
             <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-6 bg-gradient-to-r from-background to-transparent" />
