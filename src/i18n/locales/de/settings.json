@@ -59,6 +59,8 @@
     "shiftTab": "Shift+Tab",
     "arrowUp": "Pfeil oben",
     "arrowDown": "Pfeil unten",
+    "arrowLeft": "Pfeil links",
+    "arrowRight": "Pfeil rechts",
     "scrollDown": "Nach unten scrollen",
     "handle": {
       "closePanel": "Tastenkürzel-Panel schließen",
