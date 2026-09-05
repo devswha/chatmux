@@ -804,24 +804,43 @@ with sync_playwright() as playwright:
     # ────────────────────────────────────────────────────────────────
     # Existing destructive checks (interrupt, provider error state).
     # ────────────────────────────────────────────────────────────────
-    composer = page.locator("textarea").first
-    composer.fill(LONG_TURN_PROMPT)
-    composer.press("Enter")
-    page.get_by_role("button", name="Stop", exact=True).wait_for(timeout=10_000)
-    interrupted_signal = arm_log_event(gjc_agent["logPath"], "turn_interrupted")
+    # The sidebar click can finish before its live composer replaces the prior
+    # session's input. Wait for the addressed target, then prove delivery before
+    # looking for the interrupt control.
+    composer = page.get_by_placeholder(re.compile(r"^Message cua-06-gjc"))
+    interrupt_composer_before = None
     try:
+        composer.wait_for(timeout=10_000)
+        interrupt_composer_before = {
+            "placeholder": composer.get_attribute("placeholder"),
+            "value": composer.input_value(),
+        }
+        composer.fill(LONG_TURN_PROMPT)
+        started_signal = arm_log_event(gjc_agent["logPath"], "turn_started")
+        composer.press("Enter")
+        assert started_signal(), "The long-running turn did not reach the selected GJC agent."
+        page.get_by_role("button", name="Stop", exact=True).wait_for(timeout=10_000)
+        interrupted_signal = arm_log_event(gjc_agent["logPath"], "turn_interrupted")
         page.get_by_role("button", name="Stop", exact=True).click()
-    except PlaywrightTimeoutError:
+    except (PlaywrightTimeoutError, AssertionError):
         page.screenshot(path=evidence_root / "interrupt-failure.png")
+        current_composer = page.locator("textarea").first
         (evidence_root / "interrupt-failure.json").write_text(json.dumps({
             "visibleText": page.locator("body").inner_text(),
             "agentEvents": Path(gjc_agent["logPath"]).read_text(),
+            "composerBefore": interrupt_composer_before,
+            "composerAfter": {
+                "placeholder": current_composer.get_attribute("placeholder") if current_composer.count() else None,
+                "value": current_composer.input_value() if current_composer.count() else None,
+            },
         }, indent=2), encoding="utf-8")
         raise
     interrupted = interrupted_signal()
     results["checks"]["interrupt"] = {
         "ok": interrupted,
         "prompt": LONG_TURN_PROMPT,
+        "targetComposerReady": True,
+        "turnStartedReceipt": True,
     }
 
     transcript_path = Path(manifest["gjcTranscriptPath"])
