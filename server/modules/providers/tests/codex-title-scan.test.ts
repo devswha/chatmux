@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -13,6 +13,25 @@ const completed = (title: string) => JSON.stringify({
 const metadata = (id: string) => JSON.stringify({
   type: 'session_meta', payload: { id, cwd: '/synthetic/codex-title-scan' },
 });
+
+const runProbe = (root: string, measureCopies = false): string => {
+  const result = spawnSync(process.execPath, [
+    '--import', 'tsx',
+    fileURLToPath(new URL('./support/codex-title-scan-probe.ts', import.meta.url)),
+    root,
+    ...(measureCopies ? ['--measure-copies'] : []),
+  ], {
+    env: {
+      ...process.env,
+      DATABASE_PATH: path.join(root, 'auth.db'),
+      TSX_TSCONFIG_PATH: 'server/tsconfig.json',
+    },
+    encoding: 'utf8', timeout: 20_000, killSignal: 'SIGKILL', maxBuffer: 1024 * 1024,
+  });
+  assert.equal(result.error, undefined, `Title scan exceeded its process deadline: ${result.error?.message}`);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  return result.stdout;
+};
 
 // The watchdog belongs to the parent process: a same-thread test timeout cannot
 // interrupt a synchronous loop that has starved Node's event loop.
@@ -52,6 +71,16 @@ test('Codex title scanning terminates at blank-line and chunk boundaries', async
         title: 'No trailing newline',
       },
       {
+        id: 'blank-index-name',
+        body: `${metadata('blank-index-name')}\n${completed('Fallback after blank index name')}\n`,
+        title: 'Fallback after blank index name',
+      },
+      {
+        id: 'named-index',
+        body: `${metadata('named-index')}\n${completed('Lower-priority completed title')}\n`,
+        title: 'Saved index title',
+      },
+      {
         id: 'unicode-boundary',
         // Move the last chunk boundary inside the four-byte emoji, so decoding
         // individual chunks would corrupt the recovered title.
@@ -60,27 +89,56 @@ test('Codex title scanning terminates at blank-line and chunk boundaries', async
       },
       { id: 'empty', body: '', title: null },
     ];
+    await mkdir(path.join(root, '.codex'));
+    await writeFile(path.join(root, '.codex', 'session_index.jsonl'), [
+      JSON.stringify({ id: 'blank-index-name', thread_name: ' \t\r\n ' }),
+      JSON.stringify({ id: 'named-index', thread_name: ' Saved index title ' }),
+      '',
+    ].join('\n'));
     for (const fixture of fixtures) {
       await writeFile(path.join(root, `${fixture.id}.jsonl`), fixture.body);
     }
     await writeFile(path.join(root, 'cases.json'), JSON.stringify(fixtures.map(({ id }) => id)));
-    const result = spawnSync(process.execPath, [
-      '--import', 'tsx',
-      fileURLToPath(new URL('./support/codex-title-scan-probe.ts', import.meta.url)),
-      root,
-    ], {
-      env: {
-        ...process.env,
-        DATABASE_PATH: path.join(root, 'auth.db'),
-        TSX_TSCONFIG_PATH: 'server/tsconfig.json',
-      },
-      encoding: 'utf8', timeout: 20_000, killSignal: 'SIGKILL', maxBuffer: 1024 * 1024,
-    });
-    assert.equal(result.error, undefined, `Title scan exceeded its process deadline: ${result.error?.message}`);
-    assert.equal(result.status, 0, result.stderr || result.stdout);
-    const output = result.stdout.split('\n').find((line) => line.startsWith('TITLE_SCAN_RESULTS='));
-    assert.ok(output, result.stdout);
+    const stdout = runProbe(root);
+    const output = stdout.split('\n').find((line) => line.startsWith('TITLE_SCAN_RESULTS='));
+    assert.ok(output, stdout);
     assert.deepEqual(JSON.parse(output.slice('TITLE_SCAN_RESULTS='.length)), fixtures.map(({ id, title }) => ({ id, title })));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('Codex title scanning bounds multi-chunk record copies and preserves complete titles', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'chatmux-codex-title-copies-'));
+  try {
+    const longTitle = `한글 🧪 ${'x'.repeat(8 * CHUNK_BYTES)} 완료`;
+    const fixtures = [
+      {
+        id: 'large-tool-output',
+        tail: JSON.stringify({ type: 'response_item', payload: { type: 'function_call_output', output: 'x'.repeat(32 * CHUNK_BYTES) } }),
+        title: 'Before the long record',
+      },
+      { id: 'large-completed', tail: completed(longTitle), title: longTitle.slice(0, 120) },
+      { id: 'large-partial', tail: `{"type":"event_msg","payload":"${'x'.repeat(8 * CHUNK_BYTES)}`, title: 'Before the long record' },
+    ];
+    const sizes = new Map<string, number>();
+    for (const { id, tail } of fixtures) {
+      const body = `${metadata(id)}\n${completed('Before the long record')}\n${tail}`;
+      sizes.set(id, Buffer.byteLength(body));
+      await writeFile(path.join(root, `${id}.jsonl`), body);
+    }
+    await writeFile(path.join(root, 'cases.json'), JSON.stringify(fixtures.map(({ id }) => id)));
+    const stdout = runProbe(root, true);
+    const output = stdout.split('\n').find((line) => line.startsWith('TITLE_SCAN_RESULTS='));
+    const copies = stdout.split('\n').find((line) => line.startsWith('TITLE_SCAN_COPIES='));
+    assert.ok(output, stdout);
+    assert.ok(copies, stdout);
+    assert.deepEqual(JSON.parse(output.slice('TITLE_SCAN_RESULTS='.length)), fixtures.map(({ id, title }) => ({ id, title })));
+    // Count bytes instead of timing: repeated concatenation of an unfinished
+    // record copies quadratically even when a fast machine meets the deadline.
+    for (const { id, copiedBytes } of JSON.parse(copies.slice('TITLE_SCAN_COPIES='.length))) {
+      assert.ok(copiedBytes <= 2 * sizes.get(id)!, `${id}: copied ${copiedBytes} bytes for a ${sizes.get(id)}-byte transcript`);
+    }
   } finally {
     await rm(root, { recursive: true, force: true });
   }
