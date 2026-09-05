@@ -42,7 +42,7 @@ function ensureDatabaseDirectory(dbPath: string): void {
   const dir = path.dirname(dbPath);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-    console.log('Created database directory:', dir);
+    console.error('Created database directory:', dir);
   }
 }
 
@@ -105,6 +105,6 @@ export function closeConnection(): void {
   if (instance) {
     instance.close();
     instance = null;
-    console.log('Database connection closed');
+    console.error('Database connection closed');
   }
 }

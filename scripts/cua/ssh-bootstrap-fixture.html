@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ChatMux SSH setup review</title><style>html,body{height:auto!important;min-height:100%;overflow:auto!important}</style></head>
+<body class="bg-background text-foreground"><main style="max-width:760px;margin:24px auto;padding:16px"><h1 style="font-size:24px;font-weight:700">ChatMux SSH setup</h1><p style="font-size:12px;margin:8px 0 20px">Local UI fixture · simulated responses · no SSH connections or installations</p><label>Test scenario <select id="scenario"><option value="success">Success</option><option value="missing">Missing CLI</option><option value="unsupported">Unsupported platform</option><option value="failed">Installation failed</option><option value="network">Network error</option></select></label><div id="app" style="margin-top:20px"></div><output id="fixture-result" style="display:block;margin-top:20px;font-size:12px;overflow-wrap:anywhere"></output></main>
+<script type="module">
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+import i18next from 'i18next';
+import { I18nextProvider } from 'react-i18next';
+import '/src/index.css';
+import en from '/src/i18n/locales/en/settings.json';
+import ko from '/src/i18n/locales/ko/settings.json';
+import { fleetApi, FleetSettingsRequestError } from '/src/components/settings/fleet/fleetApi.ts';
+import { FleetEnrollmentForm } from '/src/components/settings/view/tabs/fleet/FleetEnrollmentForm.tsx';
+const i18n=i18next.createInstance();
+await i18n.init({lng:new URL(location.href).searchParams.get('lang') || 'en',resources:{en:{settings:en},ko:{settings:ko}},ns:['settings'],defaultNS:'settings',interpolation:{escapeValue:false}});
+fleetApi.sshCandidates=async()=>({available:true,defaultUser:'demo',candidates:[{hostName:'lab-linux',address:'100.64.0.9',os:'linux',online:true,supported:true},{hostName:'test-mac',address:'100.64.0.8',os:'macOS',online:true,supported:false}]});
+const onSshEnroll=async(input)=>{
+ document.querySelector('#fixture-result').textContent=JSON.stringify({target:input.sshTarget,installCli:input.installCli,passwordProvided:!!input.password});
+ const scenario=document.querySelector('#scenario').value;
+ if(scenario==='network')throw new TypeError('simulated network failure');
+ if(scenario==='missing')throw new FleetSettingsRequestError('REMOTE_CLI_MISSING',409);
+ if(scenario==='unsupported')throw new FleetSettingsRequestError('REMOTE_PLATFORM_UNSUPPORTED',409,{os:'Darwin',arch:'arm64'});
+ if(scenario==='failed')throw new FleetSettingsRequestError('REMOTE_INSTALL_FAILED',502);
+ return {peerId:'fixture-peer',port:8022};
+};
+createRoot(document.querySelector('#app')).render(React.createElement(I18nextProvider,{i18n},React.createElement(FleetEnrollmentForm,{pending:false,onEnroll:async()=>{},onSshEnroll})));
+</script></body></html>

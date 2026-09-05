@@ -307,21 +307,33 @@ The only supported plaintext transport is a literal-loopback SSH local forward.
 Owners can either request a hub-managed forward through **Easy SSH setup** or
 create one manually.
 
-For **Easy SSH setup**, first install and start ChatMux on the remote PC and ensure
-its SSH account is reachable from the hub. The shipped easy setup forwards to the
-remote backend at `127.0.0.1:3001`; use the manual path below for a different backend
-port. On the hub, open **Settings → Hosts → Add a PC**, choose **Easy SSH setup**,
+For **Easy SSH setup**, ensure the remote SSH account is reachable from the hub.
+Use an existing ChatMux backend at `127.0.0.1:3001`, or explicitly select **Install
+ChatMux if missing** for a new Linux x86_64 installation. This option is off by
+default. It installs the hub's exact published version as a user service on port
+3001; the canonical installer checks platform support and archive checksums. A
+busy port fails rather than selecting another port. Existing or broken installs
+require their own recovery/update path. Use the manual path below for a different
+backend port. On the hub, open **Settings → Hosts → Add a PC**, choose **Easy SSH setup**,
 and enter `user@host[:ssh-port]` and the SSH password. Review the key-installation
 disclosure, then select **Add with SSH**. The hub installs a dedicated Ed25519
 public key, obtains the peer's single-use pairing token over SSH, creates the local
 forward, and enrolls the peer. There is no separate token-copy step in this mode.
+
+If Tailscale is available on the hub, an optional PC selector suggests addresses
+from its peer list. Check the suggested username and target before submission;
+these hints do not verify SSH reachability or installation compatibility.
+
+Installation can take up to 15 minutes. A failed or interrupted attempt may leave
+ChatMux installed or partially installed; inspect that PC before retrying. Neither
+enrollment cleanup nor peer removal uninstalls ChatMux or removes its data.
 
 The password is used for authentication and is never saved. The hub stores the
 dedicated private key and known-hosts data privately and uses the key to
 re-establish the tunnel. First contact records the host key; a changed host key
 fails closed and requires owner investigation. Removing the peer stops its tunnel
 and attempts to remove the installed public key from the remote account. These
-operations follow [Fleet RFC revision 4](FLEET-FEDERATION-RFC.md#hub-managed-ssh-forwarding).
+operations follow [Fleet RFC revision 6](FLEET-FEDERATION-RFC.md#optional-ssh-bootstrap-and-candidate-suggestions).
 
 For a manual forward, run this on the **hub PC** before enrollment, then use the
 peer token from §8.1:

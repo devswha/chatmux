@@ -4,6 +4,7 @@ import type { Request, RequestHandler } from 'express';
 import type { FleetInstallationRole, FleetPeer } from '@/modules/database/index.js';
 import { authorizeFleetOwner } from '@/modules/fleet/services/fleet-owner-authorization.service.js';
 import type { InstallationPublicIdentity } from '@/modules/fleet/services/installation-identity.service.js';
+import type { SshCandidatesPayload } from '@/modules/fleet/services/ssh-candidates.service.js';
 import type { HubPeerStatus } from '@/modules/fleet/hub/connection/types.js';
 
 import { FLEET_MAX_REMOTE_PEERS } from '../../../../shared/fleet.js';
@@ -22,6 +23,7 @@ type FleetSettingsDependencies = Readonly<{
   readonly statuses: () => readonly HubPeerStatus[];
   readonly reconnect: (peerId: string) => boolean;
   readonly forget: (peerId: string) => ForgetResult;
+  readonly sshCandidates: () => Promise<SshCandidatesPayload>;
 }>;
 
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -87,6 +89,14 @@ export function createFleetSettingsRouter(dependencies: FleetSettingsDependencie
         capacity: { totalInstallations: FLEET_MAX_REMOTE_PEERS + 1, remotePeers: FLEET_MAX_REMOTE_PEERS },
         peers: dependencies.peers().map((peer) => publicPeer(peer, statuses.get(peer.peerId))),
       });
+    } catch (error) {
+      next(error);
+    }
+  });
+  router.get('/ssh-candidates', async (_request, response, next) => {
+    try {
+      response.setHeader('Cache-Control', 'no-store');
+      response.json(await dependencies.sshCandidates());
     } catch (error) {
       next(error);
     }

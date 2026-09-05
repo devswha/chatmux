@@ -64,7 +64,7 @@ export const addColumnToTableIfNotExists = (
   columnType: string
 ) => {
   if (!columnNames.includes(columnName)) {
-    console.log(`Running migration: Adding ${columnName} column to ${tableName} table`);
+    console.error(`Running migration: Adding ${columnName} column to ${tableName} table`);
     db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnType}`);
   }
 };

@@ -262,8 +262,11 @@ Use the actual HTTPS host and port printed by `chatmux status`; do not assume
 `8443`. Both PCs must be able to reach that Tailscale Serve address. ChatMux
 never downgrades WSS to plaintext and does not provide a relay.
 
-If direct WSS is unavailable, choose **Easy SSH setup** on the hub to connect to an
-already-installed remote ChatMux backend at `127.0.0.1:3001`. Enter the reachable
+If direct WSS is unavailable, choose **Easy SSH setup** on the hub to connect to a
+remote ChatMux backend at `127.0.0.1:3001`. For a new Linux x86_64 PC, explicitly
+select **Install ChatMux if missing** (off by default) to install the hub's exact
+published version and user service on port 3001. Existing or broken installations
+are never reinstalled or updated through this option. SSH access must already work. Enter the reachable
 `user@host[:ssh-port]` and SSH password, review the dedicated-key disclosure, then
 select **Add with SSH**. The hub obtains the pairing token and manages the forward;
 the password is never saved. Changed host keys fail closed. See

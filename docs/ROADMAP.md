@@ -73,7 +73,7 @@ ChatMux가 제공하는 핵심 가치는 다음과 같다.
 - Live Activity, Apple Watch 같은 네이티브 알림 표면
 - provider가 제공하는 CLI, 인증, sandbox, 모델 실행 기능의 재구현
 - zero-config 원격 도달성, ChatMux가 관리하는 Tailscale 또는 범용 SSH 설정·키
-  (Fleet RFC revision 4의 owner 요청 기반 전용 SSH 터널·키는 지원)
+  (Fleet RFC revision 6의 owner 요청 기반 전용 SSH 터널·키와 선택적 최초 설치는 지원)
 
 Electron 셸, 데스크톱 패키징, 전용 알림 채널과 원격 target 확장 코드는
 2026-07-23 제거를 확정했다. 웹/PWA 외의 전달 표면은 유지하지 않는다.
@@ -170,7 +170,10 @@ mosh, et.rs)도 모두 Tailscale 또는 포트 개방으로 수렴한다.
 - [x] owner가 수동 생성하거나 hub에 명시적으로 생성을 요청한 SSH local forward에 한해 literal
       `ws://127.0.0.1` 또는 `ws://[::1]` 허용
 - [x] **Easy SSH setup**으로 전용 키 설치·터널 관리·페어링 자동 수행
-      (원격 ChatMux 설치와 SSH 도달성은 사전 준비, 비밀번호는 미보관)
+      (SSH 도달성은 사전 준비, 비밀번호는 미보관)
+- [x] owner가 명시적으로 선택한 경우에만 Linux x86_64 원격 PC에 허브와 같은
+      릴리스 최초 설치. 기존 설치 복구·업데이트는 수행하지 않음
+- [x] owner-only Tailscale PC 후보 목록으로 SSH 주소 입력 보조
 - [x] host-qualified catalog/session/chat/verified terminal/completion routing
 - [x] `offline`·`syncing`·`revoked`·`incompatible` fail-closed 상태와 명시적 reconnect
 - [x] local-first revoke, peer 직접 UI 복구, installation-key loss revoke/re-pair
@@ -213,3 +216,4 @@ Fleet는 remote desktop/IDE, cloud sync, relay, 자동 failover, fleet updater�
 | 2026-08-27 | one hub + nine full peers fleet를 현재 기능으로 기록. Tailscale WSS 기본, literal loopback SSH 예외, owner-only enrollment, direct-peer recovery와 hub-first update를 계약으로 확정 |
 | 2026-08-29 | P1·P2·P4를 현재 기능으로 기록. P3은 terminal fallback만 현재 기능이고 custom agent 감지, 여러 tmux 서버 discovery, 진단 화면은 열어 둔다 |
 | 2026-09-03 | Fleet RFC revision 4와 #101에서 owner 요청 기반 SSH 간편 등록·전용 터널 관리를 추가. 기존 수동 loopback forward 경로도 유지 |
+| 2026-09-05 | Fleet RFC revision 6: owner의 명시적 선택에 따른 원격 최초 설치와 Tailscale PC 후보 목록을 추가. 기존 설치 복구·업데이트는 제외 |

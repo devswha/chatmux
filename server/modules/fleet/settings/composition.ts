@@ -10,6 +10,7 @@ import { FleetPairingFailureLimiter } from '@/modules/fleet/services/fleet-pairi
 import { FleetPairingService } from '@/modules/fleet/services/fleet-pairing.service.js';
 import { SqliteFleetPairingStore } from '@/modules/fleet/services/fleet-pairing-store.service.js';
 import { FleetRevocationService } from '@/modules/fleet/services/fleet-revocation.service.js';
+import { listSshCandidates } from '@/modules/fleet/services/ssh-candidates.service.js';
 import { SshEasyEnrollService } from '@/modules/fleet/services/ssh-easy-enroll.service.js';
 import { fleetSshTunnelManager } from '@/modules/fleet/services/ssh-tunnel.service.js';
 import { loadOrCreateInstallationIdentity } from '@/modules/fleet/services/installation-identity.service.js';
@@ -107,6 +108,7 @@ export function createLocalFleetSettingsRouter(authMode: AuthMode): express.Rout
     statuses: () => fleetBrowserDiscoveryGateway.current()?.statuses() ?? [],
     reconnect: (peerId) => fleetBrowserDiscoveryGateway.current()?.reconnect(peerId) ?? false,
     forget: (peerId) => fleetPeersDb.removeRevoked(peerId),
+    sshCandidates: () => listSshCandidates(),
   }));
   return router;
 }

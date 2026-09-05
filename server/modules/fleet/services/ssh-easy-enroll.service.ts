@@ -1,7 +1,9 @@
 import { FleetHubPairingError } from '@/modules/fleet/services/fleet-hub-pairing.service.js';
 import { SshEnrollmentError, type PreparedSshTunnel, type SshTunnelManager } from '@/modules/fleet/services/ssh-tunnel.service.js';
 
-export type SshEnrollmentInput = Readonly<{ sshTarget: string; password?: string; label?: string }>;
+import type { FleetSshEnrollmentInput } from '../../../../shared/fleet-ssh.js';
+
+export type SshEnrollmentInput = FleetSshEnrollmentInput;
 type HubInput = Readonly<{ peerUrl: string; transportMode: 'ssh-loopback'; token: string; label?: string }>;
 type Dependencies = Readonly<{
   tunnels: SshTunnelManager;
@@ -29,6 +31,7 @@ export class SshEasyEnrollService {
       prepared = await this.dependencies.tunnels.prepare({
         sshTarget: input.sshTarget,
         ...(input.password === undefined ? {} : { password: input.password }),
+        ...(input.installCli === undefined ? {} : { installCli: input.installCli }),
       });
     } catch (error) {
       if (error instanceof SshEnrollmentError) throw error;

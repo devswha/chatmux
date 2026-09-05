@@ -140,9 +140,10 @@ export function parseTailscaleSelfLogin(jsonText: string): string | null {
   }
 }
 
-type CommandRunner = (args: string[]) => Promise<string>;
+export type CommandRunner = (args: string[]) => Promise<string>;
 
-function runTailscale(args: string[]): Promise<string> {
+/** Runs the local `tailscale` CLI read-only with bounded time and output. */
+export function runTailscale(args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn('tailscale', args, { stdio: ['ignore', 'pipe', 'ignore'] });
     let stdout = '';

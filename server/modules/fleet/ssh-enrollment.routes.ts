@@ -16,9 +16,11 @@ function requestBody(value: unknown): SshEnrollmentInput {
   const sshTarget = Reflect.get(value, 'sshTarget');
   const password = Reflect.get(value, 'password');
   const label = Reflect.get(value, 'label');
-  if (!keys.includes('sshTarget') || !keys.every((key) => ['sshTarget', 'password', 'label'].includes(key))
+  const installCli = Reflect.get(value, 'installCli');
+  if (!keys.includes('sshTarget') || !keys.every((key) => ['sshTarget', 'password', 'label', 'installCli'].includes(key))
     || typeof sshTarget !== 'string'
     || (password !== undefined && typeof password !== 'string')
+    || (installCli !== undefined && typeof installCli !== 'boolean')
     || (label !== undefined && (typeof label !== 'string' || label.trim().length === 0 || label.trim().length > 80))) {
     throw new SshEnrollmentError('INVALID_SSH_TARGET', 'SSH enrollment request is invalid');
   }
@@ -26,6 +28,7 @@ function requestBody(value: unknown): SshEnrollmentInput {
     sshTarget,
     ...(password === undefined ? {} : { password }),
     ...(label === undefined ? {} : { label: label.trim() }),
+    ...(installCli === undefined ? {} : { installCli }),
   };
 }
 
@@ -33,15 +36,15 @@ function status(code: SshEnrollmentError['code']): number {
   switch (code) {
     case 'INVALID_SSH_TARGET': case 'MALFORMED_REQUEST': case 'SSH_PASSWORD_REQUIRED': return 400;
     case 'SSH_AUTH_FAILED': return 401;
-    case 'HOSTKEY_REJECTED': case 'PEER_LIMIT_REACHED': return 409;
-    case 'SSH_UNREACHABLE': case 'REMOTE_CLI_FAILED': case 'TOKEN_PARSE_FAILED':
+    case 'HOSTKEY_REJECTED': case 'PEER_LIMIT_REACHED': case 'REMOTE_PLATFORM_UNSUPPORTED': case 'REMOTE_CLI_MISSING': return 409;
+    case 'SSH_UNREACHABLE': case 'REMOTE_CLI_FAILED': case 'REMOTE_INSTALL_FAILED': case 'TOKEN_PARSE_FAILED':
     case 'ENROLL_FAILED': case 'TUNNEL_FAILED': return 502;
   }
 }
 
 function sendError(error: unknown, response: Response, next: NextFunction): void {
   if (error instanceof SshEnrollmentError) {
-    response.status(status(error.code)).json({ error: { code: error.code, message: error.message } });
+    response.status(status(error.code)).json({ error: { code: error.code, message: error.message, details: error.details } });
     return;
   }
   next(error);
