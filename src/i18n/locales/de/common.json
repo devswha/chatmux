@@ -31,6 +31,12 @@
     "completed": "Abgeschlossen",
     "inProgress": "In Bearbeitung"
   },
+  "discoveryFreshness": {
+    "reconnecting": "Lokale Sitzungsliste wird neu verbunden…",
+    "refreshing": "Lokale Sitzungsliste wird aktualisiert…",
+    "current": "Lokale Sitzungsliste ist aktuell",
+    "unavailable": "Lokale Sitzungsliste ist nicht aktuell"
+  },
   "messages": {
     "savedSuccessfully": "Erfolgreich gespeichert",
     "deletedSuccessfully": "Erfolgreich gelöscht",

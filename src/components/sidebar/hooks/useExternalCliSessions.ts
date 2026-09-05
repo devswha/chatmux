@@ -4,7 +4,7 @@ import { api } from '../../../utils/api';
 import { tmuxPaneIdentityKey, type TmuxPaneIdentity, type TmuxProcessGeneration } from '../../../../shared/tmux';
 import { readRestSessionContainer } from '../../../utils/liveSessions';
 import { useWebSocket } from '../../../contexts/WebSocketContext';
-import { useDiscoveryStream, type DiscoveryRow } from '../../../hooks/useDiscoveryStream';
+import { useDiscoveryStream, type DiscoveryFreshness, type DiscoveryRow } from '../../../hooks/useDiscoveryStream';
 import type { ProviderConnectionIssue } from '../../../../shared/provider-connection';
 
 export type ExternalSessionActivity = 'running' | 'waiting_user' | 'asking_user' | 'error' | 'unknown';
@@ -135,6 +135,7 @@ export function useExternalCliSessions(
   sessions: ExternalCliSession[];
   loading: boolean;
   discoveryOk: boolean;
+  discoveryFreshness: DiscoveryFreshness;
   refresh: () => void;
 } {
   const [sessions, setSessions] = useState<ExternalCliSession[]>([]);
@@ -268,7 +269,7 @@ export function useExternalCliSessions(
     applyNone();
   }, [applyNone, invalidateRestRequests]);
 
-  const streamHealthy = useDiscoveryStream({
+  const { streamHealthy, freshness: discoveryFreshness, refresh: refreshDiscovery } = useDiscoveryStream({
     lanes: ['external'],
     isConnected,
     sendMessage,
@@ -299,9 +300,10 @@ export function useExternalCliSessions(
     sessions,
     loading,
     discoveryOk,
+    discoveryFreshness,
     refresh: () => {
       setRefreshToken((value) => value + 1);
-      sendMessage({ type: 'discovery.resync', reason: 'client_refresh' });
+      refreshDiscovery();
     },
   };
 }

@@ -31,6 +31,12 @@
     "completed": "Tamamlandı",
     "inProgress": "Sürüyor"
   },
+  "discoveryFreshness": {
+    "reconnecting": "Yerel oturum listesine yeniden bağlanılıyor…",
+    "refreshing": "Yerel oturum listesi yenileniyor…",
+    "current": "Yerel oturum listesi güncel",
+    "unavailable": "Yerel oturum listesi güncel değil"
+  },
   "messages": {
     "savedSuccessfully": "Başarıyla kaydedildi",
     "deletedSuccessfully": "Başarıyla silindi",
