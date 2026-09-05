@@ -99,4 +99,4 @@ export {
   type TmuxOutputActivityMonitorOptions,
 } from './services/tmux-output-activity-monitor.service.js';
 export { observeTmuxInputActivity } from './services/tmux-input-occurrence.service.js';
-export { isInferredSessionBinding, assertProvenSessionBinding, SESSION_BINDING_INFERRED_CODE } from './services/tmux-session-binding.service.js';
+export { isInferredSessionBinding, isProvenSessionBinding, assertProvenSessionBinding, SESSION_BINDING_INFERRED_CODE } from './services/tmux-session-binding.service.js';

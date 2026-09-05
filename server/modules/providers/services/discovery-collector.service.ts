@@ -53,7 +53,7 @@ export type DiscoveryRow = Readonly<{
   process: TmuxProcessGeneration | null;
   kind: string;
   providerSessionId: string | null;
-  /** External lane only: how providerSessionId is tied to the process (see ExternalSessionBinding). Server-local, not on the fleet wire. */
+  /** How providerSessionId is tied to the process (see ExternalSessionBinding). Server-local, not on the fleet wire. */
   binding?: ExternalSessionBinding;
   connectionIssue?: ProviderConnectionIssue;
   activity: ExternalSessionDisplayActivity;
@@ -271,6 +271,7 @@ export function createDiscoveryCollector(options: DiscoveryCollectorOptions = {}
         process: session.process,
         kind: 'gjc',
         providerSessionId: session.id,
+        ...(session.binding ? { binding: session.binding } : {}),
         ...(session.connectionIssue ? { connectionIssue: session.connectionIssue } : {}),
         activity: session.error === true
           ? 'error'
