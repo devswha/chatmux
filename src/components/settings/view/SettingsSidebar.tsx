@@ -1,4 +1,4 @@
-import { Bot, Network, Palette, ShieldCheck } from 'lucide-react';
+import { Activity, Bot, Network, Palette, ShieldCheck } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { cn } from '../../../lib/utils';
@@ -22,11 +22,12 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'appearance', labelKey: 'mainTabs.appearance', icon: Palette },
   { id: 'access', labelKey: 'mainTabs.access', icon: ShieldCheck },
   { id: 'fleet', labelKey: 'mainTabs.fleet', icon: Network },
+  { id: 'diagnostics', labelKey: 'diagnostics.title', icon: Activity },
 ];
 
 export default function SettingsSidebar({ activeTab, onChange, fleetOwner }: SettingsSidebarProps) {
   const { t } = useTranslation('settings');
-  const items = fleetOwner ? NAV_ITEMS : NAV_ITEMS.filter((item) => item.id !== 'fleet');
+  const items = fleetOwner ? NAV_ITEMS : NAV_ITEMS.filter((item) => item.id !== 'fleet' && item.id !== 'diagnostics');
 
   return (
     <>

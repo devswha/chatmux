@@ -23,12 +23,14 @@ import {
     createTmuxOutputActivityMonitor,
     getCurrentTmuxPaneIdentity,
     getCurrentTmuxPaneIdentityState,
+    getGjcWatcherHealth,
     initializeSessionsWatcher,
     onTranscriptChanged,
     readTmuxPaneIdentity,
     runTmux,
 } from '@/modules/providers/index.js';
 import { createWebSocketServer } from '@/modules/websocket/index.js';
+import { createDiagnosticsRouter, createDiagnosticsService } from '@/modules/diagnostics/index.js';
 import { createFleetHubLifecycle, createLocalFleetHubRuntime } from '@/modules/fleet/hub/connection/index.js';
 import { createFleetPeerLifecycle, createLocalFleetPeerRuntime } from '@/modules/fleet/peer/index.js';
 import { fleetRuntimeEnabled, stopFleetRuntimeServices } from '@/modules/fleet/runtime-lifecycle.js';
@@ -355,6 +357,17 @@ app.get('/health', (req, res) => {
 
 // Authentication routes (public)
 app.use('/api/auth', authRoutes);
+
+// Diagnostics owns authentication so even rejected reads receive no-store.
+const ownerDiagnostics = createDiagnosticsService({
+    collector: () => discoveryCollector,
+    watcher: getGjcWatcherHealth,
+});
+app.use('/api/settings/diagnostics', createDiagnosticsRouter({
+    authMode: AUTH_MODE,
+    authenticate: authenticateToken,
+    read: ownerDiagnostics.read,
+}));
 
 // Machine pairing carries signed installation identity instead of browser auth.
 // Every other fleet-management route must first resolve the browser owner.
