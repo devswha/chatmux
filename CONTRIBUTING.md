@@ -168,7 +168,11 @@ Cutting a release (maintainers):
 
 The `release-preflight` job enforces compatibility-declaration completeness before anything is built: `npm run release:check-metadata` (`scripts/release/check-release-metadata.mjs`) checks that `package.json` and both `package-lock.json` version fields agree, derives the schema generation from the ordered migration registry, requires that exact generation in the target compatibility entry, and anchors the predecessor and its rollback window to metadata published at the predecessor tag. The predecessor's schema generation is derived from the migration registry source at the predecessor tag rather than trusted from mutable metadata, which also bootstraps releases whose predecessor predates `schemaGeneration` (v1.8.14 and earlier record none). A singleton predecessor is accepted only when the schema generation increases; otherwise every version declared by the predecessor plus the predecessor itself must be carried forward. Local runs use the in-repository history and the recorded predecessor generation with a warning because no canonical predecessor files are available.
 
-Maintainers publish approved repository revisions through the repository-owned self-hosting lifecycle. Use an immutable commit SHA for installations and updates; do not rely on a global package or a moving branch.
+The `scripts/chatmux.sh` commands below are for the retained source-deployment
+lifecycle, not the canonical release publication or installation path. When
+maintaining such a deployment, pin an approved immutable commit SHA. Canonical
+server releases are published only by the workflow above and installed from the
+GitHub Release artifacts described in [INSTALL.md](docs/INSTALL.md).
 
 ```bash
 ./scripts/chatmux.sh status

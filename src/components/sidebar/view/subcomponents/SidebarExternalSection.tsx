@@ -37,7 +37,7 @@ const sessionActivityState = (
   session: ExternalCliSession,
   canKill: boolean,
 ): SessionActivityState | null => {
-  if (session.connectionIssue) return 'error';
+  if (session.connectionIssue) return 'connection';
   if (!canKill) return null;
   switch (session.activity ?? 'unknown') {
     case 'running':
@@ -73,7 +73,7 @@ export const resolveExternalSessionProject = (
   )) ?? null;
 };
 
-const canOpenExternalSession = (
+export const canOpenExternalSession = (
   session: ExternalCliSession,
   project: Project | null,
 ): boolean => (
@@ -85,6 +85,38 @@ const canOpenExternalSession = (
   )
 );
 export type PendingExternalTranscriptTarget = TmuxPaneTarget;
+
+/** The ordinary row selection path, shared by attention navigation. */
+export function openExternalSession(
+  session: ExternalCliSession,
+  projects: Project[],
+  pendingTranscriptRef: MutableRefObject<PendingExternalTranscriptTarget | null>,
+  onOpen: SidebarExternalSectionProps['onOpen'],
+): void {
+  const sessionProject = resolveExternalSessionProject(session, projects);
+  if (!canOpenExternalSession(session, sessionProject)) return;
+  pendingTranscriptRef.current = sessionProject
+    && !isAttachOnlyKind(session.kind)
+    && !session.transcriptSessionId
+    && session.process
+    ? { tmux: session.tmux, process: session.process }
+    : null;
+  onOpen({
+    tmuxName: session.tmuxName,
+    tmux: session.tmux,
+    process: session.process,
+    kind: KIND_LABEL[session.kind],
+    cliKind: session.kind,
+    project: sessionProject,
+    projectPath: session.projectPath,
+    transcriptSessionId: session.transcriptSessionId,
+    sessionName: session.sessionName,
+    model: session.model,
+    effort: session.effort,
+    transcriptEnded: session.transcriptEnded,
+    attachCapability: session.attachCapability,
+  });
+}
 
 type PendingTranscriptDisposition = 'ignore' | 'clear' | 'wait' | 'promote';
 
@@ -126,6 +158,7 @@ type SidebarExternalSessionRowProps = Omit<SidebarExternalSectionProps, 'session
   session: ExternalCliSession;
   sortId?: string;
   sortableDisabled?: boolean;
+  hidden?: boolean;
   pendingTranscriptRef: MutableRefObject<PendingExternalTranscriptTarget | null>;
 };
 
@@ -137,37 +170,14 @@ export function SidebarExternalSessionRow({
   pendingTranscriptRef,
   sortId,
   sortableDisabled = false,
+  hidden = false,
 }: SidebarExternalSessionRowProps) {
   const { t } = useTranslation('sidebar');
   const [confirming, setConfirming] = useState(false);
   const [killing, setKilling] = useState(false);
   const [error, setError] = useState('');
 
-  const openSession = () => {
-    const sessionProject = resolveExternalSessionProject(session, projects);
-    if (!canOpenExternalSession(session, sessionProject)) return;
-    pendingTranscriptRef.current = sessionProject
-      && !isAttachOnlyKind(session.kind)
-      && !session.transcriptSessionId
-      && session.process
-      ? { tmux: session.tmux, process: session.process }
-      : null;
-    onOpen({
-      tmuxName: session.tmuxName,
-      tmux: session.tmux,
-      process: session.process,
-      kind: KIND_LABEL[session.kind],
-      cliKind: session.kind,
-      project: sessionProject,
-      projectPath: session.projectPath,
-      transcriptSessionId: session.transcriptSessionId,
-      sessionName: session.sessionName,
-      model: session.model,
-      effort: session.effort,
-      transcriptEnded: session.transcriptEnded,
-      attachCapability: session.attachCapability,
-    });
-  };
+  const openSession = () => openExternalSession(session, projects, pendingTranscriptRef, onOpen);
 
   const attachToApproval = () => {
     if (!isExternalSessionAuthoritative(session) || session.process === null) return;
@@ -389,6 +399,7 @@ export function SidebarExternalSessionRow({
   if (sortId) {
     return (
       <SortableSessionRow
+        hidden={hidden}
         id={sortId}
         dragLabel={t('liveSessions.reorderSession', { name: primary })}
         disabled={sortableDisabled}

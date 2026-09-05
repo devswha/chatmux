@@ -37,8 +37,11 @@ Access:
 설치할 때 표시된 QR 코드를 스캔해도 됩니다. `localhost` 또는 `127.0.0.1` 주소는
 ChatMux가 설치된 PC에서만 열리므로 휴대폰에서는 사용할 수 없습니다.
 
-각 PC는 별도의 ChatMux 서버입니다. 여러 PC에 ChatMux를 설치했다면 PC마다
-`chatmux status`로 주소를 확인하고, PWA도 각 주소별로 따로 설치해야 합니다.
+각 PC는 별도의 ChatMux 서버입니다. [Multi-PC fleet](INSTALL.md#create-a-multi-pc-fleet)을
+구성하면 소유자는 hub의 HTTPS 주소에서 PWA 하나를 설치해 hub와 등록된 최대
+아홉 peer를 함께 사용할 수 있습니다. peer마다 PWA를 따로 설치하는 것은 선택입니다.
+hub나 peer 연결에 문제가 생겼을 때 직접 복구할 수 있도록 각 PC의 `chatmux status`
+주소를 보관하세요. fleet에 등록하지 않은 독립 설치는 각각의 주소로 사용합니다.
 
 ## 2. 모바일에서 Tailscale 연결
 
