@@ -314,6 +314,236 @@ test('typing during an image upload preserves the newer draft after the original
   assert.equal(harness.composer.input, 'newer unsent draft');
 });
 
+test('two immediate submits during image preparation dispatch the snapshot only once', async (context) => {
+  const harness = await mountComposer(context);
+  const uploads: Array<(response: Response) => void> = [];
+  context.mock.method(globalThis, 'fetch', () => new Promise<Response>((resolve) => { uploads.push(resolve); }));
+  await harness.input('one message');
+  await act(async () => { harness.composer.setAttachedImages([new File(['image'], 'image.png')]); });
+  const submissions: Promise<void>[] = [];
+  await act(async () => {
+    submissions.push(harness.composer.handleSubmit(submitEvent));
+    submissions.push(harness.composer.handleSubmit(submitEvent));
+  });
+  await act(async () => {
+    for (const resolve of uploads) resolve(new Response(JSON.stringify({ images: [{ path: '/fixture/image.png' }] })));
+    await Promise.all(submissions);
+  });
+  assert.equal(harness.sent.length, 1);
+  assert.equal(uploads.length, 1);
+  assert.equal(harness.sent[0].content, 'one message');
+  assert.equal(harness.composer.queuedDraft, null);
+});
+
+test('a submit during preparation leaves the next draft unsent until fresh user intent', async (context) => {
+  const harness = await mountComposer(context);
+  const uploads: Array<(response: Response) => void> = [];
+  context.mock.method(globalThis, 'fetch', () => new Promise<Response>((resolve) => { uploads.push(resolve); }));
+  await harness.input('first message');
+  await act(async () => { harness.composer.setAttachedImages([new File(['image'], 'image.png')]); });
+  let sending!: Promise<void>;
+  await act(async () => { sending = harness.composer.handleSubmit(submitEvent); });
+  await harness.input('next draft');
+  await harness.submit();
+  assert.equal(uploads.length, 1);
+  assert.equal(harness.composer.input, 'next draft');
+  assert.equal(harness.composer.queuedDraft, null);
+  await act(async () => {
+    uploads[0](new Response(JSON.stringify({ images: [] })));
+    await sending;
+  });
+  await harness.drainTimers();
+  assert.equal(harness.sent.length, 1);
+  assert.equal(harness.composer.input, 'next draft');
+  await harness.submit();
+  assert.deepEqual(harness.sent.map((message) => message.content), ['first message', 'next draft']);
+});
+
+test('failed ordinary uploads retain their files and allow an explicit retry', async (context) => {
+  const harness = await mountComposer(context);
+  context.mock.method(console, 'error', () => {});
+  let failed = true;
+  const upload = context.mock.method(globalThis, 'fetch', async () => failed
+    ? new Response('', { status: 500 })
+    : new Response(JSON.stringify({ images: [{ path: '/fixture/image.png' }] })));
+  const file = new File(['image'], 'image.png');
+  await harness.input('retry explicitly');
+  await act(async () => { harness.composer.setAttachedImages([file]); });
+  await harness.submit();
+  await harness.drainTimers();
+  assert.equal(upload.mock.callCount(), 1);
+  assert.deepEqual(harness.sent, []);
+  assert.equal(harness.composer.input, 'retry explicitly');
+  assert.equal(harness.composer.attachedImages[0], file);
+  failed = false;
+  await harness.submit();
+  assert.equal(upload.mock.callCount(), 2);
+  assert.equal(harness.sent.length, 1);
+  assert.deepEqual(harness.composer.attachedImages, []);
+});
+
+test('preparation remains guarded through session allocation and releases after allocation failure', async (context) => {
+  const harness = await mountComposer(context, { selectedSession: null, currentSessionId: null });
+  context.mock.method(console, 'error', () => {});
+  const allocations: Array<(response: Response) => void> = [];
+  let uploads = 0;
+  context.mock.method(globalThis, 'fetch', (url: Parameters<typeof fetch>[0]) => {
+    if (url === '/api/assets/images') {
+      uploads += 1;
+      return Promise.resolve(new Response(JSON.stringify({ images: [{ path: '/fixture/image.png' }] })));
+    }
+    assert.equal(url, '/api/providers/sessions');
+    return new Promise<Response>((resolve) => { allocations.push(resolve); });
+  });
+  const file = new File(['image'], 'image.png');
+  await harness.input('new session message');
+  await act(async () => { harness.composer.setAttachedImages([file]); });
+  let sending!: Promise<void>;
+  await act(async () => { sending = harness.composer.handleSubmit(submitEvent); });
+  await harness.submit();
+  assert.equal(uploads, 1);
+  assert.equal(allocations.length, 1);
+  await act(async () => { allocations[0](new Response('', { status: 500 })); await sending; });
+  await harness.drainTimers();
+  assert.equal(harness.sent.length, 0);
+  assert.equal(harness.composer.input, 'new session message');
+  assert.equal(harness.composer.attachedImages[0], file);
+  await act(async () => { sending = harness.composer.handleSubmit(submitEvent); });
+  assert.equal(uploads, 2);
+  assert.equal(allocations.length, 2);
+  await act(async () => {
+    allocations[1](new Response(JSON.stringify({ data: { sessionId: 'created' } })));
+    await sending;
+  });
+  assert.equal(harness.sent.length, 1);
+  assert.equal(harness.sent[0].sessionId, 'created');
+  assert.deepEqual(harness.composer.attachedImages, []);
+});
+
+test('an old scope finishing cannot release a new scope preparation or consume its draft', async (context) => {
+  const harness = await mountComposer(context);
+  const uploads: Array<(response: Response) => void> = [];
+  context.mock.method(globalThis, 'fetch', () => new Promise<Response>((resolve) => { uploads.push(resolve); }));
+  const oldFile = new File(['old'], 'image.png');
+  const nextFile = new File(['new'], 'image.png');
+  await harness.input('old scope');
+  await act(async () => { harness.composer.setAttachedImages([oldFile]); });
+  let oldSend!: Promise<void>;
+  await act(async () => { oldSend = harness.composer.handleSubmit(submitEvent); });
+  await harness.update({ selectedSession: { id: 'session-b' } as Args['selectedSession'], currentSessionId: 'session-b' });
+  await harness.input('new scope');
+  await act(async () => { harness.composer.setAttachedImages([nextFile]); });
+  let nextSend!: Promise<void>;
+  await act(async () => { nextSend = harness.composer.handleSubmit(submitEvent); });
+  await act(async () => { uploads[0](new Response(JSON.stringify({ images: [] }))); await oldSend; });
+  assert.equal(harness.sent.length, 0);
+  assert.equal(harness.composer.input, 'new scope');
+  assert.equal(harness.composer.attachedImages[0], nextFile);
+  await harness.submit();
+  assert.equal(uploads.length, 2, 'the new preparation stays guarded');
+  await act(async () => { uploads[1](new Response(JSON.stringify({ images: [] }))); await nextSend; });
+  assert.equal(harness.sent.length, 1);
+  assert.equal(harness.sent[0].sessionId, 'session-b');
+});
+
+test('an accepted menu expansion can dispatch while an ordinary upload is pending', async (context) => {
+  const harness = await mountComposer(context);
+  let resolveUpload!: (response: Response) => void;
+  const request = context.mock.method(globalThis, 'fetch', (url: Parameters<typeof fetch>[0]) => {
+    if (url === '/api/commands/execute') return Promise.resolve(new Response(JSON.stringify({ type: 'custom', content: 'expanded command' })));
+    assert.equal(url, '/api/assets/images');
+    return new Promise<Response>((resolve) => { resolveUpload = resolve; });
+  });
+  await harness.input('ordinary message');
+  await act(async () => { harness.composer.setAttachedImages([new File(['image'], 'image.png')]); });
+  let sending!: Promise<void>;
+  await act(async () => { sending = harness.composer.handleSubmit(submitEvent); });
+  await harness.input('/expand argument');
+  await act(async () => { harness.composer.handleToggleCommandMenu(); });
+  await act(async () => { harness.composer.handleCommandSelect(harness.composer.filteredCommands[0], 0, false); });
+  assert.equal(harness.sent.length, 1);
+  assert.equal(harness.sent[0].content, 'expanded command');
+  assert.equal(harness.composer.input, '');
+  await harness.input('newer unsent draft');
+  await act(async () => { resolveUpload(new Response(JSON.stringify({ images: [] }))); await sending; });
+  await harness.drainTimers();
+  assert.deepEqual(harness.sent.map((message) => message.content), ['expanded command', 'ordinary message']);
+  assert.equal(harness.composer.input, 'newer unsent draft');
+  assert.equal(harness.composer.queuedDraft, null);
+  assert.equal(request.mock.callCount(), 2);
+});
+
+test('an uncertain send is never retried by preparation cleanup', async (context) => {
+  let attempts = 0;
+  const harness = await mountComposer(context, { sendMessage: () => { attempts += 1; throw new Error('outcome unknown'); } });
+  context.mock.method(globalThis, 'fetch', async () => new Response(JSON.stringify({ images: [] })));
+  const file = new File(['image'], 'image.png');
+  await harness.input('uncertain message');
+  await act(async () => { harness.composer.setAttachedImages([file]); });
+  await act(async () => { await assert.rejects(harness.composer.handleSubmit(submitEvent), /outcome unknown/); });
+  await harness.drainTimers();
+  assert.equal(attempts, 1);
+  assert.equal(harness.composer.queuedDraft, null);
+  assert.equal(harness.composer.input, 'uncertain message');
+  assert.equal(harness.composer.attachedImages[0], file);
+});
+
+test('typing a next draft during upload does not repeat the original image on the next send', async (context) => {
+  const harness = await mountComposer(context);
+  let resolveUpload!: (response: Response) => void;
+  const upload = context.mock.method(globalThis, 'fetch', () => new Promise<Response>((resolve) => { resolveUpload = resolve; }));
+  await harness.input('first message');
+  await act(async () => { harness.composer.setAttachedImages([new File(['original'], 'image.png')]); });
+  let sending!: Promise<void>;
+  await act(async () => { sending = harness.composer.handleSubmit(submitEvent); });
+  await harness.input('next message');
+  await act(async () => {
+    resolveUpload(new Response(JSON.stringify({ images: [{ path: '/fixture/image.png' }] })));
+    await sending;
+  });
+  assert.equal(harness.composer.input, 'next message');
+  assert.deepEqual(harness.composer.attachedImages, []);
+  await harness.submit();
+  assert.equal(upload.mock.callCount(), 1);
+  assert.equal(harness.sent[1].content, 'next message');
+  assert.deepEqual(harness.sent[1].options.images, []);
+});
+
+for (const changesInput of [false, true]) {
+  test(`successful upload removes only its image objects when the next input is ${changesInput ? 'changed' : 'unchanged'}`, async (context) => {
+    const harness = await mountComposer(context);
+    let resolveUpload!: (response: Response) => void;
+    const requests: FormData[] = [];
+    context.mock.method(globalThis, 'fetch', (_url: Parameters<typeof fetch>[0], options?: Parameters<typeof fetch>[1]) => {
+      requests.push(options?.body as FormData);
+      if (requests.length > 1) return Promise.resolve(new Response(JSON.stringify({ images: [{ path: '/fixture/next.png' }] })));
+      return new Promise<Response>((resolve) => { resolveUpload = resolve; });
+    });
+    // Equal metadata does not make these the same attachment.
+    const original = new File(['original'], 'image.png', { type: 'image/png', lastModified: 1 });
+    const added = new File(['new-file'], 'image.png', { type: 'image/png', lastModified: 1 });
+    await harness.input('original message');
+    await act(async () => { harness.composer.setAttachedImages([original]); });
+    let sending!: Promise<void>;
+    await act(async () => { sending = harness.composer.handleSubmit(submitEvent); });
+    if (changesInput) await harness.input('next message');
+    await act(async () => { harness.composer.setAttachedImages((previous) => [...previous, added]); });
+    await act(async () => {
+      resolveUpload(new Response(JSON.stringify({ images: [{ path: '/fixture/original.png' }] })));
+      await sending;
+    });
+    assert.equal(harness.composer.input, changesInput ? 'next message' : '');
+    assert.equal(harness.composer.attachedImages.length, 1);
+    assert.equal(harness.composer.attachedImages[0], added);
+    if (!changesInput) await harness.input('next message');
+    await harness.submit();
+    const nextImages = requests[1].getAll('images') as File[];
+    assert.equal(nextImages.length, 1);
+    assert.equal(await nextImages[0].text(), 'new-file');
+    assert.deepEqual(harness.composer.attachedImages, []);
+  });
+}
+
 test('a queued upload interrupted by navigation retains its queue and the next draft', async (context) => {
   const harness = await mountComposer(context, { isLoading: true });
   let resolveUpload!: (response: Response) => void;
@@ -365,6 +595,36 @@ test('replacing a queue while its upload is pending revokes the old payload', as
   await act(async () => { resolveUpload(new Response(JSON.stringify({ images: [] }))); });
   assert.deepEqual(harness.sent, []);
   assert.equal(readQueuedMessage('session-a')?.content, 'replacement queue');
+});
+
+test('a replacement queue can finish before the revoked upload and preserves next-draft images', async (context) => {
+  const harness = await mountComposer(context, { isLoading: true });
+  const uploads: Array<(response: Response) => void> = [];
+  context.mock.method(globalThis, 'fetch', () => new Promise<Response>((resolve) => { uploads.push(resolve); }));
+  await harness.input('old queue');
+  await act(async () => { harness.composer.setAttachedImages([new File(['old'], 'image.png')]); });
+  await harness.submit();
+  await harness.update({ isLoading: false });
+  await harness.nextTimer();
+  await act(async () => { harness.composer.deleteQueuedDraft(); });
+  await harness.update({ isLoading: true });
+  await harness.input('replacement queue');
+  await act(async () => { harness.composer.setAttachedImages([new File(['replacement'], 'image.png')]); });
+  await harness.submit();
+  await harness.update({ isLoading: false });
+  await harness.nextTimer();
+  assert.equal(uploads.length, 2);
+  const nextFile = new File(['next'], 'image.png');
+  await harness.input('next draft');
+  await act(async () => { harness.composer.setAttachedImages([nextFile]); });
+  await act(async () => { uploads[1](new Response(JSON.stringify({ images: [] }))); });
+  await act(async () => { uploads[0](new Response(JSON.stringify({ images: [] }))); });
+  await harness.drainTimers();
+  assert.equal(harness.sent.length, 1);
+  assert.equal(harness.sent[0].content, 'replacement queue');
+  assert.equal(readQueuedMessage('session-a'), null);
+  assert.equal(harness.composer.input, 'next draft');
+  assert.equal(harness.composer.attachedImages[0], nextFile);
 });
 
 test('read-only ownership revokes an upload that started in an editable session', async (context) => {

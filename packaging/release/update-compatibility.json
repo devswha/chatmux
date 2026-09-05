@@ -209,6 +209,15 @@
           "1.8.17"
         ]
       }
+    },
+    "1.8.19": {
+      "database": {
+        "schemaGeneration": 20,
+        "rollbackCompatibleFrom": [
+          "1.8.17",
+          "1.8.18"
+        ]
+      }
     }
   }
 }
