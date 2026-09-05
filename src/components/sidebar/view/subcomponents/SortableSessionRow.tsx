@@ -9,6 +9,7 @@ type SortableSessionRowProps = {
   id: string;
   dragLabel: string;
   disabled?: boolean;
+  hidden?: boolean;
   selected?: boolean;
   content: ReactNode;
   actions?: ReactNode;
@@ -19,6 +20,7 @@ export default function SortableSessionRow({
   id,
   dragLabel,
   disabled = false,
+  hidden = false,
   selected = false,
   content,
   actions,
@@ -40,6 +42,7 @@ export default function SortableSessionRow({
 
   return (
     <div
+      hidden={hidden}
       ref={setNodeRef}
       style={style}
       className={cn(
