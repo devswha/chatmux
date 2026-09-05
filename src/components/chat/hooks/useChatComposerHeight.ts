@@ -17,6 +17,9 @@ function viewportHeight(): number {
 }
 
 export function useChatComposerHeight(textareaRef: RefObject<HTMLTextAreaElement>) {
+  // The resize handle derives its ARIA values and keyboard steps during render.
+  // Publish viewport changes without overwriting the user's preferred height.
+  const [, setViewportHeight] = useState(viewportHeight);
   const [manualHeight, setManualHeightState] = useState<number | null>(() => {
     if (typeof window === 'undefined') return null;
     const stored = parseStoredChatComposerHeight(
@@ -67,6 +70,7 @@ export function useChatComposerHeight(textareaRef: RefObject<HTMLTextAreaElement
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
     const handleViewportResize = () => {
+      setViewportHeight(viewportHeight());
       if (textareaRef.current) {
         applyManualHeight(textareaRef.current);
       }
