@@ -12,7 +12,8 @@ export { cursorCliCommandOrDefault } from './list/cursor/cursor-cli-command.js';
 
 export { initializeSessionsWatcher } from './services/sessions-watcher.service.js';
 export { closeSessionsWatcher } from './services/sessions-watcher.service.js';
-export { getGjcWatcherHealth, type GjcWatcherHealth } from './services/sessions-watcher.service.js';
+export { getGjcWatcherHealth, getSessionIndexingDiagnostics, type GjcWatcherHealth } from './services/sessions-watcher.service.js';
+export type { SessionIndexingDiagnostics } from './services/session-indexing-scheduler.js';
 export {
   onTranscriptChanged,
   transcriptChangeVersion,

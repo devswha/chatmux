@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import type { DiscoveryCollector, DiscoveryRow } from '@/modules/providers/index.js';
+import { getSessionIndexingDiagnostics, type DiscoveryCollector, type DiscoveryRow } from '@/modules/providers/index.js';
 
 import {
   createDiagnosticsService,
@@ -16,6 +16,7 @@ const PRIVATE = 'PRIVATE_DIAGNOSTIC_SENTINEL';
 function fixture() {
   let now = 100_000;
   let reads = 0;
+  let indexingReads = 0;
   const rows: DiscoveryRow[] = [{
     key: PRIVATE, lane: 'external', tmuxName: PRIVATE,
     tmux: { socketPath: PRIVATE, sessionId: PRIVATE, windowId: PRIVATE, paneId: PRIVATE },
@@ -44,11 +45,19 @@ function fixture() {
     getState: () => state,
   };
   const watcher = { ok: true, degraded: false, consecutiveFailures: 0, enospcObserved: false, token: PRIVATE };
+  const indexing = {
+    pending: 12, active: 3, maxPending: 448, maxActive: 4,
+    reconciling: 1, reconciliationPending: 2, overflowed: 25, failures: 6, closed: false,
+    transcriptPaths: [PRIVATE], rawError: PRIVATE, token: PRIVATE,
+    reconcile: () => assert.fail('diagnostics must never reconcile'),
+  };
   const dependencies: DiagnosticsDependencies = {
-    collector: () => collector, watcher: () => watcher, now: () => now, eventLoopUtilization: () => 0.123456,
+    collector: () => collector, watcher: () => watcher,
+    indexing: () => { indexingReads++; return indexing; }, now: () => now, eventLoopUtilization: () => 0.123456,
   };
   return {
-    rows, detailed, state, health, watcher, dependencies,
+    rows, detailed, state, health, watcher, indexing, dependencies,
+    indexingReads: () => indexingReads,
     setNow: (value: number) => { now = value; }, reads: () => reads,
     service: createDiagnosticsService(dependencies),
   };
@@ -65,6 +74,10 @@ test('cached reads project only allowlisted aggregate fields and bounded platfor
   assert.deepEqual(data.collector.connectionIssues, [{ code: 'transcript_permission_denied', count: 1 }]);
   assert.equal(data.gjcWatcher.status, 'no_failures_reported');
   assert.equal(data.eventLoop.utilization, 0.1235);
+  assert.deepEqual(data.indexing, {
+    status: 'accepting', pending: 12, active: 3, maxPending: 448, maxActive: 4,
+    reconciling: 1, reconciliationPending: 2, overflowed: 25, failures: 6,
+  });
   const json = JSON.stringify(data);
   assert.ok(json.length < 2_000);
   assert.doesNotMatch(json, /PRIVATE_DIAGNOSTIC_SENTINEL|987654|socketPath|providerSessionId|transcriptPaths|argv|rawError|token|cwd|epoch/);
@@ -74,15 +87,20 @@ test('all callers share a two-second cache without invoking collector mutations'
   const subject = fixture();
   const first = subject.service.read();
   subject.state.consecutiveFailures.external = 1;
+  subject.indexing.pending = 44;
   subject.setNow(100_000 + DIAGNOSTICS_CACHE_TTL_MS - 1);
   for (let i = 0; i < 20; i++) assert.equal(subject.service.read(), first);
   assert.equal(subject.reads(), 1);
+  assert.equal(subject.indexingReads(), 1);
+  assert.equal(first.indexing.pending, 12);
   subject.setNow(100_000 + DIAGNOSTICS_CACHE_TTL_MS);
   const second = subject.service.read();
   assert.notEqual(second, first);
   assert.equal(second.collector.lanes.external.status, 'failing');
   assert.equal(first.collector.lanes.external.consecutiveFailures, 0);
   assert.equal(subject.reads(), 2);
+  assert.equal(subject.indexingReads(), 2);
+  assert.equal(second.indexing.pending, 44);
   subject.setNow(50_000);
   assert.notEqual(subject.service.read(), second, 'clock rollback must expire the cache');
 });
@@ -178,4 +196,59 @@ test('missing collector accessors remain unknown and stopped/disposed state is e
   delete collector.getState;
   subject.setNow(104_000);
   assert.equal(subject.service.read().collector.mode, 'unknown');
+});
+
+
+test('optional or failed indexing metadata is unavailable, cached, and independent of other sources', () => {
+  for (const source of [undefined, () => null, () => undefined, () => { throw new Error(PRIVATE); }]) {
+    const subject = fixture();
+    subject.dependencies.indexing = source;
+    const service = createDiagnosticsService(subject.dependencies);
+    const data = service.read();
+    assert.deepEqual(data.indexing, {
+      status: 'unavailable', pending: null, active: null, maxPending: null, maxActive: null,
+      reconciling: null, reconciliationPending: null, overflowed: null, failures: null,
+    });
+    assert.equal(data.collector.status, 'available');
+    assert.equal(data.gjcWatcher.status, 'no_failures_reported');
+    assert.equal(data.eventLoop.utilization, 0.1235);
+    assert.equal(service.read(), data);
+    assert.doesNotMatch(JSON.stringify(data), new RegExp(PRIVATE));
+  }
+});
+
+test('indexing counters have explicit bounds and invalid values remain unknown instead of healthy zero', () => {
+  const subject = fixture();
+  Object.assign(subject.indexing, {
+    pending: 5.9, active: -1, maxPending: Infinity, maxActive: undefined,
+    reconciling: NaN, reconciliationPending: PRIVATE, overflowed: Number.MAX_SAFE_INTEGER, failures: -9,
+    closed: PRIVATE,
+  });
+  assert.deepEqual(subject.service.read().indexing, {
+    status: 'unavailable', pending: 5, active: null, maxPending: null, maxActive: null,
+    reconciling: null, reconciliationPending: null, overflowed: 1_000_000, failures: null,
+  });
+});
+
+test('indexing admission is independent of activity and only allowlisted properties are accessed', () => {
+  const subject = fixture();
+  Object.defineProperty(subject.indexing, 'filePaths', { enumerable: true, get: () => assert.fail('must not inspect private paths') });
+  subject.indexing.active = 0;
+  subject.indexing.pending = 0;
+  assert.equal(subject.service.read().indexing.status, 'accepting', 'idle or paused admission is not liveness');
+  subject.indexing.closed = true;
+  subject.indexing.active = 2;
+  subject.setNow(102_000);
+  assert.equal(subject.service.read().indexing.status, 'closed');
+  assert.equal(subject.service.read().indexing.active, 2, 'closed admission may still be draining active work');
+});
+
+test('providers export cached indexing metadata without starting watchers or including bulk synchronization', () => {
+  const subject = fixture();
+  subject.dependencies.indexing = getSessionIndexingDiagnostics;
+  const data = createDiagnosticsService(subject.dependencies).read();
+  assert.deepEqual(data.indexing, {
+    status: 'closed', pending: 0, active: 0, maxPending: 448, maxActive: 4,
+    reconciling: 0, reconciliationPending: 0, overflowed: 0, failures: 0,
+  });
 });

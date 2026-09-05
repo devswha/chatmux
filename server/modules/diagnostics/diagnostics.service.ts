@@ -1,6 +1,6 @@
 import { performance } from 'node:perf_hooks';
 
-import type { DiscoveryCollector, GjcWatcherHealth } from '@/modules/providers/index.js';
+import type { DiscoveryCollector, GjcWatcherHealth, SessionIndexingDiagnostics } from '@/modules/providers/index.js';
 
 import type { DiagnosticsLane, OwnerDiagnostics } from '../../../shared/diagnostics.js';
 import { PROVIDER_CONNECTION_ISSUE_CODES } from '../../../shared/provider-connection.js';
@@ -15,6 +15,8 @@ type CachedCollector = Pick<DiscoveryCollector, 'currentSnapshot' | 'currentDeta
 export type DiagnosticsDependencies = {
   collector: () => CachedCollector | null | undefined;
   watcher: () => GjcWatcherHealth | null | undefined;
+  /** Cached counters only. This dependency must not scan, reconcile, or start work. */
+  indexing?: () => Readonly<SessionIndexingDiagnostics> | null | undefined;
   now?: () => number;
   eventLoopUtilization?: () => number;
 };
@@ -85,6 +87,24 @@ function summarizeCollector(collector: CachedCollector | null | undefined, now: 
   };
 }
 
+function indexingCount(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? count(value) : null;
+}
+
+function summarizeIndexing(source?: Readonly<SessionIndexingDiagnostics> | null): OwnerDiagnostics['indexing'] {
+  return {
+    status: source?.closed === true ? 'closed' : source?.closed === false ? 'accepting' : 'unavailable',
+    pending: indexingCount(source?.pending),
+    active: indexingCount(source?.active),
+    maxPending: indexingCount(source?.maxPending),
+    maxActive: indexingCount(source?.maxActive),
+    reconciling: indexingCount(source?.reconciling),
+    reconciliationPending: indexingCount(source?.reconciliationPending),
+    overflowed: indexingCount(source?.overflowed),
+    failures: indexingCount(source?.failures),
+  };
+}
+
 /** A bounded in-memory view. Owns no timers, listeners, subprocesses, or I/O. */
 export function createDiagnosticsService(dependencies: DiagnosticsDependencies) {
   const now = dependencies.now ?? Date.now;
@@ -99,6 +119,7 @@ export function createDiagnosticsService(dependencies: DiagnosticsDependencies) 
       let gjcWatcher: OwnerDiagnostics['gjcWatcher'] = {
         status: 'unavailable', consecutiveFailures: 0, watchLimitObserved: false,
       };
+      let indexing = summarizeIndexing();
       let eventLoopUtilization: number | null = null;
       // One broken source must not hide the remaining recovery signals. Never
       // serialize/log exception text: providers may include paths or secrets.
@@ -112,6 +133,7 @@ export function createDiagnosticsService(dependencies: DiagnosticsDependencies) 
           watchLimitObserved: watcher.enospcObserved === true,
         };
       } catch { /* unavailable */ }
+      try { indexing = summarizeIndexing(dependencies.indexing?.()); } catch { /* unavailable */ }
       try {
         const value = utilization();
         if (Number.isFinite(value) && value >= 0 && value <= 1) eventLoopUtilization = Math.round(value * 10_000) / 10_000;
@@ -119,7 +141,7 @@ export function createDiagnosticsService(dependencies: DiagnosticsDependencies) 
       cachedAt = sampledAt;
       cached = {
         schemaVersion: 1, generatedAtMs: Math.max(0, Math.min(Number.MAX_SAFE_INTEGER, Math.floor(sampledAt))),
-        cacheTtlMs: DIAGNOSTICS_CACHE_TTL_MS, collector, gjcWatcher,
+        cacheTtlMs: DIAGNOSTICS_CACHE_TTL_MS, collector, gjcWatcher, indexing,
         eventLoop: { utilization: eventLoopUtilization },
       };
       return cached;
