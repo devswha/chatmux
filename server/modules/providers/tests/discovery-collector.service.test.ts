@@ -46,6 +46,52 @@ function scans() {
   };
 }
 
+test('operational state reads are inert and expose pre-degradation failures and lifecycle', async () => {
+  let scansStarted = 0;
+  let release: (() => void) | undefined;
+  const timers = new Set<ReturnType<typeof setInterval>>();
+  const collector = createDiscoveryCollector({
+    scanExternal: async () => {
+      scansStarted++;
+      await new Promise<void>((resolve) => { release = resolve; });
+      return { ok: false, sessions: [] };
+    },
+    scanLive: async () => ({ ok: true, sessions: [] }),
+    setTimer: () => {
+      const timer = { fake: true } as unknown as ReturnType<typeof setInterval>;
+      timers.add(timer);
+      return timer;
+    },
+    clearTimer: (timer) => { timers.delete(timer); },
+  });
+  assert.ok(collector.getState);
+  for (let i = 0; i < 10; i++) assert.equal(collector.getState().running, false);
+  assert.equal(scansStarted, 0);
+  assert.equal(timers.size, 0);
+  collector.start();
+  collector.setActive(true);
+  assert.equal(collector.getState().running, true);
+  assert.equal(collector.getState().active, true);
+  assert.equal(scansStarted, 0);
+  const pending = collector.tick();
+  assert.equal(collector.getState().scanning, true);
+  assert.ok(release);
+  release();
+  await pending;
+  assert.equal(collector.getState().scanning, false);
+  assert.equal(collector.getState().consecutiveFailures.external, 1);
+  assert.equal(collector.currentSnapshot().health.external.consecutiveFailures, 0);
+  assert.equal(collector.getState().lastFullScanAtMs, null);
+  const detached = collector.getState();
+  Object.assign(detached.consecutiveFailures, { external: 999 });
+  assert.equal(collector.getState().consecutiveFailures.external, 1);
+  collector.dispose();
+  assert.equal(collector.getState().disposed, true);
+  assert.equal(collector.getState().running, false);
+  assert.equal(timers.size, 0);
+  assert.equal(scansStarted, 1);
+});
+
 test('discovery collector only advances revision for a changed snapshot', async () => {
   const state = scans();
   await state.collector.tick();
