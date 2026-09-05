@@ -129,9 +129,9 @@ chatmux fleet diagnose          # redacted peer reachability
 ## Security and data boundaries
 
 - ChatMux links tmux process ancestry to native transcript identifiers. A matching working directory alone is never enough to authorize a destructive action, and the tmux session identifier is rechecked before relay or termination.
-- The backend binds to loopback. Tailscale mode trusts Serve identity headers only from loopback on the expected HTTPS origin; the installer never enables Funnel or a public listener, and unapproved users fail closed.
+- Tailscale mode binds the backend to loopback and trusts Serve identity headers only from loopback on the expected HTTPS origin; it never enables Funnel, and unapproved users fail closed. Password mode defaults to `0.0.0.0` for LAN access; restrict the bind or use a TLS proxy before public exposure. VPN mode binds the selected private interface.
 - Password mode uses `HttpOnly`, `SameSite=Strict` cookies with persistent logout revocation.
-- State and indexes live below `~/.chatmux`. Back up `~/.chatmux/data` before migration or upgrade. Multi-PC federation does not replicate or cloud-sync that data.
+- State and indexes default to `~/.chatmux`, with custom database paths supported. Before migration or upgrade, follow the [owner backup and recovery runbook](docs/SELF-HOST.md#owner-managed-backup-and-recovery) to preserve the configured database, assets, identity, and update records together. Multi-PC federation does not replicate or cloud-sync that data.
 
 ## Development
 
