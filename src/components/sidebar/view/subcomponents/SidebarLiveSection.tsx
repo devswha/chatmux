@@ -28,6 +28,7 @@ import {
 } from '../../utils/sessionOrder';
 import { api } from '../../../../utils/api';
 import { getAllSessions, getSessionTime } from '../../utils/utils';
+import { nextAttentionRow, sessionAttention, type SessionAttentionFilter } from '../../utils/sessionAttention';
 import SessionProviderLogo from '../../../llm-logo-provider/SessionProviderLogo';
 import type { TmuxPaneIdentity, TmuxPaneTarget } from '../../../../../shared/tmux';
 import type { ExternalCliSession } from '../../hooks/useExternalCliSessions';
@@ -36,9 +37,13 @@ import type { ProviderConnectionIssue } from '../../../../../shared/provider-con
 
 import SessionCompletionBell from './SessionCompletionBell';
 import SessionActivityBadge from './SessionActivityBadge';
+import SidebarAttentionControls from './SidebarAttentionControls';
 import SortableSessionRow from './SortableSessionRow';
 import {
   SidebarExternalSessionRow,
+  canOpenExternalSession,
+  openExternalSession,
+  resolveExternalSessionProject,
   type PendingExternalTranscriptTarget,
 } from './SidebarExternalSection';
 
@@ -192,6 +197,8 @@ export default function SidebarLiveSection({
   const [openError, setOpenError] = useState<Map<string, string>>(new Map());
   const pendingExternalTranscriptRef = useRef<PendingExternalTranscriptTarget | null>(null);
   const [sessionOrder, setSessionOrder] = useState<string[]>(readStoredSessionOrder);
+  const [attentionFilter, setAttentionFilter] = useState<SessionAttentionFilter>('all');
+  const [navigationCursor, setNavigationCursor] = useState<string | null>(null);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
@@ -290,6 +297,31 @@ export default function SidebarLiveSection({
     (row) => row.sortId,
   );
 
+  const selectedSortId = rows.find((row) => row.kind === 'matched' && row.id === selectedSession?.id)?.sortId;
+  useEffect(() => {
+    if (selectedSortId) setNavigationCursor(selectedSortId);
+  }, [selectedSortId]);
+
+  // Classify the local rows only, after pane/generation deduplication. Remote
+  // catalog presence is not evidence of activity freshness or complete counts.
+  const attentionOf = (row: LiveSessionRow) => row.kind === 'external'
+    ? sessionAttention({
+      ...row.session,
+      activity: row.session.kind === 'ssh' || row.session.kind === 'shell' || !row.session.process
+        ? 'unknown' : row.session.activity,
+    })
+    : sessionAttention({
+      presence: row.presence,
+      connectionIssue: liveSessionConnectionIssues.get(row.id),
+      activity: liveSessionErrors.has(row.id) ? 'error' : liveSessionInput.has(row.id) ? 'asking_user' : 'unknown',
+    });
+  const counts = { input: 0, failure: 0, connection: 0 };
+  for (const row of rows) {
+    const attention = attentionOf(row);
+    if (attention) counts[attention] += 1;
+  }
+  const visibleRows = rows.filter((row) => attentionFilter === 'all' || attentionOf(row) === attentionFilter);
+
   if (rows.length === 0) {
     return null;
   }
@@ -365,6 +397,46 @@ export default function SidebarLiveSection({
     }
   };
 
+  const canSelectRow = (row: LiveSessionRow): boolean => {
+    if (row.kind === 'external') {
+      return Boolean(onExternalTerminalOpen)
+        && canOpenExternalSession(row.session, resolveExternalSessionProject(row.session, projects));
+    }
+    if (row.presence !== 'present' || liveSessionConnectionIssues.has(row.id)) return false;
+    if (row.kind === 'matched') return true;
+    if (!row.id.startsWith('idle-gjc:')) return openingId === null;
+    return Boolean(onExternalTerminalOpen && liveSessionNames.has(row.id) && liveSessionTargets.has(row.id) && projects[0]);
+  };
+
+  const selectRow = (row: LiveSessionRow) => {
+    if (!canSelectRow(row)) return;
+    // A later transcript belongs to the old selection once the user chooses
+    // another lane. Filter-only changes intentionally keep this pending target.
+    if (row.kind !== 'external') pendingExternalTranscriptRef.current = null;
+    setNavigationCursor(row.sortId);
+    if (row.kind === 'external') {
+      openExternalSession(row.session, projects, pendingExternalTranscriptRef, onExternalTerminalOpen!);
+    } else if (row.kind === 'matched') {
+      onSessionSelect(row.session, row.project.projectId);
+    } else if (row.id.startsWith('idle-gjc:')) {
+      onExternalTerminalOpen!({
+        tmuxName: liveSessionNames.get(row.id)!,
+        ...liveSessionTargets.get(row.id)!,
+        kind: 'GJC',
+        cliKind: 'gjc',
+        project: projects[0]!,
+      });
+    } else {
+      void openOrphan(row.id);
+    }
+  };
+  const nextRow = nextAttentionRow(rows, navigationCursor, (row) => row.sortId, (row) => {
+    const attention = attentionOf(row);
+    return (attentionFilter === 'all'
+      ? attention === 'input' || attention === 'failure'
+      : attention === attentionFilter) && canSelectRow(row);
+  });
+
   const closeTmuxSession = async (sessionId: string) => {
     const target = liveSessionTargets.get(sessionId);
     if (!target) {
@@ -393,6 +465,7 @@ export default function SidebarLiveSection({
   };
 
   const handleDragEnd = ({ active, over }: DragEndEvent) => {
+    if (attentionFilter !== 'all') return;
     if (!over || active.id === over.id) return;
 
     const nextVisibleOrder = moveSession(
@@ -497,24 +570,41 @@ export default function SidebarLiveSection({
       collisionDetection={closestCenter}
       onDragEnd={handleDragEnd}
     >
+      <SidebarAttentionControls
+        filter={attentionFilter}
+        counts={counts}
+        hasNext={nextRow !== null}
+        onFilter={setAttentionFilter}
+        onNext={() => { if (nextRow) selectRow(nextRow); }}
+      />
+      {visibleRows.length === 0 && (
+        <p className="px-4 py-4 text-center text-sm text-muted-foreground" role="status">{t('attention.empty')}</p>
+      )}
       <div className="px-2 py-2">
         <SortableContext
-          items={rows.map((row) => row.sortId)}
+          items={visibleRows.map((row) => row.sortId)}
           strategy={verticalListSortingStrategy}
         >
           <div className="space-y-0.5">
             {rows.map((row) => {
+              // Keep row state (including pending transcript promotion and close
+              // confirmation) mounted while a user changes the display filter.
+              const hidden = attentionFilter !== 'all' && attentionOf(row) !== attentionFilter;
               if (row.kind === 'external') {
                 return (
                   <SidebarExternalSessionRow
+                    hidden={hidden}
                     key={row.id}
                     session={row.session}
                     projects={projects}
-                    onOpen={onExternalTerminalOpen ?? NOOP_EXTERNAL_OPEN}
+                    onOpen={onExternalTerminalOpen ? (target, options) => {
+                      setNavigationCursor(row.sortId);
+                      onExternalTerminalOpen(target, options);
+                    } : NOOP_EXTERNAL_OPEN}
                     onChanged={onExternalSessionsChanged ?? NOOP_EXTERNAL_CHANGED}
                     pendingTranscriptRef={pendingExternalTranscriptRef}
                     sortId={row.sortId}
-                    sortableDisabled={rows.length < 2}
+                    sortableDisabled={attentionFilter !== 'all' || rows.length < 2}
                   />
                 );
               }
@@ -545,10 +635,11 @@ export default function SidebarLiveSection({
 
                 return (
                   <SortableSessionRow
+                    hidden={hidden}
                     key={session.id}
                     id={sortId}
                     dragLabel={t('liveSessions.reorderSession', { name: primary })}
-                    disabled={rows.length < 2}
+                    disabled={attentionFilter !== 'all' || rows.length < 2}
                     selected={isSelected}
                     content={(
                       <button
@@ -556,7 +647,7 @@ export default function SidebarLiveSection({
                         title={title}
                         disabled={!isPresent || liveSessionConnectionIssues.has(session.id)}
                         aria-disabled={!isPresent || liveSessionConnectionIssues.has(session.id)}
-                        onClick={() => onSessionSelect(session, project.projectId)}
+                        onClick={() => selectRow(row)}
                         className="flex min-w-0 flex-1 items-start gap-2 px-1.5 py-1.5 text-left disabled:cursor-not-allowed disabled:opacity-60"
                       >
                         <SessionProviderLogo provider="gjc" className="mt-0.5 h-4 w-4 flex-shrink-0" />
@@ -564,8 +655,8 @@ export default function SidebarLiveSection({
                           <span className="flex items-center gap-2">
                             {isPresent && (
                               <SessionActivityBadge
-                                state={liveSessionConnectionIssues.has(session.id)
-                                  || liveSessionErrors.has(session.id)
+                                state={liveSessionConnectionIssues.has(session.id) ? 'connection'
+                                  : liveSessionErrors.has(session.id)
                                   ? 'error'
                                   : liveSessionInput.has(session.id) ? 'input'
                                   : liveSessionRunning.has(session.id) ? 'running' : 'ready'}
@@ -637,8 +728,8 @@ export default function SidebarLiveSection({
                   <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                     <span className="flex items-center gap-2">
                       {isPresent && (
-                        <SessionActivityBadge state={liveSessionConnectionIssues.has(id)
-                          || liveSessionErrors.has(id)
+                        <SessionActivityBadge state={liveSessionConnectionIssues.has(id) ? 'connection'
+                          : liveSessionErrors.has(id)
                           ? 'error'
                           : liveSessionInput.has(id) ? 'input'
                           : liveSessionRunning.has(id) ? 'running' : 'ready'} />
@@ -668,27 +759,17 @@ export default function SidebarLiveSection({
 
               return (
                 <SortableSessionRow
+                  hidden={hidden}
                   key={id}
                   id={sortId}
                   dragLabel={t('liveSessions.reorderSession', { name: tmuxName ?? id })}
-                  disabled={rows.length < 2}
+                  disabled={attentionFilter !== 'all' || rows.length < 2}
                   content={isIdle ? (
                     <button
                       type="button"
                       disabled={!isPresent || liveSessionConnectionIssues.has(id)}
                       aria-disabled={!isPresent || liveSessionConnectionIssues.has(id)}
-                      onClick={() => {
-                        const target = liveSessionTargets.get(id);
-                        if (tmuxName && target && projects[0]) {
-                          onExternalTerminalOpen?.({
-                            tmuxName,
-                            ...target,
-                            kind: 'GJC',
-                            cliKind: 'gjc',
-                            project: projects[0],
-                          });
-                        }
-                      }}
+                      onClick={() => selectRow(row)}
                       className="flex min-w-0 flex-1 items-start gap-2 px-1.5 py-1.5 text-left disabled:cursor-not-allowed disabled:opacity-60"
                       title={tmuxName ? t('liveSessions.startFirstConversation', { name: tmuxName }) : undefined}
                     >
@@ -697,8 +778,8 @@ export default function SidebarLiveSection({
                   ) : (
                     <button
                       type="button"
-                      disabled={!isPresent || openingId !== null}
-                      onClick={() => void openOrphan(id)}
+                      disabled={!canSelectRow(row)}
+                      onClick={() => selectRow(row)}
                       className="flex min-w-0 flex-1 items-start gap-2 px-1.5 py-1.5 text-left disabled:opacity-60"
                     >
                       {content}
