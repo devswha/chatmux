@@ -21,7 +21,11 @@ export function useKeyboardViewportInset(): void {
       const kb = Math.max(0, window.innerHeight - vv.height);
       document.documentElement.style.setProperty('--keyboard-height', `${kb}px`);
     };
+    update();
     vv.addEventListener('resize', update);
-    return () => vv.removeEventListener('resize', update);
+    return () => {
+      vv.removeEventListener('resize', update);
+      document.documentElement.style.removeProperty('--keyboard-height');
+    };
   }, []);
 }

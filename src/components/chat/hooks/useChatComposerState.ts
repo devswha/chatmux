@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type {
   ChangeEvent,
   ClipboardEvent,
@@ -12,10 +12,14 @@ import type {
 import { useDropzone } from 'react-dropzone';
 
 import { authenticatedFetch } from '../../../utils/api';
+import { activeSessionHostId, localHostId } from '../../../fleet/hostIdentity';
 import type { MarkSessionProcessing } from '../../../hooks/useSessionProtection';
 import { grantClaudeToolPermission } from '../utils/chatPermissions';
 import {
   clearQueuedMessage,
+  clearDraftInput,
+  draftInputKey,
+  readDraftInput,
   readQueuedMessage,
   safeLocalStorage,
   writeQueuedMessage,
@@ -230,11 +234,15 @@ export function useChatComposerState({
   setIsUserScrolledUp,
   setPendingPermissionRequests,
 }: UseChatComposerStateArgs) {
+  const hostId = activeSessionHostId() ?? localHostId();
+  const projectHostId = selectedProject?.hostId ?? localHostId();
+  const selectedProjectId = selectedProject?.projectId;
+  const inputStorageKey = selectedProjectId ? draftInputKey(selectedProjectId, projectHostId) : null;
   const [input, setInput] = useState(() => {
     if (typeof window !== 'undefined' && selectedProject) {
       // Draft inputs are keyed by the DB projectId so per-project drafts
       // survive display-name changes.
-      return safeLocalStorage.getItem(`draft_input_${selectedProject.projectId}`) || '';
+      return readDraftInput(selectedProject.projectId, projectHostId);
     }
     return '';
   });
@@ -260,14 +268,22 @@ export function useChatComposerState({
   const textareaLineHeightRef = useRef<number | null>(null);
   const lastAutosizedInputRef = useRef<string | null>(null);
   const handleSubmitRef = useRef<
-    ((event: FormEvent<HTMLFormElement> | MouseEvent | TouchEvent | KeyboardEvent<HTMLTextAreaElement>) => Promise<void>) | null
+    ((event: FormEvent<HTMLFormElement> | MouseEvent | TouchEvent | KeyboardEvent<HTMLTextAreaElement>, draft?: QueuedDraft, claimQueue?: boolean) => Promise<void>) | null
   >(null);
   const inputValueRef = useRef(input);
-  const selectedProjectId = selectedProject?.projectId;
+  const inputStorageKeyRef = useRef(inputStorageKey);
   // Prefer the stable backend-allocated id (selectedSession.id) but fall back
   // to currentSessionId for a just-established session that hasn't been
   // handed back to the parent's `selectedSession` prop yet.
   const sessionKey = selectedSession?.id || currentSessionId || null;
+  // Uploads and command responses may resolve after navigation or a change in
+  // session ownership. A captured scope is revoked at that commit boundary.
+  const dispatchScopeRef = useRef({ active: false });
+  useLayoutEffect(() => {
+    const scope = { active: true };
+    dispatchScopeRef.current = scope;
+    return () => { scope.active = false; };
+  }, [hostId, projectHostId, selectedProjectId, sessionKey, isSessionReadOnly]);
 
   const [queuedDraft, setQueuedDraft] = useState<QueuedDraft | null>(() => {
     if (typeof window === 'undefined' || !sessionKey) {
@@ -275,6 +291,10 @@ export function useChatComposerState({
     }
     return restoreQueuedDraft(sessionKey);
   });
+  const queuedDraftRef = useRef(queuedDraft);
+  useLayoutEffect(() => {
+    queuedDraftRef.current = queuedDraft;
+  }, [queuedDraft]);
   // Which session the in-memory `queuedDraft` belongs to. On a session switch
   // there is one commit where `sessionKey` already points at the new session
   // while `queuedDraft` still holds the old session's draft; the persistence
@@ -358,7 +378,11 @@ export function useChatComposerState({
     setCommandModalPayload(null);
   }, []);
 
-  const handleCustomCommand = useCallback(async (result: CommandExecutionResult) => {
+  const handleCustomCommand = useCallback(async (
+    result: CommandExecutionResult,
+    options: QueuedSendOptions | undefined,
+    onAccepted: () => void,
+  ) => {
     const { content, hasBashCommands } = result;
 
     if (hasBashCommands) {
@@ -370,21 +394,14 @@ export function useChatComposerState({
       }
     }
 
-    const commandContent = content || '';
-    setInput(commandContent);
-    inputValueRef.current = commandContent;
-
-    // Defer submit to next tick so the command text is reflected in UI before dispatching.
-    setTimeout(() => {
-      if (handleSubmitRef.current) {
-        handleSubmitRef.current(createFakeSubmitEvent());
-      }
-    }, 0);
+    onAccepted();
+    await handleSubmitRef.current?.(createFakeSubmitEvent(), { content: content || '', images: [], options });
   }, []);
 
 
   const executeCommand = useCallback(
-    async (command: SlashCommand, rawInput?: string, options?: { preserveInput?: boolean }) => {
+    async (command: SlashCommand, rawInput?: string, options?: { preserveInput?: boolean; sendOptions?: QueuedSendOptions }) => {
+      const scope = dispatchScopeRef.current;
       clearCommandError();
 
       if (!command || !selectedProject) {
@@ -440,16 +457,21 @@ export function useChatComposerState({
         }
 
         const result = (await response.json()) as CommandExecutionResult;
-        if (result.type === 'builtin') {
-          handleBuiltInCommand(result);
-          if (!options?.preserveInput) {
+        if (!scope.active) return;
+        const clearUnchangedInput = () => {
+          if (!options?.preserveInput && inputValueRef.current === effectiveInput) {
             setInput('');
             inputValueRef.current = '';
           }
+        };
+        if (result.type === 'builtin') {
+          handleBuiltInCommand(result);
+          clearUnchangedInput();
         } else if (result.type === 'custom') {
-          await handleCustomCommand(result);
+          await handleCustomCommand(result, options?.sendOptions, clearUnchangedInput);
         }
       } catch (error) {
+        if (!scope.active) return;
         console.error('Error executing command:', error);
         setCommandError(getCommandErrorMessage(error));
       }
@@ -718,12 +740,17 @@ export function useChatComposerState({
   const handleSubmit = useCallback(
     async (
       event: FormEvent<HTMLFormElement> | MouseEvent | TouchEvent | KeyboardEvent<HTMLTextAreaElement>,
+      queuedSend?: QueuedDraft,
+      claimQueue = false,
     ) => {
       event.preventDefault();
-      const currentInput = inputValueRef.current;
-      if (!currentInput.trim() || !selectedProject || isSessionReadOnly) {
+      const scope = dispatchScopeRef.current;
+      const currentInput = queuedSend?.content ?? inputValueRef.current;
+      const images = queuedSend?.images ?? attachedImages;
+      if (!scope.active || !currentInput.trim() || !selectedProject || isSessionReadOnly) {
         return;
       }
+      const sendOptions = queuedSend?.options ?? buildSendOptions(currentInput);
 
       // A turn is already in flight: stash this message instead of sending it.
       // It's auto-flushed (re-running this same function) once the turn ends,
@@ -732,20 +759,19 @@ export function useChatComposerState({
         queuedDraftSessionRef.current = sessionKey;
         setQueuedDraft({
           content: currentInput,
-          images: attachedImages,
-          options: buildSendOptions(currentInput),
+          images,
+          options: sendOptions,
         });
-        setInput('');
-        inputValueRef.current = '';
-        setAttachedImages([]);
-        setUploadingImages(new Map());
-        setImageErrors(new Map());
-        resetCommandMenuState();
-        if (textareaRef.current) {
-          applyEmptyTextareaHeight(textareaRef.current);
+        if (!queuedSend) {
+          setInput('');
+          inputValueRef.current = '';
+          setAttachedImages([]);
+          setUploadingImages(new Map());
+          setImageErrors(new Map());
+          resetCommandMenuState();
+          if (textareaRef.current) applyEmptyTextareaHeight(textareaRef.current);
+          if (inputStorageKey) safeLocalStorage.setItem(inputStorageKey, '');
         }
-        // selectedProject is guaranteed by the guard at the top of handleSubmit.
-        safeLocalStorage.removeItem(`draft_input_${selectedProject.projectId}`);
         return;
       }
 
@@ -769,15 +795,21 @@ export function useChatComposerState({
               } as SlashCommand)
             : undefined);
         if (matchedCommand && matchedCommand.type !== 'skill') {
-          executeCommand(matchedCommand, isHelpAlias ? '/help' : commandInput);
-          setInput('');
-          inputValueRef.current = '';
-          setAttachedImages([]);
-          setUploadingImages(new Map());
-          setImageErrors(new Map());
-          resetCommandMenuState();
-          if (textareaRef.current) {
-            applyEmptyTextareaHeight(textareaRef.current);
+          if (claimQueue) {
+            if (sessionKey) clearQueuedMessage(sessionKey);
+            setQueuedDraft(null);
+          }
+          void executeCommand(matchedCommand, isHelpAlias ? '/help' : commandInput, {
+            preserveInput: Boolean(queuedSend), sendOptions,
+          });
+          if (!queuedSend) {
+            setInput('');
+            inputValueRef.current = '';
+            setAttachedImages([]);
+            setUploadingImages(new Map());
+            setImageErrors(new Map());
+            resetCommandMenuState();
+            if (textareaRef.current) applyEmptyTextareaHeight(textareaRef.current);
           }
           return;
         }
@@ -786,9 +818,9 @@ export function useChatComposerState({
       const messageContent = currentInput;
 
       let uploadedImages: unknown[] = [];
-      if (attachedImages.length > 0) {
+      if (images.length > 0) {
         const formData = new FormData();
-        attachedImages.forEach((file) => {
+        images.forEach((file) => {
           formData.append('images', file);
         });
 
@@ -804,8 +836,10 @@ export function useChatComposerState({
           }
 
           const result = await response.json();
+          if (!scope.active) return;
           uploadedImages = result.images;
         } catch (error) {
+          if (!scope.active) return;
           const message = error instanceof Error ? error.message : 'Unknown error';
           console.error('Image upload failed:', error);
           addMessage({
@@ -838,8 +872,10 @@ export function useChatComposerState({
             throw new Error(`Failed to create session (${response.status})`);
           }
           const body = await response.json();
+          if (!scope.active) return;
           targetSessionId = body?.data?.sessionId || null;
         } catch (error) {
+          if (!scope.active) return;
           const message = error instanceof Error ? error.message : 'Unknown error';
           console.error('Session creation failed:', error);
           addMessage({
@@ -873,6 +909,14 @@ export function useChatComposerState({
         timestamp: new Date(),
       };
 
+      if (claimQueue) {
+        // Claim only after preparation succeeds. If an upload fails or this
+        // composer unmounts while it is pending, the saved queue stays intact.
+        if (queuedDraftRef.current !== queuedSend || (sessionKey && !readQueuedMessage(sessionKey))) return;
+        if (sessionKey) clearQueuedMessage(sessionKey);
+        setQueuedDraft(null);
+      }
+
       addMessage(userMessage);
       // Mark this request as processing in the per-session activity map (the
       // single source of truth the indicator derives from). The id is always
@@ -893,23 +937,23 @@ export function useChatComposerState({
         sessionId: targetSessionId,
         content: messageContent,
         options: {
-          ...buildSendOptions(messageContent),
+          ...sendOptions,
           images: uploadedImages,
         },
       });
 
-      setInput('');
-      inputValueRef.current = '';
-      resetCommandMenuState();
-      setAttachedImages([]);
-      setUploadingImages(new Map());
-      setImageErrors(new Map());
-
-      if (textareaRef.current) {
-        applyEmptyTextareaHeight(textareaRef.current);
+      // A queued send owns its payload, never the editable next draft. Likewise,
+      // typing during an upload must not be erased when that upload finishes.
+      if (!queuedSend && inputValueRef.current === currentInput) {
+        setInput('');
+        inputValueRef.current = '';
+        resetCommandMenuState();
+        setAttachedImages([]);
+        setUploadingImages(new Map());
+        setImageErrors(new Map());
+        if (textareaRef.current) applyEmptyTextareaHeight(textareaRef.current);
+        if (inputStorageKey) safeLocalStorage.setItem(inputStorageKey, '');
       }
-
-      safeLocalStorage.removeItem(`draft_input_${selectedProject.projectId}`);
     },
     [
       selectedSession,
@@ -928,6 +972,7 @@ export function useChatComposerState({
       selectedProject,
       sendMessage,
       sessionKey,
+      inputStorageKey,
       addMessage,
       setIsUserScrolledUp,
       slashCommands,
@@ -964,7 +1009,9 @@ export function useChatComposerState({
     // so the `chat_subscribed` ack can flip `isLoading` if a run is actually
     // still live (the cleanup below cancels the send in that case).
     const delay = wasLoading ? 0 : 750;
+    const scope = dispatchScopeRef.current;
     const timer = setTimeout(() => {
+      if (!scope.active) return;
       // The saved key is the claim ticket shared with the app-level auto-send
       // (which handles sessions that finish while not viewed). If it's gone,
       // the message was already dispatched — don't send it twice.
@@ -972,13 +1019,7 @@ export function useChatComposerState({
         setQueuedDraft(null);
         return;
       }
-      setQueuedDraft(null);
-      setInput(queuedDraft.content);
-      inputValueRef.current = queuedDraft.content;
-      setAttachedImages(queuedDraft.images);
-      setTimeout(() => {
-        handleSubmitRef.current?.(createFakeSubmitEvent());
-      }, 0);
+      void handleSubmitRef.current?.(createFakeSubmitEvent(), queuedDraft, true);
     }, delay);
     return () => clearTimeout(timer);
   }, [isLoading, queuedDraft, sessionKey, setInput, isSessionReadOnly]);
@@ -1004,27 +1045,20 @@ export function useChatComposerState({
   }, [input]);
 
   useEffect(() => {
-    if (!selectedProjectId) {
-      return;
-    }
-    const savedInput = safeLocalStorage.getItem(`draft_input_${selectedProjectId}`) || '';
+    if (!inputStorageKey || inputStorageKeyRef.current !== inputStorageKey) return;
+    if (input === '' && selectedProjectId) clearDraftInput(selectedProjectId, projectHostId);
+    else safeLocalStorage.setItem(inputStorageKey, input);
+  }, [input, inputStorageKey, projectHostId, selectedProjectId]);
+
+  useEffect(() => {
+    inputStorageKeyRef.current = inputStorageKey;
+    const savedInput = selectedProjectId ? readDraftInput(selectedProjectId, projectHostId) : '';
     setInput((previous) => {
       const next = previous === savedInput ? previous : savedInput;
       inputValueRef.current = next;
       return next;
     });
-  }, [selectedProjectId]);
-
-  useEffect(() => {
-    if (!selectedProjectId) {
-      return;
-    }
-    if (input !== '') {
-      safeLocalStorage.setItem(`draft_input_${selectedProjectId}`, input);
-    } else {
-      safeLocalStorage.removeItem(`draft_input_${selectedProjectId}`);
-    }
-  }, [input, selectedProjectId]);
+  }, [projectHostId, inputStorageKey, selectedProjectId]);
 
   // Persist the queued draft under its session's key. Must be defined BEFORE
   // the swap effect below: on a session switch there is one commit where

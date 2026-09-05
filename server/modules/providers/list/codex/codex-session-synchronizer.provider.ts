@@ -172,7 +172,7 @@ export class CodexSessionSynchronizer implements IProviderSessionSynchronizer {
       ? await this.extractFirstUserMessageFromStart(filePath)
       : undefined;
     if (!sessionName) {
-      sessionName = nameMap.get(parsed.sessionId);
+      sessionName = nameMap.get(parsed.sessionId)?.trim();
     }
     if (!sessionName) {
       sessionName = await this.extractLastAgentMessageFromEnd(filePath);
@@ -214,7 +214,10 @@ export class CodexSessionSynchronizer implements IProviderSessionSynchronizer {
     try {
       const { size } = await handle.stat();
       let position = size;
-      let leadingFragment = Buffer.alloc(0);
+      // Keep byte fragments until a complete line is available. Rebuilding and
+      // rescanning the entire partial line on every read is quadratic for large
+      // tool-output records. Decode only after joining, preserving split UTF-8.
+      const fragments: Buffer[] = [];
 
       while (position > 0) {
         const start = Math.max(0, position - CODEX_TITLE_SCAN_CHUNK_BYTES);
@@ -224,31 +227,34 @@ export class CodexSessionSynchronizer implements IProviderSessionSynchronizer {
           break;
         }
 
-        const combined = leadingFragment.length > 0
-          ? Buffer.concat([buffer.subarray(0, bytesRead), leadingFragment])
-          : buffer.subarray(0, bytesRead);
-        let lineEnd = combined.length;
+        let lineEnd = bytesRead;
         // Buffer.lastIndexOf treats -1 as an offset from the end. Stop at zero
         // so a newline at the start of this chunk cannot restart the scan.
         while (lineEnd > 0) {
-          const newline = combined.lastIndexOf(0x0a, lineEnd - 1);
+          const newline = buffer.lastIndexOf(0x0a, lineEnd - 1);
           if (newline < 0) {
             break;
           }
-          const title = parseCodexTaskCompleteTitle(
-            combined.subarray(newline + 1, lineEnd).toString('utf8'),
-          );
+          let line = buffer.subarray(newline + 1, lineEnd);
+          if (fragments.length > 0) {
+            fragments.push(line);
+            line = Buffer.concat(fragments.reverse());
+            fragments.length = 0;
+          }
+          const title = parseCodexTaskCompleteTitle(line.toString('utf8'));
           if (title) {
             return title;
           }
           lineEnd = newline;
         }
 
-        leadingFragment = Buffer.from(combined.subarray(0, lineEnd));
+        if (lineEnd > 0) {
+          fragments.push(buffer.subarray(0, lineEnd));
+        }
         position = start;
       }
 
-      return parseCodexTaskCompleteTitle(leadingFragment.toString('utf8'));
+      return parseCodexTaskCompleteTitle(Buffer.concat(fragments.reverse()).toString('utf8'));
     } catch {
       return undefined;
     } finally {

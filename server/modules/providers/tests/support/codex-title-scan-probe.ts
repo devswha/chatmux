@@ -13,11 +13,29 @@ try {
   const synchronizer = new CodexSessionSynchronizer();
   const ids = JSON.parse(await readFile(path.join(root, 'cases.json'), 'utf8')) as string[];
   const results = [];
+  const copies = [];
   for (const id of ids) {
-    const sessionId = await synchronizer.synchronizeFile(path.join(root, `${id}.jsonl`));
-    results.push({ id, title: sessionId ? sessionsDb.getSessionById(sessionId)?.custom_name : null });
+    const concat = Buffer.concat;
+    let copiedBytes = 0;
+    if (process.argv[3] === '--measure-copies') {
+      Buffer.concat = (list, totalLength) => {
+        const result = concat(list, totalLength);
+        copiedBytes += result.length;
+        return result;
+      };
+    }
+    try {
+      const sessionId = await synchronizer.synchronizeFile(path.join(root, `${id}.jsonl`));
+      results.push({ id, title: sessionId ? sessionsDb.getSessionById(sessionId)?.custom_name : null });
+      copies.push({ id, copiedBytes });
+    } finally {
+      Buffer.concat = concat;
+    }
   }
   console.log(`TITLE_SCAN_RESULTS=${JSON.stringify(results)}`);
+  if (process.argv[3] === '--measure-copies') {
+    console.log(`TITLE_SCAN_COPIES=${JSON.stringify(copies)}`);
+  }
 } finally {
   closeConnection();
 }

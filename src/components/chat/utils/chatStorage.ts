@@ -1,15 +1,52 @@
 import { activeSessionHostId, localHostId } from '../../../fleet/hostIdentity';
+import { projectSlotKey } from '../../../fleet/references';
 import {
   clearQueuedDraft,
   LEGACY_QUEUED_MESSAGE_PREFIX,
   type PersistedStateStorage,
-  QUEUED_DRAFT_PREFIX,
   readQueuedDraft,
   writeQueuedDraft,
 } from '../../../fleet/persistedHostState';
 import type { ClaudeSettings } from '../types/types';
 
 export const CLAUDE_SETTINGS_KEY = 'claude-settings';
+const PROJECT_DRAFT_PREFIX = 'chatmux.projectDraft.v1:';
+
+export function draftInputKey(projectId: string, hostId: string | null): string {
+  return hostId === null
+    ? `draft_input_${projectId}`
+    : `${PROJECT_DRAFT_PREFIX}${projectSlotKey(hostId, projectId)}`;
+}
+
+export function readDraftInput(projectId: string, hostId: string | null): string {
+  const key = draftInputKey(projectId, hostId);
+  const saved = safeLocalStorage.getItem(key);
+  if (saved !== null) return saved;
+  // Bare pre-fleet drafts can only belong to the authoritative local host.
+  // A peer with the same project ID must never inherit them.
+  if (hostId !== null && hostId === localHostId()) {
+    const legacyKey = draftInputKey(projectId, null);
+    const legacy = safeLocalStorage.getItem(legacyKey);
+    if (legacy !== null) {
+      safeLocalStorage.setItem(key, legacy);
+      if (safeLocalStorage.getItem(key) === legacy) safeLocalStorage.removeItem(legacyKey);
+      return legacy;
+    }
+  }
+  return '';
+}
+
+export function clearDraftInput(projectId: string, hostId: string | null): void {
+  const key = draftInputKey(projectId, hostId);
+  safeLocalStorage.setItem(key, '');
+  if (safeLocalStorage.getItem(key) === '') return;
+  // Quota can prevent even the empty migration marker. Removing this project's
+  // own records needs no space; a peer clear must leave local legacy work alone.
+  if (hostId !== null && hostId === localHostId()) {
+    safeLocalStorage.removeItem(draftInputKey(projectId, null));
+  }
+  safeLocalStorage.removeItem(key);
+}
 
 export const safeLocalStorage = {
   setItem: (key: string, value: string) => {
@@ -17,21 +54,9 @@ export const safeLocalStorage = {
       localStorage.setItem(key, value);
     } catch (error: any) {
       if (error?.name === 'QuotaExceededError') {
-        console.warn('localStorage quota exceeded, clearing old data');
-
-        const keys = Object.keys(localStorage);
-        const draftKeys = keys.filter((k) => k.startsWith('draft_input_')
-          || k.startsWith(LEGACY_QUEUED_MESSAGE_PREFIX)
-          || k.startsWith(QUEUED_DRAFT_PREFIX));
-        draftKeys.forEach((k) => {
-          localStorage.removeItem(k);
-        });
-
-        try {
-          localStorage.setItem(key, value);
-        } catch (retryError) {
-          console.error('Failed to save to localStorage even after cleanup:', retryError);
-        }
+        // Drafts are unsent user work, including queues owned by other hosts.
+        // Keep existing records intact and let the active draft remain in memory.
+        console.warn('localStorage quota exceeded; draft storage was left intact');
       } else {
         console.error('localStorage error:', error);
       }
