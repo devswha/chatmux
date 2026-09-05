@@ -228,8 +228,13 @@ export class CodexSessionSynchronizer implements IProviderSessionSynchronizer {
           ? Buffer.concat([buffer.subarray(0, bytesRead), leadingFragment])
           : buffer.subarray(0, bytesRead);
         let lineEnd = combined.length;
-        let newline = combined.lastIndexOf(0x0a, lineEnd - 1);
-        while (newline >= 0) {
+        // Buffer.lastIndexOf treats -1 as an offset from the end. Stop at zero
+        // so a newline at the start of this chunk cannot restart the scan.
+        while (lineEnd > 0) {
+          const newline = combined.lastIndexOf(0x0a, lineEnd - 1);
+          if (newline < 0) {
+            break;
+          }
           const title = parseCodexTaskCompleteTitle(
             combined.subarray(newline + 1, lineEnd).toString('utf8'),
           );
@@ -237,7 +242,6 @@ export class CodexSessionSynchronizer implements IProviderSessionSynchronizer {
             return title;
           }
           lineEnd = newline;
-          newline = combined.lastIndexOf(0x0a, lineEnd - 1);
         }
 
         leadingFragment = Buffer.from(combined.subarray(0, lineEnd));
