@@ -59,6 +59,8 @@
     "shiftTab": "Shift+Tab",
     "arrowUp": "上矢印",
     "arrowDown": "下矢印",
+    "arrowLeft": "左矢印",
+    "arrowRight": "右矢印",
     "scrollDown": "下にスクロール",
     "handle": {
       "closePanel": "ショートカットパネルを閉じる",

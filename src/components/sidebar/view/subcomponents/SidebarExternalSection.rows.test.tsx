@@ -70,7 +70,8 @@ test('SidebarExternalSection explains why an unsafe agent binding was excluded',
     onChanged: noop,
   });
   assert.ok(html.includes('Codex CLI 연결 제외: ChatMux와 실행 사용자가 다릅니다.'));
-  assert.ok(html.includes('>ERROR<'));
+  assert.ok(html.includes('>LINK<'));
+  assert.ok(!html.includes('>ERROR<'));
   assert.ok(!html.includes(koSidebar.externalSessions.closeSessionTitle.replace('{{name}}', 'foreign-codex')));
 });
 
