@@ -1,6 +1,6 @@
 # ChatMux 제품 범위와 로드맵
 
-기준일: 2026-09-04
+기준일: 2026-09-05
 
 이 문서는 ChatMux의 제품 범위와 작업 우선순위에 대한 단일 기준이다.
 ChatMux는 tmux에서 이미 실행 중인 코딩 에이전트를 발견하고, 읽고, 제어하는
@@ -128,10 +128,11 @@ mosh, et.rs)도 모두 Tailscale 또는 포트 개방으로 수렴한다.
 
 ### P3 — tmux 확장성
 
-- [ ] 설정으로 추가할 수 있는 custom agent command/argv 감지
+- [x] owner 환경 설정으로 custom terminal agent command/argv 감지 — Linux의 검증된 foreground 프로세스를 기존 terminal-only 경로로 연다 ([설정과 제한](CUSTOM-AGENTS.md))
 - [x] parser가 없는 agent의 terminal fallback
-- [ ] `tmux -L`과 `tmux -S`로 실행한 여러 tmux 서버 지원
-- [ ] socket, pane, 프로세스 혈통, transcript 연결 근거를 보여주는 진단 화면
+- [x] owner가 명시한 `tmux -L`·`tmux -S` 서버 목록 지원 — 소켓 identity와 교체 여부를 검증한다 ([설정과 부분 실패 정책](TMUX-DISCOVERY.md))
+- [x] 관리자용 집계 진단 — 탐색 시각·실패 사유·감시기 신호·인덱싱 대기열과 복구 안내
+- [ ] pane별 socket·프로세스 혈통·transcript 연결 근거의 상세 진단 화면
 
 ### P4 — 모바일 웹 관제 (shipped)
 
@@ -144,6 +145,22 @@ mosh, et.rs)도 모두 Tailscale 또는 포트 개방으로 수렴한다.
       `chatmux status`의 현재 모드·유효 주소 표시 ([REMOTE-ACCESS.md](REMOTE-ACCESS.md) 5절)
 
 네이티브 앱을 만들지 않고 반응형 웹과 PWA 범위에서 구현한다.
+
+추가된 웹 관제 기능:
+
+- 로컬 목록에서 응답 필요·실패·연결 문제를 구분하고 다음 대상에 이동한다.
+  원격 호스트의 마지막 보고 상태를 로컬의 현재 상태 집계에 섞지 않는다.
+- 헤더 검색 버튼 또는 Ctrl/Cmd+K에서 최대 12개 세션을 브라우저에 고정한다.
+  host·project·session 식별자만 저장하며, 현재 허용된 목록에 없는 대상은 열지 않는다.
+- 대화에 표시된 사용자·어시스턴트 메시지를 선택하고, 내용을 확인·수정한 뒤
+  발췌를 복사한다. 기록 전체나 숨겨진 도구 출력은 자동으로 포함하지 않는다.
+- 로컬 탐색의 재연결·갱신·최신 여부를 구분하고, 화면 복귀와 누락 감지 시
+  제한된 읽기로 복구한다. 전송이나 승인을 자동 재실행하지 않는다.
+
+집계 진단은 **설정 → 진단**에서 소유자가 확인한다. 인덱싱 수치는 대기열의
+입장·처리 상태이며 에이전트의 생존이나 제어 권한을 증명하지 않는다. 전체
+기록을 처음 읽는 작업은 대기열 제한 밖에 있다. 백업과 데이터 복구는
+[소유자 운영 절차](SELF-HOST.md#owner-managed-backup-and-recovery)를 따른다.
 
 ### P5 — Multi-PC fleet (shipped)
 

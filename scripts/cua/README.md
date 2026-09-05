@@ -34,11 +34,12 @@ the operator's real Claude, Codex, Cursor, OpenCode, OMO, OMP, or GJC binary.
    ```
 
 3. Capture the clean desktop/mobile conversation evidence, then the destructive
-   interaction scenarios. The second command deliberately creates a disposable
+   interaction scenarios. The interaction script deliberately creates a disposable
    session, reorders the sidebar, interrupts a fake turn, and injects a synthetic
    provider error inside the fixture.
 
    ```sh
+   npm run cua:improvements
    npm run cua:ui:evidence
    npm run cua:ui:interactions
    npm run cua:mobile
@@ -50,6 +51,16 @@ the operator's real Claude, Codex, Cursor, OpenCode, OMO, OMP, or GJC binary.
    fixture pane. Set `CUA_MOBILE_WEBKIT=1` to repeat the supported interactions
    in WebKit after installing its Playwright browser. Browser emulation does
    not prove behavior on physical iOS/Android keyboards or devices.
+
+   The operator-improvement matrix runs before fleet interaction scenarios.
+   It checks conversation excerpts, host-qualified pins, owner diagnostics and
+   recovery from denied/failed reads, local attention controls, discovery
+   reconnect without write replay, and terminal accessibility controls. It uses
+   desktop Chrome and 320px/390px touch contexts; `CUA_MOBILE_WEBKIT=1` adds both
+   touch sizes in WebKit. Clipboard writes are captured inside the disposable
+   page, and service workers are blocked for deterministic network-fault tests.
+   Installed-PWA/service-worker behavior is verified separately below. Run this
+   matrix first because later fleet recovery tests can replace pairing identities.
 
 4. Build the client, then capture native Computer Use and installed-PWA evidence
    in a private Xvfb, DBus, GNOME, HOME, runtime directory, and Chrome profile.

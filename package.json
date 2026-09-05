@@ -69,7 +69,8 @@
     "verify:owned": "npm run audit && npm run typecheck && npm run check:core && npm test && npm run lint && npm run check:identity && npm run build",
     "start": "npm run build && npm run server",
     "postinstall": "node scripts/fix-node-pty.js",
-    "prepare": "husky"
+    "prepare": "husky",
+    "cua:improvements": "python3 scripts/cua/improvement-interactions.py"
   },
   "keywords": [
     "chatmux",

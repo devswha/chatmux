@@ -2,11 +2,20 @@
 
 The installation owner can opt in to detection of additional, already-running
 CLI processes with `CHATMUX_CUSTOM_TERMINAL_AGENTS`. Set it in the ChatMux server's
-environment (or its existing `.env` configuration), then restart ChatMux. Configure
+environment: the checkout's `.env`, or the managed installation's `chatmux.env`
+selected by `CHATMUX_ENV_FILE`. Restart ChatMux after editing the file. Configure
 each fleet installation locally; a hub does not send detection rules to peers.
 
 ```dotenv
-CHATMUX_CUSTOM_TERMINAL_AGENTS='[{"command":"my-agent","argv":["chat"]},{"command":"node","argv":["/opt/my-agent/cli.js","chat"]}]'
+CHATMUX_CUSTOM_TERMINAL_AGENTS=[{"command":"my-agent","argv":["chat"]},{"command":"node","argv":["/opt/my-agent/cli.js","chat"]}]
+```
+
+Keep the JSON value unquoted in the environment file so the managed and direct
+loaders preserve it correctly. For an interactive shell export, quote the whole
+JSON value instead:
+
+```sh
+export CHATMUX_CUSTOM_TERMINAL_AGENTS='[{"command":"my-agent","argv":["chat"]}]'
 ```
 
 This setting does not launch a command. Start the CLI yourself in tmux as usual.
