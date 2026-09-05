@@ -17,6 +17,11 @@ Revision 4 (2026-09-03): permits hub-managed SSH local forwards for enrollment, 
 Revision 5 (2026-09-04): adds bounded full-tool-output reads under the existing
 `session.read` operation/capability. Other operations and descriptor fields are unchanged.
 
+Revision 6 (2026-09-05): permits explicit, owner-requested bootstrap of a missing
+remote ChatMux installation during SSH enrollment and bounded, owner-only
+Tailscale candidate suggestions. These are hub-local setup surfaces, not new fleet
+wire operations or remote administration capabilities.
+
 ### Full tool output
 
 - The owner-only host-qualified tool-result endpoint MUST resolve the addressed
@@ -75,6 +80,39 @@ Revision 5 (2026-09-04): adds bounded full-tool-output reads under the existing
 - On first enrollment the hub installs a dedicated fleet-tunnel Ed25519 public key into the remote account's `authorized_keys` (idempotently, over the same owner-initiated SSH session), with explicit UI disclosure. Subsequent tunnel re-establishment authenticates with that key. The private key is stored only in the hub's private data directory like the installation key pair.
 - Host keys use trust-on-first-use recorded in a hub-owned `known_hosts` file dedicated to fleet tunnels. A changed host key MUST fail the tunnel. Silent acceptance is forbidden.
 - Removing the peer tears the tunnel down and best-effort removes the installed public key from the remote `authorized_keys`.
+
+### Optional SSH bootstrap and candidate suggestions
+
+- SSH reachability and the remote account MUST already be configured by the owner.
+  The hub MAY bootstrap a missing ChatMux installation only when that enrollment
+  request explicitly sets `installCli: true`. The UI MUST default this option off
+  and disclose installation of a user service before submission.
+- Bootstrap MUST use the canonical published installer and archive for the hub's
+  exact stable version, over HTTPS, and request loopback port 3001 explicitly.
+  It MUST NOT silently select another port or accept a browser-supplied version,
+  installer URL, path, command, environment, or argument list. The canonical
+  installer retains its platform, checksum, root-ownership, and service checks.
+- A working remote CLI MUST be reused. A broken existing wrapper or managed root,
+  including a symlink, MUST require manual recovery rather than bootstrap. Only a
+  missing installation on Linux x86_64 is eligible. Recheck that absence immediately
+  before installation and atomically claim the absent managed root with mode 0700;
+  a competing claim MUST fail without running the installer. Bootstrap MUST NOT
+  become an updater or repair operation.
+- Authentication material MUST be removed after SSH authentication, before a long
+  installation starts. The dedicated reconnect key MUST retain its command
+  restriction. Installation has a 15-minute bound and MUST NOT retry automatically.
+  A timeout or disconnect can leave a partial or completed installation: report a
+  closed error and require owner inspection. Enrollment failure or peer removal
+  MUST NOT uninstall ChatMux, remove its data, or terminate its tmux work.
+- `GET /api/fleet/ssh-candidates` MAY return up to 128 sanitized, deduplicated
+  Tailscale peer suggestions and an editable suggested SSH username to an
+  authenticated owner only, with `Cache-Control: no-store`. It MUST reuse the
+  bounded read-only local Tailscale status probe and degrade to manual SSH entry
+  when unavailable. Candidates MUST NOT include keys, raw status, diagnostics,
+  paths, or credentials, and MUST NOT become public fleet descriptors.
+- A candidate's hostname, IP, online flag, or OS hint grants no authority and proves
+  neither SSH reachability nor CPU compatibility. Enrollment MUST retain host-key
+  checking, owner intent, installation-key pinning, and the normal peer checks.
 
 ## Identity, descriptors, and keys
 

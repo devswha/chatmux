@@ -5,9 +5,12 @@ import test from 'node:test';
 const languages = ['de', 'en', 'fr', 'it', 'ja', 'ko', 'ru', 'tr', 'zh-CN', 'zh-TW'] as const;
 const requiredKeys = [
   'title', 'description', 'target', 'targetPlaceholder', 'password', 'passwordHelp', 'keyDisclosure',
-  'submit', 'success', 'stepConnect', 'stepKey', 'stepToken', 'stepEnroll',
+  'submit', 'success', 'stepConnect', 'stepKey', 'stepToken', 'stepEnroll', 'stepInstall',
+  'candidates', 'candidatesPick', 'candidateOffline', 'candidateUnsupported',
+  'installCli', 'installCliHelp', 'installHint',
   'errors.INVALID_SSH_TARGET', 'errors.SSH_PASSWORD_REQUIRED', 'errors.SSH_AUTH_FAILED',
   'errors.SSH_UNREACHABLE', 'errors.HOSTKEY_REJECTED', 'errors.REMOTE_CLI_FAILED',
+  'errors.REMOTE_PLATFORM_UNSUPPORTED', 'errors.REMOTE_CLI_MISSING', 'errors.REMOTE_INSTALL_FAILED',
   'errors.TOKEN_PARSE_FAILED', 'errors.ENROLL_FAILED', 'errors.PEER_LIMIT_REACHED', 'errors.TUNNEL_FAILED',
 ] as const;
 const root = new URL('../../../../', import.meta.url);

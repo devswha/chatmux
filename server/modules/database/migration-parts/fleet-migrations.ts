@@ -48,7 +48,7 @@ export const rebuildFleetHubGrantsWithoutRegistryReference = (db: Database): voi
   const references = db.pragma('foreign_key_list(fleet_hub_grants)') as readonly ForeignKeyRow[];
   if (!references.some(({ table }) => table === 'fleet_peers')) return;
 
-  console.log('Running migration: Rebuilding fleet_hub_grants without the fleet_peers reference');
+  console.error('Running migration: Rebuilding fleet_hub_grants without the fleet_peers reference');
   db.exec(`
     DROP TRIGGER IF EXISTS fleet_role_peer_insert;
     DROP TRIGGER IF EXISTS fleet_role_peer_update;

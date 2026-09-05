@@ -23,7 +23,7 @@ export const migrateLegacyWorkspaceTableIntoProjects = (db: Database): void => {
     return;
   }
 
-  console.log('Running migration: Migrating workspace_original_paths data into projects');
+  console.error('Running migration: Migrating workspace_original_paths data into projects');
   db.exec(`
     INSERT INTO projects (project_id, project_path, custom_project_name, isStarred, isArchived)
     SELECT
@@ -69,7 +69,7 @@ export const rebuildProjectsTableWithPrimaryKeySchema = (db: Database): void => 
     return;
   }
 
-  console.log('Running migration: Rebuilding projects table to enforce project_id primary key');
+  console.error('Running migration: Rebuilding projects table to enforce project_id primary key');
 
   const projectPathExpression = columnNames.includes('project_path')
     ? 'project_path'

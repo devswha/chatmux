@@ -15,7 +15,7 @@ export const migrateLegacySessionNames = (db: Database): void => {
   }
 
   if (hasSessionsTable) {
-    console.log('Running migration: Merging session_names into sessions');
+    console.error('Running migration: Merging session_names into sessions');
     db.exec(`
       INSERT INTO sessions (session_id, provider, custom_name, created_at, updated_at)
       SELECT
@@ -36,7 +36,7 @@ export const migrateLegacySessionNames = (db: Database): void => {
     return;
   }
 
-  console.log('Running migration: Renaming session_names table to sessions');
+  console.error('Running migration: Renaming session_names table to sessions');
   db.exec('ALTER TABLE session_names RENAME TO sessions');
 };
 
@@ -90,7 +90,7 @@ export const rebuildSessionsTableWithProjectSchema = (db: Database): void => {
     return;
   }
 
-  console.log('Running migration: Rebuilding sessions table to project-based schema');
+  console.error('Running migration: Rebuilding sessions table to project-based schema');
 
   const projectPathExpression = columnNames.includes('project_path')
     ? 'project_path'

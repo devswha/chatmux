@@ -108,7 +108,7 @@ export const MIGRATIONS: Migration[] = [
       db.exec('DROP INDEX IF EXISTS idx_workspace_original_paths_workspace_id');
 
       if (tableExists(db, 'workspace_original_paths')) {
-        console.log('Running migration: Dropping legacy workspace_original_paths table');
+        console.error('Running migration: Dropping legacy workspace_original_paths table');
         db.exec('DROP TABLE workspace_original_paths');
       }
     },

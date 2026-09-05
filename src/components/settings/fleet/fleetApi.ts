@@ -1,3 +1,4 @@
+import { FLEET_SSH_CANDIDATE_LIMIT, FLEET_SSH_USER_NAME, parseFleetSshCandidate, fleetSshErrorDetails } from '../../../../shared/fleet-ssh';
 import { FLEET_CAPABILITIES, FLEET_PEER_STATES, FLEET_PROTOCOL_VERSIONS } from '../../../../shared/fleet';
 import { authenticatedFetch } from '../../../utils/api';
 
@@ -7,13 +8,16 @@ import type {
   FleetPairingCode,
   FleetRevocationResult,
   FleetSettingsPayload,
+  FleetSshCandidate,
+  FleetSshCandidatesPayload,
+  FleetSshEnrollmentErrorDetails,
   FleetSshEnrollmentInput,
   FleetSshEnrollmentResult,
 } from './types';
 
 export class FleetSettingsRequestError extends Error {
   readonly name = 'FleetSettingsRequestError';
-  constructor(readonly code: string, readonly status: number) { super(code); }
+  constructor(readonly code: string, readonly status: number, readonly details: FleetSshEnrollmentErrorDetails = {}) { super(code); }
 }
 
 async function body(response: Response): Promise<unknown> {
@@ -25,7 +29,7 @@ async function body(response: Response): Promise<unknown> {
       : record(error) && stringIn(error.code, FLEET_SSH_ENROLLMENT_ERROR_CODES)
         ? error.code
         : `HTTP_${response.status}`;
-    throw new FleetSettingsRequestError(code, response.status);
+    throw new FleetSettingsRequestError(code, response.status, record(error) ? fleetSshErrorDetails(error.details) : {});
   }
   return value;
 }
@@ -80,6 +84,23 @@ function sshEnrollment(value: unknown): FleetSshEnrollmentResult {
   return { peerId: value.peerId, port: value.port };
 }
 
+function sshCandidates(value: unknown): FleetSshCandidatesPayload {
+  if (!record(value) || typeof value.available !== 'boolean' || typeof value.defaultUser !== 'string'
+    || (value.defaultUser.trim() !== value.defaultUser || (value.defaultUser !== '' && !FLEET_SSH_USER_NAME.test(value.defaultUser)))
+    || !Array.isArray(value.candidates) || value.candidates.length > FLEET_SSH_CANDIDATE_LIMIT
+    || (!value.available && value.candidates.length > 0)) {
+    throw new FleetSettingsRequestError('MALFORMED_RESPONSE', 502);
+  }
+  const candidates: FleetSshCandidate[] = [];
+  const seen = new Set<string>();
+  for (const item of value.candidates) {
+    const candidate = parseFleetSshCandidate(item);
+    if (candidate === undefined || seen.has(candidate.address)) throw new FleetSettingsRequestError('MALFORMED_RESPONSE', 502);
+    seen.add(candidate.address); candidates.push(candidate);
+  }
+  return { available: value.available, defaultUser: value.defaultUser, candidates };
+}
+
 function revocation(value: unknown): FleetRevocationResult {
   if (!record(value)
     || !stringIn(value.localRemoval, ['removed', 'not_found', 'already_removed'] as const)
@@ -101,6 +122,9 @@ export const fleetApi = {
   },
   sshEnroll: async (input: FleetSshEnrollmentInput): Promise<FleetSshEnrollmentResult> => sshEnrollment(await body(
     await authenticatedFetch('/api/fleet/ssh-enroll', { method: 'POST', body: JSON.stringify(input) }),
+  )),
+  sshCandidates: async (signal?: AbortSignal): Promise<FleetSshCandidatesPayload> => sshCandidates(await body(
+    await authenticatedFetch('/api/fleet/ssh-candidates', signal === undefined ? {} : { signal }),
   )),
   reconnect: async (peerId: string): Promise<void> => {
     await body(await authenticatedFetch(`/api/fleet/peers/${encodeURIComponent(peerId)}/reconnect`, { method: 'POST' }));

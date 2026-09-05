@@ -1,0 +1,35 @@
+{
+  "scope": "simulated SSH UI; no remote operations",
+  "cases": [
+    {
+      "case": "desktop",
+      "language": "en",
+      "viewport": [
+        1280,
+        900
+      ],
+      "scenarios": 5,
+      "result": "passed"
+    },
+    {
+      "case": "mobile-en",
+      "language": "en",
+      "viewport": [
+        390,
+        844
+      ],
+      "scenarios": 5,
+      "result": "passed"
+    },
+    {
+      "case": "mobile-ko",
+      "language": "ko",
+      "viewport": [
+        320,
+        844
+      ],
+      "scenarios": 5,
+      "result": "passed"
+    }
+  ]
+}

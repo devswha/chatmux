@@ -11,13 +11,15 @@ export const initializeDatabase = async () => {
     try {
         const db = getConnection();
         db.exec(INIT_SCHEMA_SQL);
-        console.log('Database schema applied');
+        // Lifecycle diagnostics stay on stderr: CLI commands such as `chatmux fleet token`
+        // are machine-parsed over SSH and need stdout reserved for their result.
+        console.error('Database schema applied');
         runMigrations(db);
         assertFleetRoleIntegrity(db);
         db.exec(COMPLETION_NOTIFICATION_GENERATION_STATE_STALE_INDEX_SQL);
     } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        console.log('Database initialization failed', { error: message });
+        console.error('Database initialization failed', { error: message });
         throw err;
     }
 };

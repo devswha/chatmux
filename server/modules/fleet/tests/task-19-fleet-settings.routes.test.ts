@@ -30,6 +30,7 @@ async function fixture() {
     statuses: () => [{ peerId: PEER_ID, state: 'offline', protocolVersion: 'fleet/1', capabilities: ['catalog.read'], peerProcessEpoch: null, generation: null, lastHeartbeatAtMs: null }],
     reconnect: (peerId) => { calls.push(`reconnect:${peerId}`); return true; },
     forget: (peerId) => { calls.push(`forget:${peerId}`); return 'removed'; },
+    sshCandidates: async () => ({ available: true, defaultUser: 'alice', candidates: [{ hostName: 'lab', address: '100.64.0.2', os: 'linux', online: true, supported: true }] }),
   }));
   const server = createServer(app);
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -65,6 +66,18 @@ test('Given a non-owner, when fleet settings and actions are requested, then inv
   ]);
   assert.deepEqual([settings.status, reconnect.status, remove.status], [403, 403, 403]);
   assert.deepEqual(subject.calls, []);
+});
+
+test('Given tailnet SSH candidates, when requested, then only the owner receives the pre-fill list', async (context) => {
+  const subject = await fixture(); context.after(subject.close);
+  const [owner, user] = await Promise.all([
+    fetch(`${subject.baseUrl}/ssh-candidates`, { headers: { 'x-role': 'owner' } }),
+    fetch(`${subject.baseUrl}/ssh-candidates`, { headers: { 'x-role': 'user' } }),
+  ]);
+  assert.equal(user.status, 403);
+  assert.equal(owner.status, 200);
+  assert.equal(owner.headers.get('cache-control'), 'no-store');
+  assert.deepEqual(await owner.json(), { available: true, defaultUser: 'alice', candidates: [{ hostName: 'lab', address: '100.64.0.2', os: 'linux', online: true, supported: true }] });
 });
 
 test('Given an offline enrolled peer, when the owner reconnects then removes it locally, outcomes stay distinct', async (context) => {

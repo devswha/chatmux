@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { createServer } from 'node:http';
-import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -309,10 +309,10 @@ test('Given askpass helper creation fails after writing the password, then its p
   await assert.rejects(stat(payload));
 });
 
-test('Given askpass directory cleanup throws, then key and master cleanup still run and the failure is reported', async () => {
+test('Given authentication cleanup fails, then the master is reclaimed before any remote key or installation change', async () => {
   const subject = fixture(); subject.io.failRm = true;
   await assert.rejects(subject.service.enroll({ sshTarget: 'alice@example.test', password: PASSWORD }), (error) => error instanceof SshEnrollmentError && error.cleanupErrors.length > 0);
-  assert.ok(subject.io.runs.some(({ args }) => (args.at(-1) ?? '').includes('authorized_keys')));
+  assert.equal(subject.io.runs.some(({ args }) => (args.at(-1) ?? '').includes('authorized_keys')), false);
   assert.ok(subject.io.runs.some(({ args }) => args.includes('exit')));
 });
 
@@ -501,4 +501,112 @@ test('Given genuine mid-flow cleanup failure, then diagnostics attach without re
     { code: 255, stdout: '', stderr: 'key cleanup refused' },
   ]);
   await assert.rejects(subject.service.enroll({ sshTarget: 'alice@example.test', password: PASSWORD }), (error) => error instanceof SshEnrollmentError && error.code === 'REMOTE_CLI_FAILED' && error.message.includes('cleanup was incomplete') && error.cleanupErrors.length === 1);
+});
+
+const OK: SshRunResult = { code: 0, stdout: '', stderr: '' };
+const MINTED: SshRunResult = { code: 0, stdout: `Pairing token: ${TOKEN}\nExpires at: 2030-01-01T00:00:00.000Z\n`, stderr: '' };
+const cliMissing = (os: string, arch: string): SshRunResult => ({ code: 127, stdout: '', stderr: `chatmux-fleet-cli-missing ${os} ${arch}\n` });
+const installRuns = (io: FakeIo) => io.runs.filter(({ args }) => (args.at(-1) ?? '').includes('install.sh'));
+const mintRuns = (io: FakeIo) => io.runs.filter(({ args }) => (args.at(-1) ?? '').includes('fleet token'));
+
+test('Given the remote PC is not Linux x86_64, when no CLI exists, then the platform is reported and the installer never runs', async () => {
+  const subject = fixture([OK, OK, cliMissing('Darwin', 'arm64')]);
+  await assert.rejects(subject.service.enroll({ sshTarget: 'alice@example.test', password: PASSWORD, installCli: true }), (error) => error instanceof SshEnrollmentError && error.code === 'REMOTE_PLATFORM_UNSUPPORTED' && error.details.os === 'Darwin' && error.details.arch === 'arm64');
+  assert.equal(installRuns(subject.io).length, 0); assert.equal(subject.io.spawns.length, 0);
+  assert.ok(subject.io.runs.some(({ args }) => (args.at(-1) ?? '').includes('grep -vxF')), 'the installed key is removed');
+});
+
+test('Given a Linux x86_64 PC without ChatMux, when installation is not requested, then REMOTE_CLI_MISSING is reported without installing', async () => {
+  const subject = fixture([OK, OK, cliMissing('Linux', 'x86_64')]);
+  await assert.rejects(subject.service.enroll({ sshTarget: 'alice@example.test', password: PASSWORD }), (error) => error instanceof SshEnrollmentError && error.code === 'REMOTE_CLI_MISSING' && error.details.os === 'Linux');
+  assert.equal(installRuns(subject.io).length, 0); assert.equal(mintRuns(subject.io).length, 1);
+});
+
+test('Given a Linux x86_64 PC without ChatMux, when installation is requested, then the installer runs over the authenticated master before a second mint', async () => {
+  const subject = fixture([OK, OK, cliMissing('Linux', 'x86_64'), OK, MINTED]);
+  assert.deepEqual(await subject.service.enroll({ sshTarget: 'alice@example.test', password: PASSWORD, installCli: true }), { peerId: PEER_ID, port: 41234 });
+  const [install] = installRuns(subject.io); assert.ok(install);
+  assert.match(install.args.at(-1) ?? '', /releases\/download\/v[0-9]+\.[0-9]+\.[0-9]+\/install\.sh/);
+  assert.match(install.args.at(-1) ?? '', /sh "\$tmp" --port 3001$/);
+  assert.equal(install.options.timeoutMs, 900_000); assert.equal(install.options.env?.SSH_ASKPASS, undefined);
+  assert.ok(install.args.includes('ControlPath=/hub/fleet/control-41234')); assert.ok(install.args.includes('ClearAllForwardings=yes'));
+  assert.equal(mintRuns(subject.io).length, 2);
+  assert.ok(subject.io.runs.indexOf(install) > subject.io.runs.indexOf(mintRuns(subject.io)[0]!) && subject.io.runs.indexOf(install) < subject.io.runs.indexOf(mintRuns(subject.io)[1]!));
+});
+
+test('Given the remote installer exits nonzero, then REMOTE_INSTALL_FAILED is reported and the key is unwound without a tunnel', async () => {
+  const subject = fixture([OK, OK, cliMissing('Linux', 'x86_64'), { code: 70, stdout: '', stderr: '[chatmux] ERROR: checksum verification failed' }]);
+  await assert.rejects(subject.service.enroll({ sshTarget: 'alice@example.test', password: PASSWORD, installCli: true }), (error) => error instanceof SshEnrollmentError && error.code === 'REMOTE_INSTALL_FAILED');
+  assert.equal(mintRuns(subject.io).length, 1); assert.equal(subject.io.spawns.length, 0);
+  assert.ok(subject.io.runs.some(({ args }) => (args.at(-1) ?? '').includes('grep -vxF')));
+});
+
+test('installation timeout is a closed outcome with no retry or remote uninstall', async () => {
+  const subject = fixture([OK, OK, cliMissing('Linux', 'x86_64'), { code: null, stdout: PASSWORD, stderr: '/private/install/log' }]);
+  subject.io.onRun = (_command, args) => {
+    if ((args.at(-1) ?? '').includes('curl -fsSL')) assert.ok(subject.io.removals.length > 0, 'authentication directory is removed before installation');
+    return undefined;
+  };
+  await assert.rejects(subject.service.enroll({ sshTarget: 'alice@example.test', password: PASSWORD, installCli: true }), (error) => (
+    error instanceof SshEnrollmentError && error.code === 'REMOTE_INSTALL_FAILED'
+    && !error.message.includes(PASSWORD) && !error.message.includes('/private')
+  ));
+  assert.equal(installRuns(subject.io).length, 1);
+  assert.equal(subject.io.spawns.length, 0);
+  assert.equal(subject.store.records.length, 0);
+  assert.ok(subject.io.runs.some(({ args }) => args.includes('exit')));
+  assert.equal(subject.io.runs.some(({ args }) => (args.at(-1) ?? '').includes('rm -rf')), false);
+});
+
+test('a working CLI is reused even when bootstrap is selected, and a missing CLI is not installed when declined', async () => {
+  const existing = fixture();
+  await existing.service.enroll({ sshTarget: 'alice@example.test', password: PASSWORD, installCli: true });
+  assert.equal(installRuns(existing.io).length, 0);
+  const declined = fixture([OK, OK, cliMissing('Linux', 'x86_64')]);
+  await assert.rejects(declined.service.enroll({ sshTarget: 'alice@example.test', password: PASSWORD, installCli: false }),
+    (error) => error instanceof SshEnrollmentError && error.code === 'REMOTE_CLI_MISSING');
+  assert.equal(installRuns(declined.io).length, 0);
+});
+
+test('unknown platform diagnostics are redacted and cleanup preserves the closed platform details', async () => {
+  const subject = fixture([OK, OK, cliMissing('private-host', 'secret-arch')]);
+  subject.io.unavailable = async () => { throw new Error('cleanup failed'); };
+  await assert.rejects(subject.service.enroll({ sshTarget: 'alice@example.test', password: PASSWORD, installCli: true }), (error) => {
+    assert.ok(error instanceof SshEnrollmentError);
+    assert.equal(error.code, 'REMOTE_PLATFORM_UNSUPPORTED');
+    assert.deepEqual(error.details, { os: 'unknown', arch: 'unknown' });
+    assert.ok(error.cleanupErrors.length > 0);
+    assert.doesNotMatch(error.message, /private-host|secret-arch/);
+    return true;
+  });
+  assert.equal(installRuns(subject.io).length, 0);
+});
+
+test('Given the installCli flag over HTTP, then a non-boolean is rejected before SSH and a boolean reaches the tunnel', async (context) => {
+  const subject = fixture([OK, OK, cliMissing('Linux', 'x86_64'), OK, MINTED]); const route = await startRoute(subject.service); context.after(route.close);
+  const rejected = await fetch(`${route.url}/ssh-enroll`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sshTarget: 'alice@example.test', password: PASSWORD, installCli: 'yes' }) });
+  assert.equal(rejected.status, 400); assert.equal(responseErrorCode(await rejected.json()), 'INVALID_SSH_TARGET'); assert.equal(subject.io.runs.length, 0);
+  const accepted = await fetch(`${route.url}/ssh-enroll`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sshTarget: 'alice@example.test', password: PASSWORD, installCli: true }) });
+  assert.equal(accepted.status, 201); assert.equal(installRuns(subject.io).length, 1);
+});
+
+test('Given an unsupported remote platform over HTTP, then the response carries the closed code and platform details only', async (context) => {
+  const subject = fixture([OK, OK, cliMissing('Darwin', 'arm64')]); const route = await startRoute(subject.service); context.after(route.close);
+  const response = await fetch(`${route.url}/ssh-enroll`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sshTarget: 'alice@example.test', password: PASSWORD, installCli: true }) });
+  const body = await response.text(); assert.equal(response.status, 409);
+  assert.deepEqual(JSON.parse(body), { error: { code: 'REMOTE_PLATFORM_UNSUPPORTED', message: 'ChatMux peers require Linux x86_64; the remote PC reports Darwin arm64', details: { os: 'Darwin', arch: 'arm64' } } });
+  assert.equal(body.includes(PASSWORD), false);
+});
+
+test('Given the real mint command in a bare non-interactive shell, then the managed wrapper is found without PATH and the marker names the platform otherwise', async (context) => {
+  const subject = fixture(); await subject.service.enroll({ sshTarget: 'alice@example.test', password: PASSWORD });
+  const mint = mintRuns(subject.io)[0]?.args.at(-1); assert.ok(mint);
+  const home = await mkdtemp(join(tmpdir(), 'chatmux-remote-home-')); context.after(() => rm(home, { recursive: true, force: true }));
+  const env = { PATH: '/usr/bin:/bin', HOME: home };
+  const missing = spawnSync('/bin/sh', ['-c', mint], { env, encoding: 'utf8' });
+  assert.equal(missing.status, 127); assert.match(missing.stderr, /^chatmux-fleet-cli-missing [A-Za-z0-9_.-]+ [A-Za-z0-9_.-]+$/m); assert.equal(missing.stdout, '');
+  await mkdir(join(home, '.local', 'bin'), { recursive: true });
+  await writeFile(join(home, '.local', 'bin', 'chatmux'), '#!/bin/sh\nprintf \'Pairing token: %s\\n\' "$1-$2"\n', { mode: 0o755 });
+  const wrapped = spawnSync('/bin/sh', ['-c', mint], { env, encoding: 'utf8' });
+  assert.equal(wrapped.status, 0, wrapped.stderr); assert.equal(wrapped.stdout, 'Pairing token: fleet-token\n');
 });

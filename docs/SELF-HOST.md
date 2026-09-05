@@ -95,6 +95,8 @@ Source and release semantics remain distinct. A source installation continues it
 configured moving `origin/main` plus `deploy.sh` flow and never claims an exact
 release target. The first updater-capable release still needs the manual bootstrap
 below; later compatible releases can be updated from the owner’s mobile UI.
+Easy SSH setup may also run the canonical installer for an explicitly requested
+first installation of a missing peer (see the fleet section below).
 Terminal/SSH use of `install.sh` is a manual bootstrap or recovery fallback, not
 the ordinary mobile update experience.
 
@@ -173,8 +175,13 @@ Use Tailscale Serve HTTPS/WSS by default. The saved peer URL is the peer's actua
 Serve host and port with `/fleet-ws`, for example
 `wss://peer.example.ts.net:8443/fleet-ws`. Plain `ws://` is restricted to a
 literal-loopback SSH local forward, created manually or through the hub owner's
-**Easy SSH setup** action. Easy setup requires an already-installed remote ChatMux
-backend on `127.0.0.1:3001` and a reachable SSH account. It installs a dedicated key,
+**Easy SSH setup** action. Easy setup requires a reachable SSH account and uses
+`127.0.0.1:3001`. The owner may explicitly enable **Install ChatMux if missing**
+(off by default) for a new Linux x86_64 installation of the hub's exact published
+version. Existing or broken installations require manual recovery; this is not a
+fleet update path. A timeout may leave a partial installation that the owner must
+inspect. Enrollment cleanup never uninstalls ChatMux or removes its data.
+Easy setup installs a dedicated key,
 obtains the pairing token, and manages the tunnel without saving the password.
 Changed host keys fail closed; investigate the peer identity before reconnecting.
 See [the SSH setup contract](REMOTE-ACCESS.md#82-default-transport-tailscale-httpswss).

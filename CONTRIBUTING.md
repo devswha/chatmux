@@ -84,7 +84,7 @@ chatmux/
 - Documentation improvements are always welcome
 - Keep language clear and concise
 - Keep installation and self-hosting instructions aligned with [the self-hosting guide](docs/SELF-HOST.md)
-- Multi-PC documentation must preserve the shipped contract in [REMOTE-ACCESS.md §8](docs/REMOTE-ACCESS.md#8-multi-pc-fleet-one-hub-and-full-peers) and [Fleet RFC revision 4](docs/FLEET-FEDERATION-RFC.md#hub-managed-ssh-forwarding): one hub plus at most nine full peers, owner-only enrollment, Tailscale HTTPS/WSS by default, and only literal loopback `ws://` behind an owner-managed or explicitly requested hub-managed SSH forward. Do not describe a relay, downgrade, automatic failover, fleet updater, cloud sync, remote desktop/IDE, arbitrary commands, or zero-configuration reachability.
+- Multi-PC documentation must preserve the shipped contract in [REMOTE-ACCESS.md §8](docs/REMOTE-ACCESS.md#8-multi-pc-fleet-one-hub-and-full-peers) and [Fleet RFC revision 6](docs/FLEET-FEDERATION-RFC.md#optional-ssh-bootstrap-and-candidate-suggestions): one hub plus at most nine full peers, owner-only enrollment, Tailscale HTTPS/WSS by default, and only literal loopback `ws://` behind an owner-managed or explicitly requested hub-managed SSH forward. Optional SSH bootstrap requires owner opt-in and a missing installation; it never updates or repairs an existing peer. Do not describe a relay, downgrade, automatic failover, fleet updater, cloud sync, remote desktop/IDE, arbitrary commands, or zero-configuration reachability.
 
 ## Commit Convention
 

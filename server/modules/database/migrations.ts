@@ -32,7 +32,7 @@ export const runMigrations = (db: Database) => {
       }
     }
 
-    console.log('Database migrations completed successfully');
+    console.error('Database migrations completed successfully');
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     console.error('Error running migrations:', message);
