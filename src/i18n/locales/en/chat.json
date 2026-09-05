@@ -298,5 +298,22 @@
       "unknown": "The outcome could not be confirmed. Read the transcript before sending again."
     },
     "dismiss": "Dismiss"
+  },
+  "excerpt": {
+    "open": "Copy conversation excerpt",
+    "heading": "Selected conversation excerpt",
+    "description": "Choose messages shown in this conversation, then review and edit the excerpt before copying. Remove private information you do not want to share.",
+    "available": "Choose from the most recent {{count}} eligible messages currently shown. Other history and tool output are not included.",
+    "empty": "No conversation text is available to select.",
+    "user": "User",
+    "assistant": "Assistant",
+    "preview": "Review, redact, or add a next step",
+    "review": "Review selection ({{count}})",
+    "tooLarge": "This selection is too large. Select fewer messages.",
+    "copy": "Copy reviewed excerpt",
+    "copied": "Excerpt copied.",
+    "copyFailed": "Copy failed. You can select and copy the preview manually.",
+    "close": "Close",
+    "back": "Back"
   }
 }
