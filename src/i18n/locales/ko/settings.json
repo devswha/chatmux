@@ -59,6 +59,8 @@
     "shiftTab": "Shift+Tab",
     "arrowUp": "위쪽 화살표",
     "arrowDown": "아래쪽 화살표",
+    "arrowLeft": "왼쪽 화살표",
+    "arrowRight": "오른쪽 화살표",
     "scrollDown": "아래로 스크롤",
     "handle": {
       "closePanel": "단축키 패널 닫기",

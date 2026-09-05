@@ -59,6 +59,8 @@
     "shiftTab": "Shift+Tab",
     "arrowUp": "Стрелка вверх",
     "arrowDown": "Стрелка вниз",
+    "arrowLeft": "Стрелка влево",
+    "arrowRight": "Стрелка вправо",
     "scrollDown": "Прокрутка вниз",
     "handle": {
       "closePanel": "Закрыть панель горячих клавиш",
