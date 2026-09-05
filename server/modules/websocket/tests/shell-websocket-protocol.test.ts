@@ -529,7 +529,10 @@ test('overlapping forceRestart requests replace the current PTY without orphanin
   const verification = new Promise<void>((resolve) => { releaseVerification = resolve; });
   const restartDependencies = dependencies({
     ...ownerDependencies,
-    attachCapabilities: { verify: async () => { await verification; return true; } } as never,
+    attachCapabilities: {
+      ...capabilities,
+      createLease: async (...args) => { await verification; return capabilities.createLease(...args); },
+    },
   });
   const first = new FakeWebSocket();
   const second = new FakeWebSocket();

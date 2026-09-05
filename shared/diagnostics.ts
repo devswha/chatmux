@@ -8,6 +8,22 @@ export type DiagnosticsLane = {
   staleRows: number;
 };
 
+/** Fixed aggregate fields only; counters are capped at 1,000,000 or null. */
+export type DiagnosticsIndexing = {
+  /** Admission state, not watcher/agent liveness. Startup may pause an accepting queue. */
+  status: 'accepting' | 'closed' | 'unavailable';
+  pending: number | null;
+  active: number | null;
+  maxPending: number | null;
+  maxActive: number | null;
+  /** Active reconciliation steps and providers with a recovery pass pending/in progress. */
+  reconciling: number | null;
+  reconciliationPending: number | null;
+  /** Cumulative for the current scheduler instance, not consecutive failures. */
+  overflowed: number | null;
+  failures: number | null;
+};
+
 export type OwnerDiagnostics = {
   schemaVersion: 1;
   generatedAtMs: number;
@@ -30,6 +46,8 @@ export type OwnerDiagnostics = {
     consecutiveFailures: number;
     watchLimitObserved: boolean;
   };
+  /** Downstream file scheduling only; initial bulk synchronization is excluded. */
+  indexing: DiagnosticsIndexing;
   eventLoop: {
     /** Cumulative since process start; not CPU usage or a latency measurement. */
     utilization: number | null;

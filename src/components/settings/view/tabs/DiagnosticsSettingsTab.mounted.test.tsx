@@ -23,11 +23,12 @@ test('mounted settings loads once, refreshes only the cached GET, and clears dat
   assert.equal(calls[0].options?.credentials, 'same-origin');
   assert.equal(calls[0].options?.method, undefined);
   assert.match(JSON.stringify(tree!.toJSON()), /4 cached rows/);
+  assert.match(JSON.stringify(tree!.toJSON()), /12 \/ 448/);
   response = new Response('PRIVATE_ERROR token', { status: 403 });
   await act(async () => { tree.root.findByType('button').props.onClick(); });
   assert.equal(calls.length, 2);
   assert.match(JSON.stringify(tree!.toJSON()), /Sign in as this server/);
-  assert.doesNotMatch(JSON.stringify(tree!.toJSON()), /4 cached rows|PRIVATE_ERROR/);
+  assert.doesNotMatch(JSON.stringify(tree!.toJSON()), /4 cached rows|12 \/ 448|PRIVATE_ERROR/);
 });
 
 test('network and unsupported response failures are generic and refresh can recover', async (context) => {
@@ -61,4 +62,27 @@ test('loading disables refresh and closing settings aborts the pending request',
   assert.equal(tree!.root.findAllByProps({ role: 'status' }).length, 1);
   await act(async () => { tree.unmount(); });
   assert.equal(signal?.aborted, true);
+});
+
+
+test('manual refresh updates indexing counters without polling or starting mutations', async (context) => {
+  let calls = 0;
+  const data = summary();
+  context.mock.method(globalThis, 'fetch', async (_url: string, options?: RequestInit) => {
+    calls += 1;
+    assert.equal(options?.method, undefined);
+    return new Response(JSON.stringify(data));
+  });
+  let tree!: TestRenderer.ReactTestRenderer;
+  await act(async () => { tree = TestRenderer.create(<I18nextProvider i18n={i18n}><DiagnosticsSettingsTab /></I18nextProvider>); });
+  context.after(() => { act(() => tree.unmount()); });
+  assert.match(JSON.stringify(tree.toJSON()), /12 \/ 448/);
+  data.indexing.pending = 40;
+  await act(async () => { tree.update(<I18nextProvider i18n={i18n}><DiagnosticsSettingsTab /></I18nextProvider>); });
+  assert.equal(calls, 1);
+  assert.match(JSON.stringify(tree.toJSON()), /12 \/ 448/);
+  await act(async () => { tree.root.findByType('button').props.onClick(); });
+  assert.equal(calls, 2);
+  assert.match(JSON.stringify(tree.toJSON()), /40 \/ 448/);
+  assert.equal(tree.root.findAllByType('button').length, 1, 'refresh is the only control');
 });

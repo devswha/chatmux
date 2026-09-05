@@ -11,6 +11,13 @@ import SettingsSection from '../SettingsSection';
 export function DiagnosticsSummary({ data }: { data: OwnerDiagnostics }) {
   const { t, i18n } = useTranslation('settings');
   const collector = data.collector;
+  // Older schema-v1 servers may omit this additive field during an upgrade.
+  const indexing = data.indexing;
+  const counter = (value: number | null | undefined) => typeof value === 'number' && Number.isFinite(value) && value >= 0
+    ? new Intl.NumberFormat(i18n.language).format(Math.floor(value)) : t('diagnostics.unknown');
+  const withLimit = (value: number | null | undefined, limit: number | null | undefined) => t('diagnostics.indexing.withLimit', {
+    value: counter(value), limit: counter(limit),
+  });
   const failedLane = Object.values(collector.lanes).some((lane) => lane.status === 'failing' || lane.status === 'degraded');
   const age = (value: number | null) => value === null
     ? t('diagnostics.unknown')
@@ -76,6 +83,29 @@ export function DiagnosticsSummary({ data }: { data: OwnerDiagnostics }) {
           {data.gjcWatcher.watchLimitObserved && <p>{t('diagnostics.recovery.watchLimit')}</p>}
           {data.gjcWatcher.status !== 'no_failures_reported' && !data.gjcWatcher.watchLimitObserved && (
             <p>{t('diagnostics.recovery.watcher')}</p>
+          )}
+        </SettingsCard>
+      </SettingsSection>
+
+      <SettingsSection title={t('diagnostics.indexing.title')} description={t('diagnostics.indexing.description')}>
+        <SettingsCard className="space-y-3 p-4 text-sm">
+          <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {[
+              [t('diagnostics.indexing.admission'), t(`diagnostics.indexing.states.${indexing?.status ?? 'unavailable'}`)],
+              [t('diagnostics.indexing.pending'), withLimit(indexing?.pending, indexing?.maxPending)],
+              [t('diagnostics.indexing.active'), withLimit(indexing?.active, indexing?.maxActive)],
+              [t('diagnostics.indexing.reconciling'), counter(indexing?.reconciling)],
+              [t('diagnostics.indexing.reconciliationPending'), counter(indexing?.reconciliationPending)],
+              [t('diagnostics.indexing.overflowed'), counter(indexing?.overflowed)],
+              [t('diagnostics.indexing.failures'), counter(indexing?.failures)],
+            ].map(([label, value]) => (
+              <div key={label}><dt className="text-muted-foreground">{label}</dt><dd className="font-medium">{value}</dd></div>
+            ))}
+          </dl>
+          <p className="text-muted-foreground">{t('diagnostics.indexing.scope')}</p>
+          <p className="text-muted-foreground">{t('diagnostics.indexing.totals')}</p>
+          {((indexing?.overflowed ?? 0) > 0 || (indexing?.failures ?? 0) > 0 || (indexing?.reconciliationPending ?? 0) > 0) && (
+            <p>{t('diagnostics.indexing.recovery')}</p>
           )}
         </SettingsCard>
       </SettingsSection>

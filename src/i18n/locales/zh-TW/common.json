@@ -208,5 +208,17 @@
       "closeSidebar": "關閉側邊欄",
       "progress": "更新進度"
     }
+  },
+  "sessionPins": {
+    "heading": "釘選的工作階段",
+    "pin": "釘選{{name}}",
+    "unpin": "取消釘選{{name}}",
+    "current": "目前工作階段",
+    "openPalette": "搜尋與釘選的工作階段",
+    "browserOnly": "此瀏覽器：已釘選 {{count}} / {{limit}} 個。可釘選下方工作階段。",
+    "unavailable": "工作階段無法使用",
+    "host": "主機",
+    "limit": "請先取消釘選一個工作階段再新增（上限 {{count}} 個）。",
+    "storageUnavailable": "瀏覽器儲存空間無法使用。釘選清單僅保留到此頁面關閉。"
   }
 }

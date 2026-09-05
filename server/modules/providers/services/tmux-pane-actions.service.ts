@@ -4,6 +4,7 @@ import { AppError } from '@/shared/utils.js';
 
 import type { TmuxPaneIdentity, TmuxProcessGeneration } from '../../../../shared/tmux.js';
 
+import { assertLocalTmuxSocket, sameLocalTmuxSocket, type LocalTmuxSocketEvidence } from './local-tmux-discovery.service.js';
 import { runTmux, type TmuxRunner } from './builtin-relay.service.js';
 import { isZombieProcess, processGroupId, processStartMs } from './process-start-time.service.js';
 import type { VerifiedTmuxActionTarget } from './tmux-fresh-verifier.service.js';
@@ -98,11 +99,27 @@ export function sameTmuxPaneIdentity(a: TmuxPaneIdentity, b: TmuxPaneIdentity): 
     && a.paneId === b.paneId;
 }
 
+async function assertActionSocket(
+  identity: TmuxPaneIdentity,
+  expected?: LocalTmuxSocketEvidence | null,
+): Promise<LocalTmuxSocketEvidence | null> {
+  try {
+    const current = await assertLocalTmuxSocket(identity);
+    if (expected && (!current || !sameLocalTmuxSocket(expected, current))) throw new Error();
+    return current;
+  } catch {
+    throw new AppError('The selected tmux socket is no longer available in the local inventory.', {
+      code: 'TMUX_PANE_GENERATION_MISMATCH', statusCode: 409,
+    });
+  }
+}
+
 async function requireTmuxSuccess(
   identity: TmuxPaneIdentity,
   args: string[],
   run: TmuxRunner,
 ): Promise<void> {
+  await assertActionSocket(identity);
   const result = await run(['-S', identity.socketPath, ...args]);
   if (result.code !== 0) {
     throw new AppError('The selected tmux pane changed; reopen it from the session list.', {
@@ -117,11 +134,13 @@ export async function assertTmuxPaneIdentity(
   identity: TmuxPaneIdentity,
   run: TmuxRunner = runTmux,
 ): Promise<void> {
+  const socketBefore = await assertActionSocket(identity);
   const result = await run([
     '-S', identity.socketPath,
     'display-message', '-p', '-t', identity.paneId,
     '#{session_id}\t#{window_id}\t#{pane_id}',
   ]);
+  await assertActionSocket(identity, socketBefore);
   const expected = `${identity.sessionId}\t${identity.windowId}\t${identity.paneId}`;
   if (result.code !== 0 || result.output.trim() !== expected) {
     throw new AppError('The selected tmux pane changed; reopen it from the session list.', {
@@ -234,10 +253,12 @@ export async function captureTmuxPane(
   run: TmuxRunner = runTmux,
 ): Promise<string> {
   const identity = target.tmux;
+  const socketBefore = await assertActionSocket(identity);
   const result = await run([
     '-S', identity.socketPath,
     'capture-pane', '-p', '-e', '-N', '-S', '-80', '-t', identity.paneId,
   ]);
+  await assertActionSocket(identity, socketBefore);
   if (result.code !== 0) {
     throw new AppError('The selected tmux pane changed; reopen it from the session list.', {
       code: 'TMUX_PANE_GENERATION_MISMATCH',
@@ -335,6 +356,7 @@ export async function stopAgentProcessInPane(
   deps: StopAgentProcessDeps = {},
 ): Promise<void> {
   const identity = target.tmux;
+  const socketBefore = await assertActionSocket(identity);
   const inspected = await run([
     '-S', identity.socketPath,
     'display-message', '-p', '-t', identity.paneId,
@@ -358,6 +380,8 @@ export async function stopAgentProcessInPane(
     });
   }
 
+  await assertActionSocket(identity, socketBefore);
+
   if (panePid === target.process.pid) {
     // The agent is the pane's root process: nothing else lives in the pane.
     await respawnPaneShell(identity, cwd, shell, run);
@@ -371,7 +395,7 @@ export async function stopAgentProcessInPane(
       });
     }
     if (paneGroup === agentGroup) await respawnPaneShell(identity, cwd, shell, run);
-    else await signalVerifiedProcessGroup(target.process, agentGroup, deps);
+    else await signalVerifiedProcessGroup(target.process, agentGroup, deps, () => assertActionSocket(identity));
   }
 
   for (const option of [
@@ -395,6 +419,7 @@ async function signalVerifiedProcessGroup(
   generation: Readonly<TmuxProcessGeneration>,
   group: number,
   deps: StopAgentProcessDeps,
+  assertSocket: () => Promise<LocalTmuxSocketEvidence | null>,
 ): Promise<void> {
   const kill = deps.kill ?? ((pid, signal) => process.kill(pid, signal));
   const startedAtMs = deps.startedAtMs ?? processStartMs;
@@ -424,8 +449,10 @@ async function signalVerifiedProcessGroup(
       if (!(error && typeof error === 'object' && 'code' in error && error.code === 'ESRCH')) throw error;
     }
   };
+  await assertSocket();
   signal('SIGTERM');
   if (await waitForExit(STOP_TERM_GRACE_MS)) return;
+  await assertSocket();
   signal('SIGKILL');
   if (await waitForExit(STOP_KILL_GRACE_MS)) return;
   throw new AppError('The agent process ignored SIGTERM and SIGKILL; terminate the pane instead.', {

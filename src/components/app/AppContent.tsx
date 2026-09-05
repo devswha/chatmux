@@ -253,6 +253,19 @@ function AppContentInner() {
 
       <CommandPalette
         selectedProject={selectedProject}
+        projects={sidebarSharedProps.projects}
+        currentSession={externalTerminal ? null : fleetHost.activeSession}
+        onOpenPinnedSession={(target) => {
+          setExternalTerminal(null);
+          setExternalTranscript(null);
+          setSidebarOpen(false);
+          setActiveTab('chat');
+          if (target.pin.hostId === catalog.localHostId) {
+            sidebarProps.onSessionSelect(target.session, target.project.projectId);
+          } else {
+            navigate(target.route);
+          }
+        }}
         onStartNewChat={(...args: Parameters<typeof handleNewSession>) => {
           setExternalTerminal(null);
           return handleNewSession(...args);
