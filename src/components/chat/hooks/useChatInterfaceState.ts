@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 
 import type { ChatInterfaceProps } from '../types/types';
+import { createChatEscapeHandler } from '../utils/chatEscape';
 
 import { useChatComposerState } from './useChatComposerState';
 import { useChatLiveRefresh } from './useChatLiveRefresh';
@@ -154,14 +155,7 @@ export function useChatInterfaceState(props: InterfaceStateProps) {
       return;
     }
 
-    const handleGlobalEscape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || event.repeat || event.defaultPrevented) {
-        return;
-      }
-
-      event.preventDefault();
-      handleAbortSession();
-    };
+    const handleGlobalEscape = createChatEscapeHandler(handleAbortSession);
 
     document.addEventListener('keydown', handleGlobalEscape, { capture: true });
     return () => {

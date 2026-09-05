@@ -66,12 +66,12 @@ const controls = (renderer: ReactTestRenderer) => renderer.root.findByType(Sideb
 const visibleIds = (renderer: ReactTestRenderer) => renderer.root.findAllByType(SortableSessionRow)
   .filter((row) => !row.props.hidden).map((row) => row.props.id);
 const chooseFilter = async (renderer: ReactTestRenderer, filter: string) => {
-  const button = renderer.root.findAllByType('button').find((node) => node.props['data-attention-filter'] === filter)!;
-  await act(async () => { button.props.onClick(); });
+  const select = renderer.root.findByType('select');
+  await act(async () => { select.props.onChange({ target: { value: filter } }); });
 };
 const next = async (renderer: ReactTestRenderer) => {
   const button = renderer.root.findAllByType('button').find((node) => node.props['data-attention-next'] === true)!;
-  assert.equal(button.props.disabled, false);
+  assert.notEqual(button.props.disabled, true);
   await act(async () => { button.props.onClick(); });
 };
 
@@ -81,28 +81,48 @@ test('attention filters only local reported rows, preserves order, and distingui
   try {
     const initialOrder = visibleIds(view.renderer);
     assert.deepEqual(controls(view.renderer).props.counts, { input: 2, failure: 1, connection: 1 });
-    const scope = view.renderer.root.findAllByType('p').find((node) => node.children.includes(enSidebar.attention.scope));
+    const scope = view.renderer.root.findAllByType('span').find((node) => node.children.includes(enSidebar.attention.scope));
     assert.ok(scope);
-    const filters = view.renderer.root.findAllByType('button').filter((node) => node.props['data-attention-filter']);
-    assert.equal(filters.length, 4);
-    for (const button of filters) {
-      assert.equal(button.props.type, 'button');
-      assert.match(button.props.className, /min-h-11/);
-      assert.match(button.props.className, /focus-visible:ring-2/);
-    }
+    const select = view.renderer.root.findByType('select');
+    assert.equal(select.props['aria-label'], enSidebar.attention.filterLabel);
+    assert.equal(select.props['aria-describedby'], scope.props.id);
+    assert.equal(select.props.value, 'all');
+    assert.deepEqual(select.findAllByType('option').map((option) => [option.props.value, option.children.join('')]), [
+      ['all', 'All local'], ['input', 'Response needed (2)'], ['failure', 'Failures (1)'], ['connection', 'Connection issues (1)'],
+    ]);
     await chooseFilter(view.renderer, 'input');
     const inputIds = [createSessionOrderId('s-live', props.liveSessionTargets.get('s-live')!.tmux), createSessionOrderId('', props.externalSessions![1]!.tmux)];
     assert.deepEqual(visibleIds(view.renderer), inputIds);
-    assert.equal(view.renderer.root.findAllByType('button').find((node) => node.props['data-attention-filter'] === 'input')!.props['aria-pressed'], true);
+    assert.equal(view.renderer.root.findByType('select').props.value, 'input');
     assert.ok(view.renderer.root.findAllByType(SortableSessionRow).every((row) => row.props.disabled), 'filtering cannot overwrite saved ordering');
     await chooseFilter(view.renderer, 'failure');
     assert.deepEqual(visibleIds(view.renderer), [createSessionOrderId('', props.externalSessions![2]!.tmux)]);
     await chooseFilter(view.renderer, 'connection');
     assert.deepEqual(visibleIds(view.renderer), [createSessionOrderId('', props.externalSessions![6]!.tmux)]);
     assert.equal(controls(view.renderer).props.hasNext, false, 'a connection exclusion never becomes selectable through navigation');
+    assert.equal(view.renderer.root.findAllByType('button').filter((node) => node.props['data-attention-next']).length, 0);
     assert.ok(view.renderer.root.findAllByType('span').some((node) => node.children.includes('LINK')));
     await chooseFilter(view.renderer, 'all');
     assert.deepEqual(visibleIds(view.renderer), initialOrder);
+  } finally { await view.unmount(); }
+});
+
+test('an idle list has no attention toolbar and an empty active filter can still be reset', async () => {
+  const idle = { ...baseProps(), liveSessionInput: new Set<string>(), externalSessions: [external('ready', 'waiting_user')] };
+  const view = await mount(idle);
+  try {
+    assert.equal(view.renderer.root.findAllByType('select').length, 0);
+    assert.equal(view.renderer.root.findAllByType('button').filter((node) => node.props['data-attention-next']).length, 0);
+    const idleOrder = visibleIds(view.renderer);
+    await view.update(baseProps());
+    await chooseFilter(view.renderer, 'failure');
+    await view.update(idle);
+    assert.equal(view.renderer.root.findByType('select').props.value, 'failure');
+    assert.deepEqual(visibleIds(view.renderer), []);
+    assert.equal(view.renderer.root.findAllByType('button').filter((node) => node.props['data-attention-next']).length, 0);
+    await chooseFilter(view.renderer, 'all');
+    assert.equal(view.renderer.root.findAllByType('select').length, 0);
+    assert.deepEqual(visibleIds(view.renderer), idleOrder);
   } finally { await view.unmount(); }
 });
 
