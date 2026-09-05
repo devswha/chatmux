@@ -3,6 +3,7 @@ import { homedir, tmpdir } from 'node:os';
 
 import type { ProviderConnectionIssue } from '../../../../../shared/provider-connection.js';
 import type { TmuxPaneIdentity, TmuxProcessGeneration } from '../../../../../shared/tmux.js';
+import type { ExternalSessionBinding } from '../external-cli-sessions.service.js';
 
 /**
  * Live gjc session detection + tmux-session naming.
@@ -39,6 +40,8 @@ export type LiveGjcSession = {
    * (the pane belongs to something else — tmux actions are forbidden).
    */
   claim: 'lineage' | 'cwd' | null;
+  /** Transcript binding is separate from pane lineage; absent for synthetic idle rows. */
+  binding?: ExternalSessionBinding;
   /**
    * Foreground-command classification of the pane this row runs in:
    * 'interactive' = the pane's foreground command IS gjc (a live gjc TUI);

@@ -7,8 +7,9 @@ import { tmuxPaneIdentityKey } from '../../../../../shared/tmux.js';
 /**
  * Discovers every tmux pane. GJC keeps its dedicated live lane; Claude,
  * Codex, Cursor, OpenCode, and Oh My Pi are surfaced with native transcript
- * ids when they can be proven. SSH and unclassified shell panes stay
- * terminal-only because no local agent generation can be established.
+ * ids when they can be proven. SSH and shell panes (including owner-configured
+ * custom CLIs with observed process metadata) stay terminal-only; they have no
+ * provider-native identity or control integration.
  */
 
 export const TMUX_FIELD_SEP = '\t';

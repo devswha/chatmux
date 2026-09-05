@@ -1,4 +1,100 @@
 {
+  "diagnostics": {
+    "title": "Diagnostics",
+    "description": "Cached diagnostics for this ChatMux server. Refresh reads the summary cache (up to 2 seconds old) without starting a scan or changing running sessions.",
+    "refresh": "Refresh summary",
+    "loading": "Loading diagnostics…",
+    "unknown": "Unavailable",
+    "sampledAt": "Summary captured at {{time}}. Ages below are measured at that time.",
+    "seconds_one": "{{count}} second",
+    "seconds_other": "{{count}} seconds",
+    "discovery": "Session discovery",
+    "freshness": "Latest discovery observation",
+    "mode": "Collector mode",
+    "scanAge": "Observation age",
+    "fullScanAge": "Last successful full scan age",
+    "scanning": "Discovery is currently in progress.",
+    "freshnessStates": {
+      "waiting": "No observation yet",
+      "fresh": "Recent (within 30 seconds)",
+      "stale": "Older than 30 seconds",
+      "unavailable": "Unavailable"
+    },
+    "modes": {
+      "active": "Active",
+      "idle": "Idle",
+      "stopped": "Stopped",
+      "disposed": "Disposed",
+      "unknown": "Unavailable"
+    },
+    "lanes": {
+      "external": "External CLI sessions",
+      "live": "Live GJC sessions"
+    },
+    "laneStates": {
+      "waiting": "No scan result yet",
+      "ok": "Last scan succeeded",
+      "failing": "Scan failures observed",
+      "degraded": "Discovery degraded"
+    },
+    "rowCounts": "{{rows}} cached rows · {{stale}} marked stale",
+    "failures_one": "{{count}} consecutive failure",
+    "failures_other": "{{count}} consecutive failures",
+    "truncated": "Counts cover the first 1,000 cached rows. Larger inventories are truncated.",
+    "connectionIssues": "Connection reasons",
+    "issueDescription": "Counts describe retained cached rows, including stale rows. No session names or paths are included.",
+    "watcher": "GJC transcript watcher",
+    "watcherDescription": "Failure signals from the existing watcher. No reported failures does not prove that the watcher is running.",
+    "watcherStates": {
+      "no_failures_reported": "No failures reported",
+      "retrying": "Failures reported; retry backoff",
+      "degraded": "Degraded; slow retry backoff",
+      "unavailable": "Watcher status unavailable"
+    },
+    "eventLoop": "Server event loop utilization",
+    "eventLoopDescription": "Cumulative active share since server start. This is neither CPU usage nor a measurement of current response latency.",
+    "errors": {
+      "owner": "Sign in as this server’s owner to view diagnostics. For local-only access, open ChatMux on the server itself.",
+      "unavailable": "Diagnostics could not be read. Check your connection and refresh the summary. If this continues, run chatmux status on this server."
+    },
+    "recovery": {
+      "waiting": "Open the session list to use normal discovery, then return here and refresh the summary. An unused collector may have no observation yet.",
+      "discovery": "Check whether the session list reconnects, then refresh this summary. If discovery remains stale or fails, run chatmux status on this server and inspect its local service logs. Keep existing tmux work running.",
+      "watchLimit": "The watcher reported a system watch limit. Ask the host administrator to review inotify watch and instance limits and other watcher processes. Repeated restarts do not resolve an exhausted limit.",
+      "watcher": "Check the GJC installation and ChatMux service logs locally. The watcher owns its retry schedule; this screen does not restart it. Existing tmux sessions can keep running.",
+      "terminal": "When a transcript cannot be verified, use ChatMux’s verified terminal attach. If attach is refused, use your existing terminal and check the exact tmux pane before typing."
+    },
+    "reasons": {
+      "agent_user_mismatch": {
+        "title": "Agent user differs",
+        "guidance": "Check that ChatMux and the agent run as the intended OS user. Use the agent’s existing terminal until that identity can be verified."
+      },
+      "agent_home_mismatch": {
+        "title": "Agent home differs",
+        "guidance": "Check the service account and home configuration against the agent’s environment. Do not copy credentials or transcripts into another account to bypass the mismatch."
+      },
+      "agent_context_unreadable": {
+        "title": "Agent context unreadable",
+        "guidance": "Review process visibility and permissions on the host. Keep the session in its existing terminal while identity evidence is unavailable."
+      },
+      "tmux_socket_owner_mismatch": {
+        "title": "tmux owner differs",
+        "guidance": "Check the account that owns the tmux server. Connect with the intended account instead of relaxing socket permissions."
+      },
+      "tmux_pane_ambiguous": {
+        "title": "tmux pane is ambiguous",
+        "guidance": "Inspect the intended pane in your existing terminal. A matching working directory alone cannot select a safe target."
+      },
+      "transcript_ambiguous": {
+        "title": "Transcript is ambiguous",
+        "guidance": "Use verified terminal attach while the provider session association is uncertain. Do not select a transcript based only on its directory."
+      },
+      "transcript_permission_denied": {
+        "title": "Transcript access denied",
+        "guidance": "Review the intended service account’s access to the provider store locally. Use verified terminal attach without making private transcripts broadly readable."
+      }
+    }
+  },
   "title": "Settings",
   "tabs": {
     "account": "Account",

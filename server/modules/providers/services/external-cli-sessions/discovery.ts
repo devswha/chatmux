@@ -12,9 +12,10 @@ import { recordHostCommand } from '../host-command-metrics.service.js';
 import type { CurrentTmuxPaneIdentity } from './inference-and-spawn.js';
 import type { ExternalCliSession, ExternalCliSessionInferenceRetryBackoff, ExternalCliSessionsDetailedResult, ExternalLocalCliKind, ExternalPane, ProcessTreeEntry } from './contracts-and-resume.js';
 import type { ExternalCliSessionCommandRunner } from './process-classification.js';
+import type { CustomTerminalAgentDetectionOptions } from './custom-terminal-agents.js';
 import { CODEX_THREAD_ID_RE, TMUX_FIELD_SEP, createExternalCliSessionInferenceRetryBackoff } from './contracts-and-resume.js';
 import { addExternalRuntimeMetadata, applyInferredProviderSessionIds } from './provider-runtime-inference.js';
-import { classifyExternalSessions, runCommand } from './process-classification.js';
+import { classifyCustomTerminalSessions, classifyExternalSessions, runCommand } from './process-classification.js';
 import { inferExternalProviderSessionIds } from './inference-and-spawn.js';
 import { parseExternalPanes, parsePsTree } from './session-correlation.js';
 
@@ -109,6 +110,7 @@ export async function discoverExternalCliSessions(
   retryBackoff: ExternalCliSessionInferenceRetryBackoff,
   commandRunner: ExternalCliSessionCommandRunner = runCommand,
   hostSnapshot?: HostDiscoverySnapshot,
+  customTerminalAgents?: CustomTerminalAgentDetectionOptions,
 ): Promise<ExternalCliSessionsDetailedResult> {
   let panes: ExternalPane[];
   let procs: ProcessTreeEntry[];
@@ -142,7 +144,9 @@ export async function discoverExternalCliSessions(
     panes = parseExternalPanes(tmuxOutput);
     procs = parsePsTree(psOutput);
   }
-  const classified = classifyExternalSessions({ panes, procs });
+  const classified = await classifyCustomTerminalSessions({
+    sessions: classifyExternalSessions({ panes, procs }), panes, procs,
+  }, customTerminalAgents);
   const sessions = await addExternalRuntimeMetadata({ sessions: classified, panes, procs });
   const attemptableSessions = retryBackoff.attemptableSessions(sessions);
   const inference = await inferExternalProviderSessionIds({
@@ -169,6 +173,7 @@ export type ExternalCliSessionDiscovery = {
 
 export type ExternalCliSessionDiscoveryOptions = {
   commandRunner?: ExternalCliSessionCommandRunner;
+  customTerminalAgents?: CustomTerminalAgentDetectionOptions;
   now?: () => number;
   cacheTtlMs?: number;
   hostSnapshot?: () => Promise<HostDiscoverySnapshot>;
@@ -202,14 +207,16 @@ export function createExternalCliSessionDiscovery(
         backoff,
         options.commandRunner,
         await options.hostSnapshot!(),
+        options.customTerminalAgents,
       )
-      : (backoff) => discoverExternalCliSessions(backoff, options.commandRunner));
+      : (backoff) => discoverExternalCliSessions(backoff, options.commandRunner, undefined, options.customTerminalAgents));
   const discoverFresh = options.discoverFresh
     ?? (options.freshHostSnapshot
       ? async (backoff) => discoverExternalCliSessions(
         backoff,
         options.commandRunner,
         await options.freshHostSnapshot!(),
+        options.customTerminalAgents,
       )
       : discover);
   let cached: { result: ExternalCliSessionsDetailedResult; expiresAtMs: number } | null = null;

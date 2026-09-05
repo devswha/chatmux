@@ -31,6 +31,12 @@
     "completed": "Terminé",
     "inProgress": "En cours"
   },
+  "discoveryFreshness": {
+    "reconnecting": "Reconnexion à la liste des sessions locales…",
+    "refreshing": "Actualisation de la liste des sessions locales…",
+    "current": "Liste des sessions locales à jour",
+    "unavailable": "Liste des sessions locales non à jour"
+  },
   "messages": {
     "savedSuccessfully": "Enregistré avec succès",
     "deletedSuccessfully": "Supprimé avec succès",

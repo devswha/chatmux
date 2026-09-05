@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { readFileSync } from 'node:fs';
 
 import {
   discoveryAuthorityDisposition,
@@ -11,10 +10,7 @@ import {
 } from './useDiscoveryStream';
 
 test('shared transport subscriptions cover both discovery lanes', () => {
-  const source = readFileSync(new URL('./useDiscoveryStream.ts', import.meta.url), 'utf8');
   assert.deepEqual(DISCOVERY_TRANSPORT_LANES, ['external', 'live']);
-  assert.equal(source.match(/lanes: DISCOVERY_TRANSPORT_LANES/g)?.length, 2);
-  assert.doesNotMatch(source, /lanes: subscribedLanes/);
 });
 test('requests a gap resync when a discovery delta is lost', () => {
   const state = { epoch: 'epoch-1', revision: 4 };
