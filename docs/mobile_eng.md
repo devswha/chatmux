@@ -38,8 +38,11 @@ You can also scan the QR code shown during installation. An address containing
 `localhost` or `127.0.0.1` works only on the PC running ChatMux and cannot be opened
 from a phone.
 
-Each PC runs its own ChatMux server. If ChatMux is installed on multiple PCs, run
-`chatmux status` on each one and install a separate PWA for each address.
+Each PC runs its own ChatMux server. With a [multi-PC fleet](INSTALL.md#create-a-multi-pc-fleet),
+the owner can open the hub's HTTPS address and install one PWA to use the hub and
+up to nine enrolled peers. A separate PWA for every peer is optional. Keep each
+PC's direct address from `chatmux status` for recovery when the hub or peer link
+is unavailable; independent installations that are not enrolled remain separate.
 
 ## 2. Connect Tailscale on the mobile device
 
