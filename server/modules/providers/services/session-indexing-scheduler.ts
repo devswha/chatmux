@@ -7,11 +7,15 @@ export type SessionFileUpdate = {
   signal?: AbortSignal;
 };
 
+export type SessionIndexReconciliationMode = 'incremental' | 'gap';
+
 type PendingUpdate = SessionFileUpdate & { startedAtMs: number; readyAtMs: number };
 type ProviderQueue = {
   pending: Map<string, PendingUpdate>;
   active: boolean;
   reconcile: boolean;
+  reconcileMode: SessionIndexReconciliationMode;
+  recoveryMode: SessionIndexReconciliationMode;
   reconcileAtMs: number;
   nextReconcileAtMs: number;
   recovery: AsyncGenerator<void> | null;
@@ -38,7 +42,7 @@ export type SessionIndexingDiagnostics = {
 type Options = {
   providers: readonly LLMProvider[];
   run: (update: SessionFileUpdate, signal: AbortSignal) => Promise<void>;
-  reconcile: (provider: LLMProvider, signal: AbortSignal) => AsyncGenerator<void>;
+  reconcile: (provider: LLMProvider, signal: AbortSignal, mode: SessionIndexReconciliationMode) => AsyncGenerator<void>;
   maxPendingPerProvider?: number;
   maxActive?: number;
   debounceMs?: number;
@@ -77,7 +81,7 @@ export function createSessionIndexingScheduler(options: Options) {
   const schedule = options.schedule ?? scheduleTimer;
   const queues = new Map<LLMProvider, ProviderQueue>(providers.map((provider) => [provider, {
     pending: new Map(), active: false, reconcile: false, reconcileAtMs: 0, nextReconcileAtMs: 0,
-    recovery: null, preferFile: false,
+    recovery: null, preferFile: false, reconcileMode: 'gap', recoveryMode: 'gap',
   }]));
   const controller = new AbortController();
   const tasks = new Set<Promise<void>>();
@@ -91,12 +95,16 @@ export function createSessionIndexingScheduler(options: Options) {
   let failures = 0;
   let closing: Promise<void> | null = null;
 
-  function requestReconciliation(provider: LLMProvider): void {
+  function requestReconciliation(provider: LLMProvider, mode: SessionIndexReconciliationMode = 'gap'): void {
     const queue = queues.get(provider);
     if (closed || !queue) return;
     if (!queue.reconcile) {
       queue.reconcile = true;
+      queue.reconcileMode = mode;
       queue.reconcileAtMs = Math.max(now(), queue.nextReconcileAtMs);
+    } else if (mode === 'gap') {
+      // A periodic tick must never downgrade a retained overflow obligation.
+      queue.reconcileMode = 'gap';
     }
     arm();
   }
@@ -134,6 +142,7 @@ export function createSessionIndexingScheduler(options: Options) {
     } else {
       if (!queue.recovery) {
         queue.reconcile = false;
+        queue.recoveryMode = queue.reconcileMode;
         queue.nextReconcileAtMs = now() + retryMs;
       }
       reconciling += 1;
@@ -147,7 +156,7 @@ export function createSessionIndexingScheduler(options: Options) {
         if (entry) {
           await options.run(entry, signal);
         } else {
-          queue.recovery ??= options.reconcile(provider, signal);
+          queue.recovery ??= options.reconcile(provider, signal, queue.recoveryMode);
           const step = await queue.recovery.next();
           if (step.done) queue.recovery = null;
         }
@@ -160,7 +169,7 @@ export function createSessionIndexingScheduler(options: Options) {
         }
         if (!closed) {
           if (!signal.aborted) failures = Math.min(Number.MAX_SAFE_INTEGER, failures + 1);
-          requestReconciliation(provider);
+          requestReconciliation(provider, entry ? 'gap' : queue.recoveryMode);
         }
       } finally {
         queue.preferFile = !entry;

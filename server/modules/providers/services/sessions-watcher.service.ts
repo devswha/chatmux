@@ -8,12 +8,18 @@ import { projectsDb, sessionsDb } from '@/modules/database/index.js';
 import { generateDisplayName } from '@/modules/projects/index.js';
 import { GjcSessionWatcher } from '@/modules/providers/services/gjc-session-watcher.service.js';
 import { sessionSynchronizerService } from '@/modules/providers/services/session-synchronizer.service.js';
-import { reconcileSessionIndexFiles } from '@/modules/providers/services/session-indexing-reconciliation.js';
+import {
+  PERIODIC_SESSION_INDEX_PROVIDERS,
+  reconcilePeriodicSessionIndex,
+  reconcileSessionIndexFiles,
+  sessionIndexScanScope,
+} from '@/modules/providers/services/session-indexing-reconciliation.js';
 import {
   createSessionIndexingScheduler,
   INDEXING_MAX_ACTIVE,
   INDEXING_MAX_PENDING_PER_PROVIDER,
   type SessionIndexingDiagnostics,
+  type SessionIndexReconciliationMode,
 } from '@/modules/providers/services/session-indexing-scheduler.js';
 import { WS_OPEN_STATE, connectedClients } from '@/modules/websocket/index.js';
 import type { LLMProvider } from '@/shared/types.js';
@@ -50,11 +56,11 @@ const PROVIDER_WATCH_PATHS: Array<{ provider: LLMProvider; rootPath: string }> =
 ];
 
 const GJC_TERMINAL_RECEIPT_ROOT = path.join(os.homedir(), '.gjc', 'agent', 'terminal-sessions');
-const GJC_WATCH_PATHS = [...new Set([
+const GJC_TRANSCRIPT_ROOTS = [...new Set([
   path.join(os.homedir(), '.gjc', 'agent', 'sessions'),
   path.resolve(process.env.GJC_LIVE_SESSION_DIR || path.join(os.tmpdir(), 'gjc-live-sessions')),
-  GJC_TERMINAL_RECEIPT_ROOT,
 ])];
+const GJC_WATCH_PATHS = [...new Set([...GJC_TRANSCRIPT_ROOTS, GJC_TERMINAL_RECEIPT_ROOT])];
 
 const WATCHER_IGNORED_PATTERNS = [
   '**/node_modules/**',
@@ -400,16 +406,34 @@ function queueFileUpdate(
   indexingScheduler?.enqueue({ eventType, filePath, provider, signal });
 }
 
-async function* reconcileProviderIndex(provider: LLMProvider, signal: AbortSignal): AsyncGenerator<void> {
+async function* reconcileProviderIndex(
+  provider: LLMProvider,
+  signal: AbortSignal,
+  mode: SessionIndexReconciliationMode,
+): AsyncGenerator<void> {
+  if (mode === 'incremental') {
+    yield* reconcilePeriodicSessionIndex({
+      provider, signal,
+      reconcile: (target, abortSignal) => sessionSynchronizerService.reconcileProvider(target, abortSignal),
+      onIndexed: (target, sessionId) => {
+        markTranscriptChanged(target, providerSessionIdForIndexed(target, sessionId));
+        queuePendingWatcherUpdate('change', target, sessionId);
+      },
+    });
+    return;
+  }
+  // Receipts only invalidate discovery. Their tree is never a transcript scan root.
+  if (provider === 'gjc') markTranscriptChanged('gjc');
   const roots = provider === 'gjc'
-    ? GJC_WATCH_PATHS
+    ? GJC_TRANSCRIPT_ROOTS
     : PROVIDER_WATCH_PATHS.filter((entry) => entry.provider === provider).map((entry) => entry.rootPath);
   // GJC's existing reconcileProvider() filters by the shared startup cursor;
   // non-pi providers do not implement that optional method. A streaming
   // file walk recovers dropped changes even if startup advances the cursor
   // while events are waiting. It neither reads nor advances that cursor.
   yield* reconcileSessionIndexFiles({
-    roots, signal,
+    ...sessionIndexScanScope(provider, roots, GJC_TERMINAL_RECEIPT_ROOT),
+    signal,
     isTarget: (filePath) => isWatcherTargetFile(provider, filePath),
     index: (filePath) => onUpdate('change', filePath, provider, signal),
   });
@@ -552,7 +576,9 @@ function startGjcSessionWatcher(reconcileAfterStart = false): Promise<void> {
 
 function startWatcherFallbackPass(): void {
   if (sessionWatchersClosing) return;
-  for (const provider of INDEXING_PROVIDERS) indexingScheduler?.requestReconciliation(provider);
+  for (const provider of PERIODIC_SESSION_INDEX_PROVIDERS) {
+    indexingScheduler?.requestReconciliation(provider, 'incremental');
+  }
 }
 
 /**

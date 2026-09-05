@@ -1,13 +1,18 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, rm, symlink, utimes, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, opendir, readFile, rm, symlink, utimes, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import test from 'node:test';
 
-import { scanStateDb, sessionsDb } from '@/modules/database/index.js';
+import { appConfigDb, scanStateDb, sessionsDb } from '@/modules/database/index.js';
 import { GjcSessionSynchronizer } from '@/modules/providers/list/gjc/gjc-session-synchronizer.provider.js';
-import { reconcileSessionIndexFiles } from '@/modules/providers/services/session-indexing-reconciliation.js';
+import {
+  PERIODIC_SESSION_INDEX_PROVIDERS,
+  reconcilePeriodicSessionIndex,
+  reconcileSessionIndexFiles,
+  sessionIndexScanScope,
+} from '@/modules/providers/services/session-indexing-reconciliation.js';
 import { createSessionIndexingScheduler } from '@/modules/providers/services/session-indexing-scheduler.js';
 import type { LLMProvider } from '@/shared/types.js';
 
@@ -182,4 +187,103 @@ test('a dropped modification to an already-scanned file is recovered by the reta
   assert.equal(scheduler.diagnostics().overflowed, 1);
   assert.ok(first);
   assert.equal(indexed.get(first), 'new');
+});
+
+
+test('periodic admission for all seven providers cannot enter single-file fallback reads', async () => {
+  const calls: LLMProvider[] = [];
+  const publications: string[] = [];
+  for (let tick = 0; tick < 3; tick += 1) {
+    for (const provider of ['claude', 'codex', 'cursor', 'opencode', 'gjc', 'omp', 'omo'] as const) {
+      await consume(reconcilePeriodicSessionIndex({
+        provider, signal: new AbortController().signal,
+        reconcile: async (target) => { calls.push(target); return { sessionIds: [`${target}-incremental`] }; },
+        onIndexed: (_target, id) => { publications.push(id); },
+      }));
+    }
+  }
+  assert.deepEqual(PERIODIC_SESSION_INDEX_PROVIDERS, ['omp', 'omo']);
+  assert.deepEqual(calls, ['omp', 'omo', 'omp', 'omo', 'omp', 'omo']);
+  assert.equal(publications.length, 6);
+  // In particular Codex title scans and OpenCode SQLite queries have zero
+  // callback admissions on repeated ticks, regardless of historical store size.
+});
+
+test('OMP and OMO periodic reconciliation filters historical files before parsing and retains modified-file behavior', async (t) => {
+  const root = await temp(t);
+  for (const provider of ['omp', 'omo'] as const) {
+    const providerRoot = path.join(root, provider);
+    await mkdir(providerRoot);
+    const files = await Promise.all(Array.from({ length: 12 }, async (_, index) => {
+      const file = path.join(providerRoot, `historical-${index}.jsonl`);
+      await writeFile(file, `${JSON.stringify({ type: 'session', id: `periodic-${provider}-${index}`, cwd: root })}\n`);
+      return file;
+    }));
+    appConfigDb.set(`${provider}_initial_scan_done`, 'true');
+    // scan_state persists whole seconds. Keep the boundary strictly after
+    // fixture creation without depending on filesystem timestamp precision.
+    const cursor = new Date((Math.floor(Date.now() / 1_000) + 2) * 1_000);
+    scanStateDb.updateLastScannedAt(cursor);
+    const synchronizer = new GjcSessionSynchronizer({ provider, sessionsDir: providerRoot, additionalSessionDirs: [] });
+    // Instrument the actual provider parsing boundary; real directory/stat
+    // filtering still runs. Old files must never reach its transcript reader.
+    const reader = synchronizer as unknown as { processSessionFile(file: string, signal?: AbortSignal): Promise<unknown> };
+    const originalRead = reader.processSessionFile.bind(synchronizer);
+    const reads: string[] = [];
+    t.mock.method(reader, 'processSessionFile', (file: string, signal?: AbortSignal) => {
+      reads.push(file);
+      return originalRead(file, signal);
+    });
+    const publications: string[] = [];
+    const periodic = () => consume(reconcilePeriodicSessionIndex({
+      provider, signal: new AbortController().signal,
+      reconcile: (_target, signal) => synchronizer.reconcile(scanStateDb.getLastScannedAt() ?? undefined, signal),
+      onIndexed: (_target, id) => { publications.push(id); },
+    }));
+    await periodic();
+    await periodic();
+    assert.deepEqual(reads, [], `${provider}: unchanged historical files must cause zero parses`);
+    await utimes(files[0], cursor, new Date(cursor.getTime() + 1_000));
+    await periodic();
+    assert.deepEqual(reads, [files[0]], `${provider}: only the modified file reaches the reader`);
+    assert.deepEqual(publications, [`periodic-${provider}-0`]);
+    assert.equal(scanStateDb.getLastScannedAt()?.toISOString(), cursor.toISOString());
+  }
+});
+
+test('GJC scan scope never opens receipt roots or deeper subagent directories', async (t) => {
+  const root = await temp(t);
+  const sessions = path.join(root, 'sessions');
+  const live = path.join(root, 'live');
+  const receipts = path.join(root, 'terminal-sessions');
+  const project = path.join(sessions, 'project');
+  const sidecars = path.join(project, 'session-sidecars');
+  await mkdir(sidecars, { recursive: true });
+  await mkdir(live);
+  await mkdir(receipts);
+  await writeFile(path.join(project, 'session.jsonl'), '{}');
+  await writeFile(path.join(live, 'live.jsonl'), '{}');
+  // Many receipt/subagent entries must have zero traversal cost, not merely
+  // be skipped after their contents have already been opened/read.
+  await Promise.all(Array.from({ length: 100 }, async (_, i) => {
+    await writeFile(path.join(receipts, `tmux-%${i}`), '{}');
+    await writeFile(path.join(sidecars, `${i}.jsonl`), '{}');
+  }));
+  const opened: string[] = [];
+  const indexed: string[] = [];
+  await consume(reconcileSessionIndexFiles({
+    ...sessionIndexScanScope('gjc', [sessions, live, receipts, path.join(receipts, '..', 'terminal-sessions')], receipts),
+    signal: new AbortController().signal,
+    openDirectory: async (directory, options) => {
+      opened.push(String(directory));
+      return opendir(directory, options);
+    },
+    isTarget: (file) => file.endsWith('.jsonl'),
+    index: async (file) => { indexed.push(file); },
+  }));
+  assert.deepEqual(opened, [sessions, project, live]);
+  assert.deepEqual(indexed, [path.join(project, 'session.jsonl'), path.join(live, 'live.jsonl')]);
+  for (const provider of ['omp', 'omo'] as const) {
+    assert.equal(sessionIndexScanScope(provider, [sessions], receipts).maxDirectoryDepth, 1);
+  }
 });

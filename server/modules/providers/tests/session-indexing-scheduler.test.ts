@@ -281,3 +281,53 @@ test('shutdown cancels and drains active indexing, closes recovery iterators and
   assert.equal(scheduler.diagnostics().reconciliationPending, 0);
   assert.equal(clock.timers.size, 0);
 });
+
+
+test('incremental errors retry incrementally and never silently turn into historical gap scans', async () => {
+  const modes: string[] = [];
+  const { scheduler, clock } = harness({
+    reconcile: async function* (_provider, _signal, mode) {
+      modes.push(mode);
+      if (modes.length === 1) throw new Error('temporary incremental failure');
+      yield;
+    },
+  });
+  scheduler.requestReconciliation('gjc', 'incremental');
+  await clock.tick();
+  await clock.tick(100);
+  assert.deepEqual(modes, ['incremental', 'incremental']);
+  await scheduler.close();
+});
+
+test('overflow upgrades pending incremental work and periodic ticks cannot downgrade it', async () => {
+  const modes: string[] = [];
+  const { scheduler, clock } = harness({
+    reconcile: async function* (_provider, _signal, mode) { modes.push(mode); yield; },
+  });
+  scheduler.requestReconciliation('gjc', 'incremental');
+  for (let i = 0; i < 10; i += 1) scheduler.enqueue(update('gjc', `overflow-${i}`));
+  scheduler.requestReconciliation('gjc', 'incremental');
+  await clock.tick(10);
+  assert.deepEqual(modes, ['gap']);
+  await scheduler.close();
+});
+
+test('a gap during an active incremental pass remains a separate cursor-independent recovery', async () => {
+  const gate = deferred();
+  const modes: string[] = [];
+  const { scheduler, clock } = harness({
+    reconcile: async function* (_provider, _signal, mode) {
+      modes.push(mode);
+      if (mode === 'incremental') await gate.promise;
+      yield;
+    },
+  });
+  scheduler.requestReconciliation('gjc', 'incremental');
+  await clock.tick();
+  scheduler.requestReconciliation('gjc');
+  scheduler.requestReconciliation('gjc', 'incremental');
+  gate.resolve();
+  await clock.tick(100);
+  assert.deepEqual(modes, ['incremental', 'gap']);
+  await scheduler.close();
+});
