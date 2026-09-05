@@ -11,11 +11,13 @@ import type {
 } from '../../../../types/app';
 import { getIntrinsicMessageKey } from '../../utils/messageKeys';
 import { groupConsecutiveTools, isToolGroupItem } from '../../utils/toolGrouping';
+import { hostQualifiedKey } from '../../../../fleet/references';
 
 import MessageComponent from './MessageComponent';
 import ProviderSelectionEmptyState from './ProviderSelectionEmptyState';
 import ToolGroupContainer from './ToolGroupContainer';
 import LoadAllMessagesOverlay from './LoadAllMessagesOverlay';
+import ConversationExcerptControl from './ConversationExcerptControl';
 
 interface ChatMessagesPaneProps {
   scrollContainerRef: RefObject<HTMLDivElement>;
@@ -198,6 +200,15 @@ function ChatMessagesPane({
         />
       ) : (
         <>
+          {!isLoadingSessionMessages && (
+            <ConversationExcerptControl
+              key={hostQualifiedKey('conversation-excerpt', [
+                selectedProject.hostId ?? '', selectedProject.projectId, provider,
+                currentSessionId ?? '', selectedSession?.id ?? '',
+              ])}
+              messages={visibleMessages}
+            />
+          )}
           {/* Loading indicator for older messages (hide when load-all is active) */}
           {isLoadingMoreMessages && !isLoadingAllMessages && !allMessagesLoaded && (
             <div className="py-3 text-center text-gray-500 dark:text-gray-400">
