@@ -185,8 +185,18 @@ export function useDiscoveryStream({
     };
     const resetAndResync = (reason: 'epoch_mismatch' | 'gap' | 'client_error', retryExpired = false) => {
       if (!isConnected) return;
+      const disposition = reconciliation?.resync(reason, retryExpired);
+      // A rate-limited manual refresh must not discard a current snapshot when
+      // there is no replacement read in flight. Broken sequence evidence still
+      // loses authority, but it is unavailable rather than falsely refreshing.
+      if (disposition === 'limited') {
+        if (reason !== 'client_error') {
+          reset();
+          setFreshness('unavailable');
+        }
+        return;
+      }
       reset();
-      reconciliation?.resync(reason, retryExpired);
     };
     const applyFrameAuthority = (event: ServerEvent) => {
       for (const lane of subscribedLanes) {

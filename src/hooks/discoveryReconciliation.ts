@@ -39,15 +39,16 @@ export function acquireDiscoveryReconciliation(sendMessage: SendMessage) {
       // Authority was lost; an exact-known heartbeat cannot restore it.
       sendMessage({ type: 'discovery.subscribe', protocolVersion: 1, lanes, known: null });
     },
-    resync(reason: ResyncReason, retryExpired = false) {
+    resync(reason: ResyncReason, retryExpired = false): 'sent' | 'pending' | 'limited' {
       const now = Date.now();
       if (state.pendingSince !== null
-        && (!retryExpired || now - state.pendingSince <= DISCOVERY_STALE_MS)) return;
+        && (!retryExpired || now - state.pendingSince <= DISCOVERY_STALE_MS)) return 'pending';
       state.resyncs = state.resyncs.filter((at) => now - at < RESYNC_WINDOW_MS);
-      if (state.resyncs.length >= MAX_RESYNCS_PER_WINDOW) return;
+      if (state.resyncs.length >= MAX_RESYNCS_PER_WINDOW) return 'limited';
       state.resyncs.push(now);
       state.pendingSince = now;
       sendMessage({ type: 'discovery.resync', reason });
+      return 'sent';
     },
     acceptSnapshot() {
       state.pendingSince = null;

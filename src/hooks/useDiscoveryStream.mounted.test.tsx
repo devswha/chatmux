@@ -231,6 +231,24 @@ test('expired reads retry only on another foreground transition and stay below t
   assert.equal(h.frames.length, 5, 'an expired pending read may be retried once on return');
 });
 
+test('rate-limited refresh preserves current evidence when no replacement request was sent', async (t) => {
+  const h = await harness(t);
+  await h.emit(snapshot());
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await act(async () => h.latest[0].refresh());
+    await h.emit(snapshot(attempt + 2));
+  }
+  const sent = h.frames.length;
+  await act(async () => h.latest[0].refresh());
+  assert.equal(h.frames.length, sent);
+  assert.equal(h.latest[0].freshness, 'current');
+  assert.equal(h.latest[0].streamHealthy, true);
+  await h.emit(delta(5, 4));
+  assert.equal(h.frames.length, sent);
+  assert.equal(h.latest[0].freshness, 'unavailable');
+  assert.equal(h.latest[0].streamHealthy, false);
+});
+
 test('reconnect notifications are shared and cleanup removes foreground listeners and fences queued frames', async (t) => {
   const h = await harness(t, [['external'], ['live']]);
   await h.emit(snapshot());
