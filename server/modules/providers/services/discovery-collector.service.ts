@@ -53,7 +53,7 @@ export type DiscoveryRow = Readonly<{
   process: TmuxProcessGeneration | null;
   kind: string;
   providerSessionId: string | null;
-  /** External lane only: how providerSessionId is tied to the process (see ExternalSessionBinding). Server-local, not on the fleet wire. */
+  /** How providerSessionId is tied to the process (see ExternalSessionBinding). Server-local, not on the fleet wire. */
   binding?: ExternalSessionBinding;
   connectionIssue?: ProviderConnectionIssue;
   activity: ExternalSessionDisplayActivity;
@@ -109,6 +109,15 @@ export type DiscoveryCollector = {
   ensureFresh(maxAgeMs: number, forceFull?: boolean): Promise<void>;
   currentSnapshot(): DiscoverySnapshot;
   currentDetailed(): DiscoveryDetailedSnapshot;
+  /** Read-only operational metadata; never starts or refreshes discovery. */
+  getState?(): Readonly<{
+    running: boolean;
+    active: boolean;
+    scanning: boolean;
+    disposed: boolean;
+    lastFullScanAtMs: number | null;
+    consecutiveFailures: Readonly<Record<DiscoveryLane, number>>;
+  }>;
   onSnapshot(listener: (snapshot: DiscoverySnapshot) => void): () => void;
 };
 
@@ -271,6 +280,7 @@ export function createDiscoveryCollector(options: DiscoveryCollectorOptions = {}
         process: session.process,
         kind: 'gjc',
         providerSessionId: session.id,
+        ...(session.binding ? { binding: session.binding } : {}),
         ...(session.connectionIssue ? { connectionIssue: session.connectionIssue } : {}),
         activity: session.error === true
           ? 'error'
@@ -531,6 +541,17 @@ export function createDiscoveryCollector(options: DiscoveryCollectorOptions = {}
     },
     currentSnapshot: () => snapshot,
     currentDetailed: () => detailed,
+    getState: () => ({
+      running: timer !== null,
+      active,
+      scanning: currentTick !== null,
+      disposed,
+      lastFullScanAtMs,
+      consecutiveFailures: {
+        external: laneState.external.failures,
+        live: laneState.live.failures,
+      },
+    }),
     onSnapshot(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);

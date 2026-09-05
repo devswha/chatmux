@@ -219,3 +219,30 @@ test('next orphan selection rejects a mismatched session-details response', asyn
     await view.unmount();
   }
 });
+
+test('leaving a pending external transcript prevents its late promotion from reopening the old session', async () => {
+  const projects = makeProjects();
+  projects[0]!.fullPath = '/project';
+  const pending = external('pending', 'asking_user', { projectPath: '/project' });
+  const opened: ExternalTerminalTarget[] = [];
+  const selected: unknown[][] = [];
+  const props = {
+    ...baseProps(), projects, externalSessions: [pending],
+    onSessionSelect: (...args: unknown[]) => { selected.push(args); },
+    onExternalTerminalOpen: (value: ExternalTerminalTarget) => { opened.push(value); },
+  };
+  const view = await mount(props);
+  try {
+    await next(view.renderer); // GJC
+    await next(view.renderer); // external pane without transcript
+    assert.equal(opened.length, 1);
+    await next(view.renderer); // return to GJC
+    assert.equal(selected.length, 2);
+    await view.update({
+      ...props,
+      selectedSession: projects[0]!.sessions![0]!,
+      externalSessions: [{ ...pending, transcriptSessionId: 'late-transcript' }],
+    });
+    assert.equal(opened.length, 1, 'late metadata must not override the newer explicit selection');
+  } finally { await view.unmount(); }
+});
