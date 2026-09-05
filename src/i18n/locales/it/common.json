@@ -31,6 +31,12 @@
     "completed": "Completato",
     "inProgress": "In corso"
   },
+  "discoveryFreshness": {
+    "reconnecting": "Riconnessione all’elenco delle sessioni locali…",
+    "refreshing": "Aggiornamento dell’elenco delle sessioni locali…",
+    "current": "Elenco delle sessioni locali aggiornato",
+    "unavailable": "Elenco delle sessioni locali non aggiornato"
+  },
   "messages": {
     "savedSuccessfully": "Salvato con successo",
     "deletedSuccessfully": "Eliminato con successo",
@@ -202,5 +208,17 @@
       "updateAvailable": "Aggiornamento disponibile",
       "closeSidebar": "Chiudi barra laterale"
     }
+  },
+  "sessionPins": {
+    "heading": "Sessioni fissate",
+    "pin": "Fissa {{name}}",
+    "unpin": "Rimuovi {{name}} dalle fissate",
+    "current": "sessione corrente",
+    "openPalette": "Ricerca e sessioni fissate",
+    "browserOnly": "Questo browser: {{count}} / {{limit}} fissate. Fissa le sessioni qui sotto.",
+    "unavailable": "Sessione non disponibile",
+    "host": "Host",
+    "limit": "Rimuovi una sessione dalle fissate per aggiungerne un’altra (limite: {{count}}).",
+    "storageUnavailable": "La memoria del browser non è disponibile. L’elenco rimarrà fino alla chiusura di questa pagina."
   }
 }

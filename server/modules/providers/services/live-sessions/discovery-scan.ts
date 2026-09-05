@@ -4,6 +4,7 @@ import type { TmuxPaneIdentity, TmuxProcessGeneration } from '../../../../../sha
 import { processStartMs } from '../process-start-time.service.js';
 import { tmuxPaneIdentityKey } from '../../../../../shared/tmux.js';
 import { validateLocalAgentContext } from '../local-agent-context.service.js';
+import type { ExternalSessionBinding } from '../external-cli-sessions.service.js';
 import { localTmuxPaneDigest } from '../local-tmux-discovery.service.js';
 
 import type { LiveGjcSessionCommandRunner } from './session-correlation.js';
@@ -111,6 +112,7 @@ export async function scanLiveGjcSessions(
     tmux: TmuxPaneIdentity;
     process: TmuxProcessGeneration;
     claim: 'lineage';
+    binding: ExternalSessionBinding;
     kind: 'interactive' | 'batch' | null;
   }> = [];
   const unboundRows: Array<{
@@ -198,14 +200,16 @@ export async function scanLiveGjcSessions(
         continue;
       }
       claimedIds.add(receipt.sessionId);
-      // Subtree-proven pane + gjc-authored receipt = lineage-grade evidence
-      // (identical rationale to the synthetic idle rows below).
+      // Pane lineage does not prove a transcript mapping. Only a pane-specific
+      // receipt, exact process resume id, or process-held transcript is observed;
+      // the cwd/time fallback remains inferred even when only one pane matches.
       boundRows.push({
         id: receipt.sessionId,
         tmuxName: gjcPane.name,
         tmux: gjcPane.tmux,
         process: gjcPane.process,
         claim: 'lineage',
+        binding: terminal || exactAttempt.receipt || openAttempt.receipt ? 'observed' : 'inferred',
         kind: gjcPane.kind,
       });
       if (receipt.sessionFile !== null) {

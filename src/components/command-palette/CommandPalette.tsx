@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { X } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 import {
   Command,
@@ -12,11 +13,15 @@ import {
   DialogTitle,
 } from '../../shared/view/ui';
 import { useTheme } from '../../contexts/ThemeContext';
-import { usePaletteOps } from '../../contexts/PaletteOpsContext';
+import { usePaletteOps, usePaletteOpsRegister } from '../../contexts/PaletteOpsContext';
 import { useFleetHostCatalog } from '../../fleet/discovery/FleetHostCatalogContext';
 import { EMPTY_HOST_ROW_SET } from '../../fleet/discovery/hostRows';
 import type { AppTab, Project } from '../../types/app';
+import type { SessionTarget } from '../../fleet/references';
 
+import { projectSessionPin, resolvePinnedSession, type ResolvedPinnedSession } from './pins/pinnedSessionInventory';
+import { MAX_PINNED_SESSIONS, parsePinnedSession, pinnedSessionKey, type PinnedSession } from './pins/pinnedSessions';
+import { usePinnedSessionNavigation } from './pins/usePinnedSessionNavigation';
 import { buildPaletteSessionRows } from './sources/paletteSessionRows';
 import { useSessionsSource } from './sources/useSessionsSource';
 import { useFilesSource } from './sources/useFilesSource';
@@ -26,6 +31,8 @@ import { useBranchesSource } from './sources/useBranchesSource';
 import { useGitActions } from './sources/useGitActions';
 import PaletteActionGroups from './view/PaletteActionGroups';
 import PaletteBrowseGroups, { type PaletteBrowsePage } from './view/PaletteBrowseGroups';
+import PinnedSessionGroup from './view/PinnedSessionGroup';
+import SessionPinButton from './view/SessionPinButton';
 
 type Page = 'actions' | PaletteBrowsePage;
 
@@ -41,6 +48,9 @@ const BROWSE_LIMIT = 5;
 
 type CommandPaletteProps = {
   selectedProject: Project | null;
+  projects: readonly Project[];
+  currentSession: SessionTarget | null;
+  onOpenPinnedSession: (target: ResolvedPinnedSession) => void;
   onStartNewChat: (project: Project) => void;
   onOpenSettings: (tab?: string) => void;
   onShowTab?: (tab: AppTab) => void;
@@ -48,6 +58,9 @@ type CommandPaletteProps = {
 
 export default function CommandPalette({
   selectedProject,
+  projects,
+  currentSession,
+  onOpenPinnedSession,
   onStartNewChat,
   onOpenSettings,
   onShowTab,
@@ -59,6 +72,15 @@ export default function CommandPalette({
   const navigate = useNavigate();
   const ops = usePaletteOps();
   const { catalog } = useFleetHostCatalog();
+  const { t } = useTranslation('common');
+  const inventory = { catalog, projects };
+  const { pins, togglePin, openPin, unpin, storageUnavailable } = usePinnedSessionNavigation(inventory, (target) => {
+    setOpen(false);
+    onOpenPinnedSession(target);
+  });
+  const titleId = React.useId();
+  const openCommandPalette = React.useCallback(() => setOpen(true), []);
+  usePaletteOpsRegister({ openCommandPalette });
 
   const page = pages.at(-1);
 
@@ -117,6 +139,27 @@ export default function CommandPalette({
     fn();
   }, []);
 
+  const currentPin = parsePinnedSession({
+    hostId: currentSession?.hostId,
+    projectId: selectedProject?.projectId,
+    sessionId: currentSession?.localId,
+  });
+  const resolvedCurrent = resolvePinnedSession(currentPin, inventory);
+  const limitReached = pins.length >= MAX_PINNED_SESSIONS;
+
+  const pinControl = (pin: PinnedSession | null, name: string) => {
+    const isPinned = pin !== null && pins.some((candidate) => pinnedSessionKey(candidate) === pinnedSessionKey(pin));
+    const unavailable = resolvePinnedSession(pin, inventory) === null;
+    return (
+      <SessionPinButton
+        pinned={isPinned}
+        name={name}
+        disabledReason={isPinned ? undefined : unavailable ? t('sessionPins.unavailable') : limitReached ? t('sessionPins.limit', { count: MAX_PINNED_SESSIONS }) : undefined}
+        onToggle={() => { if (pin !== null) togglePin(pin); }}
+      />
+    );
+  };
+
   const pushPage = React.useCallback((next: Page) => {
     setSearch('');
     setPages((prev) => [...prev, next]);
@@ -136,11 +179,11 @@ export default function CommandPalette({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogContent className="max-w-xl overflow-hidden p-0">
-        <DialogTitle>Command palette</DialogTitle>
-        <Command label="Command palette" onKeyDown={handleKeyDown}>
+      <DialogContent aria-labelledby={titleId} className="flex max-h-[90dvh] w-[calc(100vw-1rem)] max-w-xl flex-col overflow-hidden p-0">
+        <DialogTitle id={titleId}>Command palette</DialogTitle>
+        <Command label="Command palette" className="min-h-0 flex-1" onKeyDown={handleKeyDown}>
           {page && (
-            <div className="flex items-center gap-2 border-b px-3 py-2">
+            <div className="flex shrink-0 items-center gap-2 border-b px-3 py-2">
               <span className="inline-flex items-center gap-1 rounded-md bg-accent px-2 py-0.5 text-xs font-medium text-accent-foreground">
                 {PAGE_LABELS[page]}
                 <button
@@ -160,8 +203,31 @@ export default function CommandPalette({
             value={search}
             onValueChange={setSearch}
           />
-          <CommandList>
+          <div className="flex shrink-0 items-center gap-2 border-b px-3 py-1">
+            <div className="min-w-0 flex-1 text-xs text-muted-foreground">
+              <p>{t('sessionPins.browserOnly', { count: pins.length, limit: MAX_PINNED_SESSIONS })}</p>
+              {currentSession && (
+                <p className="truncate">{resolvedCurrent?.label ?? t('sessionPins.unavailable')}</p>
+              )}
+              {limitReached && <p role="status">{t('sessionPins.limit', { count: MAX_PINNED_SESSIONS })}</p>}
+              {storageUnavailable && <p role="status">{t('sessionPins.storageUnavailable')}</p>}
+            </div>
+            {currentSession && pinControl(currentPin, t('sessionPins.current'))}
+            <button
+              type="button"
+              aria-label={t('buttons.close')}
+              title={t('buttons.close')}
+              onKeyDown={(event) => event.stopPropagation()}
+              onClick={() => setOpen(false)}
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <X className="h-4 w-4" aria-hidden />
+            </button>
+          </div>
+          <CommandList className="min-h-0 flex-1">
             <CommandEmpty>No results.</CommandEmpty>
+
+            {showSessions && <PinnedSessionGroup pins={pins} inventory={inventory} onOpen={openPin} onUnpin={unpin} />}
 
             {showActions && (
               <PaletteActionGroups
@@ -188,6 +254,10 @@ export default function CommandPalette({
                 onOpenFile={(path) => run(() => ops.openFile(path))}
                 onCheckoutBranch={(name) => run(() => { void git.checkout(name); })}
                 onBrowseAll={pushPage}
+                sessionPinControl={(session) => pinControl(
+                  projectSessionPin(selectedProject, session.id, catalog.localHostId),
+                  session.label,
+                )}
               />
             )}
           </CommandList>

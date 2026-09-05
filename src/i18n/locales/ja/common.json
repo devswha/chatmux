@@ -31,6 +31,12 @@
     "completed": "完了",
     "inProgress": "進行中"
   },
+  "discoveryFreshness": {
+    "reconnecting": "ローカルセッション一覧に再接続中…",
+    "refreshing": "ローカルセッション一覧を更新中…",
+    "current": "ローカルセッション一覧は最新です",
+    "unavailable": "ローカルセッション一覧の最新状態を確認できません"
+  },
   "messages": {
     "savedSuccessfully": "保存しました",
     "deletedSuccessfully": "削除しました",
@@ -202,5 +208,17 @@
       "closeSidebar": "サイドバーを閉じる",
       "progress": "更新の進行状況"
     }
+  },
+  "sessionPins": {
+    "heading": "ピン留めしたセッション",
+    "pin": "{{name}}をピン留め",
+    "unpin": "{{name}}のピン留めを解除",
+    "current": "現在のセッション",
+    "openPalette": "検索とピン留めしたセッション",
+    "browserOnly": "このブラウザー: {{count}} / {{limit}}件をピン留め。下のセッションを選んでください。",
+    "unavailable": "セッションを利用できません",
+    "host": "ホスト",
+    "limit": "別のセッションを追加するにはピン留めを解除してください（上限{{count}}件）。",
+    "storageUnavailable": "ブラウザーのストレージを利用できません。ピン留めはこのページを閉じるまで保持されます。"
   }
 }

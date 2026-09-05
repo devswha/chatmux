@@ -6,7 +6,8 @@ import {
   type ExternalCliSession,
 } from '@/modules/providers/services/external-cli-sessions.service.js';
 import { assertFreshExternalTmuxTarget } from '@/modules/providers/services/tmux-fresh-verifier.service.js';
-import { assertFreshLocalAgentTmuxTarget } from '@/modules/providers/services/tmux-target-guard.service.js';
+import { assertFreshLocalAgentTmuxTarget, assertLineageTmuxTarget } from '@/modules/providers/services/tmux-target-guard.service.js';
+import { assertProvenSessionBinding } from '@/modules/providers/services/tmux-session-binding.service.js';
 import type { LiveGjcSession } from '@/modules/providers/services/live-sessions.service.js';
 import { AppError } from '@/shared/utils.js';
 
@@ -151,6 +152,8 @@ test('local-agent verifier falls back to the live gjc lineage lane for panes mis
   });
   assert.equal(target.kind, 'gjc');
   assert.equal(target.tmux.paneId, tmux.paneId);
+  assert.equal(target.binding, null, 'pane attach does not require transcript proof');
+  assert.throws(() => assertProvenSessionBinding(target), { code: 'TMUX_SESSION_BINDING_INFERRED' });
 
   // Both rosters unaware of the pane: fail closed.
   await assert.rejects(
@@ -207,4 +210,20 @@ test('local-agent verifier falls back to the live gjc lineage lane for panes mis
     }),
     (error: unknown) => error instanceof AppError && error.code === 'TMUX_TARGET_PROTECTED',
   );
+});
+
+test('GJC lineage targets preserve positive transcript evidence without upgrading inferred bindings', async () => {
+  for (const binding of ['tagged', 'observed', 'inferred', undefined] as const) {
+    const live = {
+      id: 'gjc-native-session', tmuxName: 'gjc-pane', tmux, process: processGeneration,
+      claim: 'lineage', binding, kind: 'interactive', model: null, effort: null, running: false,
+    } as const;
+    let paneChecks = 0;
+    const target = await assertLineageTmuxTarget(tmux, processGeneration, async () => [live], async () => { paneChecks += 1; });
+    assert.equal(paneChecks, 1);
+    assert.equal(target.providerSessionId, live.id);
+    assert.equal(target.binding, binding ?? null);
+    if (binding === 'tagged' || binding === 'observed') assert.doesNotThrow(() => assertProvenSessionBinding(target));
+    else assert.throws(() => assertProvenSessionBinding(target), { code: 'TMUX_SESSION_BINDING_INFERRED' });
+  }
 });

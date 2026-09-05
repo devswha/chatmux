@@ -13,6 +13,7 @@ import {
   GitMerge,
   MessageSquare,
 } from 'lucide-react';
+import type { ReactNode } from 'react';
 
 import { CommandGroup, CommandItem } from '../../../shared/view/ui';
 import type { PaletteSessionRow } from '../sources/paletteSessionRows';
@@ -34,6 +35,7 @@ type PaletteBrowseGroupsProps = {
   onOpenFile: (path: string) => void;
   onCheckoutBranch: (name: string) => void;
   onBrowseAll: (page: PaletteBrowsePage) => void;
+  sessionPinControl?: (session: PaletteSessionRow) => ReactNode;
 };
 
 function BrowseAllItem({ label, onSelect }: { label: string; onSelect: () => void }) {
@@ -56,6 +58,7 @@ export default function PaletteBrowseGroups({
   onOpenFile,
   onCheckoutBranch,
   onBrowseAll,
+  sessionPinControl,
 }: PaletteBrowseGroupsProps) {
   const shown = <T,>(rows: readonly T[], owner: PaletteBrowsePage): readonly T[] =>
     (page === owner ? rows : rows.slice(0, browseLimit));
@@ -69,22 +72,25 @@ export default function PaletteBrowseGroups({
       {sessionsShown.length > 0 && (
         <CommandGroup heading="Sessions">
           {sessionsShown.map((session) => (
-            <CommandItem
-              key={session.route}
-              value={`${session.label} ${session.snippet ?? ''} ${session.id}`.trim()}
-              onSelect={() => onOpenSession(session.route)}
-            >
-              <MessageSquare className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
-              <div className="flex min-w-0 flex-1 flex-col">
-                <span className="truncate">{session.label}</span>
-                {session.snippet && (
-                  <span className="truncate text-xs text-muted-foreground">{session.snippet}</span>
+            <div key={session.route} className="flex items-center gap-1 [&:not(:has([cmdk-item]))]:hidden">
+              <CommandItem
+                className="min-h-11 min-w-0 flex-1"
+                value={`${session.label} ${session.snippet ?? ''} ${session.id}`.trim()}
+                onSelect={() => onOpenSession(session.route)}
+              >
+                <MessageSquare className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+                <div className="flex min-w-0 flex-1 flex-col">
+                  <span className="truncate">{session.label}</span>
+                  {session.snippet && (
+                    <span className="truncate text-xs text-muted-foreground">{session.snippet}</span>
+                  )}
+                </div>
+                {session.provider && (
+                  <span className="text-xs text-muted-foreground">{session.provider}</span>
                 )}
-              </div>
-              {session.provider && (
-                <span className="text-xs text-muted-foreground">{session.provider}</span>
-              )}
-            </CommandItem>
+              </CommandItem>
+              {sessionPinControl?.(session)}
+            </div>
           ))}
           {page === null && sessions.length > browseLimit && (
             <BrowseAllItem label={`Browse all sessions (${sessions.length})`} onSelect={() => onBrowseAll('sessions')} />
