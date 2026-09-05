@@ -31,6 +31,12 @@
     "completed": "완료",
     "inProgress": "진행 중"
   },
+  "discoveryFreshness": {
+    "reconnecting": "로컬 세션 목록에 다시 연결 중…",
+    "refreshing": "로컬 세션 목록 새로고침 중…",
+    "current": "로컬 세션 목록이 최신 상태입니다",
+    "unavailable": "로컬 세션 목록의 최신 상태를 확인할 수 없습니다"
+  },
   "messages": {
     "savedSuccessfully": "저장되었습니다",
     "deletedSuccessfully": "삭제되었습니다",
@@ -215,5 +221,17 @@
       "requestedHost": "요청한 호스트",
       "backToSessions": "세션 목록으로 돌아가기"
     }
+  },
+  "sessionPins": {
+    "heading": "고정한 세션",
+    "pin": "{{name}} 고정",
+    "unpin": "{{name}} 고정 해제",
+    "current": "현재 세션",
+    "openPalette": "검색 및 고정한 세션",
+    "browserOnly": "이 브라우저: {{count}} / {{limit}}개 고정. 아래에서 세션을 고정하세요.",
+    "unavailable": "세션을 사용할 수 없음",
+    "host": "호스트",
+    "limit": "다른 세션을 추가하려면 고정을 해제하세요(최대 {{count}}개).",
+    "storageUnavailable": "브라우저 저장소를 사용할 수 없습니다. 이 페이지를 닫으면 고정 목록이 사라집니다."
   }
 }

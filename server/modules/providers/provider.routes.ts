@@ -925,6 +925,7 @@ router.get(
         connectionIssue: session.connectionIssue,
       };
       if (session.kind === 'ssh' || session.kind === 'shell') {
+        if (!result.ok) return base;
         const attachCapability = await attachCapabilityService.issue(
           String((req as typeof req & { user?: { id?: string | number } }).user?.id),
           session.tmux,

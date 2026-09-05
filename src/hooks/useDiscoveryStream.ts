@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { ServerEvent } from '../contexts/WebSocketContext';
 import type { TmuxPaneIdentity, TmuxProcessGeneration } from '../../shared/tmux';
 import type { ProviderConnectionIssue } from '../../shared/provider-connection';
+
+import { acquireDiscoveryReconciliation, DISCOVERY_STALE_MS } from './discoveryReconciliation';
 
 export type DiscoveryLane = 'external' | 'live';
 export type DiscoveryRow = {
@@ -32,10 +34,10 @@ type StreamArgs = {
 };
 
 export type DiscoveryAuthorityDisposition = 'stream' | 'rest' | 'none';
+export type DiscoveryFreshness = 'reconnecting' | 'refreshing' | 'current' | 'unavailable';
 
 type DiscoveryFrameState = Pick<{ epoch: string | null; revision: number }, 'epoch' | 'revision'>;
 
-const HEARTBEAT_STALE_MS = 15_000;
 // The shared WebSocket has one server-side discovery subscription. Each hook
 // filters this union locally so a later lane consumer cannot replace another.
 export const DISCOVERY_TRANSPORT_LANES: readonly DiscoveryLane[] = ['external', 'live'];
@@ -99,7 +101,7 @@ export function discoveryDeltaResyncReason(
 ): 'epoch_mismatch' | 'gap' | null {
   if (event.kind !== 'discovery.delta' || !Array.isArray(event.changes)) return null;
   if (event.epoch !== state.epoch) return 'epoch_mismatch';
-  return event.prevRevision !== state.revision ? 'gap' : null;
+  return event.prevRevision !== state.revision || event.revision !== state.revision + 1 ? 'gap' : null;
 }
 
 export type DiscoveryHeartbeatDisposition = 'ignore' | 'keepalive';
@@ -129,7 +131,7 @@ export function useDiscoveryStream({
   onRows,
   onHealthChange,
   onAuthorityChange,
-}: StreamArgs): boolean {
+}: StreamArgs): { streamHealthy: boolean; freshness: DiscoveryFreshness; refresh: () => void } {
   const stateRef = useRef<{ epoch: string | null; revision: number; rows: Map<string, DiscoveryRow> }>({ epoch: null, revision: 0, rows: new Map() });
   const onRowsRef = useRef(onRows);
   const onHealthChangeRef = useRef(onHealthChange);
@@ -139,6 +141,9 @@ export function useDiscoveryStream({
     live: 'none',
   });
   const [streamHealthy, setStreamHealthy] = useState(false);
+  const [freshness, setFreshness] = useState<DiscoveryFreshness>('reconnecting');
+  const refreshRef = useRef<() => void>(() => {});
+  const refresh = useCallback(() => refreshRef.current(), []);
   onRowsRef.current = onRows;
   onHealthChangeRef.current = onHealthChange;
   onAuthorityChangeRef.current = onAuthorityChange;
@@ -146,7 +151,13 @@ export function useDiscoveryStream({
 
   useEffect(() => {
     const subscribedLanes = lanesKey.split(',') as DiscoveryLane[];
-    let lastFrameAt = 0;
+    let lastFrameAt: number | null = null;
+    let awaitingSnapshot = true;
+    let allLanesCurrent = false;
+    let active = true;
+    const reconciliation = isConnected ? acquireDiscoveryReconciliation(sendMessage, () => {
+      if (active && awaitingSnapshot) setFreshness('refreshing');
+    }) : null;
     const emit = () => onRowsRef.current([...stateRef.current.rows.values()].filter((row) => subscribedLanes.includes(row.lane)));
     const hasStreamAuthority = () => subscribedLanes.some((lane) => authorityRef.current[lane] === 'stream');
     const setAuthority = (lane: DiscoveryLane, disposition: DiscoveryAuthorityDisposition) => {
@@ -166,10 +177,29 @@ export function useDiscoveryStream({
     const markFrameAlive = () => {
       lastFrameAt = Date.now();
     };
-    const resetAndResync = (reason: 'epoch_mismatch' | 'gap') => {
+    const reset = () => {
       stateRef.current = { epoch: null, revision: 0, rows: new Map() };
+      lastFrameAt = null;
+      awaitingSnapshot = true;
+      allLanesCurrent = false;
       clearAuthority('rest');
-      sendMessage({ type: 'discovery.resync', reason });
+      setFreshness(isConnected ? 'refreshing' : 'reconnecting');
+    };
+    const resetAndResync = (reason: 'epoch_mismatch' | 'gap' | 'client_error', retryExpired = false) => {
+      if (!isConnected) return;
+      const disposition = reconciliation?.resync(reason, retryExpired);
+      // A rate-limited manual refresh must not discard a current snapshot when
+      // there is no replacement read in flight. Broken sequence evidence still
+      // loses authority, but it is unavailable rather than falsely refreshing.
+      if (disposition === 'limited') {
+        if (reason !== 'client_error') {
+          reset();
+          setFreshness('unavailable');
+        }
+        return;
+      }
+      reset();
+      if (disposition === 'pending' && !reconciliation?.hasPendingRead()) setFreshness('unavailable');
     };
     const applyFrameAuthority = (event: ServerEvent) => {
       for (const lane of subscribedLanes) {
@@ -178,16 +208,17 @@ export function useDiscoveryStream({
           discoveryFrameAuthorityDisposition(event, stateRef.current, lane, isConnected, true),
         );
       }
+      // This is the local collector only. Peer catalog/terminal health has its
+      // own authority and must never be inferred from these frames.
+      allLanesCurrent = DISCOVERY_TRANSPORT_LANES.every((lane) =>
+        discoveryFrameAuthorityDisposition(event, stateRef.current, lane, isConnected, true) === 'stream');
+      setFreshness(allLanesCurrent ? 'current' : 'unavailable');
     };
     const apply = (event: ServerEvent) => {
+      if (!active || !isConnected) return;
       if (event.kind === 'websocket_reconnected') {
-        const { epoch, revision } = stateRef.current;
-        sendMessage({
-          type: 'discovery.subscribe',
-          protocolVersion: 1,
-          lanes: DISCOVERY_TRANSPORT_LANES,
-          known: epoch === null ? null : { epoch, revision },
-        });
+        reset();
+        reconciliation?.subscribe(DISCOVERY_TRANSPORT_LANES, event);
         return;
       }
       if (event.kind === 'discovery.resync_required') {
@@ -199,12 +230,15 @@ export function useDiscoveryStream({
         const revision = typeof event.revision === 'number' && Number.isInteger(event.revision)
           ? event.revision
           : null;
-        if (epoch === null || revision === null || !Array.isArray(event.rows)) return;
+        if (!epoch || revision === null || revision < 0 || !Array.isArray(event.rows)) return;
+        if (epoch === stateRef.current.epoch && revision < stateRef.current.revision) return;
         const rows = event.rows.filter((row): row is DiscoveryRow => Boolean(row && typeof row === 'object' && typeof (row as DiscoveryRow).key === 'string'));
         const retainedRows = stateRef.current.epoch === epoch
           ? new Map(stateRef.current.rows)
           : new Map<string, DiscoveryRow>();
         stateRef.current = { epoch, revision, rows: retainedRows };
+        awaitingSnapshot = false;
+        reconciliation?.acceptSnapshot();
         markFrameAlive();
         applyFrameAuthority(event);
         for (const lane of subscribedLanes) {
@@ -219,14 +253,28 @@ export function useDiscoveryStream({
         return;
       }
       if (event.kind === 'discovery.heartbeat') {
+        if (awaitingSnapshot) {
+          if (!reconciliation?.hasPendingRead()) setFreshness('unavailable');
+          return;
+        }
+        if (typeof event.epoch === 'string' && Number.isInteger(event.revision)) {
+          if (event.epoch !== stateRef.current.epoch) {
+            resetAndResync('epoch_mismatch');
+            return;
+          }
+          if ((event.revision as number) > stateRef.current.revision) {
+            resetAndResync('gap');
+            return;
+          }
+        }
+        if (lastFrameAt !== null && Date.now() - lastFrameAt > DISCOVERY_STALE_MS) {
+          allLanesCurrent = false;
+          clearAuthority('rest');
+          setFreshness('unavailable');
+        }
         if (discoveryHeartbeatDisposition(event, stateRef.current, hasStreamAuthority()) === 'keepalive') {
           markFrameAlive();
         }
-        return;
-      }
-      const resyncReason = discoveryDeltaResyncReason(event, stateRef.current);
-      if (resyncReason) {
-        resetAndResync(resyncReason);
         return;
       }
       if (
@@ -235,6 +283,12 @@ export function useDiscoveryStream({
         || typeof event.revision !== 'number'
         || !Number.isInteger(event.revision)
       ) return;
+      const resyncReason = discoveryDeltaResyncReason(event, stateRef.current);
+      if (resyncReason) {
+        resetAndResync(resyncReason);
+        return;
+      }
+      if (awaitingSnapshot || event.revision <= stateRef.current.revision) return;
       stateRef.current.revision = event.revision;
       markFrameAlive();
       applyFrameAuthority(event);
@@ -257,26 +311,44 @@ export function useDiscoveryStream({
       if (hasStreamAuthority()) emit();
     };
     const unsubscribe = subscribe(apply);
+    reset();
     if (isConnected) {
-      const { epoch, revision } = stateRef.current;
-      sendMessage({
-        type: 'discovery.subscribe',
-        protocolVersion: 1,
-        lanes: DISCOVERY_TRANSPORT_LANES,
-        known: epoch === null ? null : { epoch, revision },
-      });
-    } else {
-      clearAuthority('rest');
+      reconciliation?.subscribe(DISCOVERY_TRANSPORT_LANES);
     }
+    refreshRef.current = () => resetAndResync('client_error', true);
+    const visibilityDocument = typeof document === 'undefined' ? null : document;
+    let wasHidden = visibilityDocument?.visibilityState === 'hidden';
+    const onVisibilityChange = () => {
+      if (visibilityDocument?.visibilityState !== 'visible') {
+        wasHidden = true;
+        return;
+      }
+      if (!wasHidden) return;
+      wasHidden = false;
+      if (isConnected && (awaitingSnapshot || !allLanesCurrent
+        || lastFrameAt === null || Date.now() - lastFrameAt > DISCOVERY_STALE_MS)) {
+        resetAndResync('client_error', true);
+      }
+    };
+    visibilityDocument?.addEventListener('visibilitychange', onVisibilityChange);
     const heartbeatTimer = window.setInterval(() => {
-      if (lastFrameAt === 0 || Date.now() - lastFrameAt > HEARTBEAT_STALE_MS) clearAuthority('rest');
-    }, HEARTBEAT_STALE_MS);
+      if (awaitingSnapshot && reconciliation?.hasPendingRead()) return;
+      if (lastFrameAt === null || Date.now() - lastFrameAt > DISCOVERY_STALE_MS) {
+        allLanesCurrent = false;
+        clearAuthority('rest');
+        setFreshness(isConnected ? 'unavailable' : 'reconnecting');
+      }
+    }, DISCOVERY_STALE_MS);
     return () => {
+      active = false;
+      refreshRef.current = () => {};
+      visibilityDocument?.removeEventListener('visibilitychange', onVisibilityChange);
       window.clearInterval(heartbeatTimer);
       unsubscribe();
+      reconciliation?.release();
       clearAuthority('none');
     };
   }, [isConnected, lanesKey, sendMessage, subscribe]);
 
-  return streamHealthy;
+  return { streamHealthy: isConnected && streamHealthy, freshness: isConnected ? freshness : 'reconnecting', refresh };
 }

@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 
 import type { TmuxPaneIdentity } from '../../../../shared/tmux.js';
 
+import { assertLocalTmuxSocket, copyLocalTmuxSocketEvidence, rememberLocalTmuxSocket, sameLocalTmuxSocket, type LocalTmuxSocketInspector } from './local-tmux-discovery.service.js';
 import { runTmux } from './builtin-relay.service.js';
 
 const ATTACH_CAPABILITY_TTL_MS = 60_000;
@@ -16,9 +17,17 @@ type AttachCapabilityRecord = Readonly<{
   expiresAtMs: number;
 }>;
 
+/** Server-only lease handle. Generation/ownership proof lives in the issuer's WeakMap. */
+export type TmuxAttachLease = Readonly<{
+  principal: string;
+  tmux: Readonly<TmuxPaneIdentity>;
+}>;
+
 export type AttachCapabilityService = Readonly<{
   issue: (principal: string, tmux: TmuxPaneIdentity) => Promise<string | null>;
   verify: (token: unknown, principal: string, tmux: TmuxPaneIdentity) => Promise<boolean>;
+  createLease: (token: unknown, principal: string, tmux: TmuxPaneIdentity) => Promise<TmuxAttachLease | null>;
+  verifyLease: (lease: unknown, principal: string, tmux: TmuxPaneIdentity) => Promise<boolean>;
   size: () => number;
 }>;
 
@@ -26,10 +35,11 @@ export async function readTmuxPaneGeneration(tmux: TmuxPaneIdentity): Promise<st
   const result = await runTmux([
     '-S', tmux.socketPath,
     'display-message', '-p', '-t', tmux.paneId,
-    '#{pane_pid}',
+    '#{session_id}\t#{window_id}\t#{pane_id}\t#{pane_pid}',
   ]);
-  const generation = result.output.trim();
-  return result.code === 0 && generation ? generation : null;
+  const [sessionId, windowId, paneId, generation] = result.output.trim().split('\t');
+  return result.code === 0 && sessionId === tmux.sessionId && windowId === tmux.windowId
+    && paneId === tmux.paneId && /^\d+$/.test(generation ?? '') ? generation : null;
 }
 
 function samePane(a: TmuxPaneIdentity, b: TmuxPaneIdentity): boolean {
@@ -48,14 +58,26 @@ function paneKey(principal: string, tmux: TmuxPaneIdentity): string {
  * service (including on server restart) intentionally invalidates every token.
  */
 export function createAttachCapabilityService(
-  options: Readonly<{ now?: () => number; ttlMs?: number; maxRecords?: number; readPaneGeneration?: PaneGenerationReader }> = {},
+  options: Readonly<{ now?: () => number; ttlMs?: number; maxRecords?: number; readPaneGeneration?: PaneGenerationReader; socketInspector?: LocalTmuxSocketInspector }> = {},
 ): AttachCapabilityService {
   const records = new Map<string, AttachCapabilityRecord>();
+  // Leases follow cached PTY lifetime, independently of token expiry/eviction.
+  // Copying or deserializing a handle cannot recreate its private authority.
+  const leases = new WeakMap<TmuxAttachLease, AttachCapabilityRecord>();
   const activeTokens = new Map<string, string>();
   const now = options.now ?? Date.now;
   const ttlMs = options.ttlMs ?? ATTACH_CAPABILITY_TTL_MS;
   const maxRecords = options.maxRecords ?? MAX_ATTACH_CAPABILITIES;
   const readPaneGeneration = options.readPaneGeneration ?? readTmuxPaneGeneration;
+
+  const readCheckedGeneration = async (tmux: TmuxPaneIdentity): Promise<string | null> => {
+    const before = await assertLocalTmuxSocket(tmux, process.env, options.socketInspector);
+    const generation = await readPaneGeneration(tmux);
+    const after = await assertLocalTmuxSocket(tmux, process.env, options.socketInspector);
+    if (before && (!after || !sameLocalTmuxSocket(before, after))) return null;
+    if (after) rememberLocalTmuxSocket(tmux, after);
+    return generation && after ? `${generation}\0${after.generation}` : generation;
+  };
 
   const remove = (token: string, record = records.get(token)): void => {
     if (!record) return;
@@ -77,12 +99,31 @@ export function createAttachCapabilityService(
     }
   };
 
+  const verifiedRecord = async (token: unknown, principal: string, tmux: TmuxPaneIdentity): Promise<AttachCapabilityRecord | null> => {
+    pruneExpired();
+    if (typeof token !== 'string') return null;
+    const record = records.get(token);
+    if (!record || record.principal !== principal || !samePane(record.tmux, tmux)) return null;
+    try {
+      const generation = await readCheckedGeneration(record.tmux);
+      if (record.expiresAtMs <= now()) {
+        remove(token, record);
+        return null;
+      }
+      // A concurrent issue() may supersede this token while inspection waits.
+      if (records.get(token) !== record || activeTokens.get(paneKey(principal, tmux)) !== token) return null;
+      return generation === record.generation ? record : null;
+    } catch {
+      return null;
+    }
+  };
+
   return Object.freeze({
     async issue(principal, tmux) {
       pruneExpired();
       let generation: string | null;
       try {
-        generation = await readPaneGeneration(tmux);
+        generation = await readCheckedGeneration(tmux);
       } catch {
         return null;
       }
@@ -95,9 +136,11 @@ export function createAttachCapabilityService(
       if (previous) remove(previous);
       enforceLimit();
       const token = randomBytes(32).toString('base64url');
+      const identity = Object.freeze({ ...tmux });
+      copyLocalTmuxSocketEvidence(tmux, identity);
       records.set(token, Object.freeze({
         principal,
-        tmux: Object.freeze({ ...tmux }),
+        tmux: identity,
         generation,
         expiresAtMs: now() + ttlMs,
       }));
@@ -105,27 +148,21 @@ export function createAttachCapabilityService(
       return token;
     },
     async verify(token, principal, tmux) {
-      pruneExpired();
-      if (typeof token !== 'string') return false;
-      const record = records.get(token);
-      if (!record || record.principal !== principal || !samePane(record.tmux, tmux)) {
-        return false;
-      }
-
+      return await verifiedRecord(token, principal, tmux) !== null;
+    },
+    async createLease(token, principal, tmux) {
+      const record = await verifiedRecord(token, principal, tmux);
+      if (!record) return null;
+      const lease = Object.freeze({ principal: record.principal, tmux: record.tmux });
+      leases.set(lease, record);
+      return lease;
+    },
+    async verifyLease(lease, principal, tmux) {
+      if (!lease || typeof lease !== 'object') return false;
+      const record = leases.get(lease as TmuxAttachLease);
+      if (!record || record.principal !== principal || !samePane(record.tmux, tmux)) return false;
       try {
-        const generation = await readPaneGeneration(tmux);
-        if (record.expiresAtMs <= now()) {
-          remove(token, record);
-          return false;
-        }
-        // A concurrent issue() may have observed a newer pane generation and
-        // superseded this token while the read was pending. Accepting the stale
-        // snapshot would revive a revoked capability, so re-assert that this
-        // record is still the active one for its principal and pane.
-        if (records.get(token) !== record || activeTokens.get(paneKey(principal, tmux)) !== token) {
-          return false;
-        }
-        return generation === record.generation;
+        return await readCheckedGeneration(record.tmux) === record.generation;
       } catch {
         return false;
       }

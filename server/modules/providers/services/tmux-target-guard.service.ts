@@ -64,13 +64,14 @@ export async function assertLineageTmuxTarget(
   }
   // The lineage snapshot alone cannot prove the pane still holds these exact
   // coordinates, so re-read them from tmux before minting a verified target.
-  await assertPaneIdentity(identity);
+  await assertPaneIdentity(exact.tmux!);
   return createVerifiedTmuxActionTarget(
-    identity,
+    exact.tmux!,
     process,
     'gjc',
     exact.tmuxName,
     exact.id,
+    exact.binding ?? null,
   );
 }
 

@@ -31,6 +31,12 @@
     "completed": "Completed",
     "inProgress": "In Progress"
   },
+  "discoveryFreshness": {
+    "reconnecting": "Reconnecting local session list…",
+    "refreshing": "Refreshing local session list…",
+    "current": "Local session list up to date",
+    "unavailable": "Local session list not current"
+  },
   "messages": {
     "savedSuccessfully": "Saved successfully",
     "deletedSuccessfully": "Deleted successfully",
@@ -215,5 +221,17 @@
       "requestedHost": "Requested host",
       "backToSessions": "Back to sessions"
     }
+  },
+  "sessionPins": {
+    "heading": "Pinned sessions",
+    "pin": "Pin {{name}}",
+    "unpin": "Unpin {{name}}",
+    "current": "current session",
+    "openPalette": "Search and pinned sessions",
+    "browserOnly": "This browser: {{count}} / {{limit}} pinned. Pin sessions below.",
+    "unavailable": "Session unavailable",
+    "host": "Host",
+    "limit": "Unpin a session to add another (limit {{count}}).",
+    "storageUnavailable": "Browser storage is unavailable. Pins will last until this page closes."
   }
 }

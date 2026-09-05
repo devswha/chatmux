@@ -1,6 +1,7 @@
 import { PanelLeftClose, RefreshCw } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
+import type { DiscoveryFreshness } from '../../../../hooks/useDiscoveryStream';
 import { Button } from '../../../../shared/view/ui';
 import { CHATMUX_WORDMARK_FONT_FAMILY } from '../../../../constants/branding';
 
@@ -9,6 +10,7 @@ type SidebarHeaderProps = {
   isMobile: boolean;
   onRefresh: () => void;
   isRefreshing: boolean;
+  discoveryFreshness?: DiscoveryFreshness;
   onCollapseSidebar: () => void;
   t: TFunction;
 };
@@ -18,6 +20,7 @@ export default function SidebarHeader({
   isMobile,
   onRefresh,
   isRefreshing,
+  discoveryFreshness = 'unavailable',
   onCollapseSidebar,
   t,
 }: SidebarHeaderProps) {
@@ -62,8 +65,6 @@ export default function SidebarHeader({
         </div>
       </div>
 
-      <div className="nav-divider hidden md:block" />
-
       <div className="p-3 pb-2 md:hidden" style={isPWA && isMobile ? { paddingTop: '16px' } : {}}>
         <div className="flex items-center justify-between">
           {logo}
@@ -78,7 +79,19 @@ export default function SidebarHeader({
         </div>
       </div>
 
-      <div className="nav-divider md:hidden" />
+      <div
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        className="flex min-w-0 items-center gap-2 px-3 pb-2 text-xs text-muted-foreground"
+      >
+        <span
+          aria-hidden="true"
+          className={`h-1.5 w-1.5 shrink-0 rounded-full ${discoveryFreshness === 'current' ? 'bg-emerald-500' : 'bg-amber-500'}`}
+        />
+        <span className="min-w-0 break-words">{t(`common:discoveryFreshness.${discoveryFreshness}`)}</span>
+      </div>
+      <div className="nav-divider" />
     </div>
   );
 }
