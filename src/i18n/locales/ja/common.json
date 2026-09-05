@@ -31,6 +31,12 @@
     "completed": "完了",
     "inProgress": "進行中"
   },
+  "discoveryFreshness": {
+    "reconnecting": "ローカルセッション一覧に再接続中…",
+    "refreshing": "ローカルセッション一覧を更新中…",
+    "current": "ローカルセッション一覧は最新です",
+    "unavailable": "ローカルセッション一覧の最新状態を確認できません"
+  },
   "messages": {
     "savedSuccessfully": "保存しました",
     "deletedSuccessfully": "削除しました",

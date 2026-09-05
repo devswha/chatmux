@@ -31,6 +31,12 @@
     "completed": "已完成",
     "inProgress": "進行中"
   },
+  "discoveryFreshness": {
+    "reconnecting": "正在重新連線本機工作階段清單…",
+    "refreshing": "正在重新整理本機工作階段清單…",
+    "current": "本機工作階段清單已更新",
+    "unavailable": "無法確認本機工作階段清單是否為最新"
+  },
   "messages": {
     "savedSuccessfully": "儲存成功",
     "deletedSuccessfully": "刪除成功",

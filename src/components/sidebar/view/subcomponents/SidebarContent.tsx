@@ -83,7 +83,7 @@ export default function SidebarContent({
   onExternalSessionsChange,
   t,
 }: SidebarContentProps) {
-  const { sessions: externalSessions, loading: externalLoading, refresh: refreshDiscoveredSessions } = useExternalCliSessions(onExternalSessionsChange);
+  const { sessions: externalSessions, loading: externalLoading, discoveryFreshness, refresh: refreshDiscoveredSessions } = useExternalCliSessions(onExternalSessionsChange);
   // The hook's refresh sends a unified discovery resync, updating both live and external rows.
   const sessionCount = liveSessionIds.size + externalSessions.length;
   const refreshAllSessions = () => {
@@ -142,6 +142,7 @@ export default function SidebarContent({
         isMobile={isMobile}
         onRefresh={refreshAllSessions}
         isRefreshing={isRefreshing}
+        discoveryFreshness={discoveryFreshness}
         onCollapseSidebar={onCollapseSidebar}
         t={t}
       />

@@ -442,7 +442,7 @@ export function useProjectsState({
     applyLiveNone();
   }, [applyLiveNone, invalidateLiveRequests]);
 
-  const streamHealthy = useDiscoveryStream({
+  const { streamHealthy } = useDiscoveryStream({
     lanes: ['live'],
     isConnected,
     sendMessage,
