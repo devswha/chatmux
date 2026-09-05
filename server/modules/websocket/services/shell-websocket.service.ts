@@ -6,7 +6,7 @@ import path from 'node:path';
 import pty, { type IPty } from 'node-pty';
 import { WebSocket, type RawData } from 'ws';
 
-import { cursorCliCommandOrDefault } from '@/modules/providers/index.js';
+import { cursorCliCommandOrDefault, type AttachCapabilityService, type TmuxAttachLease } from '@/modules/providers/index.js';
 import { parseIncomingJsonObject } from '@/shared/utils.js';
 export const SHELL_PROTOCOL_VERSION = 2;
 
@@ -16,7 +16,6 @@ type TmuxPaneIdentity = { socketPath: string; sessionId: string; windowId: strin
 type CurrentTmuxPaneIdentity =
   | { state: 'unavailable' | 'not-hosted' }
   | { state: 'hosted'; tmux: TmuxPaneIdentity };
-type AttachCapabilityService = { verify: (token: unknown, principal: string, tmux: TmuxPaneIdentity) => Promise<boolean> };
 
 type ShellIncomingMessage = {
   type?: string;
@@ -48,7 +47,7 @@ type PtySessionEntry = {
   timeoutId: NodeJS.Timeout | null;
   projectPath: string;
   sessionId: string | null;
-  lease?: Readonly<{ principal: string; tmux: { socketPath: string; sessionId: string; windowId: string; paneId: string } }>;
+  lease?: TmuxAttachLease;
 };
 
 const ptySessionsMap = new Map<string, PtySessionEntry>();
@@ -81,7 +80,7 @@ export type ShellWebSocketDependencies = {
   getCurrentTmuxPaneIdentityState?: () => Promise<CurrentTmuxPaneIdentity>;
   readTmuxPaneIdentity?: (tmux: unknown) => TmuxPaneIdentity;
   runTmux?: (args: string[]) => Promise<{ code: number; output: string }>;
-  attachCapabilities?: AttachCapabilityService;
+  attachCapabilities?: Pick<AttachCapabilityService, 'createLease' | 'verifyLease'>;
   principal?: string;
   diagnostic?: (event: ShellAttachDiagnostic) => void;
   now?: () => number;
@@ -531,17 +530,24 @@ export function handleShellConnection(
           ) {
             throw new Error('The existing typed attach session is not leased to this target.');
           }
+          if (!isLoginCommand && !forceRestart) {
+            const verified = await connectionDependencies.attachCapabilities?.verifyLease(lease, principal, target);
+            // Inspection can await I/O while another init replaces this PTY.
+            if (!verified || ptySessionsMap.get(ptySessionKey) !== currentSession) {
+              emitAttachDiagnostic('attach_refused_identity', 'attach-only');
+              throw new Error('The existing typed attach lease is no longer valid.');
+            }
+          }
         }
-        if (
-          typedAttach?.attachOnlyTmux
-          && (!currentSession || isLoginCommand || forceRestart)
-          && !await connectionDependencies.attachCapabilities?.verify(
+        let attachLease: TmuxAttachLease | undefined;
+        if (typedAttach?.attachOnlyTmux && (!currentSession || isLoginCommand || forceRestart)) {
+          const lease = await connectionDependencies.attachCapabilities?.createLease(
             data.capability,
             connectionDependencies.principal ?? '',
             typedAttach.attachOnlyTmux,
-          )
-        ) {
-          throw new Error('The typed attach capability is invalid or expired.');
+          );
+          if (!lease) throw new Error('The typed attach capability is invalid or expired.');
+          attachLease = lease;
         }
         const existingSession =
           isLoginCommand || forceRestart ? null : currentSession;
@@ -635,12 +641,7 @@ export function handleShellConnection(
           timeoutId: null,
           projectPath,
           sessionId,
-          lease: typedAttach?.attachOnlyTmux
-            ? Object.freeze({
-              principal: connectionDependencies.principal ?? '',
-              tmux: Object.freeze({ ...typedAttach.attachOnlyTmux }),
-            })
-            : undefined,
+          lease: attachLease,
         };
         ptySessionsMap.set(ptySessionKey, newSession);
         if (replacement && replacement !== newSession) {

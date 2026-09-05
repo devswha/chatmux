@@ -31,6 +31,7 @@ import {
   type LiveGjcSession,
 } from '@/modules/providers/services/live-sessions.service.js';
 import { assertLineageTmuxTarget } from '@/modules/providers/services/tmux-target-guard.service.js';
+import { localTmuxPaneDigest } from '@/modules/providers/services/local-tmux-discovery.service.js';
 import {
   assertFreshExternalTmuxTarget,
   createVerifiedTmuxActionTarget,
@@ -190,7 +191,7 @@ test('real tmux promotes one idle GJC row to indexed structured history after fi
   const tmuxSessionId = await harness.getSessionId(sessionName);
 
   const idle = await waitForLiveGeneration(sessionName, tmuxSessionId);
-  assert.equal(idle.id, `${IDLE_GJC_ID_PREFIX}${sessionName}:${idle.tmux.paneId}`);
+  assert.equal(idle.id, `${IDLE_GJC_ID_PREFIX}${localTmuxPaneDigest(idle.tmux)}`);
 
   const firstPrompt = 'promote this terminal into structured chat';
   const idleTarget = await assertLineageTmuxTarget(idle.tmux, idle.process);
@@ -270,14 +271,14 @@ test('real tmux resolves Bun and npm-shim GJC wrappers to actionable lineage row
     })),
     [
       {
-        id: `${IDLE_GJC_ID_PREFIX}e2e-gjc-bun:${bunLive.tmux.paneId}`,
+        id: `${IDLE_GJC_ID_PREFIX}${localTmuxPaneDigest(bunLive.tmux)}`,
         tmuxName: 'e2e-gjc-bun',
         tmuxSessionId: bunTmuxId,
         claim: 'lineage',
         kind: 'interactive',
       },
       {
-        id: `${IDLE_GJC_ID_PREFIX}e2e-gjc-npm:${npmLive.tmux.paneId}`,
+        id: `${IDLE_GJC_ID_PREFIX}${localTmuxPaneDigest(npmLive.tmux)}`,
         tmuxName: 'e2e-gjc-npm',
         tmuxSessionId: npmTmuxId,
         claim: 'lineage',
@@ -657,7 +658,7 @@ test('real tmux rejects stale generation input and termination after same-name r
   await originalAgent.waitUntilReady();
   const originalTmuxId = await harness.getSessionId(sessionName);
   const originalLive = await waitForLiveGeneration(sessionName, originalTmuxId);
-  assert.equal(originalLive.id, `${IDLE_GJC_ID_PREFIX}${sessionName}:${originalLive.tmux.paneId}`);
+  assert.equal(originalLive.id, `${IDLE_GJC_ID_PREFIX}${localTmuxPaneDigest(originalLive.tmux)}`);
   await assertLineageTmuxTarget(originalLive.tmux, originalLive.process);
 
   await harness.killSession(sessionName);

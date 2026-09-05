@@ -38,6 +38,7 @@ export {
   attachCapabilityService,
   createAttachCapabilityService,
   type AttachCapabilityService,
+  type TmuxAttachLease,
 } from './services/attach-capability.service.js';
 export {
   getCurrentTmuxPaneIdentity,
