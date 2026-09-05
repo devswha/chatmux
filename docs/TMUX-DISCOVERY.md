@@ -68,9 +68,13 @@ can remove old rows.
 Retained rows cannot authorize fresh actions or mint new shell/SSH attach
 capabilities. Actions recheck exact inventory membership and current socket
 ownership/filesystem generation along with the existing pane, process and provider
-checks. Socket evidence follows verified targets and attach capabilities only in
-server memory. Replacing a socket at the same path, even with matching pane IDs,
-invalidates old targets. Existing tmux multi-command operations still have their
+checks. Socket evidence follows verified targets, attach capabilities and cached
+terminal leases only in server memory. Reconnecting a leased terminal rechecks its
+original pane generation, socket ownership and inventory membership before replay
+or PTY adoption. A matching lease can outlive the initial capability's expiry;
+missing or changed proof refuses the reconnect without stopping the tmux jobs.
+Replacing a socket at the same path, even with matching pane IDs, invalidates old
+targets and leases. Existing tmux multi-command operations still have their
 documented race between the final check and command execution; this feature does
 not make those operations atomic.
 
