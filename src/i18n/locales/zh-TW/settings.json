@@ -59,6 +59,8 @@
     "shiftTab": "Shift+Tab",
     "arrowUp": "向上箭頭",
     "arrowDown": "向下箭頭",
+    "arrowLeft": "向左箭頭",
+    "arrowRight": "向右箭頭",
     "scrollDown": "捲動到底部",
     "handle": {
       "closePanel": "關閉快速鍵面板",
