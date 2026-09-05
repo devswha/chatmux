@@ -355,6 +355,7 @@ test('managed install automatically uses Tailscale identity and prints its HTTPS
       platform: 'linux',
       arch: 'x64',
       nodeVersion: '22.22.2',
+      portAvailable: async (port) => port === 39102,
       healthCheck: async () => {},
       run: async (command, args) => {
         commands.push([command, ...args].join(' '));

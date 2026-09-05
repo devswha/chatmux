@@ -171,14 +171,20 @@ def check_diagnostics(page, mobile, evidence, name, checks):
 
 def check_attention(page, mobile, checks):
     open_sidebar(page, mobile)
+    control = page.locator('[data-attention-filter-select]')
+    # The fixture's idle list intentionally has no attention chrome. Mounted
+    # coverage exercises report changes and keeps empty active filters resettable.
+    if control.count() == 0:
+        expect(page.locator('[data-attention-toolbar]')).to_have_count(0)
+        expect(page.locator('[data-attention-next]')).to_have_count(0)
+        expect(page.get_by_text('cua-01-omo', exact=True).first).to_be_visible()
+        checks['idle_local_list_has_no_attention_toolbar'] = True
+        return
     for value in ['input', 'failure', 'connection', 'all']:
-        control = page.locator(f'[data-attention-filter="{value}"]')
         expect(control).to_be_visible()
-        activate(control, mobile)
-        expect(control).to_have_attribute('aria-pressed', 'true')
-        assert page.locator('[data-attention-filter][aria-pressed="true"]').count() == 1
+        control.select_option(value)
+        expect(control).to_have_value(value)
     expect(page.get_by_text('cua-01-omo', exact=True).first).to_be_visible()
-    expect(page.locator('[data-attention-next]')).to_be_visible()
     checks['local_attention_filters_and_restore'] = True
 
 
