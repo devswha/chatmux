@@ -27,6 +27,7 @@ async function harness(t: TestContext, laneGroups: DiscoveryLane[][] = [['extern
   t.mock.method(Date, 'now', () => now);
   const originals = ['window', 'document'].map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)] as const);
   const timers = new Map<number, () => void>();
+  const timeouts = new Map<number, { at: number; callback: () => void }>();
   const visibilityListeners = new Set<() => void>();
   let timerId = 0;
   const browserDocument = {
@@ -44,6 +45,11 @@ async function harness(t: TestContext, laneGroups: DiscoveryLane[][] = [['extern
         return timerId;
       },
       clearInterval: (id: number) => timers.delete(id),
+      setTimeout(callback: () => void, ms: number) {
+        timeouts.set(++timerId, { at: now + ms, callback });
+        return timerId;
+      },
+      clearTimeout: (id: number) => timeouts.delete(id),
     },
   });
   const frames: unknown[] = [];
@@ -62,7 +68,8 @@ async function harness(t: TestContext, laneGroups: DiscoveryLane[][] = [['extern
     });
     return null;
   }
-  const tree = (connected: boolean) => <>{laneGroups.map((_, index) => <Probe key={index} connected={connected} index={index} />)}</>;
+  const mounted = new Set(laneGroups.map((_, index) => index));
+  const tree = (connected: boolean) => <>{[...mounted].map((index) => <Probe key={index} connected={connected} index={index} />)}</>;
   let renderer!: TestRenderer.ReactTestRenderer;
   await act(async () => { renderer = TestRenderer.create(tree(true)); });
   t.after(async () => {
@@ -73,7 +80,7 @@ async function harness(t: TestContext, laneGroups: DiscoveryLane[][] = [['extern
     }
   });
   return {
-    frames, rows, latest, listeners, visibilityListeners, timers,
+    frames, rows, latest, listeners, visibilityListeners, timers, timeouts,
     advance: (ms: number) => { now += ms; },
     emit: (event: ServerEvent) => act(async () => { for (const listener of [...listeners]) listener(event); }),
     connect: (connected: boolean) => act(async () => renderer.update(tree(connected))),
@@ -82,6 +89,17 @@ async function harness(t: TestContext, laneGroups: DiscoveryLane[][] = [['extern
       for (const listener of [...visibilityListeners]) listener();
     }),
     expire: () => act(async () => { for (const callback of timers.values()) callback(); }),
+    runTimeouts: () => act(async () => {
+      for (const [id, timeout] of [...timeouts]) {
+        if (timeout.at > now) continue;
+        timeouts.delete(id);
+        timeout.callback();
+      }
+    }),
+    removeConsumer: (index: number) => act(async () => {
+      mounted.delete(index);
+      renderer.update(tree(true));
+    }),
     unmount: () => act(async () => renderer.unmount()),
   };
 }
@@ -243,10 +261,195 @@ test('rate-limited refresh preserves current evidence when no replacement reques
   assert.equal(h.frames.length, sent);
   assert.equal(h.latest[0].freshness, 'current');
   assert.equal(h.latest[0].streamHealthy, true);
+  assert.equal(h.timeouts.size, 0, 'a limited healthy manual refresh schedules no recovery');
   await h.emit(delta(5, 4));
   assert.equal(h.frames.length, sent);
   assert.equal(h.latest[0].freshness, 'unavailable');
   assert.equal(h.latest[0].streamHealthy, false);
+});
+
+async function exhaustResyncBudget(h: Awaited<ReturnType<typeof harness>>) {
+  await h.emit(snapshot());
+  for (const revision of [2, 3]) {
+    await act(async () => h.latest[0].refresh());
+    await h.emit(snapshot(revision));
+  }
+}
+
+test('a rate-limited final gap recovers once across both lanes with only heartbeats at budget expiry', async (t) => {
+  const h = await harness(t, [['external'], ['live']]);
+  await exhaustResyncBudget(h);
+  await h.emit(delta(5, 4));
+  assert.equal(h.timeouts.size, 1, 'one deferred read is shared by both lane consumers');
+  assert.deepEqual(h.latest.map((state) => state.freshness), ['unavailable', 'unavailable']);
+  h.advance(9_999);
+  await h.emit(heartbeat(5));
+  await h.runTimeouts();
+  assert.equal(h.frames.length, 3);
+  h.advance(1);
+  await h.runTimeouts();
+  assert.deepEqual(h.frames.slice(3), [{ type: 'discovery.resync', reason: 'gap' }]);
+  assert.equal(h.timeouts.size, 0, 'the deferred attempt does not start recurring requests');
+  assert.deepEqual(h.latest.map((state) => state.freshness), ['refreshing', 'refreshing']);
+  h.advance(5_001);
+  await h.expire();
+  await h.emit(heartbeat(5));
+  assert.deepEqual(h.latest.map((state) => state.freshness), ['refreshing', 'refreshing'], 'expiry of old evidence must not expire the admitted read');
+  await h.emit(snapshot(5));
+  assert.deepEqual(h.latest.map((state) => state.freshness), ['current', 'current']);
+  h.advance(60_000);
+  await h.runTimeouts();
+  assert.equal(h.frames.length, 4);
+});
+
+test('accepted snapshots cancel deferred recovery; ignored malformed snapshots do not', async (t) => {
+  const h = await harness(t);
+  await exhaustResyncBudget(h);
+  await h.emit(delta(5, 4));
+  assert.equal(h.timeouts.size, 1);
+  const queued = [...h.timeouts.values()][0].callback;
+  await h.emit({ ...snapshot(5), rows: null });
+  await h.emit({ ...snapshot(5), revision: 1.5 });
+  assert.equal(h.timeouts.size, 1);
+  assert.equal(h.latest[0].freshness, 'unavailable');
+  await h.emit(snapshot(5));
+  assert.equal(h.timeouts.size, 0);
+  h.advance(10_000);
+  await act(async () => queued());
+  await h.runTimeouts();
+  assert.equal(h.frames.length, 3, 'even an already queued timeout is fenced after snapshot acceptance');
+  assert.equal(h.latest[0].freshness, 'current');
+});
+
+test('a pending admitted gap read receives only one shared deferred retry before requiring explicit recovery', async (t) => {
+  const h = await harness(t, [['external'], ['live']]);
+  await h.emit(snapshot());
+  await h.emit(delta(3, 2));
+  assert.equal(h.frames.length, 2);
+  assert.equal(h.timeouts.size, 1);
+  h.advance(DISCOVERY_STALE_MS);
+  await h.runTimeouts();
+  assert.equal(h.frames.length, 2, 'do not retry a still-fresh pending read');
+  h.advance(1);
+  await h.runTimeouts();
+  assert.deepEqual(h.frames.slice(1), [
+    { type: 'discovery.resync', reason: 'gap' },
+    { type: 'discovery.resync', reason: 'gap' },
+  ]);
+  assert.equal(h.timeouts.size, 0);
+  await h.expire();
+  assert.deepEqual(h.latest.map((state) => state.freshness), ['refreshing', 'refreshing']);
+  h.advance(DISCOVERY_STALE_MS + 1);
+  await h.expire();
+  await h.emit(heartbeat(3));
+  await h.emit(delta(4, 3));
+  await h.emit({ kind: 'discovery.resync_required' });
+  await h.runTimeouts();
+  assert.equal(h.timeouts.size, 0, 'repeated broken evidence cannot rearm the automatic retry');
+  assert.equal(h.frames.length, 3);
+  assert.deepEqual(h.latest.map((state) => state.freshness), ['unavailable', 'unavailable']);
+  await act(async () => { for (const state of h.latest) state.refresh(); });
+  assert.equal(h.frames.length, 4, 'explicit retries still coalesce after the automatic attempt');
+  assert.deepEqual(h.latest.map((state) => state.freshness), ['refreshing', 'refreshing']);
+  await h.emit(snapshot(4));
+  assert.deepEqual(h.latest.map((state) => state.freshness), ['current', 'current']);
+});
+
+test('gap recovery waits for an already admitted manual read and cancels when it answers', async (t) => {
+  const h = await harness(t, [['external'], ['live']]);
+  await h.emit(snapshot());
+  await act(async () => h.latest[0].refresh());
+  await h.emit(delta(3, 2));
+  assert.equal(h.frames.length, 2);
+  assert.equal(h.timeouts.size, 1);
+  await h.emit(snapshot(3));
+  assert.equal(h.timeouts.size, 0);
+  h.advance(DISCOVERY_STALE_MS + 1);
+  await h.runTimeouts();
+  assert.equal(h.frames.length, 2);
+});
+
+test('a manual read admitted before the deferred callback postpones its one retry and refreshes both lanes', async (t) => {
+  const h = await harness(t, [['external'], ['live']]);
+  await exhaustResyncBudget(h);
+  await h.emit(delta(5, 4));
+  h.advance(10_000);
+  await act(async () => h.latest[0].refresh());
+  assert.equal(h.frames.length, 4);
+  assert.deepEqual(h.latest.map((state) => state.freshness), ['refreshing', 'refreshing']);
+  await h.runTimeouts();
+  assert.equal(h.frames.length, 4, 'the due callback rechecks the newly admitted read');
+  assert.equal(h.timeouts.size, 1);
+  h.advance(DISCOVERY_STALE_MS);
+  await h.runTimeouts();
+  assert.equal(h.frames.length, 4);
+  h.advance(1);
+  await h.runTimeouts();
+  assert.deepEqual(h.frames.slice(3), [
+    { type: 'discovery.resync', reason: 'client_error' },
+    { type: 'discovery.resync', reason: 'gap' },
+  ]);
+  assert.equal(h.timeouts.size, 0);
+  await h.emit(snapshot(5));
+  assert.deepEqual(h.latest.map((state) => state.freshness), ['current', 'current']);
+});
+
+test('the remaining lane owns the deferred recovery after the initiating lane unmounts', async (t) => {
+  const h = await harness(t, [['external'], ['live']]);
+  await exhaustResyncBudget(h);
+  await h.emit(delta(5, 4));
+  await h.removeConsumer(0);
+  assert.equal(h.timeouts.size, 1);
+  h.advance(10_000);
+  await h.runTimeouts();
+  assert.equal(h.frames.length, 4);
+  assert.equal(h.latest[1].freshness, 'refreshing');
+  await h.emit(snapshot(5));
+  assert.equal(h.latest[1].freshness, 'current');
+});
+
+test('reconnect cancels deferred recovery and starts one shared subscription with a fresh budget', async (t) => {
+  const h = await harness(t, [['external'], ['live']]);
+  await exhaustResyncBudget(h);
+  await h.emit(delta(5, 4));
+  const queued = [...h.timeouts.values()][0].callback;
+  await h.emit({ kind: 'websocket_reconnected' });
+  assert.equal(h.timeouts.size, 0);
+  assert.equal(h.frames.length, 4);
+  await h.emit(snapshot(1, 'epoch-2'));
+  h.advance(10_000);
+  await act(async () => queued());
+  assert.equal(h.frames.length, 4);
+  await h.emit(delta(3, 2, 'epoch-2'));
+  assert.equal(h.frames.length, 5);
+  assert.equal(h.timeouts.size, 1, 'a new connection has an independent recovery episode');
+});
+
+test('removing one lane keeps deferred recovery, but last-consumer unmount and disconnect cancel it', async (t) => {
+  for (const stop of ['unmount', 'disconnect'] as const) {
+    await t.test(stop, async (context) => {
+      const h = await harness(context, [['external'], ['live']]);
+      await exhaustResyncBudget(h);
+      await h.emit(delta(5, 4));
+      const queued = [...h.timeouts.values()][0].callback;
+      await h.removeConsumer(0);
+      assert.equal(h.timeouts.size, 1);
+      if (stop === 'unmount') await h.unmount();
+      else await h.connect(false);
+      assert.equal(h.timeouts.size, 0);
+      h.advance(60_000);
+      await act(async () => queued());
+      await h.runTimeouts();
+      assert.equal(h.frames.length, 3);
+      if (stop === 'disconnect') {
+        assert.equal(h.latest[1].freshness, 'reconnecting');
+        await h.connect(true);
+        assert.equal(h.frames.length, 4);
+        await h.emit(snapshot(5));
+        assert.equal(h.latest[1].freshness, 'current');
+      }
+    });
+  }
 });
 
 test('reconnect notifications are shared and cleanup removes foreground listeners and fences queued frames', async (t) => {

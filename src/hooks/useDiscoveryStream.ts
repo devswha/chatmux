@@ -151,11 +151,13 @@ export function useDiscoveryStream({
 
   useEffect(() => {
     const subscribedLanes = lanesKey.split(',') as DiscoveryLane[];
-    const reconciliation = isConnected ? acquireDiscoveryReconciliation(sendMessage) : null;
     let lastFrameAt: number | null = null;
     let awaitingSnapshot = true;
     let allLanesCurrent = false;
     let active = true;
+    const reconciliation = isConnected ? acquireDiscoveryReconciliation(sendMessage, () => {
+      if (active && awaitingSnapshot) setFreshness('refreshing');
+    }) : null;
     const emit = () => onRowsRef.current([...stateRef.current.rows.values()].filter((row) => subscribedLanes.includes(row.lane)));
     const hasStreamAuthority = () => subscribedLanes.some((lane) => authorityRef.current[lane] === 'stream');
     const setAuthority = (lane: DiscoveryLane, disposition: DiscoveryAuthorityDisposition) => {
@@ -197,6 +199,7 @@ export function useDiscoveryStream({
         return;
       }
       reset();
+      if (disposition === 'pending' && !reconciliation?.hasPendingRead()) setFreshness('unavailable');
     };
     const applyFrameAuthority = (event: ServerEvent) => {
       for (const lane of subscribedLanes) {
@@ -250,7 +253,10 @@ export function useDiscoveryStream({
         return;
       }
       if (event.kind === 'discovery.heartbeat') {
-        if (awaitingSnapshot) return;
+        if (awaitingSnapshot) {
+          if (!reconciliation?.hasPendingRead()) setFreshness('unavailable');
+          return;
+        }
         if (typeof event.epoch === 'string' && Number.isInteger(event.revision)) {
           if (event.epoch !== stateRef.current.epoch) {
             resetAndResync('epoch_mismatch');
@@ -326,6 +332,7 @@ export function useDiscoveryStream({
     };
     visibilityDocument?.addEventListener('visibilitychange', onVisibilityChange);
     const heartbeatTimer = window.setInterval(() => {
+      if (awaitingSnapshot && reconciliation?.hasPendingRead()) return;
       if (lastFrameAt === null || Date.now() - lastFrameAt > DISCOVERY_STALE_MS) {
         allLanesCurrent = false;
         clearAuthority('rest');
