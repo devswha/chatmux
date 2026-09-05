@@ -17,6 +17,7 @@ import type { MarkSessionProcessing } from '../../../hooks/useSessionProtection'
 import { grantClaudeToolPermission } from '../utils/chatPermissions';
 import {
   clearQueuedMessage,
+  clearDraftInput,
   draftInputKey,
   readDraftInput,
   readQueuedMessage,
@@ -377,7 +378,11 @@ export function useChatComposerState({
     setCommandModalPayload(null);
   }, []);
 
-  const handleCustomCommand = useCallback(async (result: CommandExecutionResult, options?: QueuedSendOptions) => {
+  const handleCustomCommand = useCallback(async (
+    result: CommandExecutionResult,
+    options: QueuedSendOptions | undefined,
+    onAccepted: () => void,
+  ) => {
     const { content, hasBashCommands } = result;
 
     if (hasBashCommands) {
@@ -389,6 +394,7 @@ export function useChatComposerState({
       }
     }
 
+    onAccepted();
     await handleSubmitRef.current?.(createFakeSubmitEvent(), { content: content || '', images: [], options });
   }, []);
 
@@ -452,14 +458,17 @@ export function useChatComposerState({
 
         const result = (await response.json()) as CommandExecutionResult;
         if (!scope.active) return;
-        if (result.type === 'builtin') {
-          handleBuiltInCommand(result);
+        const clearUnchangedInput = () => {
           if (!options?.preserveInput && inputValueRef.current === effectiveInput) {
             setInput('');
             inputValueRef.current = '';
           }
+        };
+        if (result.type === 'builtin') {
+          handleBuiltInCommand(result);
+          clearUnchangedInput();
         } else if (result.type === 'custom') {
-          await handleCustomCommand(result, options?.sendOptions);
+          await handleCustomCommand(result, options?.sendOptions, clearUnchangedInput);
         }
       } catch (error) {
         if (!scope.active) return;
@@ -1037,9 +1046,9 @@ export function useChatComposerState({
 
   useEffect(() => {
     if (!inputStorageKey || inputStorageKeyRef.current !== inputStorageKey) return;
-    // An empty qualified record also marks retained legacy drafts as consumed.
-    safeLocalStorage.setItem(inputStorageKey, input);
-  }, [input, inputStorageKey]);
+    if (input === '' && selectedProjectId) clearDraftInput(selectedProjectId, projectHostId);
+    else safeLocalStorage.setItem(inputStorageKey, input);
+  }, [input, inputStorageKey, projectHostId, selectedProjectId]);
 
   useEffect(() => {
     inputStorageKeyRef.current = inputStorageKey;

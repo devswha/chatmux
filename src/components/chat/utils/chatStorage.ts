@@ -36,6 +36,18 @@ export function readDraftInput(projectId: string, hostId: string | null): string
   return '';
 }
 
+export function clearDraftInput(projectId: string, hostId: string | null): void {
+  const key = draftInputKey(projectId, hostId);
+  safeLocalStorage.setItem(key, '');
+  if (safeLocalStorage.getItem(key) === '') return;
+  // Quota can prevent even the empty migration marker. Removing this project's
+  // own records needs no space; a peer clear must leave local legacy work alone.
+  if (hostId !== null && hostId === localHostId()) {
+    safeLocalStorage.removeItem(draftInputKey(projectId, null));
+  }
+  safeLocalStorage.removeItem(key);
+}
+
 export const safeLocalStorage = {
   setItem: (key: string, value: string) => {
     try {

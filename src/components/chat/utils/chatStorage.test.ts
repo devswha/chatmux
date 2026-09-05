@@ -4,7 +4,7 @@ import test, { type TestContext } from 'node:test';
 import { clearHostIdentity, setLocalHostIdentity } from '../../../fleet/hostIdentity';
 import { queuedDraftKey } from '../../../fleet/persistedHostState';
 
-import { draftInputKey, readDraftInput, safeLocalStorage } from './chatStorage';
+import { clearDraftInput, draftInputKey, readDraftInput, safeLocalStorage } from './chatStorage';
 
 const LOCAL = '11111111-1111-4111-8111-111111111111';
 const PEER = '22222222-2222-4222-8222-222222222222';
@@ -72,4 +72,34 @@ test('quota failure preserves unrelated raw, project and remote queued drafts', 
   });
   safeLocalStorage.setItem('draft_input_active', 'new text');
   for (const [key, value] of Object.entries(saved)) assert.equal(storage.getItem(key), value);
+});
+
+test('quota-blocked peer clear removes only that peer project draft', (context) => {
+  const saved = {
+    draft_input_project: 'local legacy draft',
+    [draftInputKey('project', LOCAL)]: 'local current draft',
+    [draftInputKey('other', PEER)]: 'another peer project',
+    [queuedDraftKey({ hostId: PEER, localId: 'session' })]: JSON.stringify({ content: 'peer queue' }),
+  };
+  const storage = fixture(context, { ...saved, [draftInputKey('project', PEER)]: 'peer draft to clear' });
+  context.mock.method(console, 'warn', () => {});
+  context.mock.method(storage, 'setItem', () => { throw new DOMException('full', 'QuotaExceededError'); });
+  clearDraftInput('project', PEER);
+  assert.equal(readDraftInput('project', PEER), '');
+  for (const [key, value] of Object.entries(saved)) assert.equal(storage.getItem(key), value);
+});
+
+test('quota-blocked local clear consumes current and legacy records without a new write', (context) => {
+  const storage = fixture(context, {
+    draft_input_project: 'legacy draft',
+    [draftInputKey('project', LOCAL)]: 'current draft',
+    draft_input_other: 'unrelated draft',
+  });
+  context.mock.method(console, 'warn', () => {});
+  context.mock.method(storage, 'setItem', () => { throw new DOMException('full', 'QuotaExceededError'); });
+  clearDraftInput('project', LOCAL);
+  assert.equal(storage.getItem('draft_input_project'), null);
+  assert.equal(storage.getItem(draftInputKey('project', LOCAL)), null);
+  assert.equal(readDraftInput('project', LOCAL), '');
+  assert.equal(storage.getItem('draft_input_other'), 'unrelated draft');
 });

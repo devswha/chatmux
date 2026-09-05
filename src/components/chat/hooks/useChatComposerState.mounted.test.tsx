@@ -6,9 +6,10 @@ import { createElement } from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 
 import { clearHostIdentity, setActiveSessionHostId, setLocalHostIdentity } from '../../../fleet/hostIdentity';
-import { readQueuedMessage } from '../utils/chatStorage';
+import { queuedDraftKey } from '../../../fleet/persistedHostState';
+import { draftInputKey, readQueuedMessage } from '../utils/chatStorage';
 
-// Keep composer effects, storage and submit real; omit unrelated menu/file/DOM
+// Keep composer effects, storage, menu and submit real; omit catalog/file/DOM
 // integrations so navigation and individual timer turns can be controlled.
 const stubs: Record<string, string> = {
   'react-dropzone': `export const useDropzone = () => ({
@@ -17,11 +18,8 @@ const stubs: Record<string, string> = {
   './useFileMentions': `export const useFileMentions = () => ({
     filteredFiles: [], setCursorPosition() {}, handleFileMentionsKeyDown: () => false,
   });`,
-  './useSlashCommands': `export const useSlashCommands = () => ({
-    slashCommands: [{ name: '/expand', type: 'custom', path: 'commands/expand.md' }],
-    resetCommandMenuState() {}, handleCommandInputChange() {},
-    handleCommandMenuKeyDown: () => false,
-  });`,
+  './useSlashCommandCatalog': `const commands = [{ name: '/expand', type: 'custom', path: 'commands/expand.md' }];
+    export const useSlashCommandCatalog = () => commands;`,
 };
 const moduleHooks = registerHooks({
   resolve(specifier, context, nextResolve) {
@@ -40,11 +38,18 @@ const HOST_A = '11111111-1111-4111-8111-111111111111';
 const HOST_B = '22222222-2222-4222-8222-222222222222';
 const submitEvent = { preventDefault() {} } as Parameters<Composer['handleSubmit']>[0];
 
-async function mountComposer(context: TestContext, overrides: Partial<Args> = {}) {
-  const values = new Map<string, string>();
+async function mountComposer(
+  context: TestContext,
+  overrides: Partial<Args> = {},
+  storageOptions: { initial?: Record<string, string>; quotaFull?: boolean } = {},
+) {
+  const values = new Map<string, string>(Object.entries(storageOptions.initial ?? {}));
   const storage = {
     getItem: (key: string) => values.get(key) ?? null,
-    setItem: (key: string, value: string) => { values.set(key, value); },
+    setItem: (key: string, value: string) => {
+      if (storageOptions.quotaFull) throw new DOMException('full', 'QuotaExceededError');
+      values.set(key, value);
+    },
     removeItem: (key: string) => { values.delete(key); },
   };
   const previousWindow = Object.getOwnPropertyDescriptor(globalThis, 'window');
@@ -63,6 +68,7 @@ async function mountComposer(context: TestContext, overrides: Partial<Args> = {}
   Object.defineProperty(globalThis, 'window', { configurable: true, value: {
     innerHeight: 720, addEventListener() {}, removeEventListener() {},
     setTimeout: globalThis.setTimeout, clearTimeout: globalThis.clearTimeout,
+    confirm: () => true,
   } });
   Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: storage });
   clearHostIdentity();
@@ -191,6 +197,88 @@ test('clearing a qualified draft cannot resurrect an older retained legacy draft
   assert.equal(harness.composer.input, '');
   assert.equal(harness.values.get('draft_input_same-project'), 'older legacy draft');
 });
+
+test('explicit clear survives failed legacy migration and failed tombstone writes', async (context) => {
+  context.mock.method(console, 'warn', () => {});
+  const unrelated = {
+    draft_input_other: 'another project draft',
+    [draftInputKey('same-project', HOST_B)]: 'peer draft',
+    [queuedDraftKey({ hostId: HOST_B, localId: 'session-a' })]: JSON.stringify({ content: 'peer queue' }),
+  };
+  const harness = await mountComposer(context, {}, {
+    initial: { 'draft_input_same-project': 'legacy draft to clear', ...unrelated }, quotaFull: true,
+  });
+  assert.equal(harness.composer.input, 'legacy draft to clear');
+  assert.equal(harness.values.has(draftInputKey('same-project', HOST_A)), false);
+  await act(async () => { harness.composer.handleClearInput(); });
+  assert.equal(harness.composer.input, '');
+  await harness.remount(HOST_A);
+  assert.equal(harness.composer.input, '');
+  for (const [key, value] of Object.entries(unrelated)) assert.equal(harness.values.get(key), value);
+});
+
+for (const activation of ['click', 'keyboard'] as const) {
+  test(`custom command menu ${activation} consumes an unchanged trigger once`, async (context) => {
+    const harness = await mountComposer(context);
+    let resolveCommand!: (response: Response) => void;
+    const request = context.mock.method(globalThis, 'fetch', () => new Promise<Response>((resolve) => { resolveCommand = resolve; }));
+    await harness.input('/expand argument');
+    await act(async () => { harness.composer.handleToggleCommandMenu(); });
+    await act(async () => {
+      if (activation === 'click') {
+        harness.composer.handleCommandSelect(harness.composer.filteredCommands[0], 0, false);
+      } else {
+        harness.composer.handleKeyDown({ key: 'Enter', preventDefault() {}, nativeEvent: {} } as Parameters<Composer['handleKeyDown']>[0]);
+      }
+    });
+    assert.equal(harness.composer.input, '/expand argument', 'menu execution keeps its trigger while awaiting the result');
+    await act(async () => { resolveCommand(new Response(JSON.stringify({ type: 'custom', content: 'expanded command' }))); });
+    await harness.drainTimers();
+    assert.equal(request.mock.callCount(), 1);
+    assert.equal(harness.sent.length, 1);
+    assert.equal(harness.sent[0].content, 'expanded command');
+    assert.equal(harness.composer.input, '');
+    assert.equal(harness.composer.queuedDraft, null);
+    await harness.remount(HOST_A);
+    assert.equal(harness.composer.input, '');
+  });
+}
+
+test('a custom command selected from the menu preserves a newer draft', async (context) => {
+  const harness = await mountComposer(context);
+  let resolveCommand!: (response: Response) => void;
+  const request = context.mock.method(globalThis, 'fetch', () => new Promise<Response>((resolve) => { resolveCommand = resolve; }));
+  await harness.input('/expand argument');
+  await act(async () => { harness.composer.handleToggleCommandMenu(); });
+  await act(async () => { harness.composer.handleCommandSelect(harness.composer.filteredCommands[0], 0, false); });
+  await harness.input('newer unsent draft');
+  await act(async () => { resolveCommand(new Response(JSON.stringify({ type: 'custom', content: 'expanded command' }))); });
+  await harness.drainTimers();
+  assert.equal(request.mock.callCount(), 1);
+  assert.equal(harness.sent.length, 1);
+  assert.equal(harness.composer.input, 'newer unsent draft');
+  assert.equal(harness.composer.queuedDraft, null);
+});
+
+for (const outcome of ['declined', 'failed'] as const) {
+  test(`a ${outcome} menu command is not queued or automatically retried`, async (context) => {
+    const harness = await mountComposer(context);
+    context.mock.method(console, 'error', () => {});
+    context.mock.method(window, 'confirm', () => false);
+    const request = context.mock.method(globalThis, 'fetch', async () => outcome === 'failed'
+      ? new Response(JSON.stringify({ error: 'command failed' }), { status: 500 })
+      : new Response(JSON.stringify({ type: 'custom', content: 'expanded command', hasBashCommands: true })));
+    await harness.input('/expand argument');
+    await act(async () => { harness.composer.handleToggleCommandMenu(); });
+    await act(async () => { harness.composer.handleCommandSelect(harness.composer.filteredCommands[0], 0, false); });
+    await harness.drainTimers();
+    assert.equal(request.mock.callCount(), 1);
+    assert.deepEqual(harness.sent, []);
+    assert.equal(harness.composer.input, '/expand argument');
+    assert.equal(harness.composer.queuedDraft, null);
+    assert.equal(readQueuedMessage('session-a'), null);
+  });
+}
 
 test('an image upload resolving after navigation cannot send or erase the retained draft', async (context) => {
   const harness = await mountComposer(context);
