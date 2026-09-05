@@ -59,6 +59,8 @@
     "shiftTab": "Shift+Tab",
     "arrowUp": "Yukarı Ok",
     "arrowDown": "Aşağı Ok",
+    "arrowLeft": "Sol Ok",
+    "arrowRight": "Sağ Ok",
     "scrollDown": "Aşağı Kaydır",
     "handle": {
       "closePanel": "Kısayol panelini kapat",
