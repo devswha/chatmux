@@ -51,5 +51,5 @@ Focused checks use the existing test runner's `runTests` with
 `server/tsconfig.json` for this module's tests and
 `providers/tests/discovery-collector.service.test.ts`, and `tsconfig.json` for
 `DiagnosticsSettingsTab.test.tsx` and `DiagnosticsSettingsTab.mounted.test.tsx`.
-Parent coordination owns full verification,
-desktop/mobile browser evidence, and release/PR lifecycle.
+Use `npm run verify` and the repository CUA harness for full repository and
+desktop/mobile browser regression checks.
