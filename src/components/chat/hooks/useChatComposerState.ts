@@ -278,9 +278,9 @@ export function useChatComposerState({
   const sessionKey = selectedSession?.id || currentSessionId || null;
   // Uploads and command responses may resolve after navigation or a change in
   // session ownership. A captured scope is revoked at that commit boundary.
-  const dispatchScopeRef = useRef({ active: false });
+  const dispatchScopeRef = useRef({ active: false, preparations: new Set<QueuedDraft | undefined>() });
   useLayoutEffect(() => {
-    const scope = { active: true };
+    const scope = { active: true, preparations: new Set<QueuedDraft | undefined>() };
     dispatchScopeRef.current = scope;
     return () => { scope.active = false; };
   }, [hostId, projectHostId, selectedProjectId, sessionKey, isSessionReadOnly]);
@@ -815,144 +815,157 @@ export function useChatComposerState({
         }
       }
 
-      const messageContent = currentInput;
+      // Ordinary submits share one preparation slot in this scope. Queued and
+      // expanded command payloads own separate slots so a replacement queue or
+      // an already accepted command is not discarded by an unrelated upload.
+      if (scope.preparations.has(queuedSend)) return;
+      scope.preparations.add(queuedSend);
+      try {
+        const sentImages = new Set(images);
+        const messageContent = currentInput;
 
-      let uploadedImages: unknown[] = [];
-      if (images.length > 0) {
-        const formData = new FormData();
-        images.forEach((file) => {
-          formData.append('images', file);
-        });
-
-        try {
-          const response = await authenticatedFetch('/api/assets/images', {
-            method: 'POST',
-            headers: {},
-            body: formData,
+        let uploadedImages: unknown[] = [];
+        if (images.length > 0) {
+          const formData = new FormData();
+          images.forEach((file) => {
+            formData.append('images', file);
           });
 
-          if (!response.ok) {
-            throw new Error('Failed to upload images');
+          try {
+            const response = await authenticatedFetch('/api/assets/images', {
+              method: 'POST',
+              headers: {},
+              body: formData,
+            });
+
+            if (!response.ok) {
+              throw new Error('Failed to upload images');
+            }
+
+            const result = await response.json();
+            if (!scope.active) return;
+            uploadedImages = result.images;
+          } catch (error) {
+            if (!scope.active) return;
+            const message = error instanceof Error ? error.message : 'Unknown error';
+            console.error('Image upload failed:', error);
+            addMessage({
+              type: 'error',
+              content: `Failed to upload images: ${message}`,
+              timestamp: new Date(),
+            });
+            return;
           }
-
-          const result = await response.json();
-          if (!scope.active) return;
-          uploadedImages = result.images;
-        } catch (error) {
-          if (!scope.active) return;
-          const message = error instanceof Error ? error.message : 'Unknown error';
-          console.error('Image upload failed:', error);
-          addMessage({
-            type: 'error',
-            content: `Failed to upload images: ${message}`,
-            timestamp: new Date(),
-          });
-          return;
-        }
-      }
-
-      const resolvedProjectPath = selectedProject.fullPath || selectedProject.path || '';
-      const sessionSummary = getNotificationSessionSummary(selectedSession, currentInput);
-
-      // The conversation always has a stable backend-allocated session id
-      // BEFORE the first websocket send: brand-new chats allocate one here
-      // via the session gateway. There is no client-visible session-id
-      // handoff later — this id stays valid for the conversation's lifetime.
-      let targetSessionId = selectedSession?.id || currentSessionId || null;
-      if (!targetSessionId) {
-        try {
-          const response = await authenticatedFetch('/api/providers/sessions', {
-            method: 'POST',
-            body: JSON.stringify({
-              provider,
-              projectPath: resolvedProjectPath,
-            }),
-          });
-          if (!response.ok) {
-            throw new Error(`Failed to create session (${response.status})`);
-          }
-          const body = await response.json();
-          if (!scope.active) return;
-          targetSessionId = body?.data?.sessionId || null;
-        } catch (error) {
-          if (!scope.active) return;
-          const message = error instanceof Error ? error.message : 'Unknown error';
-          console.error('Session creation failed:', error);
-          addMessage({
-            type: 'error',
-            content: `Failed to start a new session: ${message}`,
-            timestamp: new Date(),
-          });
-          return;
         }
 
+        const resolvedProjectPath = selectedProject.fullPath || selectedProject.path || '';
+        const sessionSummary = getNotificationSessionSummary(selectedSession, currentInput);
+
+        // The conversation always has a stable backend-allocated session id
+        // BEFORE the first websocket send: brand-new chats allocate one here
+        // via the session gateway. There is no client-visible session-id
+        // handoff later — this id stays valid for the conversation's lifetime.
+        let targetSessionId = selectedSession?.id || currentSessionId || null;
         if (!targetSessionId) {
-          addMessage({
-            type: 'error',
-            content: 'Failed to start a new session: no session id returned.',
-            timestamp: new Date(),
+          try {
+            const response = await authenticatedFetch('/api/providers/sessions', {
+              method: 'POST',
+              body: JSON.stringify({
+                provider,
+                projectPath: resolvedProjectPath,
+              }),
+            });
+            if (!response.ok) {
+              throw new Error(`Failed to create session (${response.status})`);
+            }
+            const body = await response.json();
+            if (!scope.active) return;
+            targetSessionId = body?.data?.sessionId || null;
+          } catch (error) {
+            if (!scope.active) return;
+            const message = error instanceof Error ? error.message : 'Unknown error';
+            console.error('Session creation failed:', error);
+            addMessage({
+              type: 'error',
+              content: `Failed to start a new session: ${message}`,
+              timestamp: new Date(),
+            });
+            return;
+          }
+
+          if (!targetSessionId) {
+            addMessage({
+              type: 'error',
+              content: 'Failed to start a new session: no session id returned.',
+              timestamp: new Date(),
+            });
+            return;
+          }
+
+          onSessionEstablished?.(targetSessionId, {
+            provider,
+            project: selectedProject,
+            summary: sessionSummary,
           });
-          return;
         }
 
-        onSessionEstablished?.(targetSessionId, {
-          provider,
-          project: selectedProject,
-          summary: sessionSummary,
+        const userMessage: ChatMessage = {
+          type: 'user',
+          content: currentInput,
+          images: uploadedImages as any,
+          timestamp: new Date(),
+        };
+
+        if (claimQueue) {
+          // Claim only after preparation succeeds. If an upload fails or this
+          // composer unmounts while it is pending, the saved queue stays intact.
+          if (queuedDraftRef.current !== queuedSend || (sessionKey && !readQueuedMessage(sessionKey))) return;
+          if (sessionKey) clearQueuedMessage(sessionKey);
+          setQueuedDraft(null);
+        }
+
+        addMessage(userMessage);
+        // Mark this request as processing in the per-session activity map (the
+        // single source of truth the indicator derives from). The id is always
+        // concrete at this point — no pending placeholder exists anymore.
+        onSessionProcessing?.(targetSessionId, {
+          statusText: null,
+          canInterrupt: true,
         });
-      }
 
-      const userMessage: ChatMessage = {
-        type: 'user',
-        content: currentInput,
-        images: uploadedImages as any,
-        timestamp: new Date(),
-      };
+        setIsUserScrolledUp(false);
+        scrollToBottom();
 
-      if (claimQueue) {
-        // Claim only after preparation succeeds. If an upload fails or this
-        // composer unmounts while it is pending, the saved queue stays intact.
-        if (queuedDraftRef.current !== queuedSend || (sessionKey && !readQueuedMessage(sessionKey))) return;
-        if (sessionKey) clearQueuedMessage(sessionKey);
-        setQueuedDraft(null);
-      }
+        // One message shape for every provider. The backend resolves the
+        // provider, project path, and provider-native resume id from the
+        // session row; `options` only carries composer-level preferences.
+        sendMessage({
+          type: 'chat.send',
+          sessionId: targetSessionId,
+          content: messageContent,
+          options: {
+            ...sendOptions,
+            images: uploadedImages,
+          },
+        });
 
-      addMessage(userMessage);
-      // Mark this request as processing in the per-session activity map (the
-      // single source of truth the indicator derives from). The id is always
-      // concrete at this point — no pending placeholder exists anymore.
-      onSessionProcessing?.(targetSessionId, {
-        statusText: null,
-        canInterrupt: true,
-      });
+        if (!queuedSend) {
+          setAttachedImages((current) => current.filter((file) => !sentImages.has(file)));
+        }
 
-      setIsUserScrolledUp(false);
-      scrollToBottom();
-
-      // One message shape for every provider. The backend resolves the
-      // provider, project path, and provider-native resume id from the
-      // session row; `options` only carries composer-level preferences.
-      sendMessage({
-        type: 'chat.send',
-        sessionId: targetSessionId,
-        content: messageContent,
-        options: {
-          ...sendOptions,
-          images: uploadedImages,
-        },
-      });
-
-      // A queued send owns its payload, never the editable next draft. Likewise,
-      // typing during an upload must not be erased when that upload finishes.
-      if (!queuedSend && inputValueRef.current === currentInput) {
-        setInput('');
-        inputValueRef.current = '';
-        resetCommandMenuState();
-        setAttachedImages([]);
-        setUploadingImages(new Map());
-        setImageErrors(new Map());
-        if (textareaRef.current) applyEmptyTextareaHeight(textareaRef.current);
-        if (inputStorageKey) safeLocalStorage.setItem(inputStorageKey, '');
+        // A queued send owns its payload, never the editable next draft. Likewise,
+        // typing during an upload must not be erased when that upload finishes.
+        if (!queuedSend && inputValueRef.current === currentInput) {
+          setInput('');
+          inputValueRef.current = '';
+          resetCommandMenuState();
+          setUploadingImages(new Map());
+          setImageErrors(new Map());
+          if (textareaRef.current) applyEmptyTextareaHeight(textareaRef.current);
+          if (inputStorageKey) safeLocalStorage.setItem(inputStorageKey, '');
+        }
+      } finally {
+        scope.preparations.delete(queuedSend);
       }
     },
     [
