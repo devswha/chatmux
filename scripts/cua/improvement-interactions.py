@@ -63,8 +63,22 @@ def activate(locator, mobile):
 
 
 def open_sidebar(page, mobile):
-    if mobile and not page.get_by_role('button', name='Close sidebar', exact=True).is_visible():
+    if not mobile:
+        return
+    close = page.get_by_role('button', name='Close sidebar', exact=True)
+    # Computed visibility stays true during a closing transition. Inspect the
+    # requested state, then wait for the opening panel to reach the viewport.
+    requested_open = close.count() > 0 and close.evaluate("node => node.parentElement.classList.contains('visible')")
+    if not requested_open:
         page.get_by_role('button', name='Open menu', exact=True).tap()
+    panel = close.locator('xpath=following-sibling::div[1]')
+    expect(panel).to_be_in_viewport(ratio=1)
+
+
+def failed_read(status, code):
+    def fulfill(route):
+        route.fulfill(status=status, json={'error': code})
+    return fulfill
 
 
 def check_pins(page, mobile, manifest, evidence, name, checks):
@@ -139,7 +153,7 @@ def check_diagnostics(page, mobile, evidence, name, checks):
     page.screenshot(path=str(evidence / f'{name}-diagnostics.png'))
     refresh = dialog.get_by_role('button', name='Refresh summary', exact=True)
     for status, code in [(403, 'owner_required'), (503, 'diagnostics_unavailable')]:
-        page.route('**/api/settings/diagnostics', lambda route, status=status, code=code: route.fulfill(status=status, json={'error': code}))
+        page.route('**/api/settings/diagnostics', failed_read(status, code))
         with page.expect_response(lambda response: response.url.endswith('/api/settings/diagnostics') and response.status == status):
             activate(refresh, mobile)
         expect(dialog.get_by_role('alert')).to_be_visible()
@@ -202,19 +216,22 @@ def check_terminal_accessibility(page, mobile, evidence, name, checks):
     expect(page.locator('.xterm-screen')).to_be_visible(timeout=20_000)
     opener = page.get_by_role('button', name='Open shortcuts panel', exact=True)
     if opener.is_visible(): activate(opener, mobile)
-    for modifier in ['Ctrl', 'Alt']:
-        button = page.get_by_role('button', name=modifier, exact=True)
-        expect(button).to_have_attribute('aria-pressed', 'false')
-        activate(button, mobile)
-        expect(button).to_have_attribute('aria-pressed', 'true')
-        activate(button, mobile)
-        expect(button).to_have_attribute('aria-pressed', 'false')
-    for direction in ['Up', 'Down', 'Left', 'Right']:
-        expect(page.get_by_role('button', name=f'Arrow {direction}', exact=True)).to_be_visible()
+    if mobile:
+        # The on-screen shortcut strip intentionally hides at desktop widths.
+        for modifier in ['CTRL', 'ALT']:
+            button = page.get_by_role('button', name=modifier, exact=True)
+            expect(button).to_have_attribute('aria-pressed', 'false')
+            activate(button, mobile)
+            expect(button).to_have_attribute('aria-pressed', 'true')
+            activate(button, mobile)
+            expect(button).to_have_attribute('aria-pressed', 'false')
+        for direction in ['Up', 'Down', 'Left', 'Right']:
+            expect(page.get_by_role('button', name=f'Arrow {direction}', exact=True)).to_be_visible()
+        checks['terminal_modifier_state_and_arrow_names'] = True
     page.screenshot(path=str(evidence / f'{name}-terminal.png'))
     activate(page.get_by_role('tab', name='Chat', exact=True), mobile)
     expect(page.locator('textarea').first).to_be_visible()
-    checks['terminal_modifier_state_arrow_names_and_roundtrip'] = True
+    checks['terminal_attach_and_chat_roundtrip'] = True
 
 
 def run_case(browser, engine, width, height, mobile, manifest, evidence):
@@ -257,6 +274,8 @@ def run_case(browser, engine, width, height, mobile, manifest, evidence):
         page.screenshot(path=str(evidence / f'{name}-failure.png'))
     finally:
         context.close()
+    print(json.dumps({'engine': engine, 'width': width, 'ok': result['ok'],
+                      'checks': list(checks), 'error': result.get('error', '').split('\n')[0]}), flush=True)
     return result
 
 
