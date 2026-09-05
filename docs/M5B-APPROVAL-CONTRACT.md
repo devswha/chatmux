@@ -3,46 +3,34 @@
 기준일: 2026-07-25 · 승인 계획 §5 B7b · 선행 조건: "provider별 prompt identity 조사 승인"
 개정: rev.2 — critic 반증을 반영해 §2를 "식별자 부재"에서 "해석기가 식별자를 소비하지 않음"으로 정정하고, 강등 논거를 §3 단독으로 재구성했다.
 개정: rev.3 (2026-09-02) — rev.2 이후 codex·omp에 화면 파싱 기반 in-app 승인이 구현되었다(`server/modules/providers/services/tmux-approval.service.ts`, 7691544, 2026-07-31). 계약이 구현을 판정하지 않는 상태를 끝내기 위해 §1을 "조건부 허용"으로 개정하고, 허용 조건으로 §6의 1c(응답 직전 라이브 재확인)와 새 1d(결합 등급)를 규정한다. 2026-09 코드리뷰 S12·S17.
-개정: rev.4 (2026-09-05) — 현재 소스의 Claude live-tmux 질문·명령 승인·계획 승인 경로를 반영한다. 기존 codex·omp 승인 API, pane 기반 interactive API, 전사 기반 질문, L1 SDK capability를 구분한다. native one-shot 승인 채널을 새로 허용하는 개정은 아니다.
 
 ## 1. 판정 요약
 
 **tmux relay(L2) provider의 기본값은 여전히 대안 D(verified terminal attach)다.**
-다만 아래 화면·라이브 재확인 조건과 해당 작업의 대상 결합 조건을 만족하는
-provider·pane에 한해 제한된 in-app 질문·승인 응답을 허용한다.
+다만 아래 세 조건을 모두 만족하는 provider·pane에 한해 in-app 승인 응답을 허용한다.
 
 1. **화면 근거** — 서버가 pane을 직접 capture해 *현재 표시 중인* 승인 메뉴를 파싱할 수
-   있어야 한다. 기존 `tmux-approval.service.ts`는 codex·omp 전용이다. 별도의
-   `tmux-interactive-prompt.service.ts`는 Claude의 질문·명령 승인·계획 승인도
-   처리한다. 파싱에 실패하면 구조화된 응답을 제공하지 않는다. 이것은 B7b가
-   상정했던 native one-shot 승인 응답이 아니다.
+   있어야 한다. 파서는 provider별로 명시적이며(현재 codex, omp), 파싱에 실패하면 승인
+   UI는 나타나지 않는다. B7b가 상정했던 전사 식별자 기반 응답은 여전히 구현하지 않는다.
 2. **응답 직전 라이브 재확인(§6 1c)** — 키를 보내기 직전에 pane을 다시 capture해
    스크롤백이 아닌 화면 꼬리에 승인 메뉴가 *아직* 떠 있음을 확인한다
-   (`approvalTailIsActive`, interactive 경로는 `promptTailIsActive`). Interactive
-   응답은 재캡처한 질문·본문·선택지 등의 화면 기반 prompt ID도 요청과 대조하고
-   표시된 선택지만 허용한다. 이 확인과 `send-keys` 사이의 창은 기존 키 전송과
-   동일한 수용된 TOCTOU다. 원자성은 tmux가 제공하지 않으며, 계약은
+   (`approvalTailIsActive`). 이 확인과 `send-keys` 사이의 창은 전송 경로(§4의
+   paste·Enter)와 동일한 수용된 TOCTOU다. 원자성은 tmux가 제공하지 않으며, 계약은
    "재확인 뒤 즉시 전송"을 원자적 재확인의 대체로 인정한다.
-3. **대상과 결합 등급(§6 1d)** — 모든 경로는 정확한 pane identity와 프로세스
-   혈통/generation을 다시 검증한다. 전사(session row)를 기준으로 한 요청은
-   provider session identity를 대조하고 pane과의 결합이
+3. **결합 등급(§6 1d)** — 승인 요청이 속한 전사(session row)와 pane의 결합이
    `tagged`(ChatMux가 spawn 시 pane에 기록) 또는 `observed`(프로세스 자체가 세션을
    지목: argv resume id, per-pid 런타임 영수증, /proc으로 확인한 열린 전사)여야 한다.
    `inferred`(cwd + 시간 창 추론)는 같은 폴더의 다른 TUI를 가리킬 수 있으므로 승인
    응답과 세션 기준 키 전송을 거부하고 attach로 폴백한다
    (`TMUX_SESSION_BINDING_INFERRED`, 플릿 경로는 `FLEET_CAPABILITY_UNAVAILABLE`).
-   Pane 기반 `/api/providers/sessions/external/interactive/respond`는 전사 ID 대신 정확한
-   pane·process와 현재 화면의 prompt ID를 대상으로 한다. 이 경로를 전사 결합의
-   증명으로 사용하거나 같은 cwd의 다른 세션으로 대체하지 않는다.
 
-해당 조건을 만족하지 못하는 경우(cursor·opencode 등 지원 파서가 없는 provider,
-전사 기반 작업의 `inferred` 결합, 사라지거나 변경된 메뉴)는 강등 경로(§4)를 따른다.
-화면 기반 prompt ID는 동일한 내용이 다시 나타나는 것을 구분하는 native nonce가
-아니며, B7b의 one-shot `interactionGeneration`은 여전히 구현하지 않는다.
+조건을 하나라도 만족하지 못하는 경우(claude·cursor·opencode 등 파서가 없는 provider,
+`inferred` 결합, 메뉴가 화면에서 사라진 경우)는 rev.2와 동일하게 강등 경로(§4)를 따른다.
+in-app 승인 응답(B7b의 one-shot `interactionGeneration`)은 여전히 구현하지 않는다.
 
-§2~3은 2026-07-25 조사 당시의 배경과 native 승인 채널 강등 근거다. 전사 식별자가
-있다는 사실만으로 실행 중인 TUI에 out-of-band 승인 응답을 보낼 수는 없다.
-현재의 제한된 화면·키 응답은 §1의 별도 조건을 따른다.
+강등의 결정적 근거는 **§3(승인 응답을 실행 중인 TUI에 전달할 out-of-band 채널이
+없음)** 하나다. §2의 식별자 논의는 이 결론의 전제가 아니라 배경이다 — 식별자가
+있더라도 전달할 방법이 없으면 승인 UI를 만들 수 없다.
 
 이는 계획이 규정한 정상 경로다: §5 B7b는 "provider별 opt-in이며 evidence 미확보
 provider는 대안 D로 강등"을 명시하고, §4.4는 evidence 없는 승인 채널을 금지한다.
@@ -50,10 +38,6 @@ provider는 대안 D로 강등"을 명시하고, §4.4는 evidence 없는 승인
 동작하도록 구현하는 것까지가 M5b의 의무다.
 
 ## 2. 배경 — 식별자는 전사에 있으나 해석기가 읽지 않는다
-
-이 절의 표와 줄 번호는 당시의 **활동 감지기** 조사 기록이다. 현재의 전체 질문·승인
-지원표가 아니다. 전사 기반 질문의 `tmux-ask-selection.service.ts`는 미응답 tool ID를
-확인하고 라이브 화면과 대조하며, pane 기반 interactive 경로는 화면 prompt ID를 쓴다.
 
 ### 2.1 승인 감지는 도구 이름 휴리스틱이다
 
@@ -99,31 +83,28 @@ revision, nonce, sequence 중 무엇도 없다.
 | cursor | `parseCursorActivity` :246-257 | 미소비 | degrade |
 | opencode | :272-276 | `state.status` pending/running만 확인 | degrade |
 
-L1 SDK 레인은 이 문제의 대상이 아니다. `provider-capabilities.service.ts`의
-`supportsPermissionRequests`는 gjc·claude에서 true인 일반 runtime capability다.
-이 표나 프런트엔드의 permission-mode fallback을 live-tmux 질문·승인 지원표로
-해석하지 않는다. SDK capability는 실행 중인 pane에 대한 제어 권한이나 응답 경로를
-증명하지 않는다. B7b가 다루는 것은 **L2 tmux relay**다.
+L1 SDK 레인은 이 문제의 대상이 아니다: gjc와 claude 모두
+`supportsPermissionRequests: true`(`provider-capabilities.service.ts`, gjc :86,
+claude :41)로 권한 요청이 이미 UI에 도달한다. B7b가 메우려는 것은 **L2 tmux
+relay**의 공백뿐이다.
 
-## 3. Native 승인 채널 강등 근거 — 당시 조사 범위
+## 3. 강등의 결정적 근거 — 응답 전달 채널이 없다
 
-조사 당시 L2는 **키 입력만** 가능한 채널이었다. M5a에서 만든 채널도 `interrupt`/`escape`
+L2는 **키 입력만** 가능한 채널이다. M5a에서 만든 채널도 `interrupt`/`escape`
 두 개의 고정 argv뿐이다. 승인을 전달하려면 TUI의 현재 프롬프트 상태를 알고 그에
 맞는 키(`y`/`n`, 방향키+Enter, 번호 선택 …)를 보내야 한다.
 
 - 그 매핑은 provider마다 다르고 버전마다 바뀐다.
-- 화면 근거 없이 provider 내부 상태를 추측해 범용 승인 매핑을 내장하는 것은
-  `docs/ROADMAP.md`의 범위 밖 조항("provider가 제공하는 CLI, 인증, sandbox,
-  모델 실행 기능의 재구현")과 계획 §4.4가 금지한다. 현재 화면의 명시적 선택지만
-  해석하는 §1의 제한된 경로와 구분한다.
+- 매핑을 서버에 내장하는 것은 **provider TUI 내부 상태의 재구현**이며,
+  `docs/ROADMAP.md:57`의 범위 밖 조항("provider가 제공하는 CLI, 인증, sandbox,
+  모델 실행 기능의 재구현")과 계획 §4.4가 함께 금지한다.
 - 매핑 없이 일반 키 allowlist로 처리하는 안은 계획 §4.4가 명시적으로 기각했다:
   "같은 process의 다른 prompt를 조작 가능. stale UI가 같은 process의 다음
   prompt에 응답 가능."
 
-2026-07-25에 조사한 실행 중 tmux CLI 경로에서는 **키 시뮬레이션이 아닌 승인
-응답 전달 경로**(파일 드롭, 소켓, CLI 서브커맨드)를 확인하지 못했다. 이는 모든
-provider SDK나 이후 버전의 기능 부재를 뜻하지 않는다. 새로운 native 채널 도입은
-별도의 계약·대상 식별 검증이 필요하며, 현재 화면 파서만으로 그 채널을 주장하지 않는다.
+조사 결과 어떤 provider도 **키 시뮬레이션이 아닌 응답 전달 경로**(파일 드롭,
+소켓, CLI 서브커맨드)를 노출하지 않는다. 따라서 식별자를 읽도록 파서를 고쳐도
+안전하게 답할 방법이 없다. 이것이 근거 부족이 아니라 구조적 불가능이다.
 
 ## 4. 강등 경로 — 사용자는 무엇을 하는가
 
@@ -144,10 +125,10 @@ M2에서 이미 구현·강화됐다:
 
 | 항목 | 결정 |
 |---|---|
-| B7b in-app 승인 | **Native one-shot 승인 응답은 구현하지 않음**. 기존 승인 API는 codex·omp, interactive API는 Claude 질문·명령 승인·계획 승인도 지원. §1의 화면·라이브 재확인·정확한 대상 조건 및 전사 기반 작업의 결합 조건을 충족하지 못하면 강등 |
+| B7b in-app 승인 | **전사 식별자 기반 응답은 구현하지 않음**. 화면 파싱 기반 응답은 §1의 세 조건(파서 존재·라이브 재확인·결합 등급 tagged/observed) 아래 codex·omp에만 허용, 그 외는 강등 |
 | B8 승인 action | 구현 — 아래 AC 참조 |
 | B10 relay 이미지 | 구현 — asset store 저장 후 **경로 문자열만** 붙여넣기, 프로젝트/HOME 밖 거절, B0 경유 |
-| 문서화 | 본 문서 + 사용자 대면 안내(지원 화면은 제한된 질문·승인 UI, 검증 불가 시 해당 pane의 터미널에서 응답) |
+| 문서화 | 본 문서 + 사용자 대면 안내(승인은 터미널에서 답한다) |
 
 ### B8 action AC
 
@@ -161,16 +142,16 @@ M2에서 이미 구현·강화됐다:
 
 ## 6. 재검토 조건
 
-Native one-shot 승인 채널 강등은 아래 **두 조건이 모두** 성립할 때 재검토한다.
-§1의 제한된 화면 응답과는 별개의 조건이다.
+강등은 아래 **두 조건이 모두** 성립할 때 해제한다. 조건 1(식별자)은 이미 상당
+부분 충족되어 있으므로, 실질적 관문은 조건 2다.
 
 | # | 조건 | 현재 상태 |
 |---|---|---|
 | 1a | 승인 프롬프트에 안정적인 native 식별자가 전사에 존재 | **충족** — claude `toolu_*`, codex `call_id`, omp 동형(§2.3) |
-| 1b | ChatMux 해석기가 그 식별자를 읽어 활동 결과에 실어 보냄 | 활동 결과에 native 승인 식별자를 싣는 계약은 미충족. 전사 질문의 tool ID 소비와 화면 기반 prompt ID는 별도 경로다 |
-| 1c | 응답 직전 "이 프롬프트가 아직 미응답"임을 재확인할 수단 | **조건부 충족(rev.3~4)** — pane capture의 화면 꼬리 검사와 interactive prompt ID 대조로 확인하고 즉시 전송한다. 남는 창은 수용된 TOCTOU이며 native one-shot 보장은 아니다 |
-| 1d | 승인 요청의 전사와 pane의 결합이 프로세스 근거를 가질 것 (`tagged` 또는 `observed`) | 구현은 `inferred`를 거부한다. 다만 `tmux-session-binding.service.ts`는 `null`/미지정 등급도 허용하므로 이 규범을 완전히 강제한다고 볼 수 없다. 미지정 등급을 승인 근거로 인정하는 계약 변경은 하지 않는다 |
-| 2 | 키 시뮬레이션이 아닌 **응답 전달 경로**(파일·소켓·CLI 서브커맨드) | 해당 live-tmux 승인 계약에 도입되지 않음. 과거 조사 범위는 §3 참조 |
+| 1b | ChatMux 해석기가 그 식별자를 읽어 활동 결과에 실어 보냄 | 미충족 — 파서 확장으로 가능(§2.1~2.2) |
+| 1c | 응답 직전 "이 프롬프트가 아직 미응답"임을 재확인할 수단 | **조건부 충족(rev.3)** — 전사 재읽기가 아니라 pane capture의 화면 꼬리 검사(`approvalTailIsActive`)로 확인하고 즉시 전송한다. 남는 창은 전송 경로와 같은 수용된 TOCTOU다 |
+| 1d | 승인 요청의 전사와 pane의 결합이 프로세스 근거를 가질 것 (`tagged` 또는 `observed`) | **충족(rev.3)** — 외부 CLI 로스터가 결합 등급을 실어 보내고, 검증 타깃이 이를 운반하며, 승인·ask·세션 기준 전송이 `inferred`를 거부한다 |
+| 2 | 키 시뮬레이션이 아닌 **응답 전달 경로**(파일·소켓·CLI 서브커맨드) | 미충족 — 조사한 5개 provider 모두 없음(§3) |
 
 조건 2는 provider 쪽 변화다. rev.3의 화면 파싱 경로는 조건 2를 대체하지 않는다: 그것은
 "현재 화면에 보이는 메뉴에, 방금 확인한 그대로, 방향키와 Enter를 보낸다"는 제한된
