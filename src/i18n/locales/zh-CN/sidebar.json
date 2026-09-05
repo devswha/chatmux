@@ -56,13 +56,31 @@
       "running": "代理正在响应或运行工具",
       "waitingUser": "等待中",
       "waitingUserTitle": "当前轮次已完成，正在等待你的下一次输入",
-      "approvalPending": "等待批准",
-      "approvalPendingTitle": "代理正在等待你的选择或批准",
-      "approvalPendingAttach": "连接到「{{name}}」以回复待处理的批准",
+      "approvalPending": "需要回复",
+      "approvalPendingTitle": "代理需要你的回复",
+      "approvalPendingAttach": "连接到“{{name}}”终端以回复代理",
       "notStarted": "待开始",
       "notStartedTitle": "尚未发送第一条消息",
       "unknown": "无法确认",
       "unknownTitle": "无法根据提供商记录安全地确定当前状态"
+    }
+  },
+  "attention": {
+    "scope": "本机 · 仅限已报告的本地会话",
+    "filterLabel": "按待处理状态筛选本地会话",
+    "all": "全部本地",
+    "input": "需要回复",
+    "failure": "失败",
+    "connection": "连接问题",
+    "nextAttention": "下一个待处理会话",
+    "nextMatch": "下一个匹配会话",
+    "empty": "已报告的本地会话中没有匹配项。",
+    "status": {
+      "running": "代理正在回复或运行工具",
+      "ready": "已准备好接收下一条指令",
+      "input": "代理需要你的回复",
+      "error": "代理报告了失败",
+      "connection": "连接出现问题，无法确认代理状态"
     }
   }
 }
