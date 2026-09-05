@@ -41,9 +41,9 @@
       "running": "L'agente sta rispondendo o eseguendo strumenti",
       "waitingUser": "In attesa",
       "waitingUserTitle": "Il turno corrente è completato e attende il prossimo input",
-      "approvalPending": "Approvazione in attesa",
-      "approvalPendingTitle": "L'agente attende la selezione o l'approvazione",
-      "approvalPendingAttach": "Collegati a '{{name}}' per rispondere all'approvazione in attesa",
+      "approvalPending": "Risposta richiesta",
+      "approvalPendingTitle": "L’agente attende una risposta",
+      "approvalPendingAttach": "Apri il terminale di «{{name}}» per rispondere all’agente",
       "notStarted": "Pronto",
       "notStartedTitle": "Non è stato ancora inviato alcun messaggio",
       "unknown": "Non disponibile",
@@ -64,5 +64,23 @@
     "enable": "Attiva per questa sessione le notifiche quando la risposta dell'assistente è pronta",
     "timeout": "Le notifiche quando la risposta dell'assistente è pronta sono scadute. Riprova.",
     "conflict": "Le impostazioni di notifica per le risposte dell'assistente sono cambiate. Riprova."
+  },
+  "attention": {
+    "scope": "Questo computer · solo sessioni locali segnalate",
+    "filterLabel": "Filtra le sessioni locali che richiedono attenzione",
+    "all": "Tutte le locali",
+    "input": "Risposta richiesta",
+    "failure": "Errori",
+    "connection": "Problemi di connessione",
+    "nextAttention": "Prossima sessione da controllare",
+    "nextMatch": "Prossima sessione corrispondente",
+    "empty": "Nessuna sessione locale segnalata corrisponde a questo filtro.",
+    "status": {
+      "running": "L’agente risponde o esegue strumenti",
+      "ready": "Pronto per la prossima istruzione",
+      "input": "L’agente attende una risposta",
+      "error": "L’agente ha segnalato un errore",
+      "connection": "Problema di connessione; stato dell’agente non disponibile"
+    }
   }
 }

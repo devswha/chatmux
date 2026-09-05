@@ -57,9 +57,9 @@
       "running": "Agent is responding or running tools",
       "waitingUser": "Waiting",
       "waitingUserTitle": "The current turn is complete and waiting for your next input",
-      "approvalPending": "Approval pending",
-      "approvalPendingTitle": "The agent is waiting for your selection or approval",
-      "approvalPendingAttach": "Attach to '{{name}}' to answer the pending approval",
+      "approvalPending": "Response needed",
+      "approvalPendingTitle": "The agent needs your response",
+      "approvalPendingAttach": "Attach to '{{name}}' to respond to the agent",
       "notStarted": "Ready",
       "notStartedTitle": "No message has been sent yet",
       "unknown": "Unavailable",
@@ -146,6 +146,24 @@
       "offline": "Not reachable — the rows below are the last known state",
       "revoked": "This machine's access was revoked",
       "incompatible": "This machine runs an incompatible fleet protocol version"
+    }
+  },
+  "attention": {
+    "scope": "This machine · reported sessions only",
+    "filterLabel": "Filter local sessions by attention",
+    "all": "All local",
+    "input": "Response needed",
+    "failure": "Failures",
+    "connection": "Connection issues",
+    "nextAttention": "Next needing attention",
+    "nextMatch": "Next matching session",
+    "empty": "No reported local sessions match this filter.",
+    "status": {
+      "running": "Agent is responding or running tools",
+      "ready": "Ready for the next instruction",
+      "input": "The agent needs your response",
+      "error": "The agent reported a failure",
+      "connection": "Connection issue; agent activity is unavailable"
     }
   }
 }
