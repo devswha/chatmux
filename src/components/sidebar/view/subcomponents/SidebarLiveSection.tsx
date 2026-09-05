@@ -410,6 +410,9 @@ export default function SidebarLiveSection({
 
   const selectRow = (row: LiveSessionRow) => {
     if (!canSelectRow(row)) return;
+    // A later transcript belongs to the old selection once the user chooses
+    // another lane. Filter-only changes intentionally keep this pending target.
+    if (row.kind !== 'external') pendingExternalTranscriptRef.current = null;
     setNavigationCursor(row.sortId);
     if (row.kind === 'external') {
       openExternalSession(row.session, projects, pendingExternalTranscriptRef, onExternalTerminalOpen!);
