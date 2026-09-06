@@ -10,6 +10,7 @@ import {
   hostSpawnUrl,
   hostTranscriptSearchUrl,
   isLocalHostScope,
+  localProjectIdForScope,
 } from './urls';
 
 const LOCAL = '11111111-1111-4111-8111-111111111111';
@@ -22,6 +23,16 @@ const local = { hostId: LOCAL, localHostId: LOCAL };
 const unknown = { hostId: null, localHostId: null };
 const peerA = { hostId: PEER_A, localHostId: LOCAL };
 const peerB = { hostId: PEER_B, localHostId: LOCAL };
+
+test('local-only project APIs require agreement between route and project ownership', () => {
+  assert.equal(localProjectIdForScope(unknown, { projectId: PROJECT }), PROJECT);
+  assert.equal(localProjectIdForScope(local, { projectId: PROJECT, hostId: LOCAL }), PROJECT);
+  assert.equal(localProjectIdForScope(local, { projectId: PROJECT, hostId: PEER_A }), undefined);
+  assert.equal(localProjectIdForScope(peerA, { projectId: PROJECT }), undefined);
+  assert.equal(localProjectIdForScope(peerA, { projectId: PROJECT, hostId: LOCAL }), undefined);
+  assert.equal(localProjectIdForScope(unknown, { projectId: PROJECT, hostId: PEER_A }), undefined);
+  assert.equal(localProjectIdForScope(local, null), undefined);
+});
 
 test('Given a scope, when locality is asked, then only the local host and an unknown identity are local', () => {
   // Given / When / Then
