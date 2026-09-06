@@ -2,6 +2,7 @@ import type { ExternalTerminalTarget, Project, ProjectSession } from '../../../t
 import type { TmuxPaneIdentity, TmuxPaneTarget } from '../../../../shared/tmux';
 import type { ProviderConnectionIssue } from '../../../../shared/provider-connection';
 import type { ExternalCliSession } from '../hooks/useExternalCliSessions';
+import type { FleetSessionReference } from '../../../fleet/references';
 import type {
   CompletionNotificationDescriptor,
   CompletionNotificationDevice,
@@ -35,6 +36,7 @@ export type SidebarProps = {
   onCloseSettings: () => void;
   isMobile: boolean;
   onExternalTerminalOpen: (target: ExternalTerminalTarget, options?: { forceAttach?: boolean }) => void;
+  onRemoteSessionOpen?: (target: FleetSessionReference) => void;
   onExternalSessionsChange: (sessions: ExternalCliSession[]) => void;
 };
 

@@ -38,6 +38,7 @@ function Sidebar({
   onCloseSettings,
   isMobile,
   onExternalTerminalOpen,
+  onRemoteSessionOpen,
   onExternalSessionsChange,
 }: SidebarProps) {
   const { t } = useTranslation(['sidebar', 'common']);
@@ -162,6 +163,7 @@ function Sidebar({
           onShowVersionModal={() => setShowVersionModal(true)}
           onShowSettings={onShowSettings}
           onExternalTerminalOpen={onExternalTerminalOpen}
+          onRemoteSessionOpen={onRemoteSessionOpen}
           onExternalSessionsChange={onExternalSessionsChange}
           t={t}
         />

@@ -15,6 +15,7 @@ import { tmuxPaneIdentityKey } from '../../../../shared/tmux';
 import type { ExternalTerminalTarget, Project, ProjectSession } from '../../../types/app';
 import type { ExternalCliSession } from '../../sidebar/hooks/useExternalCliSessions';
 import type { ServerEvent } from '../../../contexts/WebSocketContext';
+import type { FleetSessionReference } from '../../../fleet/references';
 import { refreshExternalTerminalAttachCapability, resolveExternalTerminalRoute  } from '../externalTerminalRouting';
 import { useExternalTerminalDiscoveryAuthority } from '../useExternalTerminalDiscoveryAuthority';
 
@@ -23,6 +24,7 @@ export type ExternalTerminalStateWiring = {
   setSidebarOpen: (open: boolean) => void;
   onProjectSelect: (project: Project) => unknown;
   onSessionSelect: (session: ProjectSession) => unknown;
+  onRemoteSessionSelect?: (session: FleetSessionReference) => unknown;
   projects: readonly Project[];
   subscribe: (listener: (event: ServerEvent) => void) => () => void;
 };
@@ -32,6 +34,7 @@ export function useExternalTerminalState({
   setSidebarOpen,
   onProjectSelect,
   onSessionSelect,
+  onRemoteSessionSelect,
   projects,
   subscribe,
 }: ExternalTerminalStateWiring) {
@@ -88,6 +91,14 @@ export function useExternalTerminalState({
     setExternalTerminal(null);
   }, []);
 
+  const openRemoteSession = useCallback((target: FleetSessionReference) => {
+    setExternalTerminal(null);
+    setExternalTranscript(null);
+    setActiveTab('chat');
+    onRemoteSessionSelect?.(target);
+    setSidebarOpen(false);
+  }, [onRemoteSessionSelect, setActiveTab, setSidebarOpen]);
+
   useExternalTerminalDiscoveryAuthority({
     externalTerminal,
     setExternalTerminal,
@@ -107,5 +118,6 @@ export function useExternalTerminalState({
     refreshExternalTerminalCapability,
     openExternalTerminal,
     closeExternalTerminal,
+    openRemoteSession,
   };
 }
