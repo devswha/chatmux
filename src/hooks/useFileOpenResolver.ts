@@ -1,6 +1,8 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useLayoutEffect, useMemo, useRef } from 'react';
 
 import { api } from '../utils/api';
+import { useFleetHost } from '../fleet/FleetSessionRoute';
+import { localProjectIdForScope } from '../fleet/hostApi/urls';
 import type { Project } from '../types/app';
 
 type FileNode = {
@@ -61,9 +63,17 @@ export function useFileOpenResolver(
   selectedProject: Project | null | undefined,
   onFileOpen: OnFileOpen,
 ): OnFileOpen {
-  const projectId = selectedProject?.projectId;
-  const cacheRef = useRef<{ projectId?: string; files: Promise<FlatFile[]> | null }>({
-    projectId: undefined,
+  const { storeScope } = useFleetHost();
+  const projectId = localProjectIdForScope(storeScope, selectedProject);
+  const selection = useMemo(() => ({ projectId }), [projectId]);
+  const currentSelection = useRef<typeof selection | null>(selection);
+  currentSelection.current = selection;
+  useLayoutEffect(() => {
+    currentSelection.current = selection;
+    return () => { currentSelection.current = null; };
+  }, [selection]);
+  const cacheRef = useRef<{ selection?: typeof selection; files: Promise<FlatFile[]> | null }>({
+    selection: undefined,
     files: null,
   });
 
@@ -71,7 +81,7 @@ export function useFileOpenResolver(
     if (!projectId) {
       return Promise.resolve([]);
     }
-    if (cacheRef.current.projectId === projectId && cacheRef.current.files) {
+    if (cacheRef.current.selection === selection && cacheRef.current.files) {
       return cacheRef.current.files;
     }
 
@@ -91,18 +101,20 @@ export function useFileOpenResolver(
       }
     })();
 
-    cacheRef.current = { projectId, files: filesPromise };
+    cacheRef.current = { selection, files: filesPromise };
     return filesPromise;
-  }, [projectId]);
+  }, [projectId, selection]);
 
   return useCallback(
     (filePath: string, diffInfo?: any) => {
+      if (!projectId || currentSelection.current !== selection) return;
       const ref = normalize(filePath).trim();
       void loadFiles().then((files) => {
+        if (currentSelection.current !== selection) return;
         const match = findBestMatch(files, ref);
         onFileOpen(match ?? filePath, diffInfo);
       });
     },
-    [loadFiles, onFileOpen],
+    [loadFiles, onFileOpen, projectId, selection],
   );
 }

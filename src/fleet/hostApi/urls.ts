@@ -28,6 +28,17 @@ export function isLocalHostScope(scope: HostScope): boolean {
   return scope.hostId === null || scope.hostId === scope.localHostId;
 }
 
+/** Local-only APIs require both the current route and the selected project to be local. */
+export function localProjectIdForScope(
+  scope: HostScope,
+  project: { readonly projectId?: string; readonly hostId?: string } | null | undefined,
+): string | undefined {
+  return isLocalHostScope(scope)
+    && isLocalHostScope({ hostId: project?.hostId ?? scope.hostId, localHostId: scope.localHostId })
+    ? project?.projectId
+    : undefined;
+}
+
 function hostPrefix(scope: HostScope): string {
   return `/api/hosts/${encodeURIComponent(scope.hostId ?? '')}`;
 }
