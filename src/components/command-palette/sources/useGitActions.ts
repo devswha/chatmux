@@ -1,6 +1,8 @@
-import { useCallback } from 'react';
+import { useCallback, useLayoutEffect, useMemo, useRef } from 'react';
 
 import { authenticatedFetch } from '../../../utils/api';
+import { useFleetHost } from '../../../fleet/FleetSessionRoute';
+import { isLocalHostScope } from '../../../fleet/hostApi/urls';
 
 async function postGit(path: string, body: Record<string, unknown>) {
   const res = await authenticatedFetch(path, {
@@ -11,27 +13,36 @@ async function postGit(path: string, body: Record<string, unknown>) {
 }
 
 export function useGitActions(projectId: string | undefined) {
+  const { storeScope } = useFleetHost();
+  const localId = isLocalHostScope(storeScope) ? projectId : undefined;
+  const selection = useMemo(() => ({ localId }), [localId]);
+  const current = useRef<typeof selection | null>(selection);
+  current.current = selection;
+  useLayoutEffect(() => {
+    current.current = selection;
+    return () => { current.current = null; };
+  }, [selection]);
+  const run = useCallback((path: string, extra: Record<string, unknown> = {}) => {
+    if (!localId || current.current !== selection) return Promise.resolve();
+    return postGit(path, { project: localId, ...extra });
+  }, [localId, selection]);
   const fetch = useCallback(() => {
-    if (!projectId) return Promise.resolve();
-    return postGit('/api/git/fetch', { project: projectId });
-  }, [projectId]);
+    return run('/api/git/fetch');
+  }, [run]);
 
   const pull = useCallback(() => {
-    if (!projectId) return Promise.resolve();
-    return postGit('/api/git/pull', { project: projectId });
-  }, [projectId]);
+    return run('/api/git/pull');
+  }, [run]);
 
   const push = useCallback(() => {
-    if (!projectId) return Promise.resolve();
-    return postGit('/api/git/push', { project: projectId });
-  }, [projectId]);
+    return run('/api/git/push');
+  }, [run]);
 
   const checkout = useCallback(
     (branch: string) => {
-      if (!projectId) return Promise.resolve();
-      return postGit('/api/git/checkout', { project: projectId, branch });
+      return run('/api/git/checkout', { branch });
     },
-    [projectId],
+    [run],
   );
 
   return { fetch, pull, push, checkout };

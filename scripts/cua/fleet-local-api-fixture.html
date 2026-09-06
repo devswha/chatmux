@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ChatMux Fleet local API review</title></head>
+<body class="bg-background text-foreground"><main style="padding:24px"><h1>Fleet local API review</h1><p>Local UI fixture · synthetic projects · all API requests simulated</p><div id="app"></div><h2>Observed requests</h2><pre id="requests">[]</pre></main>
+<script type="module">
+import React from 'react';
+import {createRoot} from 'react-dom/client';
+import {MemoryRouter, Routes, Route, useNavigate} from 'react-router-dom';
+import i18next from 'i18next';
+import {I18nextProvider} from 'react-i18next';
+import '/src/index.css';
+import en from '/src/i18n/locales/en/common.json';
+import {ThemeProvider} from '/src/contexts/ThemeContext.jsx';
+import {PaletteOpsProvider,usePaletteOps} from '/src/contexts/PaletteOpsContext.tsx';
+import {FleetHostCatalogContext} from '/src/fleet/discovery/FleetHostCatalogContext.tsx';
+import FleetSessionRoute from '/src/fleet/FleetSessionRoute.tsx';
+import {setLocalHostIdentity} from '/src/fleet/hostIdentity.ts';
+import CommandPalette from '/src/components/command-palette/CommandPalette.tsx';
+const h=React.createElement;
+const LOCAL='11111111-1111-4111-8111-111111111111', PEER='22222222-2222-4222-8222-222222222222';
+const requests=[];
+window.fetch=async(input)=>{
+ const url=String(input); requests.push(url); document.querySelector('#requests').textContent=JSON.stringify(requests,null,2);
+ if(url==='/api/fleet/identity')return Response.json({installationId:LOCAL});
+ if(url.endsWith('/files'))return Response.json([{type:'file',name:'hub-only.txt',path:'hub-only.txt'}]);
+ if(url.includes('/git/commits'))return Response.json({commits:[{hash:'abc123',message:'hub-only-commit',author:'fixture'}]});
+ if(url.includes('/git/branches'))return Response.json({localBranches:['hub-only-branch']});
+ return Response.json({sessions:[]});
+};
+setLocalHostIdentity(LOCAL);
+const i18n=i18next.createInstance();
+await i18n.init({lng:'en',resources:{en:{common:en}},defaultNS:'common',interpolation:{escapeValue:false}});
+const catalog={localHostId:LOCAL,hosts:new Map()};
+function Surface(){
+ const [remote,setRemote]=React.useState(true), ops=usePaletteOps(), navigate=useNavigate();
+ const project={projectId:'collision',hostId:remote?PEER:LOCAL,displayName:remote?'Peer project':'Local project',fullPath:'/fixture',sessions:[]};
+ return h(React.Fragment,null,
+  h('label',null,'Selected project ',h('select',{'aria-label':'Selected project',value:remote?'peer':'local',onChange:e=>{const next=e.target.value==='peer';setRemote(next);navigate(next?`/hosts/${PEER}/session/collision`:'/session/collision')}},h('option',{value:'peer'},'Peer project'),h('option',{value:'local'},'Local project'))),
+  h('button',{onClick:()=>{requests.length=0;document.querySelector('#requests').textContent='[]';ops.openCommandPalette();},style:{margin:'16px',padding:'8px',border:'1px solid'}},'Open command palette'),
+  h(CommandPalette,{selectedProject:project,projects:[],currentSession:null,onOpenPinnedSession:()=>{},onStartNewChat:()=>{},onOpenSettings:()=>{}}));
+}
+const surface=h(FleetSessionRoute,null,h(Surface));
+createRoot(document.querySelector('#app')).render(h(I18nextProvider,{i18n},h(ThemeProvider,null,h(PaletteOpsProvider,null,h(FleetHostCatalogContext.Provider,{value:{catalog,hasRemoteHosts:true,refresh:()=>{}}},h(MemoryRouter,{initialEntries:[`/hosts/${PEER}/session/collision`]},h(Routes,null,h(Route,{path:'/hosts/:hostId/session/:sessionId',element:surface}),h(Route,{path:'/session/:sessionId',element:surface}))))))));
+</script></body></html>

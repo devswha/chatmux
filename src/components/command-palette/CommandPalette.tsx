@@ -15,6 +15,8 @@ import {
 import { useTheme } from '../../contexts/ThemeContext';
 import { usePaletteOps, usePaletteOpsRegister } from '../../contexts/PaletteOpsContext';
 import { useFleetHostCatalog } from '../../fleet/discovery/FleetHostCatalogContext';
+import { useFleetHost } from '../../fleet/FleetSessionRoute';
+import { localProjectIdForScope } from '../../fleet/hostApi/urls';
 import { EMPTY_HOST_ROW_SET } from '../../fleet/discovery/hostRows';
 import type { AppTab, Project } from '../../types/app';
 import type { SessionTarget } from '../../fleet/references';
@@ -72,6 +74,7 @@ export default function CommandPalette({
   const navigate = useNavigate();
   const ops = usePaletteOps();
   const { catalog } = useFleetHostCatalog();
+  const { storeScope } = useFleetHost();
   const { t } = useTranslation('common');
   const inventory = { catalog, projects };
   const { pins, togglePin, openPin, unpin, storageUnavailable } = usePinnedSessionNavigation(inventory, (target) => {
@@ -104,7 +107,7 @@ export default function CommandPalette({
 
   const projectId = selectedProject?.projectId;
   const hostId = selectedProject?.hostId ?? null;
-  const isRemoteProject = hostId !== null && hostId !== catalog.localHostId;
+  const localProjectId = localProjectIdForScope({ ...storeScope, localHostId: catalog.localHostId }, selectedProject);
 
   const showActions = !page || page === 'actions';
   const showSessions = !page || page === 'sessions';
@@ -114,12 +117,12 @@ export default function CommandPalette({
 
   // A peer's roster arrives on the discovery stream; the hub's project route
   // would answer with its own sessions under the same project id.
-  const localSessions = useSessionsSource(projectId, open && showSessions && !isRemoteProject);
+  const localSessions = useSessionsSource(localProjectId, open && showSessions);
   const messageMatches = useSessionMessageSearch({ project: selectedProject ?? undefined, query: search, enabled: open && showSessions });
-  const files = useFilesSource(projectId, open && showFiles);
-  const commits = useCommitsSource(projectId, open && showCommits);
-  const branches = useBranchesSource(projectId, open && showBranches);
-  const git = useGitActions(projectId);
+  const files = useFilesSource(localProjectId, open && showFiles);
+  const commits = useCommitsSource(localProjectId, open && showCommits);
+  const branches = useBranchesSource(localProjectId, open && showBranches);
+  const git = useGitActions(localProjectId);
 
   const peerRows = (hostId === null ? undefined : catalog.hosts.get(hostId))?.rows ?? EMPTY_HOST_ROW_SET;
   const sessionRows = React.useMemo(() => (
@@ -231,8 +234,8 @@ export default function CommandPalette({
 
             {showActions && (
               <PaletteActionGroups
-                selectedProject={selectedProject}
-                projectId={projectId}
+                selectedProject={localProjectId ? selectedProject : null}
+                projectId={localProjectId}
                 git={git}
                 run={run}
                 onStartNewChat={onStartNewChat}
