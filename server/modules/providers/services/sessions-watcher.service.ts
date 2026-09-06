@@ -2,7 +2,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { promises as fsPromises } from 'node:fs';
 
-import chokidar, { type FSWatcher } from 'chokidar';
+import chokidar, { type ChokidarOptions, type FSWatcher } from 'chokidar';
 
 import { projectsDb, sessionsDb } from '@/modules/database/index.js';
 import { generateDisplayName } from '@/modules/projects/index.js';
@@ -71,6 +71,18 @@ const WATCHER_IGNORED_PATTERNS = [
   '**/*.swp',
   '**/.DS_Store',
 ];
+
+export function sessionWatchOptions(provider: LLMProvider, rootPath: string): Pick<ChokidarOptions, 'ignored' | 'depth'> {
+  if (provider !== 'opencode') return { ignored: WATCHER_IGNORED_PATTERNS, depth: 6 };
+  const root = path.resolve(rootPath);
+  const database = path.join(root, 'opencode.db');
+  // Keep the parent directory to observe database creation/replacement, but
+  // never recurse into caches or watch unrelated files beside the database.
+  return { depth: 0, ignored: (candidate) => {
+    const absolute = path.resolve(candidate);
+    return absolute !== root && absolute !== database;
+  } };
+}
 
 const PROJECTS_UPDATE_DEBOUNCE_MS = 500;
 const PROJECTS_UPDATE_MAX_WAIT_MS = 2_000;
@@ -613,11 +625,10 @@ export async function initializeSessionsWatcher(): Promise<void> {
       if (sessionWatchersClosing || indexingScheduler !== scheduler) return;
 
       const watcher = chokidar.watch(rootPath, {
-        ignored: WATCHER_IGNORED_PATTERNS,
+        ...sessionWatchOptions(provider, rootPath),
         persistent: true,
         ignoreInitial: true,
         followSymlinks: false,
-        depth: 6,
         usePolling: process.env.CHATMUX_SESSION_WATCH_POLLING === '1',
         interval: 6_000,
         binaryInterval: 6_000,
