@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { MutableRefObject } from 'react';
 
-import { authenticatedFetch } from '../../../utils/api';
 import type { MarkSessionIdle, SessionActivityMap } from '../../../hooks/useSessionProtection';
 import type { Project, ProjectSession, LLMProvider } from '../../../types/app';
 import type { SessionStore, NormalizedMessage } from '../../../stores/useSessionStore';
@@ -9,6 +8,7 @@ import type { ChatMessage } from '../types/types';
 import { createCachedDiffCalculator, type DiffCalculator } from '../utils/messageTransforms';
 
 import { normalizedToChatMessages } from './useChatMessages';
+import { useLocalTokenUsage } from './useLocalTokenUsage';
 
 const MESSAGES_PER_PAGE = 20;
 const INITIAL_VISIBLE_MESSAGES = 100;
@@ -926,28 +926,7 @@ export function useChatSessionState({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chatMessages.length, isLoadingSessionMessages, searchTarget]);
 
-  // Initial token usage fetch for providers with file-backed usage data.
-  useEffect(() => {
-    if (!selectedProject || !selectedSession?.id) {
-      setTokenBudget(null);
-      return;
-    }
-    const fetchInitialTokenUsage = async () => {
-      try {
-        // The backend resolves the provider from the indexed session row.
-        const url = `/api/projects/${selectedProject.projectId}/sessions/${selectedSession.id}/token-usage`;
-        const response = await authenticatedFetch(url);
-        if (response.ok) {
-          setTokenBudget(await response.json());
-        } else {
-          setTokenBudget(null);
-        }
-      } catch (error) {
-        console.error('Failed to fetch initial token usage:', error);
-      }
-    };
-    fetchInitialTokenUsage();
-  }, [selectedProject, selectedSession?.id]);
+  useLocalTokenUsage(selectedProject, selectedSession?.id, setTokenBudget);
 
   const visibleMessages = useMemo(() => {
     if (chatMessages.length <= visibleMessageCount) return chatMessages;
