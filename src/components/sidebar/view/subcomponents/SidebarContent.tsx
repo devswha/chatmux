@@ -1,5 +1,6 @@
 import type { TFunction } from 'i18next';
 
+import type { FleetSessionReference } from '../../../../fleet/references';
 import { ScrollArea } from '../../../../shared/view/ui';
 import type { ExternalTerminalTarget, Project, ProjectSession } from '../../../../types/app';
 import type { TmuxPaneIdentity, TmuxPaneTarget } from '../../../../../shared/tmux';
@@ -44,6 +45,7 @@ type SidebarContentProps = {
   onShowVersionModal: () => void;
   onShowSettings: () => void;
   onExternalTerminalOpen: (target: ExternalTerminalTarget, options?: { forceAttach?: boolean }) => void;
+  onRemoteSessionOpen?: (target: FleetSessionReference) => void;
   onExternalSessionsChange: (sessions: ExternalCliSession[]) => void;
   t: TFunction;
 };
@@ -80,6 +82,7 @@ export default function SidebarContent({
   onShowVersionModal,
   onShowSettings,
   onExternalTerminalOpen,
+  onRemoteSessionOpen,
   onExternalSessionsChange,
   t,
 }: SidebarContentProps) {
@@ -152,6 +155,7 @@ export default function SidebarContent({
         <SidebarHostGroups
           local={localSummary}
           onRemotePaneOpen={onExternalTerminalOpen}
+          onRemoteSessionOpen={onRemoteSessionOpen}
         >
           {localSections}
         </SidebarHostGroups>

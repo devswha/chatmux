@@ -25,6 +25,12 @@ test('host-qualified deep links resolve display-safe project and session state f
   const selected = remoteRouteSelection(catalog, { hostId: PEER, localId: 'session-1' });
   assert.equal(selected?.project.hostId, PEER);
   assert.equal(selected?.project.fullPath, '');
+  assert.equal(selected?.project.displayName, 'Peer project');
   assert.equal(selected?.session.id, 'session-1');
   assert.equal(remoteRouteSelection(catalog, { hostId: LOCAL, localId: 'session-1' }), null);
+});
+
+test('uncatalogued peer sessions and removed hosts never synthesize a selectable transcript', () => {
+  assert.equal(remoteRouteSelection(catalog, { hostId: PEER, localId: 'omitted-session' }), null);
+  assert.equal(remoteRouteSelection({ ...catalog, hosts: new Map() }, { hostId: PEER, localId: 'session-1' }), null);
 });
