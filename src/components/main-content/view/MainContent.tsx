@@ -68,7 +68,7 @@ function MainContent({
   const { preferences } = useUiPreferences();
   const { t } = useTranslation('chat');
   const { activeSessionKey, storeScope } = useFleetHost();
-  const localProjectId = localProjectIdForScope(storeScope, selectedProject);
+  const localProjectId = externalTerminal ? undefined : localProjectIdForScope(storeScope, selectedProject);
   const { showRawParameters, showThinking, showImagePreviews, sendByCtrlEnter } = preferences;
 
   const {
@@ -105,7 +105,7 @@ function MainContent({
 
   // Resolves bare/partial file references (e.g. links inside chat messages) to
   // real project files before opening them in the in-app editor.
-  const resolvedFileOpen = useFileOpenResolver(selectedProject, handleFileOpen);
+  const resolvedFileOpen = useFileOpenResolver(localProjectId ? selectedProject : null, handleFileOpen);
   useEffect(() => { handleCloseEditor(); }, [localProjectId, handleCloseEditor]);
 
   usePaletteOpsRegister({

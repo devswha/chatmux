@@ -262,7 +262,7 @@ function AppContentInner() {
       </div>
 
       <CommandPalette
-        selectedProject={selectedProject}
+        selectedProject={externalTerminal ? null : selectedProject}
         projects={sidebarSharedProps.projects}
         currentSession={externalTerminal ? null : fleetHost.activeSession}
         onOpenPinnedSession={(target) => {

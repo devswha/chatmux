@@ -5,6 +5,10 @@ remote sidebar rows navigated directly, bypassing the local sidebar's terminal
 cleanup. Selecting a catalogued peer transcript left the previous terminal view
 active, including when the requested route was already selected.
 
+Terminal takeover also suspends project-scoped palette/editor operations. A
+terminal opened without changing the route must not borrow the last local
+project's file or Git actions; it does not acquire a project merely from cwd.
+
 A mounted test now clicks the production remote sidebar row while both external
 view states exist. It reproduced the retained terminal on the baseline and passes
 after routing selection through the app-shell controller. The controller clears
