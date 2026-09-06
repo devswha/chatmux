@@ -110,14 +110,13 @@ export function isGjcProcessArgs(args: string): boolean {
     return false;
   }
   const head = basename(tokens[0]);
-  if (head === 'gjc') {
-    return true;
-  }
-  if ((head === 'bun' || head === 'node') && tokens.length > 1) {
-    return basename(tokens[1]) === 'gjc'
-      || tokens[1].includes('@gajae-code/coding-agent');
-  }
-  return false;
+  const entryIndex = head === 'gjc' ? 0
+    : (head === 'bun' || head === 'node') && tokens.length > 1
+      && (basename(tokens[1]) === 'gjc' || tokens[1].includes('@gajae-code/coding-agent')) ? 1 : -1;
+  if (entryIndex < 0) return false;
+  // Our native inventory probes never own an interactive session. Excluding
+  // the subcommand must not exclude an ordinary prompt containing "skills".
+  return tokens[entryIndex + 1] !== 'skills';
 }
 
 /** Parses `ps -eo pid,ppid,args` rows (args may contain spaces); tolerates the header. */

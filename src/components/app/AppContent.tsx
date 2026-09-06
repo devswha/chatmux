@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
@@ -12,6 +12,8 @@ import { useProjectsState } from '../../hooks/useProjectsState';
 import { useFleetHost } from '../../fleet/FleetSessionRoute';
 import { useFleetHostCatalog } from '../../fleet/discovery/FleetHostCatalogContext';
 import type { ExternalTerminalTarget } from '../../types/app';
+import type { FleetSessionReference } from '../../fleet/references';
+import { sessionRoutePath } from '../../fleet/sessionRoute';
 
 import { useRunningSessionsSync } from './hooks/useRunningSessionsSync';
 import { useActiveExternalTranscript } from './hooks/useActiveExternalTranscript';
@@ -88,8 +90,12 @@ function AppContentInner() {
     () => remoteRouteSelection(catalog, fleetHost.activeSession),
     [catalog, fleetHost.activeSession],
   );
-  const selectedProject = remoteSelection?.project ?? localSelectedProject;
-  const selectedSession = remoteSelection?.session ?? localSelectedSession;
+  const isRemoteRoute = fleetHost.route.kind === 'remote-session';
+  const selectedProject = isRemoteRoute ? remoteSelection?.project ?? null : localSelectedProject;
+  const selectedSession = isRemoteRoute ? remoteSelection?.session ?? null : localSelectedSession;
+  const selectRemoteSession = useCallback((target: FleetSessionReference) => {
+    navigate(sessionRoutePath(target, localHostId));
+  }, [navigate, localHostId]);
 
   const {
     externalTerminal,
@@ -100,11 +106,13 @@ function AppContentInner() {
     refreshExternalTerminalCapability,
     openExternalTerminal,
     closeExternalTerminal,
+    openRemoteSession,
   } = useExternalTerminalState({
     setActiveTab,
     setSidebarOpen,
     onProjectSelect: sidebarSharedProps.onProjectSelect,
     onSessionSelect: sidebarSharedProps.onSessionSelect,
+    onRemoteSessionSelect: selectRemoteSession,
     projects: sidebarSharedProps.projects,
     subscribe,
   });
@@ -124,10 +132,12 @@ function AppContentInner() {
       return sidebarSharedProps.onSessionSelect(...args);
     },
     onExternalTerminalOpen: openExternalTerminal,
+    onRemoteSessionOpen: openRemoteSession,
     onExternalSessionsChange: refreshExternalTerminalCapability,
   }), [
     sidebarSharedProps,
     openExternalTerminal,
+    openRemoteSession,
     refreshExternalTerminalCapability,
     setExternalTerminal,
     setExternalTranscript,
@@ -252,7 +262,7 @@ function AppContentInner() {
       </div>
 
       <CommandPalette
-        selectedProject={selectedProject}
+        selectedProject={externalTerminal ? null : selectedProject}
         projects={sidebarSharedProps.projects}
         currentSession={externalTerminal ? null : fleetHost.activeSession}
         onOpenPinnedSession={(target) => {

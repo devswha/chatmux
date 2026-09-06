@@ -58,6 +58,13 @@ function unchanged(catalog: FleetHostCatalog): HostFrameOutcome {
   return { catalog, resyncHostId: null };
 }
 
+function sameDescriptor(left: FleetPeerDescriptor, right: FleetPeerDescriptor): boolean {
+  return left.hostId === right.hostId && left.displayLabel === right.displayLabel
+    && left.state === right.state && left.protocolVersion === right.protocolVersion
+    && left.capabilities.length === right.capabilities.length
+    && left.capabilities.every((capability, index) => capability === right.capabilities[index]);
+}
+
 function withEntry(
   catalog: FleetHostCatalog,
   hostId: string,
@@ -181,7 +188,7 @@ export function applyHostFrame(catalog: FleetHostCatalog, frame: FleetHostFrame)
       const entry = catalog.hosts.get(frame.host.hostId);
       // A host the roster does not list is not a host: inventing one here would
       // let an unenrolled installation appear in the sidebar.
-      return entry === undefined
+      return entry === undefined || sameDescriptor(entry.descriptor, frame.host)
         ? unchanged(catalog)
         : unchanged(withEntry(catalog, frame.host.hostId, { ...entry, descriptor: frame.host }));
     }

@@ -24,7 +24,7 @@ import {
   hostGroups,
   type LocalHostSummary,
 } from '../../../../../fleet/discovery/hostGroups';
-import { sessionRef } from '../../../../../fleet/references';
+import { sessionRef, type FleetSessionReference } from '../../../../../fleet/references';
 import type { ExternalTerminalTarget } from '../../../../../types/app';
 import { sessionRoutePath } from '../../../../../fleet/sessionRoute';
 
@@ -40,6 +40,7 @@ export type SidebarHostGroupsProps = {
   };
   children: ReactNode;
   onRemotePaneOpen: (target: ExternalTerminalTarget) => void;
+  onRemoteSessionOpen?: (target: FleetSessionReference) => void;
 };
 
 function cliKind(kind: string): ExternalTerminalTarget['cliKind'] | null {
@@ -55,7 +56,7 @@ function cliKind(kind: string): ExternalTerminalTarget['cliKind'] | null {
   }
 }
 
-export default function SidebarHostGroups({ local, children, onRemotePaneOpen }: SidebarHostGroupsProps) {
+export default function SidebarHostGroups({ local, children, onRemotePaneOpen, onRemoteSessionOpen }: SidebarHostGroupsProps) {
   const { t } = useTranslation('sidebar');
   const navigate = useNavigate();
   const { catalog } = useFleetHostCatalog();
@@ -92,8 +93,10 @@ export default function SidebarHostGroups({ local, children, onRemotePaneOpen }:
       });
       return;
     }
-    navigate(sessionRoutePath(sessionRef(group.hostId, row.localId), catalog.localHostId));
-  }, [catalog.localHostId, navigate, onRemotePaneOpen]);
+    const target = sessionRef(group.hostId, row.localId);
+    if (onRemoteSessionOpen) onRemoteSessionOpen(target);
+    else navigate(sessionRoutePath(target, catalog.localHostId));
+  }, [catalog.localHostId, navigate, onRemotePaneOpen, onRemoteSessionOpen]);
 
   if (allGroups.length === 0) {
     return <>{children}</>;
