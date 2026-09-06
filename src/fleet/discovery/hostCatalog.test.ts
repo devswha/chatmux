@@ -42,6 +42,23 @@ function twoPeers(): FleetHostCatalog {
   }));
 }
 
+test('unchanged host heartbeats preserve catalog identity while real descriptor changes remain visible', () => {
+  const catalog = twoPeers();
+  const descriptor = peerDescriptor(PEER_A_HOST_ID, 'studio');
+  assert.equal(apply(catalog, { kind: 'fleet.host_state', host: descriptor }), catalog);
+  for (const host of [
+    { ...descriptor, displayLabel: 'renamed' },
+    { ...descriptor, state: 'offline' },
+    { ...descriptor, capabilities: ['catalog.read'] },
+    { ...descriptor, protocolVersion: null },
+  ]) {
+    const next = apply(catalog, { kind: 'fleet.host_state', host });
+    assert.notEqual(next, catalog);
+    assert.equal(next.hosts.get(PEER_B_HOST_ID), catalog.hosts.get(PEER_B_HOST_ID));
+    assert.deepEqual(next.hosts.get(PEER_A_HOST_ID)?.descriptor, host);
+  }
+});
+
 test('Given a roster, when it is applied, then the local host id and every descriptor is recorded', () => {
   const catalog = apply(EMPTY_FLEET_HOST_CATALOG, rosterFrame([
     peerDescriptor(LOCAL_HOST_ID, 'workstation'),
