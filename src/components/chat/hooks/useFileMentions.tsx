@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Dispatch, KeyboardEvent, RefObject, SetStateAction } from 'react';
 
 import { api } from '../../../utils/api';
+import { useFleetHost } from '../../../fleet/FleetSessionRoute';
+import { localProjectIdForScope } from '../../../fleet/hostApi/urls';
 import { escapeRegExp } from '../utils/chatFormatting';
 import type { Project } from '../../../types/app';
 
@@ -48,6 +50,8 @@ const flattenFileTree = (files: ProjectFileNode[], basePath = ''): MentionableFi
 };
 
 export function useFileMentions({ selectedProject, input, setInput, textareaRef }: UseFileMentionsOptions) {
+  const { storeScope } = useFleetHost();
+  const projectId = localProjectIdForScope(storeScope, selectedProject);
   const [fileList, setFileList] = useState<MentionableFile[]>([]);
   const [fileMentions, setFileMentions] = useState<string[]>([]);
   const [filteredFiles, setFilteredFiles] = useState<MentionableFile[]>([]);
@@ -62,7 +66,6 @@ export function useFileMentions({ selectedProject, input, setInput, textareaRef 
     const fetchProjectFiles = async () => {
       // File list is keyed by DB projectId now; the backend resolves it to
       // the project's path before reading.
-      const projectId = selectedProject?.projectId;
       setFileList([]);
       setFilteredFiles([]);
       if (!projectId) {
@@ -77,6 +80,7 @@ export function useFileMentions({ selectedProject, input, setInput, textareaRef 
         }
 
         const files = (await response.json()) as ProjectFileNode[];
+        if (abortController.signal.aborted) return;
         setFileList(flattenFileTree(files));
       } catch (error) {
         // Ignore aborts from rapid project switches; we only care about the latest request.
@@ -91,7 +95,7 @@ export function useFileMentions({ selectedProject, input, setInput, textareaRef 
     return () => {
       abortController.abort();
     };
-  }, [selectedProject?.projectId]);
+  }, [projectId]);
 
   useEffect(() => {
     const textBeforeCursor = input.slice(0, cursorPosition);
@@ -260,8 +264,8 @@ export function useFileMentions({ selectedProject, input, setInput, textareaRef 
   );
 
   return {
-    showFileDropdown,
-    filteredFiles,
+    showFileDropdown: Boolean(projectId) && showFileDropdown,
+    filteredFiles: projectId ? filteredFiles : [],
     selectedFileIndex,
     renderInputWithMentions,
     selectFile,

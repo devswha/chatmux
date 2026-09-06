@@ -1,4 +1,4 @@
-import React, { lazy, Suspense } from 'react';
+import React, { lazy, Suspense, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { SquareTerminal } from 'lucide-react';
 
@@ -8,6 +8,7 @@ import { useUiPreferences } from '../../../hooks/useUiPreferences';
 import { useFileOpenResolver } from '../../../hooks/useFileOpenResolver';
 import { useEditorSidebar } from '../../code-editor/hooks/useEditorSidebar';
 import { useFleetHost } from '../../../fleet/FleetSessionRoute';
+import { localProjectIdForScope } from '../../../fleet/hostApi/urls';
 import { useExternalPaneOutput } from '../hooks/useExternalPaneOutput';
 import { useTranscriptCliTarget } from '../hooks/useTranscriptCliTarget';
 
@@ -66,7 +67,8 @@ function MainContent({
 }: MainContentProps) {
   const { preferences } = useUiPreferences();
   const { t } = useTranslation('chat');
-  const { activeSessionKey } = useFleetHost();
+  const { activeSessionKey, storeScope } = useFleetHost();
+  const localProjectId = localProjectIdForScope(storeScope, selectedProject);
   const { showRawParameters, showThinking, showImagePreviews, sendByCtrlEnter } = preferences;
 
   const {
@@ -97,17 +99,18 @@ function MainContent({
     handleToggleEditorExpand,
     handleResizeStart,
   } = useEditorSidebar({
-    selectedProject,
+    selectedProject: localProjectId ? selectedProject : null,
     isMobile,
   });
 
   // Resolves bare/partial file references (e.g. links inside chat messages) to
   // real project files before opening them in the in-app editor.
   const resolvedFileOpen = useFileOpenResolver(selectedProject, handleFileOpen);
+  useEffect(() => { handleCloseEditor(); }, [localProjectId, handleCloseEditor]);
 
   usePaletteOpsRegister({
     openFile: (filePath: string) => {
-      handleFileOpen(filePath);
+      resolvedFileOpen(filePath);
     },
     // Opens the editor side panel in place, keeping the current tab (e.g. chat).
     openFileInEditor: (filePath: string) => {
@@ -211,7 +214,7 @@ function MainContent({
                     liveSessionProcessing={liveSessionProcessing}
                     ws={ws}
                     sendMessage={sendMessage}
-                    onFileOpen={handleFileOpen}
+                    onFileOpen={resolvedFileOpen}
                     onInputFocusChange={onInputFocusChange}
                     onSessionProcessing={onSessionProcessing}
                     onSessionIdle={onSessionIdle}
@@ -244,7 +247,7 @@ function MainContent({
           </div>
         </div>
 
-        {editingFile && (
+        {editingFile && localProjectId && editingFile.projectId === localProjectId && (
           <Suspense fallback={null}>
             <EditorSidebar
               editingFile={editingFile}
