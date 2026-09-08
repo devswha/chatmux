@@ -18,7 +18,7 @@ import {
 } from './local-tmux-discovery.service.js';
 
 const TMUX_FIELD_SEP = '\t';
-// A completed host snapshot is not retained by default: external and live
+// A completed host snapshot is not reused for capture requests by default: external and live
 // discovery start together and share the same in-flight capture. This removes
 // duplicate commands without publishing a stale pane/process roster.
 const DEFAULT_CACHE_TTL_MS = 0;
@@ -91,6 +91,8 @@ export type HostDiscoveryCommandRunner = (
 export type HostDiscoverySnapshotSource = {
   get(): Promise<HostDiscoverySnapshot>;
   getFresh(): Promise<HostDiscoverySnapshot>;
+  /** Last completed evidence, independent of reuse TTL; never captures or performs I/O. */
+  peek(): HostDiscoverySnapshot | null;
   dispose(): void;
 };
 
@@ -400,8 +402,19 @@ export function createHostDiscoverySnapshotSource(options: HostDiscoveryCaptureO
   return {
     get: () => captureShared(false),
     getFresh: () => captureShared(true),
+    peek: () => {
+      if (signal.aborted || !cached || cached.inventoryKey !== localTmuxInventoryKey(options.env ?? process.env)) {
+        return null;
+      }
+      return cached.snapshot;
+    },
     dispose: () => { cached = null; controller.abort(); },
   };
 }
 
 export const hostDiscoverySnapshotSource = createHostDiscoverySnapshotSource();
+
+/** Server-private cached observation only; does not authorize actions or refresh discovery. */
+export function getCachedHostDiscoverySnapshot(): HostDiscoverySnapshot | null {
+  return hostDiscoverySnapshotSource.peek();
+}

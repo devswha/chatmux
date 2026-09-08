@@ -96,6 +96,37 @@ server-private. Public diagnostics retain closed codes and counts; command
 metrics count `tmux list-panes` without storing `-L`/`-S` values. Fleet descriptors
 and host routing follow the existing Fleet contract.
 
+One owner-only exception to that privacy boundary exists.
+`GET /api/settings/diagnostics/panes` serves a cached, read-only pane
+projection under the existing owner-only settings gate with `Cache-Control:
+no-store`. Each response is assembled only from cached collector rows and the
+last completed host capture; reading it never starts a scan, capture, command,
+or file read, and query parameters cannot force one. Per pane it shows sample-local ordinal
+labels for the pane, its socket slot, and its capture slot, assigned in
+first-encounter order within that response, together with tmux coordinates
+limited to `$`, `@`, or `%` plus 1-10 ASCII digits, process IDs limited to
+integers in 1..2147483647, and allowlisted outcomes: lane, provider
+classification, presence, freshness, activity, connection-issue codes, binding
+grade, a provider-session-reported boolean, process generation state, lineage
+relation and reason, and per-slot capture status with failure codes and pane
+counts. It never exposes socket names or paths, session names, working
+directories, command lines, provider-session IDs, transcript paths or content,
+process start times, configuration or inventory keys, ownership or filesystem
+evidence, or exception text, and failed sockets contribute no pane mapping.
+Ordinals are per-response display labels, not durable IDs: they are not
+persisted, not accepted in URLs, and not credentials, and the view grants no
+new authority over any pane.
+
+Collector and host samples age independently, so the projection reports the
+collector scan and full-scan ages beside the host capture's own age and marks
+missing, failed, or out-of-budget evidence as unknown or unavailable rather
+than as a negative finding. Output is bounded to the first 1,000 collector
+rows, 1,000 host panes, and 8,192 host processes, with lineage chains of at
+most 32 PIDs, and omission counts distinguish budget limits from invalid
+identities. The existing aggregate diagnostics response is unchanged, and a
+pane-endpoint failure does not hide it. The normative boundary for this
+projection is [P2 RFC §4.1.2](P2-DISCOVERY-STREAM-RFC.md#412-owner-only-pane-diagnostics-projection-rev4-normative).
+
 The normative contract is [P2 RFC §4.1.1](P2-DISCOVERY-STREAM-RFC.md#411-explicit-local-tmux-socket-inventory-rev3-normative).
 Selector behavior was checked against upstream tmux 3.5a's `tmux(1)` options and
 `tmux.c:make_label`, then exercised with isolated real tmux 3.5a servers. Focused

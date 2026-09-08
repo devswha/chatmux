@@ -24,6 +24,7 @@ import {
     getCurrentTmuxPaneIdentity,
     getCurrentTmuxPaneIdentityState,
     getGjcWatcherHealth,
+    getCachedHostDiscoverySnapshot,
     getSessionIndexingDiagnostics,
     initializeSessionsWatcher,
     onTranscriptChanged,
@@ -31,7 +32,7 @@ import {
     runTmux,
 } from '@/modules/providers/index.js';
 import { createWebSocketServer } from '@/modules/websocket/index.js';
-import { createDiagnosticsRouter, createDiagnosticsService } from '@/modules/diagnostics/index.js';
+import { createDiagnosticsRouter, createDiagnosticsService, createPaneDiagnosticsService } from '@/modules/diagnostics/index.js';
 import { createFleetHubLifecycle, createLocalFleetHubRuntime } from '@/modules/fleet/hub/connection/index.js';
 import { createFleetPeerLifecycle, createLocalFleetPeerRuntime } from '@/modules/fleet/peer/index.js';
 import { fleetRuntimeEnabled, stopFleetRuntimeServices } from '@/modules/fleet/runtime-lifecycle.js';
@@ -365,10 +366,15 @@ const ownerDiagnostics = createDiagnosticsService({
     watcher: getGjcWatcherHealth,
     indexing: getSessionIndexingDiagnostics,
 });
+const ownerPaneDiagnostics = createPaneDiagnosticsService({
+    collector: () => discoveryCollector,
+    host: getCachedHostDiscoverySnapshot,
+});
 app.use('/api/settings/diagnostics', createDiagnosticsRouter({
     authMode: AUTH_MODE,
     authenticate: authenticateToken,
     read: ownerDiagnostics.read,
+    readPanes: ownerPaneDiagnostics.read,
 }));
 
 // Machine pairing carries signed installation identity instead of browser auth.
