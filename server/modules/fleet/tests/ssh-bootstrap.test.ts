@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readFile, readdir, readlink, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -9,7 +9,11 @@ import { SSH_MINT_TOKEN_COMMAND, sshBootstrapCommand, sshBootstrapVersion } from
 
 async function remote(context: TestContext) {
   const home = await mkdtemp(join(tmpdir(), 'chatmux-bootstrap-shell-'));
-  context.after(() => rm(home, { recursive: true, force: true }));
+  context.after(async () => {
+    try {
+      assert.deepEqual((await readdir(home, { recursive: true })).filter(path => path.includes('.chatmux-fleet-ssh.')), [], 'no staging file remains');
+    } finally { await rm(home, { recursive: true, force: true }); }
+  });
   const bin = join(home, 'bin'); await mkdir(bin);
   await writeFile(join(bin, 'uname'), '#!/bin/sh\ncase "$1" in -s) printf Linux;; -m) printf x86_64;; esac\n', { mode: 0o700 });
   const curl = `#!/bin/sh
@@ -28,6 +32,7 @@ printf '%s\\n' "$CHATMUX_VERSION" "$CHATMUX_REPOSITORY" "$CHATMUX_INSTALL_ROOT" 
 printf '%s' "\${CHATMUX_NODE-unset}:\${CHATMUX_NODE_BASE_URL-unset}:\${CHATMUX_RELEASE_BASE_URL-unset}" > "$HOME/overrides"
 override="$HOME/.config/systemd/user/chatmux.service.d/90-chatmux-fleet-ssh.conf"
 if [ -f "$override" ]; then cp "$override" "$HOME/service-override-at-install"; fi
+exit "\${TEST_INSTALL_EXIT:-0}"
 INSTALLER
 `;
   await writeFile(join(bin, 'curl'), curl, { mode: 0o700 });
@@ -43,6 +48,11 @@ function command(): string {
 }
 
 async function exists(path: string): Promise<boolean> { return stat(path).then(() => true, () => false); }
+
+async function entryIdentity(path: string) {
+  const entry = await lstat(path);
+  return [entry.dev, entry.ino, entry.mode, entry.size, entry.mtimeMs, entry.ctimeMs];
+}
 
 test('the actual shell command pins canonical artifacts, clears overrides and requests port 3001', async (context) => {
   const subject = await remote(context);
@@ -94,6 +104,11 @@ test('SSH bootstrap configures the canonical peer transport and loopback bind be
   }));
   assert.deepEqual(environment, { HOST: '127.0.0.1', CHATMUX_FLEET_TRANSPORT_MODE: 'ssh-loopback' });
   assert.equal(override.split('\n')[0], '[Service]');
+  const published = await lstat(join(subject.home, '.config/systemd/user/chatmux.service.d/90-chatmux-fleet-ssh.conf'));
+  assert.ok(published.isFile());
+  assert.equal(published.mode & 0o777, 0o600);
+  assert.equal(published.nlink, 1, 'the staging link is removed');
+  assert.equal((await stat(join(subject.home, '.chatmux'))).mode & 0o777, 0o700);
 });
 
 test('SSH bootstrap never overwrites an existing service override or executes the installer after that conflict', async (context) => {
@@ -105,6 +120,110 @@ test('SSH bootstrap never overwrites an existing service override or executes th
   assert.equal(subject.run(command()).status, 70);
   assert.equal(await readFile(override, 'utf8'), '[Service]\nEnvironment=HOST=127.0.0.2\n');
   assert.equal(await exists(join(subject.home, 'installed-args')), false);
+});
+
+test('SSH bootstrap refuses an existing /dev/null systemd mask without invoking the installer', async (context) => {
+  const subject = await remote(context);
+  const directory = join(subject.home, '.config/systemd/user/chatmux.service.d');
+  await mkdir(directory, { recursive: true });
+  const override = join(directory, '90-chatmux-fleet-ssh.conf');
+  await symlink('/dev/null', override);
+  const before = await entryIdentity(override);
+  const targetBefore = await stat('/dev/null');
+  const result = subject.run(command());
+  assert.equal(result.error, undefined, 'the real shell completes within its bound');
+  assert.deepEqual({
+    status: result.status,
+    installerExecuted: await exists(join(subject.home, 'installed-args')),
+    linkTarget: await readlink(override),
+    effectiveDropInBytes: (await readFile(override)).length,
+  }, { status: 70, installerExecuted: false, linkTarget: '/dev/null', effectiveDropInBytes: 0 });
+  assert.deepEqual(await entryIdentity(override), before, 'the mask entry is unchanged');
+  const targetAfter = await stat('/dev/null');
+  assert.deepEqual([targetAfter.dev, targetAfter.ino, targetAfter.mode, targetAfter.rdev],
+    [targetBefore.dev, targetBefore.ino, targetBefore.mode, targetBefore.rdev]);
+});
+
+for (const [kind, setup] of [
+  ['dangling symlink', 'ln -s "$HOME/missing" "$override"'],
+  ['regular-file symlink', 'ln -s "$HOME/operator-file" "$override"'],
+  ['directory symlink', 'ln -s "$HOME/operator-directory" "$override"'],
+  ['FIFO', 'mkfifo "$override"'],
+  ['directory', 'mkdir "$override"'],
+  ['socket', ''],
+] as const) {
+  test(`SSH bootstrap refuses an existing ${kind} without changing its entry or target`, async (context) => {
+    const subject = await remote(context);
+    const directory = join(subject.home, '.config/systemd/user/chatmux.service.d');
+    await mkdir(directory, { recursive: true });
+    await writeFile(join(subject.home, 'operator-file'), 'untouched');
+    await mkdir(join(subject.home, 'operator-directory'));
+    const override = join(directory, '90-chatmux-fleet-ssh.conf');
+    const created = kind === 'socket'
+      ? spawnSync(process.execPath, ['-e', "require('node:net').createServer().listen('90-chatmux-fleet-ssh.conf', () => process.exit(0))"], { cwd: directory, timeout: 5_000 })
+      : subject.run(`override="$HOME/.config/systemd/user/chatmux.service.d/90-chatmux-fleet-ssh.conf"; ${setup}`);
+    assert.equal(created.error, undefined);
+    assert.equal(created.status, 0);
+    const before = await entryIdentity(override);
+    const targetBefore = await entryIdentity(join(subject.home, 'operator-file'));
+    const linkBefore = (await lstat(override)).isSymbolicLink() ? await readlink(override) : undefined;
+    const result = subject.run(command());
+    assert.equal(result.error, undefined, 'special files must not block');
+    assert.equal(result.status, 70, result.stderr);
+    assert.equal(await exists(join(subject.home, 'installed-args')), false);
+    assert.deepEqual(await entryIdentity(override), before);
+    if (linkBefore !== undefined) assert.equal(await readlink(override), linkBefore);
+    assert.deepEqual(await entryIdentity(join(subject.home, 'operator-file')), targetBefore);
+    assert.equal(await readFile(join(subject.home, 'operator-file'), 'utf8'), 'untouched');
+    assert.deepEqual(await readdir(join(subject.home, 'operator-directory')), []);
+    assert.equal(await exists(join(subject.home, 'missing')), false);
+    if (kind === 'directory') assert.deepEqual(await readdir(override), []);
+    assert.equal(await exists(await readFile(join(subject.home, 'download-path'), 'utf8')), false);
+  });
+}
+
+for (const [event, action] of [
+  ['mask conflict', '/bin/ln -s /dev/null "$target"'],
+  ['directory conflict', '/bin/mkdir "$target"'],
+  ['HUP', 'kill -HUP "$PPID"; exit 0'],
+  ['INT', 'kill -INT "$PPID"; exit 0'],
+  ['TERM', 'kill -TERM "$PPID"; exit 0'],
+] as const) {
+  test(`SSH bootstrap refuses a publication-boundary ${event} and removes staging`, async (context) => {
+    const subject = await remote(context);
+    // The seam injects the event after staging, then delegates publication to real ln.
+    await writeFile(join(subject.bin, 'ln'), `#!/bin/sh
+set -eu
+stage= target=
+for argument do stage=$target; target=$argument; done
+[ -f "$stage" ] && [ ! -L "$stage" ]
+cp "$stage" "$HOME/staged-config"
+stat -c '%a' "$HOME/.chatmux" "$stage" > "$HOME/staged-modes"
+${action}
+exec /bin/ln "$@"
+`, { mode: 0o700 });
+    const result = subject.run(command());
+    assert.equal(result.error, undefined);
+    assert.equal(result.status, 70, result.stderr);
+    assert.equal(await exists(join(subject.home, 'installed-args')), false);
+    assert.equal(await readFile(join(subject.home, 'staged-config'), 'utf8'), '[Service]\nEnvironment=HOST=127.0.0.1\nEnvironment=CHATMUX_FLEET_TRANSPORT_MODE=ssh-loopback\n');
+    assert.equal(await readFile(join(subject.home, 'staged-modes'), 'utf8'), '700\n600\n');
+    const override = join(subject.home, '.config/systemd/user/chatmux.service.d/90-chatmux-fleet-ssh.conf');
+    if (event === 'mask conflict') assert.equal(await readlink(override), '/dev/null');
+    else if (event === 'directory conflict') assert.deepEqual(await readdir(override), []);
+    else assert.equal(await exists(override), false);
+    assert.equal(await exists(await readFile(join(subject.home, 'download-path'), 'utf8')), false);
+  });
+}
+
+test('SSH bootstrap removes temporary files when the installer fails without deleting its claimed root or drop-in', async (context) => {
+  const subject = await remote(context);
+  const result = subject.run(command(), { TEST_INSTALL_EXIT: '23' });
+  assert.equal(result.status, 23, result.stderr);
+  assert.ok(await exists(join(subject.home, '.chatmux')));
+  assert.equal(await exists(await readFile(join(subject.home, 'download-path'), 'utf8')), false);
+  assert.equal(await readFile(join(subject.home, '.config/systemd/user/chatmux.service.d/90-chatmux-fleet-ssh.conf'), 'utf8'),
+    await readFile(join(subject.home, 'service-override-at-install'), 'utf8'));
 });
 
 test('an installation appearing during download is preserved and the installer never executes', async (context) => {
