@@ -16,6 +16,7 @@ import {
   runAccessCli,
   selectAvailableServerPort,
   renderSystemdUnit,
+  readManagedAccessEnvironment,
   runInstallCli, readSecretFromStdin } from './install-cli.js';
 import { chooseServePort, parseServePorts } from './tailscale-access.js';
 import { getTailscaleAccessConfig } from './tailscale-auth.js';
@@ -69,6 +70,56 @@ test('LAN address listing hides container plumbing and ranks physical interfaces
     { address: '100.123.228.51', interfaceName: 'tailscale0' },
     { address: '10.100.100.1', interfaceName: 'wg0' },
   ]);
+});
+
+test('managed access reads only allowlisted launch settings and rejects a restart snapshot', async () => {
+  const calls: string[][] = [];
+  const files: string[] = [];
+  const run = async (command: string, args: string[]) => {
+    calls.push([command, ...args]);
+    return { stdout: '123\n', stderr: '' };
+  };
+  const readFile = async (file: string) => {
+    files.push(file);
+    return file.endsWith('/environ')
+      ? 'HOST=127.0.0.1\0SERVER_PORT=3001\0CHATMUX_AUTH=password\0SECRET=private\0'
+      : '[Service]\nEnvironment=HOST=0.0.0.0\n';
+  };
+  assert.deepEqual(await readManagedAccessEnvironment('/isolated', run, readFile), {
+    HOST: '127.0.0.1', SERVER_PORT: '3001', CHATMUX_AUTH: 'password',
+  });
+  assert.deepEqual(files, ['/isolated/.config/systemd/user/chatmux.service', '/proc/123/environ']);
+  assert.deepEqual(calls, Array.from({ length: 2 }, () => [
+    'systemctl', '--user', 'show', 'chatmux.service', '--property=MainPID', '--value',
+  ]));
+  let generation = 123;
+  assert.equal(await readManagedAccessEnvironment('/isolated', async () => ({
+    stdout: String(generation++), stderr: '',
+  }), readFile), null);
+});
+
+test('managed access distinguishes absent units from unreadable state without querying real systemd', async () => {
+  let commands = 0;
+  const noCommand = async () => { commands += 1; return { stdout: '123', stderr: '' }; };
+  assert.equal(await readManagedAccessEnvironment('/isolated', noCommand, async () => {
+    throw Object.assign(new Error('absent'), { code: 'ENOENT' });
+  }), undefined);
+  assert.equal(await readManagedAccessEnvironment('/isolated', noCommand, async () => {
+    throw Object.assign(new Error('denied'), { code: 'EACCES' });
+  }), null);
+  assert.equal(commands, 0);
+  for (const pid of ['0', '', '../123', '123\n456']) {
+    const files: string[] = [];
+    assert.equal(await readManagedAccessEnvironment('/isolated', async () => ({ stdout: pid, stderr: '' }), async (file) => {
+      files.push(file);
+      return '[Service]';
+    }), null);
+    assert.deepEqual(files, ['/isolated/.config/systemd/user/chatmux.service']);
+  }
+  assert.equal(await readManagedAccessEnvironment('/isolated', async () => ({ stdout: '123', stderr: '' }), async (file) => {
+    if (file.startsWith('/proc/')) throw Object.assign(new Error('denied'), { code: 'EACCES' });
+    return '[Service]';
+  }), null);
 });
 
 test('ufw detection trusts only the world-readable on-disk flag', async () => {

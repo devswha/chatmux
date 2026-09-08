@@ -335,8 +335,18 @@ rather than following the link or running the installer as another user.
 
 ## Troubleshooting
 
-Start with `chatmux status`; it reports the configured local and Tailscale
-addresses. For service logs:
+Start with `chatmux status`. In the next release after 1.9.1, managed-service
+addresses use the running process's launch settings, including systemd drop-in
+and EnvironmentFile precedence, rather than the base unit or the CLI shell's
+`HOST`. Loopback and specific binds do not advertise unrelated LAN addresses.
+If the managed service is stopped or its launch settings cannot be read, status
+reports unknown access without guessing URLs. This supports the installed unit's
+environment-based startup; custom commands that change binding after launch are
+not resolved. Status does not probe firewall rules or remote reachability.
+Unmanaged runs use the CLI environment (`HOST` defaults to `127.0.0.1`). The
+immutable 1.9.1 CLI remains historical and may still print unusable LAN addresses
+for an SSH-only peer; this source correction does not modify installed releases
+or service configuration. For service logs:
 
 ```sh
 systemctl --user --no-pager --full status chatmux.service
