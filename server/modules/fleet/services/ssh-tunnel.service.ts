@@ -346,7 +346,9 @@ export class SshTunnelManager {
     return this.dependencies.io.run('ssh', [...this.controlArgs(target, controlPath), target.destination, command], { env: this.cleanEnv(), timeoutMs });
   }
   private spawnTunnel(target: SshTarget, localPort: number, controlPath: string, createMaster: boolean): Launch {
-    const args = ['-N', '-o', 'ExitOnForwardFailure=yes', '-o', 'ServerAliveInterval=30', '-o', 'ServerAliveCountMax=3', ...(createMaster ? ['-o', 'ControlMaster=yes', '-o', `ControlPersist=${CONTROL_PERSIST_SECONDS}`] : []), ...this.keyAuthenticationArgs(target), '-o', `ControlPath=${controlPath}`, '-L', `127.0.0.1:${localPort}:127.0.0.1:${REMOTE_FLEET_PORT}`, target.destination];
+    // ControlPersist forks even without -f, severing supervision from the live
+    // master. Keep this child in the foreground, including under user SSH config.
+    const args = ['-N', '-o', 'ForkAfterAuthentication=no', '-o', 'ExitOnForwardFailure=yes', '-o', 'ServerAliveInterval=30', '-o', 'ServerAliveCountMax=3', ...(createMaster ? ['-o', 'ControlMaster=yes', '-o', 'ControlPersist=no'] : []), ...this.keyAuthenticationArgs(target), '-o', `ControlPath=${controlPath}`, '-L', `127.0.0.1:${localPort}:127.0.0.1:${REMOTE_FLEET_PORT}`, target.destination];
     const process = this.dependencies.io.spawn('ssh', args, { env: this.cleanEnv() });
     const exited = new Promise<SshRunResult>((resolve) => process.once('exit', (code) => resolve({ code, stdout: '', stderr: '' })));
     return { process, exited };
