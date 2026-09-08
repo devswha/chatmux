@@ -99,10 +99,21 @@ function getInstallDir() {
 // Resolves the address a browser should actually open, which depends on the
 // active access mode. Tailscale mode serves through a Serve front and refuses
 // non-loopback sources, so the LAN address is wrong there; VPN mode answers on
-// the tunnel address recorded in the managed unit.
+// the tunnel address used by the running managed service.
 async function describeAccess(port) {
-    const authMode = process.env.CHATMUX_AUTH;
-    const unauthRemote = process.env.CHATMUX_ALLOW_UNAUTH_REMOTE === '1';
+    const { listLanAddresses, readManagedAccessEnvironment } = await import('./install-cli.js');
+    const managed = await readManagedAccessEnvironment();
+    if (managed === null) {
+        return {
+            mode: 'unknown — managed service stopped or access settings unavailable; inspect systemctl --user status chatmux.service',
+            addresses: [],
+        };
+    }
+    const environment = managed ?? process.env;
+    port = environment.SERVER_PORT || port;
+    const host = environment.HOST || '127.0.0.1';
+    const authMode = environment.CHATMUX_AUTH;
+    const unauthRemote = environment.CHATMUX_ALLOW_UNAUTH_REMOTE === '1';
 
     if (authMode === 'tailscale') {
         try {
@@ -125,28 +136,31 @@ async function describeAccess(port) {
         }
     }
 
-    if (authMode === 'password') {
-        const { listLanAddresses } = await import('./install-cli.js');
+    const urlHost = host.includes(':') && !host.startsWith('[') ? `[${host}]` : host;
+    let addresses = [`http://${urlHost}:${port}`];
+    if (host === '0.0.0.0' || host === '::') {
         const lan = listLanAddresses(os.networkInterfaces)
             .map((entry) => `http://${entry.address}:${port} (${entry.interfaceName})`);
+        addresses = [`http://${host === '::' ? '[::1]' : '127.0.0.1'}:${port} (this machine)`, ...lan];
+    }
+
+    if (authMode === 'password') {
         return {
             mode: 'password — sign in from any browser, no app needed',
-            addresses: [`http://127.0.0.1:${port} (this machine)`, ...lan],
+            addresses,
         };
     }
 
     if (unauthRemote) {
-        const { readManagedUnitHost } = await import('./install-cli.js');
-        const host = await readManagedUnitHost();
         return {
             mode: 'vpn — no login; only devices inside the tunnel',
-            addresses: [`http://${host ?? '127.0.0.1'}:${port}`],
+            addresses,
         };
     }
 
     return {
         mode: 'local only — no remote access configured',
-        addresses: [`http://127.0.0.1:${port}`],
+        addresses,
     };
 }
 

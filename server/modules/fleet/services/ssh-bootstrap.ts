@@ -30,10 +30,22 @@ export function sshBootstrapCommand(version: string | undefined): string | undef
     + 'installation_absent || exit 70; '
     + '[ "$(uname -s)" = Linux ] && [ "$(uname -m)" = x86_64 ] || exit 70; '
     + 'command -v curl >/dev/null 2>&1 || exit 70; tmp=$(mktemp) || exit 70; '
-    + 'trap \'rm -f "$tmp"\' EXIT HUP INT TERM; '
+    + 'override_tmp=; trap \'rm -f -- "$tmp" "$override_tmp"\' EXIT; trap \'exit 70\' HUP INT TERM; '
     + `curl -fsSL --proto '=https' --proto-redir '=https' --connect-timeout 15 --max-time 120 ${REPOSITORY_URL}/releases/download/v${version}/install.sh -o "$tmp" || exit 70; `
     + 'installation_absent || exit 70; '
     + 'mkdir -m 700 "$HOME/.chatmux" || exit 70; '
+    // Published peers default to direct-wss and bind that mode into the signed
+    // challenge. Configure only a newly claimed installation, before its first
+    // service start; keep the SSH-only listener off non-loopback interfaces.
+    + 'override="$HOME/.config/systemd/user/chatmux.service.d/90-chatmux-fleet-ssh.conf"; '
+    + 'mkdir -p "${override%/*}" || exit 70; '
+    // Noclobber can follow a systemd mask into /dev/null. Publish a complete
+    // regular inode exclusively; GNU ln -T rejects every existing entry,
+    // including directories and symlinks, without following or replacing it.
+    + 'override_tmp=$(mktemp "${override%/*}/.chatmux-fleet-ssh.XXXXXX") || exit 70; '
+    + 'printf \'%s\\n\' \'[Service]\' \'Environment=HOST=127.0.0.1\' \'Environment=CHATMUX_FLEET_TRANSPORT_MODE=ssh-loopback\' > "$override_tmp" || exit 70; '
+    + 'ln -T -- "$override_tmp" "$override" || exit 70; '
+    + 'rm -f -- "$override_tmp" || exit 70; override_tmp=; '
     + 'unset CHATMUX_NODE CHATMUX_NODE_BASE_URL CHATMUX_RELEASE_BASE_URL; '
     + `CHATMUX_REPOSITORY=${REPOSITORY_URL} CHATMUX_VERSION=${version} CHATMUX_INSTALL_ROOT="$HOME/.chatmux" sh "$tmp" --port 3001`;
 }

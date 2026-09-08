@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { EventEmitter } from 'node:events';
+import { EventEmitter, once } from 'node:events';
 import { createServer } from 'node:http';
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -33,6 +33,12 @@ const PASSWORD = 's3cret password';
 class FakeProcess extends EventEmitter implements SshProcess {
   readonly pid = 4321;
   stopSignals: NodeJS.Signals[] = [];
+  constructor(private readonly watched: () => void) { super(); }
+  override once(event: 'exit', listener: (code: number | null, signal: NodeJS.Signals | null) => void): this {
+    super.once(event, listener);
+    if (this.listenerCount('exit') === 2) this.watched();
+    return this;
+  }
   stop(signal: NodeJS.Signals): void { this.stopSignals.push(signal); }
 }
 
@@ -46,6 +52,7 @@ class MemoryStore implements SshTunnelStore {
 }
 
 class FakeIo implements SshTunnelIo {
+  readonly events = new EventEmitter();
   readonly runs: { command: string; args: readonly string[]; options: SshProcessOptions }[] = [];
   readonly spawns: { command: string; args: readonly string[]; options: SshProcessOptions; child: FakeProcess }[] = [];
   readonly writes: { path: string; data: string; mode: number }[] = [];
@@ -82,7 +89,14 @@ class FakeIo implements SshTunnelIo {
   };
   private exists = async (path: string): Promise<boolean> => stat(path).then(() => true, () => false);
   spawn = (command: string, args: readonly string[], options: SshProcessOptions): SshProcess => {
-    const child = new FakeProcess(); this.spawns.push({ command, args, options, child }); this.onSpawn?.(child); return child;
+    const child = new FakeProcess(() => this.events.emit('watched'));
+    this.spawns.push({ command, args, options, child });
+    // Measured OpenSSH behavior: ControlPersist forks a master and exits the
+    // tracked -N client with code 0 even without -f. A listener can remain live.
+    if (args.includes('ControlMaster=yes') && args.some(arg => /^ControlPersist=(?!no$|0$).+$/.test(arg))) {
+      queueMicrotask(() => child.emit('exit', 0, null));
+    }
+    this.onSpawn?.(child); return child;
   };
   waitUntilReady = async (): Promise<void> => this.ready();
   waitUntilUnavailable = async (port: number, controlPath: string): Promise<void> => { this.unavailableCalls += 1; await this.unavailable(port, controlPath); };
@@ -218,8 +232,9 @@ test('Given malformed token output, when minting runs, then no token content rea
 
 test('Given an enrolled tunnel exits, when supervised, then it restarts with key authentication and no askpass', async () => {
   const subject = fixture(); await subject.service.enroll({ sshTarget: 'alice@example.test', password: PASSWORD });
+  const watched = once(subject.io.events, 'watched', { signal: AbortSignal.timeout(5_000) });
   subject.io.spawns[0]?.child.emit('exit', 255, null);
-  await new Promise<void>((resolve) => setImmediate(resolve));
+  await watched;
   assert.equal(subject.io.spawns.length, 2); assert.equal(subject.io.spawns[1]?.options.env?.SSH_ASKPASS, undefined); assert.ok(subject.io.spawns[1]?.args.includes('/hub/fleet/id_ed25519'));
 });
 
@@ -229,7 +244,8 @@ test('Given a restarted tunnel remains healthy, when it exits later, then the re
   const manager = new SshTunnelManager({ io, store, maxRestartAttempts: 2, healthyResetMs: 30_000, paths: { directory: '/hub/fleet', privateKey: '/hub/fleet/id_ed25519', publicKey: '/hub/fleet/id_ed25519.pub', knownHosts: '/hub/fleet/known_hosts' }, scheduler: { schedule: (delay, callback) => { const task = { delay, callback, canceled: false }; tasks.push(task); return { cancel: () => { task.canceled = true; } }; } } });
   const service = new SshEasyEnrollService({ tunnels: manager, hubPairing: { enroll: async () => ({ peerId: PEER_ID }) } });
   await service.enroll({ sshTarget: 'alice@example.test', password: PASSWORD });
-  io.spawns[0]?.child.emit('exit', 255, null); const firstRestart = tasks.find((task) => !task.canceled && task.delay === 1_000); assert.ok(firstRestart); firstRestart.callback(); await new Promise<void>((resolve) => setImmediate(resolve));
+  const watched = once(io.events, 'watched', { signal: AbortSignal.timeout(5_000) });
+  io.spawns[0]?.child.emit('exit', 255, null); const firstRestart = tasks.find((task) => !task.canceled && task.delay === 1_000); assert.ok(firstRestart); firstRestart.callback(); await watched;
   const healthy = tasks.findLast((task) => !task.canceled && task.delay === 30_000); assert.ok(healthy); healthy.callback();
   io.spawns[1]?.child.emit('exit', 255, null);
   assert.equal(tasks.findLast((task) => !task.canceled)?.delay, 1_000);
@@ -279,14 +295,55 @@ test('Given token-like output is not one exact unique first line, when enrollmen
     const subject = fixture([{ code: 0, stdout: '', stderr: '' }, { code: 0, stdout: '', stderr: '' }, { code: 0, stdout, stderr: '' }]);
     await assert.rejects(subject.service.enroll({ sshTarget: 'alice@example.test', password: PASSWORD }), (error) => error instanceof SshEnrollmentError && error.code === 'TOKEN_PARSE_FAILED');
   }
-  const accepted = fixture([{ code: 0, stdout: '', stderr: '' }, { code: 0, stdout: '', stderr: '' }, { code: 0, stdout: `Pairing token: ${TOKEN}\nExpires later\n`, stderr: '' }]);
-  assert.equal((await accepted.service.enroll({ sshTarget: 'alice@example.test', password: PASSWORD })).peerId, PEER_ID);
+  const malformed = fixture([{ code: 0, stdout: '', stderr: '' }, { code: 0, stdout: '', stderr: '' }, { code: 0, stdout: `Pairing token: ${TOKEN}\nExpires later\n`, stderr: '' }]);
+  await assert.rejects(malformed.service.enroll({ sshTarget: 'alice@example.test', password: PASSWORD }), (error) => error instanceof SshEnrollmentError && error.code === 'TOKEN_PARSE_FAILED');
 });
 
-test('Given the tunnel exits before readiness, when preparing enrollment, then pairing never starts and key installation is compensated', async () => {
-  const subject = fixture(); subject.io.ready = () => new Promise<void>(() => undefined); subject.io.onSpawn = (child) => queueMicrotask(() => child.emit('exit', 255, null));
-  await assert.rejects(subject.service.enroll({ sshTarget: 'alice@example.test', password: PASSWORD }), (error) => error instanceof SshEnrollmentError && error.code === 'TUNNEL_FAILED');
-  assert.equal(subject.enrollments.length, 0); assert.ok(subject.io.runs.some(({ args }) => (args.at(-1) ?? '').includes('grep -vxF')));
+test('Given the tunnel exits before readiness, even cleanly, then pairing never starts and key installation is compensated', { timeout: 5_000 }, async () => {
+  for (const code of [0, 255]) {
+    const subject = fixture();
+    const ready = Promise.withResolvers<void>();
+    subject.io.ready = () => ready.promise;
+    subject.io.onSpawn = (child) => queueMicrotask(() => child.emit('exit', code, null));
+    try {
+      await assert.rejects(subject.service.enroll({ sshTarget: 'alice@example.test', password: PASSWORD }), (error) => error instanceof SshEnrollmentError && error.code === 'TUNNEL_FAILED');
+      assert.equal(subject.enrollments.length, 0);
+      assert.deepEqual(subject.store.records, []);
+      assert.deepEqual(subject.io.spawns[0]?.child.stopSignals, ['SIGTERM']);
+      assert.ok(subject.io.runs.some(({ args }) => args.at(-1) === 'chatmux-fleet-remove-key-v1'));
+      assert.ok(subject.io.runs.some(({ args }) => args.includes('exit')));
+    } finally { ready.resolve(); }
+  }
+});
+
+test('managed master stays foreground through readiness and shutdown while the transient password master stays bounded', { timeout: 5_000 }, async () => {
+  const subject = fixture();
+  try {
+    await subject.service.enroll({ sshTarget: 'alice@example.test', password: PASSWORD });
+    const tunnel = subject.io.spawns[0]; assert.ok(tunnel);
+    assert.ok(tunnel.args.includes('ControlMaster=yes'));
+    assert.ok(tunnel.args.includes('ControlPersist=no'));
+    assert.ok(tunnel.args.includes('ForkAfterAuthentication=no'));
+    assert.equal(tunnel.args.includes('-f'), false);
+    assert.deepEqual(tunnel.child.stopSignals, []);
+    const passwordMaster = subject.io.runs.find(({ args }) => args.includes('-f')); assert.ok(passwordMaster);
+    assert.ok(passwordMaster.args.includes('ControlPersist=60'));
+    subject.manager.stop();
+    assert.deepEqual(tunnel.child.stopSignals, ['SIGTERM']);
+    assert.ok(subject.store.findByPeerId(PEER_ID), 'shutdown retains metadata for key-only restore');
+    const restoredIo = new FakeIo();
+    const restored = new SshTunnelManager({ io: restoredIo, store: subject.store, paths: { directory: '/hub/fleet', privateKey: '/hub/fleet/id_ed25519', publicKey: '/hub/fleet/id_ed25519.pub', knownHosts: '/hub/fleet/known_hosts' }, scheduler: { schedule: () => ({ cancel: () => undefined }) } });
+    try {
+      await restored.restore();
+      assert.equal(restoredIo.unavailableCalls, 1);
+      assert.equal(restoredIo.spawns.length, 1);
+      assert.ok(restoredIo.spawns[0]?.args.includes('ControlPersist=no'));
+      assert.ok(restoredIo.spawns[0]?.args.includes('ForkAfterAuthentication=no'));
+      await restored.remove(PEER_ID);
+      assert.deepEqual(subject.store.records, []);
+      assert.deepEqual(restoredIo.spawns[0]?.child.stopSignals, ['SIGTERM']);
+    } finally { restored.stop(); }
+  } finally { subject.manager.stop(); }
 });
 
 test('Given an allocated port collides with persisted metadata, when preparing a new target, then a different port is reserved', async () => {
@@ -354,13 +411,14 @@ test('Given tunnel metadata save fails after peer persistence, when enrollment a
 test('Given a restart exits during readiness, then exactly one guarded retry is scheduled', async () => {
   type Task = { delay: number; callback: () => void; canceled: boolean };
   const tasks: Task[] = []; const io = new FakeIo(); const store = new MemoryStore();
-  const manager = new SshTunnelManager({ io, store, paths: { directory: '/hub/fleet', privateKey: '/hub/fleet/id_ed25519', publicKey: '/hub/fleet/id_ed25519.pub', knownHosts: '/hub/fleet/known_hosts' }, scheduler: { schedule: (delay, callback) => { const task = { delay, callback, canceled: false }; tasks.push(task); return { cancel: () => { task.canceled = true; } }; } } });
+  const manager = new SshTunnelManager({ io, store, paths: { directory: '/hub/fleet', privateKey: '/hub/fleet/id_ed25519', publicKey: '/hub/fleet/id_ed25519.pub', knownHosts: '/hub/fleet/known_hosts' }, scheduler: { schedule: (delay, callback) => { const task = { delay, callback, canceled: false }; tasks.push(task); if (delay === 2_000) io.events.emit('retried'); return { cancel: () => { task.canceled = true; } }; } } });
   const service = new SshEasyEnrollService({ tunnels: manager, hubPairing: { enroll: async () => ({ peerId: PEER_ID }) } });
   await service.enroll({ sshTarget: 'alice@example.test', password: PASSWORD });
   io.spawns[0]?.child.emit('exit', 255, null);
   const firstRetry = tasks.find((task) => !task.canceled && task.delay === 1_000); assert.ok(firstRetry);
   io.ready = () => new Promise<void>(() => undefined); io.onSpawn = (child) => queueMicrotask(() => child.emit('exit', 255, null));
-  firstRetry.canceled = true; firstRetry.callback(); await new Promise<void>((resolve) => setImmediate(resolve));
+  const retried = once(io.events, 'retried', { signal: AbortSignal.timeout(5_000) });
+  firstRetry.canceled = true; firstRetry.callback(); await retried;
   assert.deepEqual(tasks.filter((task) => !task.canceled && task.delay < 30_000).map(({ delay }) => delay), [2_000]);
 });
 
@@ -372,7 +430,8 @@ test('Given restore exits during readiness, then its record stays managed and it
   await manager.restore();
   assert.deepEqual(io.spawns[0]?.child.stopSignals, ['SIGTERM']); assert.ok(store.findByPeerId(PEER_ID));
   const retries = tasks.filter((task) => !task.canceled && task.delay < 30_000); assert.equal(retries.length, 1);
-  io.ready = async () => undefined; io.onSpawn = undefined; retries[0]?.callback(); await new Promise<void>((resolve) => setImmediate(resolve));
+  const watched = once(io.events, 'watched', { signal: AbortSignal.timeout(5_000) });
+  io.ready = async () => undefined; io.onSpawn = undefined; retries[0]?.callback(); await watched;
   assert.equal(io.spawns.length, 2);
 });
 
@@ -382,7 +441,8 @@ test('Given a live master refuses exit during restore, then spawn waits for a la
   io.runResults = [{ code: 0, stdout: '', stderr: '' }, { code: 255, stdout: '', stderr: 'exit refused' }];
   const manager = new SshTunnelManager({ io, store, paths: { directory: '/hub/fleet', privateKey: '/hub/fleet/id_ed25519', publicKey: '/hub/fleet/id_ed25519.pub', knownHosts: '/hub/fleet/known_hosts' }, scheduler: { schedule: (_delay, callback) => { const task = { callback, canceled: false }; tasks.push(task); return { cancel: () => { task.canceled = true; } }; } } });
   await manager.restore(); assert.equal(io.spawns.length, 0);
-  const retry = tasks.find((task) => !task.canceled); assert.ok(retry); retry.callback(); await new Promise<void>((resolve) => setImmediate(resolve));
+  const watched = once(io.events, 'watched', { signal: AbortSignal.timeout(5_000) });
+  const retry = tasks.find((task) => !task.canceled); assert.ok(retry); retry.callback(); await watched;
   assert.equal(io.spawns.length, 1);
 });
 
@@ -399,7 +459,7 @@ test('Given stale socket reclamation leaves the enrollment port occupied, then p
   const subject = fixture([
     { code: 0, stdout: '', stderr: '' },
     { code: 0, stdout: '', stderr: '' },
-    { code: 0, stdout: `Pairing token: ${TOKEN}\n`, stderr: '' },
+    { code: 0, stdout: `Pairing token: ${TOKEN}\nExpires at: 2030-01-01T00:00:00.000Z\n`, stderr: '' },
     { code: 255, stdout: '', stderr: 'Control socket connect: Connection refused' },
   ]);
   const controlPath = '/hub/fleet/control-41234'; subject.io.existingPaths.add(controlPath);
@@ -432,10 +492,11 @@ test('Given a reclaimed stale socket leaves its port occupied, then restore fail
 test('Given reconciliation throws after persistence, then enrollment remains committed and managed while reconciliation is retried', async () => {
   const io = new FakeIo(); const store = new MemoryStore(); const manager = new SshTunnelManager({ io, store, paths: { directory: '/hub/fleet', privateKey: '/hub/fleet/id_ed25519', publicKey: '/hub/fleet/id_ed25519.pub', knownHosts: '/hub/fleet/known_hosts' }, scheduler: { schedule: () => ({ cancel: () => undefined }) } });
   let attempts = 0; let reports = 0; let retry: (() => void) | undefined;
-  const service = new SshEasyEnrollService({ tunnels: manager, onPersisted: () => { attempts += 1; if (attempts === 1) throw new Error('reconcile failed'); }, reportPostCommitFailure: () => { reports += 1; }, schedulePostCommitRetry: (callback) => { retry = callback; }, hubPairing: { enroll: async () => ({ peerId: PEER_ID }) } });
+  const service = new SshEasyEnrollService({ tunnels: manager, onPersisted: () => { attempts += 1; if (attempts === 1) throw new Error('reconcile failed'); io.events.emit('reconciled'); }, reportPostCommitFailure: () => { reports += 1; }, schedulePostCommitRetry: (callback) => { retry = callback; }, hubPairing: { enroll: async () => ({ peerId: PEER_ID }) } });
   assert.deepEqual(await service.enroll({ sshTarget: 'alice@example.test', password: PASSWORD }), { peerId: PEER_ID, port: 41234 });
   assert.ok(store.findByPeerId(PEER_ID)); assert.deepEqual(io.spawns[0]?.child.stopSignals, []); assert.equal(reports, 1); assert.equal(attempts, 1);
-  assert.ok(retry); retry(); await new Promise<void>((resolve) => setImmediate(resolve)); assert.equal(attempts, 2);
+  const reconciled = once(io.events, 'reconciled', { signal: AbortSignal.timeout(5_000) });
+  assert.ok(retry); retry(); await reconciled; assert.equal(attempts, 2);
 });
 
 test('Given pairing cleanup failed after redemption, then the SSH closed error preserves cleanup diagnostics', async () => {
@@ -505,6 +566,123 @@ test('Given genuine mid-flow cleanup failure, then diagnostics attach without re
 
 const OK: SshRunResult = { code: 0, stdout: '', stderr: '' };
 const MINTED: SshRunResult = { code: 0, stdout: `Pairing token: ${TOKEN}\nExpires at: 2030-01-01T00:00:00.000Z\n`, stderr: '' };
+test('Given real isolated CLI stdout, when SSH enrollment consumes it, then the minted token reaches pairing unchanged', async (context) => {
+  // Given: actual CLI and SQLite, with no inherited application environment.
+  const home = await mkdtemp(join(tmpdir(), 'chatmux-token-frame-'));
+  context.after(() => rm(home, { recursive: true, force: true }));
+  const cli = spawnSync(process.execPath, ['--import', 'tsx', 'server/cli.js', 'fleet', 'token'], {
+    cwd: process.cwd(), env: { HOME: home, PATH: '/usr/bin:/bin', TSX_TSCONFIG_PATH: 'server/tsconfig.json' },
+    encoding: 'utf8', timeout: 15_000,
+  });
+  assert.equal(cli.error === undefined, true, 'CLI spawn failed');
+  assert.equal(cli.status, 0, 'CLI exit');
+  const fields = /^Pairing token: ([A-Za-z0-9_-]{43})\nExpires at: (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z)\n$/u.exec(cli.stdout);
+  assert.equal(fields !== null, true, 'CLI stdout must be a complete machine frame');
+  const token = fields?.[1] ?? '';
+  assert.equal(cli.stderr.includes(token), false, 'CLI diagnostics must not expose the token');
+  const subject = fixture([OK, OK, { code: cli.status, stdout: cli.stdout, stderr: cli.stderr }]);
+  context.after(() => subject.manager.stop());
+
+  // When: only the SSH transport and peer network are faked, not CLI generation or parsing.
+  const result = await subject.service.enroll({ sshTarget: 'alice@example.test', password: PASSWORD });
+
+  // Then: never include the actual token in an assertion dump.
+  assert.equal(result.peerId, PEER_ID);
+  assert.equal(subject.enrollments.length, 1);
+  assert.equal(subject.enrollments[0]?.token === token, true);
+  assert.equal(JSON.stringify(subject.store.records).includes(token), false);
+});
+
+// Exact five-line stdout observed from the immutable canonical v1.9.1 CLI.
+const PUBLISHED_FRAME = `Database schema applied\nDatabase migrations completed successfully\n${MINTED.stdout}Database connection closed\n`;
+
+for (const installCli of [false, true]) {
+  test(`Given published v1.9.1 framing, when HTTP enrollment ${installCli ? 'bootstraps' : 'reuses'} the CLI, then pairing succeeds`, async (context) => {
+    // Given
+    const minted = { ...OK, stdout: PUBLISHED_FRAME };
+    const subject = fixture(installCli ? [OK, OK, cliMissing('Linux', 'x86_64'), OK, minted] : [OK, OK, minted]);
+    const route = await startRoute(subject.service);
+    context.after(route.close); context.after(() => subject.manager.stop());
+
+    // When
+    const response = await fetch(`${route.url}/ssh-enroll`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, signal: AbortSignal.timeout(5_000),
+      body: JSON.stringify({ sshTarget: 'alice@example.test', password: PASSWORD, installCli }),
+    });
+    const body = await response.text();
+
+    // Then
+    assert.equal(response.status, 201);
+    assert.equal(body.includes(TOKEN), false);
+    assert.deepEqual(JSON.parse(body), { peerId: PEER_ID, port: 41234 });
+    assert.equal(subject.enrollments.length, 1);
+    assert.equal(subject.enrollments[0]?.token === TOKEN, true);
+    assert.equal(subject.store.records.length, 1);
+  });
+}
+
+for (const [label, stdout] of [
+  ['clean CRLF', MINTED.stdout.replaceAll('\n', '\r\n')],
+  ['published CRLF', PUBLISHED_FRAME.replaceAll('\n', '\r\n')],
+  ['clean without final newline', MINTED.stdout.slice(0, -1)],
+  ['published without final newline', PUBLISHED_FRAME.slice(0, -1)],
+]) {
+  test(`Given ${label}, when minting completes, then the anchored token is accepted`, async (context) => {
+    const subject = fixture([OK, OK, { ...OK, stdout }]);
+    context.after(() => subject.manager.stop());
+    const result = await subject.service.enroll({ sshTarget: 'alice@example.test', password: PASSWORD });
+    assert.equal(result.peerId, PEER_ID);
+    assert.equal(subject.enrollments[0]?.token === TOKEN, true);
+  });
+}
+
+const INVALID_FRAMES = [
+  ['empty stdout', ''],
+  ['unknown prefix', `banner\n${MINTED.stdout}`],
+  ['unknown suffix', `${MINTED.stdout}banner\n`],
+  ['leading blank', `\n${MINTED.stdout}`],
+  ['extra trailing blank', `${MINTED.stdout}\n`],
+  ['duplicate clean token', `${MINTED.stdout}Pairing token: ${TOKEN}\n`],
+  ['indented duplicate token', `${MINTED.stdout} Pairing token: ${TOKEN}\n`],
+  ['missing expiry', `Pairing token: ${TOKEN}\n`],
+  ['malformed expiry', `Pairing token: ${TOKEN}\nExpires later\n`],
+  ['invalid calendar expiry', MINTED.stdout.replace('2030-01-01', '2030-02-30')],
+  ['invalid time expiry', MINTED.stdout.replace('T00:00:00', 'T25:00:00')],
+  ['noncanonical expiry', MINTED.stdout.replace('.000Z', 'Z')],
+  ['short token', MINTED.stdout.replace(TOKEN, TOKEN.slice(1))],
+  ['long token', MINTED.stdout.replace(TOKEN, `${TOKEN}A`)],
+  ['invalid token alphabet', MINTED.stdout.replace(TOKEN, `${TOKEN.slice(0, -1)}+`)],
+  ['noncanonical token padding bits', MINTED.stdout.replace(TOKEN, `${TOKEN.slice(0, -1)}d`)],
+  ['published unknown prefix', `banner\n${PUBLISHED_FRAME}`],
+  ['published unknown suffix', `${PUBLISHED_FRAME}banner\n`],
+  ['published duplicate token', PUBLISHED_FRAME.replace('Database connection closed', `Pairing token: ${TOKEN}`)],
+  ['published duplicate frame', `${PUBLISHED_FRAME}${PUBLISHED_FRAME}`],
+  ['published missing schema', PUBLISHED_FRAME.replace('Database schema applied\n', '')],
+  ['published missing migrations', PUBLISHED_FRAME.replace('Database migrations completed successfully\n', '')],
+  ['published missing close', PUBLISHED_FRAME.replace('Database connection closed\n', '')],
+  ['published unknown diagnostic', PUBLISHED_FRAME.replace('Database schema applied', 'Database ready')],
+  ['published reordered diagnostics', PUBLISHED_FRAME.replace('Database schema applied\nDatabase migrations completed successfully', 'Database migrations completed successfully\nDatabase schema applied')],
+  ['published malformed expiry', PUBLISHED_FRAME.replace('2030-01-01', '2030-02-30')],
+  ['published malformed token', PUBLISHED_FRAME.replace(TOKEN, `${TOKEN}A`)],
+  ['published noncanonical token', PUBLISHED_FRAME.replace(TOKEN, `${TOKEN.slice(0, -1)}d`)],
+] as const;
+
+for (const [label, stdout] of INVALID_FRAMES) {
+  test(`Given invalid token framing: ${label}, when enrollment runs, then it fails closed before pairing`, async (context) => {
+    // Given
+    const subject = fixture([OK, OK, { ...OK, stdout }]);
+    context.after(() => subject.manager.stop());
+    // When / Then
+    await assert.rejects(subject.service.enroll({ sshTarget: 'alice@example.test', password: PASSWORD }),
+      (error) => error instanceof SshEnrollmentError && error.code === 'TOKEN_PARSE_FAILED' && !error.message.includes(TOKEN));
+    assert.equal(subject.enrollments.length, 0);
+    assert.equal(subject.store.records.length, 0);
+    assert.equal(subject.io.spawns.length, 0);
+    assert.ok(subject.io.runs.some(({ args }) => (args.at(-1) ?? '').includes('authorized_keys') && !(args.at(-1) ?? '').includes("printf '%s\\n'")));
+    assert.ok(subject.io.runs.some(({ args }) => args.includes('exit')));
+  });
+}
+
 const cliMissing = (os: string, arch: string): SshRunResult => ({ code: 127, stdout: '', stderr: `chatmux-fleet-cli-missing ${os} ${arch}\n` });
 const installRuns = (io: FakeIo) => io.runs.filter(({ args }) => (args.at(-1) ?? '').includes('install.sh'));
 const mintRuns = (io: FakeIo) => io.runs.filter(({ args }) => (args.at(-1) ?? '').includes('fleet token'));

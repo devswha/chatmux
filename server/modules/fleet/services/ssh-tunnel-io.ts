@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { createConnection, createServer } from 'node:net';
 import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 
 export type SshProcessOptions = Readonly<{
   env?: NodeJS.ProcessEnv;
@@ -48,6 +49,7 @@ class RealSshProcess implements SshProcess {
     return this;
   }
   stop(signal: NodeJS.Signals): void {
+    if (this.exit !== undefined) return;
     try { process.kill(process.platform === 'win32' ? this.pid : -this.pid, signal); }
     catch (error) {
       if (!(error instanceof Error) || !('code' in error) || error.code !== 'ESRCH') throw error;
@@ -128,7 +130,7 @@ export const realSshTunnelIo: SshTunnelIo = {
   writeFile: async (path, data, mode) => { await writeFile(path, data, { mode }); },
   rm: async (path) => { await rm(path, { recursive: true, force: true }); },
   run,
-  spawn: (command, args, options) => new RealSshProcess(spawn(command, args, { env: options.env, detached: true, stdio: 'ignore' })),
+  spawn: (command, args, options) => new RealSshProcess(spawn(process.execPath, [fileURLToPath(new URL('./ssh-tunnel-owner.js', import.meta.url)), command, ...args], { env: options.env, detached: true, stdio: ['ignore', 'ignore', 'ignore', 'ipc'] })),
   waitUntilReady,
   waitUntilUnavailable,
   killGroup: (pid, signal) => process.kill(process.platform === 'win32' ? pid : -pid, signal),

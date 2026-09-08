@@ -114,11 +114,22 @@ function missingCli(result: SshRunResult): SshEnrollmentError | undefined {
 
 function parseToken(stdout: string): string {
   const lines = stdout.split(/\r?\n/);
-  const match = TOKEN_LINE.exec(lines[0] ?? '');
-  if (match?.[1] === undefined || lines.slice(1).some((line) => line.startsWith('Pairing token:'))) {
+  if (lines.at(-1) === '') lines.pop();
+  // Published v1.9.1 sent these lifecycle diagnostics to stdout. Recognize only
+  // that complete envelope, never search arbitrary output for a token line.
+  const published = lines.length === 5
+    && lines[0] === 'Database schema applied'
+    && lines[1] === 'Database migrations completed successfully'
+    && lines[4] === 'Database connection closed';
+  const fields = published ? lines.slice(2, 4) : lines;
+  const token = TOKEN_LINE.exec(fields[0] ?? '')?.[1];
+  const expiry = /^Expires at: (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z)$/.exec(fields[1] ?? '')?.[1];
+  if (fields.length !== 2 || token === undefined || expiry === undefined
+    || Buffer.from(token, 'base64url').toString('base64url') !== token
+    || !Number.isFinite(Date.parse(expiry)) || new Date(expiry).toISOString() !== expiry) {
     throw new SshEnrollmentError('TOKEN_PARSE_FAILED', 'Remote ChatMux CLI returned an invalid pairing token');
   }
-  return match[1];
+  return token;
 }
 
 function errorValue(value: unknown): Error { return value instanceof Error ? value : new Error('Unknown SSH cleanup failure'); }
@@ -335,7 +346,9 @@ export class SshTunnelManager {
     return this.dependencies.io.run('ssh', [...this.controlArgs(target, controlPath), target.destination, command], { env: this.cleanEnv(), timeoutMs });
   }
   private spawnTunnel(target: SshTarget, localPort: number, controlPath: string, createMaster: boolean): Launch {
-    const args = ['-N', '-o', 'ExitOnForwardFailure=yes', '-o', 'ServerAliveInterval=30', '-o', 'ServerAliveCountMax=3', ...(createMaster ? ['-o', 'ControlMaster=yes', '-o', `ControlPersist=${CONTROL_PERSIST_SECONDS}`] : []), ...this.keyAuthenticationArgs(target), '-o', `ControlPath=${controlPath}`, '-L', `127.0.0.1:${localPort}:127.0.0.1:${REMOTE_FLEET_PORT}`, target.destination];
+    // ControlPersist forks even without -f, severing supervision from the live
+    // master. Keep this child in the foreground, including under user SSH config.
+    const args = ['-N', '-o', 'ForkAfterAuthentication=no', '-o', 'ExitOnForwardFailure=yes', '-o', 'ServerAliveInterval=30', '-o', 'ServerAliveCountMax=3', ...(createMaster ? ['-o', 'ControlMaster=yes', '-o', 'ControlPersist=no'] : []), ...this.keyAuthenticationArgs(target), '-o', `ControlPath=${controlPath}`, '-L', `127.0.0.1:${localPort}:127.0.0.1:${REMOTE_FLEET_PORT}`, target.destination];
     const process = this.dependencies.io.spawn('ssh', args, { env: this.cleanEnv() });
     const exited = new Promise<SshRunResult>((resolve) => process.once('exit', (code) => resolve({ code, stdout: '', stderr: '' })));
     return { process, exited };

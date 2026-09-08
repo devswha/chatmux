@@ -320,6 +320,32 @@ disclosure, then select **Add with SSH**. The hub installs a dedicated Ed25519
 public key, obtains the peer's single-use pairing token over SSH, creates the local
 forward, and enrolls the peer. There is no separate token-copy step in this mode.
 
+SSH bootstrap configures the new user service for `ssh-loopback` and binds its
+backend to `127.0.0.1` before the canonical installer starts it. The service
+override is `~/.config/systemd/user/chatmux.service.d/90-chatmux-fleet-ssh.conf`;
+bootstrap refuses to overwrite an existing file there.
+
+An **existing** peer, including a canonical 1.9.1 installation, must already be
+configured for the chosen transport. The default is `direct-wss`; the transport
+mode is part of the signed authentication challenge, so an SSH tunnel alone does
+not change it. SSH enrollment never rewrites or restarts an existing installation.
+Before using either SSH enrollment path, the peer owner can run
+`systemctl --user edit chatmux.service` and add:
+
+```ini
+[Service]
+Environment=HOST=127.0.0.1
+Environment=CHATMUX_FLEET_TRANSPORT_MODE=ssh-loopback
+```
+
+Then run `systemctl --user daemon-reload` and
+`systemctl --user restart chatmux.service` on the peer before enrolling it. Remove
+conflicting values from `~/.chatmux/chatmux.env` if present: environment-file
+values take precedence. This changes the peer's listener/transport configuration,
+not its release or data. Use a local or SSH-forwarded direct UI for recovery. To
+return to direct WSS, explicitly restore the peer's direct-WSS configuration;
+ChatMux never silently changes modes to bypass authentication rejection.
+
 If Tailscale is available on the hub, an optional PC selector suggests addresses
 from its peer list. Check the suggested username and target before submission;
 these hints do not verify SSH reachability or installation compatibility.

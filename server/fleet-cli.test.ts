@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { chmod, mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -58,6 +59,34 @@ test('Given owner-only data, when a token is issued, then only the one-time toke
     assert.match(lines[1] ?? '', /^Expires at: /u);
     assert.doesNotMatch(lines.join('\n'), /PRIVATE KEY|token_hash|private-key|public-key/u);
   });
+});
+
+test('Given an isolated HOME, when the real CLI mints across restarts, then stdout contains only machine fields', async (context) => {
+  // Given: no inherited application environment, preload, or output injection.
+  const home = await mkdtemp(path.join(os.tmpdir(), 'chatmux-fleet-cli-process-'));
+  context.after(() => rm(home, { recursive: true, force: true }));
+  for (const invocation of ['fresh database', 'existing database']) {
+    // When: exercise the actual entry point, including initialization and close.
+    const result = spawnSync(process.execPath, ['--import', 'tsx', 'server/cli.js', 'fleet', 'token'], {
+      cwd: process.cwd(),
+      env: { HOME: home, PATH: '/usr/bin:/bin', TSX_TSCONFIG_PATH: 'server/tsconfig.json' },
+      encoding: 'utf8', timeout: 15_000,
+    });
+
+    // Then: assertions expose only booleans/counts, never captured credentials.
+    assert.equal(result.error === undefined, true, `${invocation}: CLI spawn failed`);
+    assert.equal(result.status, 0, `${invocation}: CLI exit`);
+    const fields = /^Pairing token: ([A-Za-z0-9_-]{43})\nExpires at: (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z)\n$/u.exec(result.stdout);
+    assert.equal(fields !== null, true, `${invocation}: stdout must be exactly token and expiry`);
+    const token = fields?.[1] ?? '';
+    const expiry = fields?.[2] ?? '';
+    assert.equal(Buffer.from(token, 'base64url').byteLength, 32);
+    assert.equal(Buffer.from(token, 'base64url').toString('base64url') === token, true);
+    assert.equal(Number.isFinite(Date.parse(expiry)), true);
+    assert.equal(new Date(expiry).toISOString() === expiry, true);
+    assert.equal(result.stderr.length > 0, true, 'diagnostics remain visible on stderr');
+    assert.equal(result.stderr.includes(token), false, 'stderr must not disclose the token');
+  }
 });
 
 test('Given permissive installation data, when a token is requested, then owner authorization fails closed', { concurrency: false }, async () => {

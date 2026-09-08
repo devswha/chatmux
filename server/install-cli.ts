@@ -848,13 +848,45 @@ async function updateManagedUnitHost(home: string, host: string): Promise<boolea
   return true;
 }
 
-// Reads the bind address the managed unit actually starts the service with.
-// Returns null when no managed unit exists or it has no HOST line.
-export async function readManagedUnitHost(home: string = os.homedir()): Promise<string | null> {
+type ManagedAccessEnvironment = Partial<Pick<NodeJS.ProcessEnv, 'HOST' | 'SERVER_PORT' | 'CHATMUX_AUTH' | 'CHATMUX_ALLOW_UNAUTH_REMOTE'>>;
+
+// The base unit is not effective configuration: drop-ins and EnvironmentFile
+// can override it, and edits need not have been applied to the running service.
+// Read only access settings from the managed process's launch environment.
+// undefined = unmanaged; null = managed but unavailable/unknown (never guess).
+export async function readManagedAccessEnvironment(
+  home: string = os.homedir(),
+  run: CommandRunner = runCommand,
+  readFile: (file: string, encoding: 'utf8') => Promise<string> = fs.readFile,
+): Promise<ManagedAccessEnvironment | null | undefined> {
   try {
-    const unit = await fs.readFile(path.join(home, '.config', 'systemd', 'user', 'chatmux.service'), 'utf8');
-    return /^Environment=HOST=(.*)$/m.exec(unit)?.[1]?.trim() || null;
+    await readFile(path.join(home, '.config', 'systemd', 'user', 'chatmux.service'), 'utf8');
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'ENOENT' ? undefined : null;
+  }
+  try {
+    const args = ['--user', 'show', 'chatmux.service', '--property=MainPID', '--value'];
+    const { stdout } = await run('systemctl', args);
+    const pid = stdout.trim();
+    if (!/^[1-9]\d*$/.test(pid)) return null;
+    const environment = await readFile(`/proc/${pid}/environ`, 'utf8');
+    // Reject a snapshot taken across a service restart, without polling.
+    if ((await run('systemctl', args)).stdout.trim() !== pid) return null;
+    const access: ManagedAccessEnvironment = {};
+    for (const entry of environment.split('\0')) {
+      const separator = entry.indexOf('=');
+      const key = entry.slice(0, separator);
+      if (key === 'HOST' || key === 'SERVER_PORT' || key === 'CHATMUX_AUTH' || key === 'CHATMUX_ALLOW_UNAUTH_REMOTE') {
+        access[key] = entry.slice(separator + 1);
+      }
+    }
+    // These are explicit in the supported managed service. If missing, .env
+    // or custom startup code could supply them after launch; do not infer them.
+    if (!access.HOST || !access.SERVER_PORT || !access.CHATMUX_AUTH) return null;
+    return access;
   } catch {
+    // Unavailable systemd/procfs is reported as unknown by status. Never print
+    // command errors or the process environment: either may contain secrets.
     return null;
   }
 }
