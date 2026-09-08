@@ -12,8 +12,19 @@ the operator's real Claude, Codex, Cursor, OpenCode, OMO, OMP, or GJC binary.
 1. Start the fixture and leave it running:
 
    ```sh
-   npm run cua:fixture
+   CUA_VITE_PORT=4310 CUA_SERVER_PORT=4311 \
+   CUA_PEER_A_PORT=4312 CUA_PEER_B_PORT=4313 \
+   TSX_TSCONFIG_PATH=server/tsconfig.json \
+     node --import tsx scripts/cua/run-fixture.ts
    ```
+
+   Await `CUA_FIXTURE_READY` on stdout before opening the browser. Invoke Node
+   directly rather than the tsx CLI wrapper so SIGINT/SIGTERM reaches the fixture
+   cleanup handler. Choose disjoint explicit ports if these are occupied. Build
+   the native core first with `npm run build:core:dev` if it is absent. In a
+   worktree with a dependency symlink, use an owned dependency copy/cache whose
+   real path is inside that worktree and still ends in `node_modules`; sharing
+   Vite's optimizer cache across running worktrees can load duplicate Reacts.
 
 2. Start a dedicated Chrome with remote debugging enabled. Use a fresh profile
    outside the repository so Vite does not watch browser cache files:
@@ -61,6 +72,53 @@ the operator's real Claude, Codex, Cursor, OpenCode, OMO, OMP, or GJC binary.
    page, and service workers are blocked for deterministic network-fault tests.
    Installed-PWA/service-worker behavior is verified separately below. Run this
    matrix first because later fleet recovery tests can replace pairing identities.
+
+   Diagnostics coverage uses the actual Settings tab and `Refresh diagnostics`,
+   with response and busy-to-idle DOM subscriptions armed before navigation or
+   keyboard Enter. The Vite app's StrictMode mount starts and aborts an initial
+   pair before remounting; each manual refresh must issue exactly one GET to each
+   endpoint. It does not add polling, scan requests, or diagnostic actions.
+
+   - **Real/unmocked:** aggregate and pane endpoints return 200 JSON/no-store;
+     cards, coordinates, providers, and PIDs match the local fixture manifest,
+     not the enrolled collision peers. Private fields are absent. A normal
+     cached refresh and final recovery use the real endpoints.
+   - **Synthetic presentation only:** browser route fulfillment supplies two
+     sockets with equal coordinates, both lanes on one card, fresh/stale/unknown
+     observations, a 32-PID chain, all source/coverage/budget fields, successful
+     empty versus waiting/unavailable, and a private redaction sentinel. Each
+     endpoint independently receives 404, 503, network, malformed JSON, and
+     unsupported-schema faults; its successful peer remains. Either endpoint's
+     401/403 removes both datasets. Every fault is followed by keyboard refresh
+     recovery. These fulfilled faults do not prove server authorization.
+   - **Layout/localization:** English and Korean at 1440x1000, 320x568, and
+     390x844 check page overflow, PID wrapping, last-card reachability, a single
+     shared refresh control (excluding Settings navigation), and no page errors.
+     Korean uses the app's real `userLanguage` preference and shipped resources,
+     not a translated mock shell. Physical-device, WebKit, PWA, and native
+     desktop behavior require their separately documented runs.
+
+   Use a unique `CUA_EVIDENCE_DIR` for every attempt, including mutation REDs.
+   `improvement-interactions.json` preserves the English `cases` and boolean
+   `checks`, adding separate `koreanDiagnosticsCases`. Existing required excerpt,
+   pins, diagnostics, and terminal screenshot names are unchanged. New per-case
+   `*-pane-real.json` stores only public real responses; `*-pane-actions.json`
+   distinguishes real and synthetic refresh results. `*-pane-start.png`,
+   `*-pane-first-card.png`, `*-pane-end.png`, and `*-pane-lineage.png` capture
+   scroll positions; state/fault-named PNGs capture each failure presentation.
+   Korean filenames append `-ko` to the case prefix. Synthetic private response
+   properties are deliberately not persisted in response artifacts.
+
+   For failure sensitivity, temporarily mutate only the owned UI checkout:
+   misclassify successful empty as waiting, hide aggregate data on pane failure,
+   or change an omission count. Run the same diagnostic assertions against each
+   mutation and preserve its named assertion failure, actions, and screenshot.
+   Restore exact committed UI bytes before the final full matrix and commit only
+   harness/docs. A selector typo, setup failure, or changed assertion is not a
+   mutation RED. Stop owned Chrome and the direct fixture process, await their
+   exits and `stopped.json`, remove owned profiles/dependency copies/temp roots,
+   and verify the dedicated ports are free before recording PASS. Never use the
+   operator's port 3001, browser profile, or tmux server.
 
 4. Build the client, then capture native Computer Use and installed-PWA evidence
    in a private Xvfb, DBus, GNOME, HOME, runtime directory, and Chrome profile.
