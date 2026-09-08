@@ -26,6 +26,8 @@ cat > "$output" <<'INSTALLER'
 #!/bin/sh
 printf '%s\\n' "$CHATMUX_VERSION" "$CHATMUX_REPOSITORY" "$CHATMUX_INSTALL_ROOT" "$@" > "$HOME/installed-args"
 printf '%s' "\${CHATMUX_NODE-unset}:\${CHATMUX_NODE_BASE_URL-unset}:\${CHATMUX_RELEASE_BASE_URL-unset}" > "$HOME/overrides"
+override="$HOME/.config/systemd/user/chatmux.service.d/90-chatmux-fleet-ssh.conf"
+if [ -f "$override" ]; then cp "$override" "$HOME/service-override-at-install"; fi
 INSTALLER
 `;
   await writeFile(join(bin, 'curl'), curl, { mode: 0o700 });
@@ -78,6 +80,31 @@ test('an existing managed root or broken wrapper prevents both bootstrap and a m
     assert.equal(mint.status, 126, kind);
     assert.doesNotMatch(mint.stderr, /chatmux-fleet-cli-missing/, kind);
   }
+});
+
+test('SSH bootstrap configures the canonical peer transport and loopback bind before the installer starts its service', async (context) => {
+  const subject = await remote(context);
+  const result = subject.run(command());
+  assert.equal(result.status, 0, result.stderr);
+  const override = await readFile(join(subject.home, 'service-override-at-install'), 'utf8');
+  const environment = Object.fromEntries(override.split('\n').filter(line => line.startsWith('Environment=')).map(line => {
+    const assignment = line.slice('Environment='.length);
+    const index = assignment.indexOf('=');
+    return [assignment.slice(0, index), assignment.slice(index + 1)];
+  }));
+  assert.deepEqual(environment, { HOST: '127.0.0.1', CHATMUX_FLEET_TRANSPORT_MODE: 'ssh-loopback' });
+  assert.equal(override.split('\n')[0], '[Service]');
+});
+
+test('SSH bootstrap never overwrites an existing service override or executes the installer after that conflict', async (context) => {
+  const subject = await remote(context);
+  const directory = join(subject.home, '.config/systemd/user/chatmux.service.d');
+  await mkdir(directory, { recursive: true });
+  const override = join(directory, '90-chatmux-fleet-ssh.conf');
+  await writeFile(override, '[Service]\nEnvironment=HOST=127.0.0.2\n');
+  assert.equal(subject.run(command()).status, 70);
+  assert.equal(await readFile(override, 'utf8'), '[Service]\nEnvironment=HOST=127.0.0.2\n');
+  assert.equal(await exists(join(subject.home, 'installed-args')), false);
 });
 
 test('an installation appearing during download is preserved and the installer never executes', async (context) => {

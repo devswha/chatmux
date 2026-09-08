@@ -34,6 +34,12 @@ export function sshBootstrapCommand(version: string | undefined): string | undef
     + `curl -fsSL --proto '=https' --proto-redir '=https' --connect-timeout 15 --max-time 120 ${REPOSITORY_URL}/releases/download/v${version}/install.sh -o "$tmp" || exit 70; `
     + 'installation_absent || exit 70; '
     + 'mkdir -m 700 "$HOME/.chatmux" || exit 70; '
+    // Published peers default to direct-wss and bind that mode into the signed
+    // challenge. Configure only a newly claimed installation, before its first
+    // service start; keep the SSH-only listener off non-loopback interfaces.
+    + 'override="$HOME/.config/systemd/user/chatmux.service.d/90-chatmux-fleet-ssh.conf"; '
+    + 'mkdir -p "${override%/*}" || exit 70; '
+    + '(set -C; printf \'%s\\n\' \'[Service]\' \'Environment=HOST=127.0.0.1\' \'Environment=CHATMUX_FLEET_TRANSPORT_MODE=ssh-loopback\' > "$override") || exit 70; '
     + 'unset CHATMUX_NODE CHATMUX_NODE_BASE_URL CHATMUX_RELEASE_BASE_URL; '
     + `CHATMUX_REPOSITORY=${REPOSITORY_URL} CHATMUX_VERSION=${version} CHATMUX_INSTALL_ROOT="$HOME/.chatmux" sh "$tmp" --port 3001`;
 }
