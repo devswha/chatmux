@@ -12,13 +12,16 @@ test('mounted settings loads once, refreshes only the cached GET, and clears dat
   let response = new Response(JSON.stringify(summary()));
   context.mock.method(globalThis, 'fetch', async (url: string, options?: RequestInit) => {
     calls.push({ url, options });
-    return response;
+    return url.endsWith('/panes') && response.status === 200
+      ? new Response(JSON.stringify({ schemaVersion: 1, generatedAtMs: 100000, cacheTtlMs: 2000, staleAfterMs: 30000, collector: { status: 'available', freshness: 'fresh', scanAgeMs: 1000, fullScanAgeMs: 8000, lanes: { external: { status: 'ok' }, live: { status: 'ok' } } }, host: { freshness: 'fresh', ageMs: 1000, capture: 'ok', failure: null, sockets: [] }, limits: { discoveryRows: 1000, hostPanes: 1000, hostProcesses: 8192, lineagePids: 32 }, coverage: { totalRows: 0, rowsInspected: 0, rowsOmitted: 0, invalidRowsOmitted: 0, hostPanesOmitted: 0, hostProcessesOmitted: 0, countsCapped: false }, panes: [] }))
+      : response;
   });
   let tree: TestRenderer.ReactTestRenderer;
   await act(async () => { tree = TestRenderer.create(<I18nextProvider i18n={i18n}><DiagnosticsSettingsTab /></I18nextProvider>); });
   context.after(() => { act(() => tree.unmount()); });
-  assert.equal(calls.length, 1);
+  assert.equal(calls.length, 2);
   assert.equal(calls[0].url, '/api/settings/diagnostics');
+  assert.equal(calls[1].url, '/api/settings/diagnostics/panes');
   assert.equal(calls[0].options?.cache, 'no-store');
   assert.equal(calls[0].options?.credentials, 'same-origin');
   assert.equal(calls[0].options?.method, undefined);
@@ -26,15 +29,16 @@ test('mounted settings loads once, refreshes only the cached GET, and clears dat
   assert.match(JSON.stringify(tree!.toJSON()), /12 \/ 448/);
   response = new Response('PRIVATE_ERROR token', { status: 403 });
   await act(async () => { tree.root.findByType('button').props.onClick(); });
-  assert.equal(calls.length, 2);
+  assert.equal(calls.length, 4);
   assert.match(JSON.stringify(tree!.toJSON()), /Sign in as this server/);
   assert.doesNotMatch(JSON.stringify(tree!.toJSON()), /4 cached rows|12 \/ 448|PRIVATE_ERROR/);
 });
 
 test('network and unsupported response failures are generic and refresh can recover', async (context) => {
   let mode: 'failure' | 'unsupported' | 'success' = 'failure';
-  context.mock.method(globalThis, 'fetch', async () => {
+  context.mock.method(globalThis, 'fetch', async (url: string) => {
     if (mode === 'failure') throw new Error('PRIVATE_ERROR /home/secret token');
+    if (url.endsWith('/panes')) return new Response(JSON.stringify({ schemaVersion: 2 }));
     return new Response(JSON.stringify(mode === 'unsupported' ? { schemaVersion: 2 } : summary()));
   });
   let tree: TestRenderer.ReactTestRenderer;
@@ -79,10 +83,10 @@ test('manual refresh updates indexing counters without polling or starting mutat
   assert.match(JSON.stringify(tree.toJSON()), /12 \/ 448/);
   data.indexing.pending = 40;
   await act(async () => { tree.update(<I18nextProvider i18n={i18n}><DiagnosticsSettingsTab /></I18nextProvider>); });
-  assert.equal(calls, 1);
+  assert.equal(calls, 2);
   assert.match(JSON.stringify(tree.toJSON()), /12 \/ 448/);
   await act(async () => { tree.root.findByType('button').props.onClick(); });
-  assert.equal(calls, 2);
+  assert.equal(calls, 4);
   assert.match(JSON.stringify(tree.toJSON()), /40 \/ 448/);
   assert.equal(tree.root.findAllByType('button').length, 1, 'refresh is the only control');
 });

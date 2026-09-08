@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
-import type { OwnerDiagnostics } from '../../../../../shared/diagnostics';
+import type { OwnerDiagnostics, OwnerPaneDiagnostics } from '../../../../../shared/diagnostics';
 import { Button } from '../../../../shared/view/ui';
 import { authenticatedFetch } from '../../../../utils/api';
 import SettingsCard from '../SettingsCard';
@@ -121,9 +121,22 @@ export function DiagnosticsSummary({ data }: { data: OwnerDiagnostics }) {
   );
 }
 
+function PaneDiagnostics({ data }: { data: OwnerPaneDiagnostics }) {
+  const { t, i18n } = useTranslation('settings');
+  const age = (ms: number | null) => ms === null ? t('diagnostics.unknown') : t('diagnostics.seconds', { count: Math.floor(ms / 1000) });
+  const display = (value: unknown) => value === null || value === undefined || value === '' ? t('diagnostics.unknown') : String(value);
+  return <section aria-label={t('diagnostics.panes.title')} data-state={data.panes.length ? 'ready' : 'empty'} className="space-y-4">
+    <div><h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">{t('diagnostics.panes.title')}</h3><p className="mt-1 text-sm text-muted-foreground">{t('diagnostics.panes.description')}</p></div>
+    <p className="text-xs text-muted-foreground">{t('diagnostics.panes.sample', { time: new Date(data.generatedAtMs).toLocaleTimeString(i18n.language), hostAge: age(data.host.ageMs), scanAge: age(data.collector.scanAgeMs), fullScanAge: age(data.collector.fullScanAgeMs) })}</p>
+    <p className="text-sm text-muted-foreground">{t('diagnostics.panes.coverage', { inspected: data.coverage.rowsInspected, omitted: data.coverage.rowsOmitted })}</p>
+    <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2">{data.panes.map((pane) => <article key={`${pane.socketNumber}:${pane.paneId}`} aria-label={t('diagnostics.panes.card', { number: pane.paneNumber })} className="min-w-0 rounded-xl border border-border bg-card/50 p-4 space-y-3 [overflow-wrap:anywhere]"><h4 className="font-medium">{t('diagnostics.panes.card', { number: pane.paneNumber })}</h4><dl className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2"><div><dt className="text-muted-foreground">{t('diagnostics.panes.socket')}</dt><dd>{pane.socketNumber}</dd></div><div><dt className="text-muted-foreground">{t('diagnostics.panes.process')}</dt><dd>{display(pane.panePid)}</dd></div></dl>{pane.observations.map((observation) => <div key={observation.lane} role="region" aria-label={t(`diagnostics.panes.${observation.lane}`)} data-freshness={observation.freshness} className="rounded-lg bg-muted/40 p-3 text-sm space-y-1"><h5 className="font-medium">{t(`diagnostics.panes.${observation.lane}`)}</h5><div data-diagnostic-field="binding">{t('diagnostics.panes.binding')}: {display(observation.binding.grade)}</div><div data-diagnostic-field="lineage">{t('diagnostics.panes.lineage')}: {observation.process.lineage.pids.length ? observation.process.lineage.pids.join(' → ') : t('diagnostics.unknown')}</div><div data-diagnostic-field="actionability">{t('diagnostics.panes.actionability')}: {display(observation.actionabilityReport)}</div><div data-diagnostic-field="connection-issue">{t('diagnostics.panes.connection')}: {display(observation.connectionIssue)}</div></div>)}</article>)}</div>
+  </section>;
+}
+
 export default function DiagnosticsSettingsTab() {
   const { t } = useTranslation('settings');
   const [data, setData] = useState<OwnerDiagnostics | null>(null);
+  const [panes, setPanes] = useState<OwnerPaneDiagnostics | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<'owner' | 'unavailable' | null>(null);
   const request = useRef<AbortController | null>(null);
@@ -135,12 +148,19 @@ export default function DiagnosticsSettingsTab() {
     setLoading(true);
     setError(null);
     try {
-      const response = await authenticatedFetch('/api/settings/diagnostics', {
-        signal: controller.signal, cache: 'no-store',
-      });
+      const [response, paneResponse] = await Promise.all([
+        authenticatedFetch('/api/settings/diagnostics', { signal: controller.signal, cache: 'no-store' }),
+        authenticatedFetch('/api/settings/diagnostics/panes', { signal: controller.signal, cache: 'no-store' }),
+      ]);
+      if (request.current !== controller) return;
+      if (response.status === 401 || response.status === 403 || paneResponse.status === 401 || paneResponse.status === 403) {
+        setData(null); setPanes(null); setError('owner'); return;
+      }
+      if (paneResponse.ok) { const paneResult = await paneResponse.json() as OwnerPaneDiagnostics; if (paneResult.schemaVersion === 1 && Array.isArray(paneResult.panes) && request.current === controller) setPanes(paneResult); }
       if (request.current !== controller) return;
       if (response.status === 401 || response.status === 403) {
         setData(null);
+        setPanes(null);
         setError('owner');
         return;
       }
@@ -178,6 +198,7 @@ export default function DiagnosticsSettingsTab() {
       </div>
       {error && <p role="alert" className="py-2 text-sm">{t(`diagnostics.errors.${error}`)}</p>}
       {data && <DiagnosticsSummary data={data} />}
+      {panes && <PaneDiagnostics data={panes} />}
     </SettingsSection>
   );
 }

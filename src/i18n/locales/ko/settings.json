@@ -2,7 +2,7 @@
   "diagnostics": {
     "title": "진단",
     "description": "현재 ChatMux 서버의 캐시된 진단 정보입니다. 새로고침은 최대 2초 된 요약 캐시를 읽으며, 스캔을 시작하거나 실행 중인 세션을 변경하지 않습니다.",
-    "refresh": "요약 새로고침",
+    "refresh": "진단 새로고침",
     "loading": "진단 정보 불러오는 중…",
     "unknown": "확인 불가",
     "sampledAt": "{{time}}에 수집한 요약입니다. 아래 경과 시간은 수집 시점 기준입니다.",
@@ -75,6 +75,7 @@
       "owner": "이 서버의 소유자로 로그인해야 진단을 볼 수 있습니다. 로컬 전용 접근은 서버에서 직접 ChatMux를 여세요.",
       "unavailable": "진단 정보를 읽지 못했습니다. 연결 상태를 확인하고 요약을 새로고침하세요. 계속되면 해당 서버에서 chatmux status를 실행하세요."
     },
+    "panes": {"title":"Pane diagnostics","description":"Cached observations; refresh does not scan or authorize actions.","sample":"Sample {{time}} · host age {{hostAge}} · scan age {{scanAge}} · full scan age {{fullScanAge}}","coverage":"Inspected {{inspected}} rows; omitted {{omitted}}.","card":"Pane {{number}}","socket":"Socket","process":"Pane PID","external":"External observation","live":"Live observation","binding":"Binding","lineage":"Lineage","actionability":"Actionability","connection":"Connection issue"},
     "recovery": {
       "waiting": "세션 목록을 열어 일반 탐색을 사용한 뒤 돌아와 요약을 새로고침하세요. 아직 사용하지 않은 수집기에는 관측 정보가 없을 수 있습니다.",
       "discovery": "세션 목록이 다시 연결되는지 확인한 뒤 요약을 새로고침하세요. 탐색 지연이나 실패가 계속되면 서버에서 chatmux status와 로컬 서비스 로그를 확인하세요. 기존 tmux 작업은 유지하세요.",
@@ -111,6 +112,21 @@
         "title": "대화 기록 접근 거부",
         "guidance": "서비스 계정의 제공자 저장소 접근 권한을 서버에서 확인하세요. 비공개 기록을 공개하지 말고 검증된 터미널 연결을 사용하세요."
       }
+    },
+    "panes": {
+      "title": "Pane diagnostics",
+      "description": "Cached observations; refresh does not scan or authorize actions.",
+      "sample": "Sample {{time}} · host age {{hostAge}} · scan age {{scanAge}} · full scan age {{fullScanAge}}",
+      "coverage": "Inspected {{inspected}} rows; omitted {{omitted}}.",
+      "card": "Pane {{number}}",
+      "socket": "Socket",
+      "process": "Pane PID",
+      "external": "External observation",
+      "live": "Live observation",
+      "binding": "Binding",
+      "lineage": "Lineage",
+      "actionability": "Actionability",
+      "connection": "Connection issue"
     }
   },
   "title": "설정",
@@ -195,17 +211,67 @@
     "neverSeen": "연결 기록 없음",
     "noCapabilities": "협상된 기능 없음",
     "securityNote": "공개 지문과 운영 상태만 표시합니다. 개인 키, 토큰 해시, 피어 URL, 민감한 경로는 이 화면에 표시하지 않습니다.",
-    "identity": { "title": "이 PC", "description": "신뢰할 피어를 고정하는 데 사용하는 공개 설치 ID입니다.", "local": "로컬 공개 지문" },
-    "pairing": { "generate": "페어링 코드 생성", "copy": "페어링 코드 복사", "expires": "일회용 코드 · {{time}} 만료" },
-    "enroll": { "title": "PC 추가", "description": "추가할 PC에서 코드를 생성한 뒤 엔드포인트와 코드를 여기에 입력하세요.", "roleConflict": "이 PC는 다른 허브의 피어입니다. 이 PC를 허브로 사용하려면 먼저 해당 허브 권한을 해제하세요. 직접 로컬 복구 화면은 계속 사용할 수 있습니다.", "label": "호스트 이름", "mode": "연결 모드", "url": "피어 URL", "token": "페어링 코드", "submit": "호스트 추가" },
-    "modes": { "direct": "직접 WSS (권장)", "ssh": "SSH 루프백 포워드", "directHelp": "Tailscale Serve 또는 신뢰할 수 있는 TLS /fleet-ws 엔드포인트를 사용하세요. 평문 연결은 거부됩니다.", "sshHelp": "소유자가 SSH 로컬 포워드를 먼저 만들어야 합니다. /fleet-ws로 끝나는 ws://127.0.0.1 또는 ws://[::1]만 허용되며 자동 다운그레이드는 없습니다." },
-    "hosts": { "title": "등록된 호스트", "description": "연결 상태와 협상된 머신 기능입니다. Fleet은 최대 10대의 PC를 지원합니다.", "empty": "등록된 피어 PC가 없습니다." },
-    "fields": { "mode": "모드", "version": "프로토콜", "lastSeen": "마지막 연결" },
-    "states": { "online": "온라인", "connecting": "연결 중", "syncing": "동기화 중", "degraded": "성능 저하", "offline": "오프라인", "revoked": "취소됨", "incompatible": "호환되지 않음" },
-    "actions": { "reconnect": "다시 연결", "revoke": "권한 취소", "removeLocal": "허브에서 제거", "cancel": "취소", "confirmRevoke": "취소 실행" },
-    "confirm": { "title": "피어 권한 취소 확인", "description": "허브가 로컬 권한을 먼저 제거한 뒤 피어에 이 허브 권한 취소를 요청합니다. 원격 취소 실패는 별도로 표시됩니다." },
+    "identity": {
+      "title": "이 PC",
+      "description": "신뢰할 피어를 고정하는 데 사용하는 공개 설치 ID입니다.",
+      "local": "로컬 공개 지문"
+    },
+    "pairing": {
+      "generate": "페어링 코드 생성",
+      "copy": "페어링 코드 복사",
+      "expires": "일회용 코드 · {{time}} 만료"
+    },
+    "enroll": {
+      "title": "PC 추가",
+      "description": "추가할 PC에서 코드를 생성한 뒤 엔드포인트와 코드를 여기에 입력하세요.",
+      "roleConflict": "이 PC는 다른 허브의 피어입니다. 이 PC를 허브로 사용하려면 먼저 해당 허브 권한을 해제하세요. 직접 로컬 복구 화면은 계속 사용할 수 있습니다.",
+      "label": "호스트 이름",
+      "mode": "연결 모드",
+      "url": "피어 URL",
+      "token": "페어링 코드",
+      "submit": "호스트 추가"
+    },
+    "modes": {
+      "direct": "직접 WSS (권장)",
+      "ssh": "SSH 루프백 포워드",
+      "directHelp": "Tailscale Serve 또는 신뢰할 수 있는 TLS /fleet-ws 엔드포인트를 사용하세요. 평문 연결은 거부됩니다.",
+      "sshHelp": "소유자가 SSH 로컬 포워드를 먼저 만들어야 합니다. /fleet-ws로 끝나는 ws://127.0.0.1 또는 ws://[::1]만 허용되며 자동 다운그레이드는 없습니다."
+    },
+    "hosts": {
+      "title": "등록된 호스트",
+      "description": "연결 상태와 협상된 머신 기능입니다. Fleet은 최대 10대의 PC를 지원합니다.",
+      "empty": "등록된 피어 PC가 없습니다."
+    },
+    "fields": {
+      "mode": "모드",
+      "version": "프로토콜",
+      "lastSeen": "마지막 연결"
+    },
+    "states": {
+      "online": "온라인",
+      "connecting": "연결 중",
+      "syncing": "동기화 중",
+      "degraded": "성능 저하",
+      "offline": "오프라인",
+      "revoked": "취소됨",
+      "incompatible": "호환되지 않음"
+    },
+    "actions": {
+      "reconnect": "다시 연결",
+      "revoke": "권한 취소",
+      "removeLocal": "허브에서 제거",
+      "cancel": "취소",
+      "confirmRevoke": "취소 실행"
+    },
+    "confirm": {
+      "title": "피어 권한 취소 확인",
+      "description": "허브가 로컬 권한을 먼저 제거한 뒤 피어에 이 허브 권한 취소를 요청합니다. 원격 취소 실패는 별도로 표시됩니다."
+    },
     "revocationOutcome": "허브 로컬: {{local}} · 피어 권한: {{peer}}",
-    "errors": { "load": "Fleet 설정을 사용할 수 없습니다 ({{code}}).", "action": "Fleet 작업에 실패했습니다 ({{code}})." },
+    "errors": {
+      "load": "Fleet 설정을 사용할 수 없습니다 ({{code}}).",
+      "action": "Fleet 작업에 실패했습니다 ({{code}})."
+    },
     "sshEasy": {
       "title": "간편 SSH 추가",
       "description": "ChatMux가 SSH로 연결해 보안 터널을 설정하고 PC를 자동으로 등록합니다.",
