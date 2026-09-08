@@ -279,8 +279,8 @@ test('Given token-like output is not one exact unique first line, when enrollmen
     const subject = fixture([{ code: 0, stdout: '', stderr: '' }, { code: 0, stdout: '', stderr: '' }, { code: 0, stdout, stderr: '' }]);
     await assert.rejects(subject.service.enroll({ sshTarget: 'alice@example.test', password: PASSWORD }), (error) => error instanceof SshEnrollmentError && error.code === 'TOKEN_PARSE_FAILED');
   }
-  const accepted = fixture([{ code: 0, stdout: '', stderr: '' }, { code: 0, stdout: '', stderr: '' }, { code: 0, stdout: `Pairing token: ${TOKEN}\nExpires later\n`, stderr: '' }]);
-  assert.equal((await accepted.service.enroll({ sshTarget: 'alice@example.test', password: PASSWORD })).peerId, PEER_ID);
+  const malformed = fixture([{ code: 0, stdout: '', stderr: '' }, { code: 0, stdout: '', stderr: '' }, { code: 0, stdout: `Pairing token: ${TOKEN}\nExpires later\n`, stderr: '' }]);
+  await assert.rejects(malformed.service.enroll({ sshTarget: 'alice@example.test', password: PASSWORD }), (error) => error instanceof SshEnrollmentError && error.code === 'TOKEN_PARSE_FAILED');
 });
 
 test('Given the tunnel exits before readiness, when preparing enrollment, then pairing never starts and key installation is compensated', async () => {
@@ -399,7 +399,7 @@ test('Given stale socket reclamation leaves the enrollment port occupied, then p
   const subject = fixture([
     { code: 0, stdout: '', stderr: '' },
     { code: 0, stdout: '', stderr: '' },
-    { code: 0, stdout: `Pairing token: ${TOKEN}\n`, stderr: '' },
+    { code: 0, stdout: `Pairing token: ${TOKEN}\nExpires at: 2030-01-01T00:00:00.000Z\n`, stderr: '' },
     { code: 255, stdout: '', stderr: 'Control socket connect: Connection refused' },
   ]);
   const controlPath = '/hub/fleet/control-41234'; subject.io.existingPaths.add(controlPath);
@@ -505,6 +505,123 @@ test('Given genuine mid-flow cleanup failure, then diagnostics attach without re
 
 const OK: SshRunResult = { code: 0, stdout: '', stderr: '' };
 const MINTED: SshRunResult = { code: 0, stdout: `Pairing token: ${TOKEN}\nExpires at: 2030-01-01T00:00:00.000Z\n`, stderr: '' };
+test('Given real isolated CLI stdout, when SSH enrollment consumes it, then the minted token reaches pairing unchanged', async (context) => {
+  // Given: actual CLI and SQLite, with no inherited application environment.
+  const home = await mkdtemp(join(tmpdir(), 'chatmux-token-frame-'));
+  context.after(() => rm(home, { recursive: true, force: true }));
+  const cli = spawnSync(process.execPath, ['--import', 'tsx', 'server/cli.js', 'fleet', 'token'], {
+    cwd: process.cwd(), env: { HOME: home, PATH: '/usr/bin:/bin', TSX_TSCONFIG_PATH: 'server/tsconfig.json' },
+    encoding: 'utf8', timeout: 15_000,
+  });
+  assert.equal(cli.error === undefined, true, 'CLI spawn failed');
+  assert.equal(cli.status, 0, 'CLI exit');
+  const fields = /^Pairing token: ([A-Za-z0-9_-]{43})\nExpires at: (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z)\n$/u.exec(cli.stdout);
+  assert.equal(fields !== null, true, 'CLI stdout must be a complete machine frame');
+  const token = fields?.[1] ?? '';
+  assert.equal(cli.stderr.includes(token), false, 'CLI diagnostics must not expose the token');
+  const subject = fixture([OK, OK, { code: cli.status, stdout: cli.stdout, stderr: cli.stderr }]);
+  context.after(() => subject.manager.stop());
+
+  // When: only the SSH transport and peer network are faked, not CLI generation or parsing.
+  const result = await subject.service.enroll({ sshTarget: 'alice@example.test', password: PASSWORD });
+
+  // Then: never include the actual token in an assertion dump.
+  assert.equal(result.peerId, PEER_ID);
+  assert.equal(subject.enrollments.length, 1);
+  assert.equal(subject.enrollments[0]?.token === token, true);
+  assert.equal(JSON.stringify(subject.store.records).includes(token), false);
+});
+
+// Exact five-line stdout observed from the immutable canonical v1.9.1 CLI.
+const PUBLISHED_FRAME = `Database schema applied\nDatabase migrations completed successfully\n${MINTED.stdout}Database connection closed\n`;
+
+for (const installCli of [false, true]) {
+  test(`Given published v1.9.1 framing, when HTTP enrollment ${installCli ? 'bootstraps' : 'reuses'} the CLI, then pairing succeeds`, async (context) => {
+    // Given
+    const minted = { ...OK, stdout: PUBLISHED_FRAME };
+    const subject = fixture(installCli ? [OK, OK, cliMissing('Linux', 'x86_64'), OK, minted] : [OK, OK, minted]);
+    const route = await startRoute(subject.service);
+    context.after(route.close); context.after(() => subject.manager.stop());
+
+    // When
+    const response = await fetch(`${route.url}/ssh-enroll`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, signal: AbortSignal.timeout(5_000),
+      body: JSON.stringify({ sshTarget: 'alice@example.test', password: PASSWORD, installCli }),
+    });
+    const body = await response.text();
+
+    // Then
+    assert.equal(response.status, 201);
+    assert.equal(body.includes(TOKEN), false);
+    assert.deepEqual(JSON.parse(body), { peerId: PEER_ID, port: 41234 });
+    assert.equal(subject.enrollments.length, 1);
+    assert.equal(subject.enrollments[0]?.token === TOKEN, true);
+    assert.equal(subject.store.records.length, 1);
+  });
+}
+
+for (const [label, stdout] of [
+  ['clean CRLF', MINTED.stdout.replaceAll('\n', '\r\n')],
+  ['published CRLF', PUBLISHED_FRAME.replaceAll('\n', '\r\n')],
+  ['clean without final newline', MINTED.stdout.slice(0, -1)],
+  ['published without final newline', PUBLISHED_FRAME.slice(0, -1)],
+]) {
+  test(`Given ${label}, when minting completes, then the anchored token is accepted`, async (context) => {
+    const subject = fixture([OK, OK, { ...OK, stdout }]);
+    context.after(() => subject.manager.stop());
+    const result = await subject.service.enroll({ sshTarget: 'alice@example.test', password: PASSWORD });
+    assert.equal(result.peerId, PEER_ID);
+    assert.equal(subject.enrollments[0]?.token === TOKEN, true);
+  });
+}
+
+const INVALID_FRAMES = [
+  ['empty stdout', ''],
+  ['unknown prefix', `banner\n${MINTED.stdout}`],
+  ['unknown suffix', `${MINTED.stdout}banner\n`],
+  ['leading blank', `\n${MINTED.stdout}`],
+  ['extra trailing blank', `${MINTED.stdout}\n`],
+  ['duplicate clean token', `${MINTED.stdout}Pairing token: ${TOKEN}\n`],
+  ['indented duplicate token', `${MINTED.stdout} Pairing token: ${TOKEN}\n`],
+  ['missing expiry', `Pairing token: ${TOKEN}\n`],
+  ['malformed expiry', `Pairing token: ${TOKEN}\nExpires later\n`],
+  ['invalid calendar expiry', MINTED.stdout.replace('2030-01-01', '2030-02-30')],
+  ['invalid time expiry', MINTED.stdout.replace('T00:00:00', 'T25:00:00')],
+  ['noncanonical expiry', MINTED.stdout.replace('.000Z', 'Z')],
+  ['short token', MINTED.stdout.replace(TOKEN, TOKEN.slice(1))],
+  ['long token', MINTED.stdout.replace(TOKEN, `${TOKEN}A`)],
+  ['invalid token alphabet', MINTED.stdout.replace(TOKEN, `${TOKEN.slice(0, -1)}+`)],
+  ['noncanonical token padding bits', MINTED.stdout.replace(TOKEN, `${TOKEN.slice(0, -1)}d`)],
+  ['published unknown prefix', `banner\n${PUBLISHED_FRAME}`],
+  ['published unknown suffix', `${PUBLISHED_FRAME}banner\n`],
+  ['published duplicate token', PUBLISHED_FRAME.replace('Database connection closed', `Pairing token: ${TOKEN}`)],
+  ['published duplicate frame', `${PUBLISHED_FRAME}${PUBLISHED_FRAME}`],
+  ['published missing schema', PUBLISHED_FRAME.replace('Database schema applied\n', '')],
+  ['published missing migrations', PUBLISHED_FRAME.replace('Database migrations completed successfully\n', '')],
+  ['published missing close', PUBLISHED_FRAME.replace('Database connection closed\n', '')],
+  ['published unknown diagnostic', PUBLISHED_FRAME.replace('Database schema applied', 'Database ready')],
+  ['published reordered diagnostics', PUBLISHED_FRAME.replace('Database schema applied\nDatabase migrations completed successfully', 'Database migrations completed successfully\nDatabase schema applied')],
+  ['published malformed expiry', PUBLISHED_FRAME.replace('2030-01-01', '2030-02-30')],
+  ['published malformed token', PUBLISHED_FRAME.replace(TOKEN, `${TOKEN}A`)],
+  ['published noncanonical token', PUBLISHED_FRAME.replace(TOKEN, `${TOKEN.slice(0, -1)}d`)],
+] as const;
+
+for (const [label, stdout] of INVALID_FRAMES) {
+  test(`Given invalid token framing: ${label}, when enrollment runs, then it fails closed before pairing`, async (context) => {
+    // Given
+    const subject = fixture([OK, OK, { ...OK, stdout }]);
+    context.after(() => subject.manager.stop());
+    // When / Then
+    await assert.rejects(subject.service.enroll({ sshTarget: 'alice@example.test', password: PASSWORD }),
+      (error) => error instanceof SshEnrollmentError && error.code === 'TOKEN_PARSE_FAILED' && !error.message.includes(TOKEN));
+    assert.equal(subject.enrollments.length, 0);
+    assert.equal(subject.store.records.length, 0);
+    assert.equal(subject.io.spawns.length, 0);
+    assert.ok(subject.io.runs.some(({ args }) => (args.at(-1) ?? '').includes('authorized_keys') && !(args.at(-1) ?? '').includes("printf '%s\\n'")));
+    assert.ok(subject.io.runs.some(({ args }) => args.includes('exit')));
+  });
+}
+
 const cliMissing = (os: string, arch: string): SshRunResult => ({ code: 127, stdout: '', stderr: `chatmux-fleet-cli-missing ${os} ${arch}\n` });
 const installRuns = (io: FakeIo) => io.runs.filter(({ args }) => (args.at(-1) ?? '').includes('install.sh'));
 const mintRuns = (io: FakeIo) => io.runs.filter(({ args }) => (args.at(-1) ?? '').includes('fleet token'));
