@@ -1,6 +1,6 @@
 # ChatMux 제품 범위와 로드맵
 
-기준일: 2026-09-05
+기준일: 2026-09-08
 
 이 문서는 ChatMux의 제품 범위와 작업 우선순위에 대한 단일 기준이다.
 ChatMux는 tmux에서 이미 실행 중인 코딩 에이전트를 발견하고, 읽고, 제어하는
@@ -126,13 +126,13 @@ mosh, et.rs)도 모두 Tailscale 또는 포트 개방으로 수렴한다.
 - [x] 일시적인 scan 실패와 실제 pane 종료를 구분
 - [x] 브라우저 수와 무관한 일정한 tmux/프로세스 조회 비용 보장
 
-### P3 — tmux 확장성
+### P3 — tmux 확장성 (shipped)
 
 - [x] owner 환경 설정으로 custom terminal agent command/argv 감지 — Linux의 검증된 foreground 프로세스를 기존 terminal-only 경로로 연다 ([설정과 제한](CUSTOM-AGENTS.md))
 - [x] parser가 없는 agent의 terminal fallback
 - [x] owner가 명시한 `tmux -L`·`tmux -S` 서버 목록 지원 — 소켓 identity와 교체 여부를 검증한다 ([설정과 부분 실패 정책](TMUX-DISCOVERY.md))
 - [x] 관리자용 집계 진단 — 탐색 시각·실패 사유·감시기 신호·인덱싱 대기열과 복구 안내
-- [ ] pane별 socket·프로세스 혈통·transcript 연결 근거의 상세 진단 화면
+- [x] pane별 socket·프로세스 혈통·transcript 연결 근거의 상세 진단 화면 — 소유자 전용 캐시 관측과 명시적 미확인 상태 ([범위와 개인정보 경계](TMUX-DISCOVERY.md#cost-privacy-and-verification))
 
 ### P4 — 모바일 웹 관제 (shipped)
 
@@ -157,7 +157,10 @@ mosh, et.rs)도 모두 Tailscale 또는 포트 개방으로 수렴한다.
 - 로컬 탐색의 재연결·갱신·최신 여부를 구분하고, 화면 복귀와 누락 감지 시
   제한된 읽기로 복구한다. 전송이나 승인을 자동 재실행하지 않는다.
 
-집계 진단은 **설정 → 진단**에서 소유자가 확인한다. 인덱싱 수치는 대기열의
+집계와 pane 상세 진단은 **설정 → 진단**에서 소유자가 확인한다. Pane 상세는
+현재 서버의 캐시된 소켓 구분·프로세스 계보·대화 연결 근거를 읽기 전용으로
+보여 주며, 새 스캔이나 제어 권한을 만들지 않는다. 표본 안의 번호는 영구
+식별자가 아니며, 원시 경로와 자격 증명은 표시하지 않는다. 인덱싱 수치는 대기열의
 입장·처리 상태이며 에이전트의 생존이나 제어 권한을 증명하지 않는다. 전체
 기록을 처음 읽는 작업은 대기열 제한 밖에 있다. 백업과 데이터 복구는
 [소유자 운영 절차](SELF-HOST.md#owner-managed-backup-and-recovery)를 따른다.
