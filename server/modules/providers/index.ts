@@ -1,6 +1,7 @@
 export { sessionsService } from './services/sessions.service.js';
 export { sessionConversationsSearchService } from './services/session-conversations-search.service.js';
 export { getHomeDirSuggestions } from './services/home-dirs.service.js';
+export { getCachedHostDiscoverySnapshot } from './services/host-discovery-snapshot.service.js';
 export { listLiveGjcCommands } from './services/live-commands.service.js';
 export { answerTmuxApproval, getTmuxApprovalPrompt } from './services/tmux-approval.service.js';
 export { answerTmuxInteractivePrompt, getTmuxInteractivePrompt, submitTmuxInteractiveCustomResponse } from './services/tmux-interactive-prompt.service.js';
