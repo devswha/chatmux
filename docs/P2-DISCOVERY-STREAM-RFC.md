@@ -1,6 +1,6 @@
-# P2 Discovery Stream RFC (M4a) — rev.3
+# P2 Discovery Stream RFC (M4a) — rev.4
 
-상태: rev.2의 역사적 승인 게이트 기록은 아래에 보존한다. **rev.3의 명시적 로컬 tmux socket 지원(§4.1.1)은 2026-09-05 사용자 요청으로 승인되었다.** 이 승인은 해당 범위의 계약 개정과 구현을 함께 허용하며 다른 계약을 확대하지 않는다.
+상태: rev.2의 역사적 승인 게이트 기록은 아래에 보존한다. **rev.3의 명시적 로컬 tmux socket 지원(§4.1.1)은 2026-09-05 사용자 요청으로 승인되었다.** 이 승인은 해당 범위의 계약 개정과 구현을 함께 허용하며 다른 계약을 확대하지 않는다. **rev.4의 owner-only pane 진단 프로젝션(§4.1.2)은 2026-09-08 승인된 pane diagnostics 실행 계획의 계약 전제 조건으로 승인되었다.** 이 승인은 §4.1.1의 server-private 규칙에 정해진 범위의 단일 예외를 추가할 뿐 다른 계약을 확대하지 않는다.
 
 대상 백로그: B12(단일 수집기/권위 스냅샷), B13(epoch + reconnect snapshot→delta), B14(unavailable vs 종료 구분 + 응답 계약 신설), B15(폴링 제거 + 상수 비용 측정).
 
@@ -14,6 +14,7 @@
 
 | rev | 사유 | 반영 내용 | 추적 |
 |---|---|---|---|
+| **rev.4** | 2026-09-08 owner-only pane diagnostics exception | §4.1.2 신설: owner-only·no-store·cached pane projection의 허용 목록(응답-국한 표시 ordinal, 검증된 좌표/PID, allowlist 결과), 제외 목록, 독립 sample age, 출력 상한, unknown 의미, 묻변경 aggregate 명시. §4.1.1 마지막 불릿에 §4.1.2 단일 예외 추가 | `docs/TMUX-DISCOVERY.md`, pane diagnostics 실행 계획 |
 | **rev.3** | 2026-09-05 owner-authorized explicit local socket inventory | §4.1.1: bounded configuration, socket-qualified identity, partial failure and action safety; default unchanged | `docs/TMUX-DISCOVERY.md` |
 | rev.1 | 최초 작성 | §1~§10 + 부록 A/B | — |
 | **rev.2** | critic **ITERATE** 판정, required_changes 6건 | 아래 6행 | 부록 B |
@@ -273,8 +274,98 @@ R'(N) = (2 + S)/C_SCAN + c_live/C_SCAN                        # 수집기 1개, 
 - Per-socket outcomes, configuration, resolved paths, ownership/inode evidence,
   and raw command failures MUST remain server-private. Public diagnostics MAY
   expose bounded counts and closed reason codes only, never socket names,
-  paths, argv, labels, or exception text. Fleet descriptors and host-qualified
-  action routing remain governed by the existing Fleet RFC.
+  paths, argv, labels, or exception text. The single exception is the
+  owner-only pane projection of §4.1.2, which publishes sample-local ordinals,
+  validated coordinates/PIDs, and allowlisted outcomes under its own boundary.
+  Every other diagnostic surface keeps this limit. Fleet descriptors and
+  host-qualified action routing remain governed by the existing Fleet RFC.
+
+### 4.1.2 Owner-only pane diagnostics projection (rev.4, normative)
+
+The owner-only settings diagnostics surface MAY expose a separate per-pane
+projection of cached discovery and host evidence. This section is the single
+exception to the server-private rules of §4.1.1 and to the counts-and-codes
+limit on public diagnostics. It does not widen the stream payload rules
+(§3.2 N4) or the B17a diagnostic-event rules (§5.6); those remain
+counts-and-codes only.
+
+- The projection MUST be served only as `GET /api/settings/diagnostics/panes`,
+  mounted under the existing diagnostics router so it inherits that router's
+  authentication, owner authorization, and `Cache-Control: no-store` ordering
+  (`diagnostics.routes.ts:13-35`, mounted at `server/index.js:362-372`). It is
+  read-only: methods other than GET MUST remain 404, and query parameters
+  such as `refresh` or `scan` MUST NOT change behavior. The existing
+  aggregate response `GET /api/settings/diagnostics` (`shared/diagnostics.ts`)
+  MUST remain unchanged in schema and content, and an unavailable pane
+  endpoint, including 404 during mixed-version deployment, MUST NOT hide or
+  degrade a successful aggregate response.
+- Each response MUST be assembled only from the collector's cached rows
+  (`discovery-collector.service.ts:48-66`) and the last completed host
+  snapshot retained by the host source
+  (`host-discovery-snapshot.service.ts:375-402`). A read MUST NOT start a
+  capture, scan, command, or file read, and MUST NOT wait for in-flight work;
+  with no completed host sample the host section MUST report unavailable.
+  Responses MAY be cached independently for up to two seconds, expiring on
+  clock rollback. Source failures MUST be cached as explicit unavailable
+  states, and an unexpected failure MUST return generic
+  `503 {"error":"diagnostics_unavailable"}` without detail.
+- Per pane the projection MAY contain only: sample-local display ordinals
+  (pane, socket slot, capture slot) assigned in first-encounter order within
+  that response; tmux coordinates matching `$`, `@`, or `%` followed by 1-10
+  ASCII digits; process IDs as integers in `1..2147483647`; and closed,
+  allowlisted outcomes. The allowlisted outcomes are lane, provider
+  classification (`external-cli-sessions/contracts-and-resume.ts:44-46`),
+  presence, freshness, activity
+  (`external-session-activity.service.ts:18-20`), connection-issue codes
+  (`shared/provider-connection.ts:1-11`), binding grade
+  (`tmux-session-binding.service.ts:8-26`), a provider-session-reported
+  boolean, process generation state, lineage relation and reason, and
+  per-slot capture status with failure codes and pane counts. Identities
+  that fail validation MUST be omitted and counted, never repaired.
+- Ordinals are sample-local display labels numbered from one. They MUST NOT
+  be durable IDs, hashes, lookup keys, or credentials, and MUST NOT be
+  persisted or accepted in URLs or action requests. Equal `$0/@0/%0`
+  coordinates on different sockets MUST remain distinct entries, preserving
+  the internal socket-qualified key (`shared/tmux.ts:30-32`) without
+  publishing it.
+- The projection MUST NOT contain raw socket paths or names, tmux session
+  names, cwd, argv/comm, provider-session IDs, transcript paths or content,
+  process start timestamps or generation strings, configuration or inventory
+  keys, ownership or filesystem identity evidence, raw command failures or
+  exception text, credentials, or capabilities. Failed socket records contain
+  no pane or path mapping (`host-discovery-snapshot.service.ts:58-73`,
+  `:297-300`), so the projection MUST NOT guess per-pane outcomes for them.
+  Every output object MUST be constructed explicitly; raw rows, processes,
+  sockets, or errors MUST NOT be spread into output, logged raw, or exported.
+- Collector and host evidence carry independent timestamps. The response MUST
+  expose collector scan and full-scan ages separately from the host sample
+  age (`capturedAtMs`), preserving the existing 30-second freshness threshold
+  and seven-day age cap for collector ages, and MUST label every freshness
+  value at sample time, not as continuing proof of liveness. A recent failed
+  host capture is still a failed capture, not healthy evidence. Observation
+  freshness MUST combine presence, lane health, and both collector ages; the
+  host sample's age MUST NOT freshen collector evidence or vice versa.
+- Processing MUST be limited to the first 1,000 discovery rows, the first
+  1,000 host panes, and the first 8,192 host processes, with lineage chains
+  of at most 32 PIDs and counts capped at 1,000,000 behind a `countsCapped`
+  flag. Omission counts MUST distinguish budget omission from invalid-row
+  omission. Missing evidence inside those budgets MUST surface as explicit
+  `unknown` values, never as a negative finding: an unobserved lineage is
+  `unknown` with its reason, an `inferred` binding MUST NOT be upgraded, a
+  reported provider-session link is a boolean that MUST NOT be read as
+  transcript readability or availability, and actionability MUST reflect only
+  the existing collector boolean (`discovery-collector.service.ts:282-299`)
+  and MUST NOT be derived into permission. Lineage MUST follow only cached
+  PID/PPID entries (the host roster has no start times,
+  `host-discovery-snapshot.service.ts:51-56`) and emit a pane-root-to-agent
+  chain only when observed; missing parents, cycles, depth limits, absent
+  processes, or a sample predating the recorded generation MUST produce the
+  specified `unknown` reason.
+- The projection is display-only under the same rules as the stream (§3.2
+  N1~N3): it MUST NOT mint, carry, or extend any credential, and no API MAY
+  accept its fields as authorization input. Action authorization remains
+  exclusively with request-time uncached host inspection (N2), and projection
+  fields MUST NOT be convertible into `VerifiedTmuxActionTarget` (N3-c).
 
 ### 4.2 스냅샷 구조체
 
@@ -1070,6 +1161,15 @@ e2e는 실 tmux 의존이므로 tmux 부재 환경에서는 skip되며, skip 여
 | verifier source-lock allowlist | `server/modules/providers/tests/tmux-fresh-verifier.service.test.ts:84`, `:91-95`, `:107-113`, `:116` |
 | live command/receipt/`/proc` seams | `server/modules/providers/services/live-sessions.service.ts:483`, `:581`, `:606`, `:615`, `:939`, `:945`, `:964`, `:1004` |
 | transcript read seam | `server/modules/providers/services/external-session-activity.service.ts:297`, `:310-315` |
+| owner diagnostics 라우터의 인증/owner 게이트/no-store 순서 | `server/modules/diagnostics/diagnostics.routes.ts:13-35`, 마운트 `server/index.js:362-372` |
+| host snapshot의 캐시 보유·만료·폐기 | `server/modules/providers/services/host-discovery-snapshot.service.ts:375-402` |
+| host 프로세스 roster에 start time 부재 | 같은 파일 `:51-56` |
+| 실패 socket은 pane을 포함하지 않음 | 같은 파일 `:58-73`, `:297-300` |
+| 수집기 행의 pane/process/binding/presence 필드 | `server/modules/providers/services/discovery-collector.service.ts:48-66` |
+| 수집기 행의 actionability boolean(`tmuxActionable`) | 같은 파일 `:282-299` |
+| connection issue 코드 allowlist | `shared/provider-connection.ts:1-11` |
+| binding grade 규칙(tagged/observed만 proven) | `server/modules/providers/services/tmux-session-binding.service.ts:8-26` |
+| socket-qualified identity 키 함수 | `shared/tmux.ts:30-32` |
 
 ---
 

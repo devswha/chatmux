@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
-import type { OwnerDiagnostics } from '../../../../../shared/diagnostics';
+import type { OwnerDiagnostics, OwnerPaneDiagnostics } from '../../../../../shared/diagnostics';
 import { Button } from '../../../../shared/view/ui';
 import { authenticatedFetch } from '../../../../utils/api';
 import SettingsCard from '../SettingsCard';
@@ -121,41 +121,189 @@ export function DiagnosticsSummary({ data }: { data: OwnerDiagnostics }) {
   );
 }
 
+type PaneField = readonly [name: string, value: string | number | boolean, display?: string];
+
+function PaneFields({ fields }: { fields: readonly PaneField[] }) {
+  const { t, i18n } = useTranslation('settings');
+  return (
+    <dl className="grid min-w-0 grid-cols-1 gap-3 text-sm sm:grid-cols-2">
+      {fields.map(([name, value, display]) => (
+        <div key={name} className="min-w-0" data-diagnostic-field={name} data-value={value}>
+          <dt className="text-muted-foreground">{t('diagnostics.panes.fields.' + name)}</dt>
+          <dd className="font-medium [overflow-wrap:anywhere]">
+            {display ?? (typeof value === 'number'
+              ? new Intl.NumberFormat(i18n.language).format(value)
+              : t('diagnostics.panes.values.' + value, { defaultValue: t('diagnostics.panes.values.unknown') }))}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+type DiagnosticRead<T> = { kind: 'ready'; data: T } | { kind: 'owner' | 'unavailable' };
+type SectionState<T> = { data: T | null; loading: boolean; error: boolean };
+
+async function readDiagnostics<T extends { schemaVersion: 1 }>(
+  url: string, signal: AbortSignal, compatible: (data: T) => boolean,
+): Promise<DiagnosticRead<T>> {
+  const cancelled = new Promise<DiagnosticRead<T>>((resolve) => {
+    signal.addEventListener('abort', () => resolve({ kind: 'unavailable' }), { once: true });
+  });
+  const read = async (): Promise<DiagnosticRead<T>> => {
+    try {
+      const response = await authenticatedFetch(url, { signal, cache: 'no-store' });
+      if (response.status === 401 || response.status === 403) return { kind: 'owner' };
+      if (!response.ok) return { kind: 'unavailable' };
+      const data: T = await response.json();
+      return data?.schemaVersion === 1 && compatible(data)
+        ? { kind: 'ready', data } : { kind: 'unavailable' };
+    } catch {
+      // Network and JSON errors cross the API boundary; never expose raw error text.
+      return { kind: 'unavailable' };
+    }
+  };
+  return Promise.race([read(), cancelled]);
+}
+
+function PaneDiagnostics({ state }: { state: SectionState<OwnerPaneDiagnostics> }) {
+  const { t, i18n } = useTranslation('settings');
+  const { data, loading, error } = state;
+  const age = (ms: number | null) => ms === null ? t('diagnostics.panes.values.unknown')
+    : t('diagnostics.seconds', { count: Math.floor(ms / 1000) });
+  const machineState = error || data?.collector.status === 'unavailable' || data?.collector.freshness === 'unavailable'
+    ? 'unavailable'
+    : data?.panes.length ? 'ready'
+      : !data || data.collector.freshness === 'waiting' || Object.values(data.collector.lanes).some((lane) => lane.status === 'waiting')
+        ? 'waiting'
+        : Object.values(data.collector.lanes).some((lane) => lane.status !== 'ok') ? 'unavailable' : 'empty';
+  return (
+    <section aria-label={t('diagnostics.panes.title')} data-state={machineState} aria-busy={loading}
+      className="min-w-0 space-y-4 break-keep [overflow-wrap:anywhere]">
+      <SettingsSection title={t('diagnostics.panes.title')} description={t('diagnostics.panes.description')}>
+        {loading && <p role="status" className="text-sm text-muted-foreground">{t('diagnostics.loading')}</p>}
+        {!loading && machineState === 'waiting' && <p role="status" className="text-sm">{t('diagnostics.panes.waiting')}</p>}
+        {machineState === 'unavailable' && <p role="alert" className="text-sm">{t('diagnostics.panes.unavailable')}</p>}
+        {!loading && machineState === 'empty' && <p className="text-sm text-muted-foreground">{t('diagnostics.panes.empty')}</p>}
+        {data && (
+          <>
+            <SettingsCard className="space-y-4 p-4">
+              <PaneFields fields={[
+                ['sample-time', data.generatedAtMs, new Date(data.generatedAtMs).toLocaleString(i18n.language)],
+                ['cache-ttl', data.cacheTtlMs, age(data.cacheTtlMs)],
+                ['stale-threshold', data.staleAfterMs, age(data.staleAfterMs)],
+                ['collector-status', data.collector.status],
+                ['scan-age', data.collector.scanAgeMs ?? 'unknown', age(data.collector.scanAgeMs)],
+                ['full-scan-age', data.collector.fullScanAgeMs ?? 'unknown', age(data.collector.fullScanAgeMs)],
+                ['collector-freshness', data.collector.freshness],
+                ['host-age', data.host.ageMs ?? 'unknown', age(data.host.ageMs)],
+                ['host-freshness', data.host.freshness], ['host-capture', data.host.capture],
+                ['host-failure', data.host.failure ?? 'none'],
+              ]} />
+              <p className="text-xs text-muted-foreground">{t('diagnostics.panes.sampleNote')}</p>
+              {(['external', 'live'] as const).map((lane) => (
+                <div key={lane} className="space-y-3 rounded-lg bg-muted/40 p-3">
+                  <h4 className="text-sm font-medium">{t('diagnostics.lanes.' + lane)}</h4>
+                  <PaneFields fields={[
+                    ['lane-status', data.collector.lanes[lane].status, t('diagnostics.laneStates.' + data.collector.lanes[lane].status)],
+                    ['lane-rows', data.collector.lanes[lane].rows],
+                    ['lane-stale-rows', data.collector.lanes[lane].staleRows],
+                    ['lane-failures', data.collector.lanes[lane].consecutiveFailures],
+                  ]} />
+                </div>
+              ))}
+              {data.host.sockets.map((socket) => (
+                <div key={socket.slot} className="rounded-lg bg-muted/40 p-3">
+                  <PaneFields fields={[
+                    ['socket-slot', socket.slot], ['socket-capture', socket.capture],
+                    ['socket-reason', socket.reason ?? 'none'], ['socket-pane-count', socket.paneCount],
+                  ]} />
+                </div>
+              ))}
+              <PaneFields fields={[
+                ['total-rows', data.coverage.totalRows ?? 'unknown'], ['rows-inspected', data.coverage.rowsInspected],
+                ['rows-omitted', data.coverage.rowsOmitted], ['invalid-rows-omitted', data.coverage.invalidRowsOmitted],
+                ['host-panes-omitted', data.coverage.hostPanesOmitted], ['host-processes-omitted', data.coverage.hostProcessesOmitted],
+                ['counts-capped', data.coverage.countsCapped],
+                ['limit-discovery-rows', data.limits.discoveryRows], ['limit-host-panes', data.limits.hostPanes],
+                ['limit-host-processes', data.limits.hostProcesses], ['limit-lineage-pids', data.limits.lineagePids],
+              ]} />
+            </SettingsCard>
+            <p className="text-xs text-muted-foreground">{t('diagnostics.panes.identityNote')}</p>
+            <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2">
+              {data.panes.map((pane) => (
+                <article key={pane.paneNumber} aria-label={t('diagnostics.panes.card', { number: pane.paneNumber })}
+                  className="min-w-0 space-y-4 rounded-xl border border-border bg-card/50 p-4">
+                  <h4 className="font-medium">{t('diagnostics.panes.card', { number: pane.paneNumber })}</h4>
+                  <PaneFields fields={[
+                    ['socket', pane.socketNumber], ['capture-slot', pane.captureSlot ?? 'unknown'],
+                    ['session', pane.sessionId, pane.sessionId], ['window', pane.windowId, pane.windowId],
+                    ['pane', pane.paneId, pane.paneId], ['pane-pid', pane.panePid ?? 'unknown'],
+                  ]} />
+                  {pane.observations.map((observation) => (
+                    <div key={observation.lane} role="region" aria-label={t('diagnostics.panes.' + observation.lane)}
+                      data-freshness={observation.freshness} className="min-w-0 space-y-3 rounded-lg bg-muted/40 p-3">
+                      <h5 className="text-sm font-medium">{t('diagnostics.panes.' + observation.lane)}</h5>
+                      <PaneFields fields={[
+                        ['provider', observation.provider], ['presence', observation.presence],
+                        ['freshness', observation.freshness], ['activity', observation.activity],
+                        ['binding', observation.binding.grade], ['provider-session', observation.binding.providerSessionReported],
+                        ['agent-pid', observation.process.agentPid ?? 'unknown'], ['generation', observation.process.generation],
+                        ['lineage', observation.process.lineage.relation], ['lineage-reason', observation.process.lineage.reason ?? 'none'],
+                        ['lineage-pids', observation.process.lineage.pids.join(','), observation.process.lineage.pids.length
+                          ? observation.process.lineage.pids.join(' → ') : t('diagnostics.panes.values.unknown')],
+                        ['actionability', observation.actionabilityReport], ['connection-issue', observation.connectionIssue ?? 'none'],
+                      ]} />
+                    </div>
+                  ))}
+                </article>
+              ))}
+            </div>
+          </>
+        )}
+      </SettingsSection>
+    </section>
+  );
+}
+
 export default function DiagnosticsSettingsTab() {
   const { t } = useTranslation('settings');
-  const [data, setData] = useState<OwnerDiagnostics | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<'owner' | 'unavailable' | null>(null);
+  const [aggregate, setAggregate] = useState<SectionState<OwnerDiagnostics>>({ data: null, loading: true, error: false });
+  const [panes, setPanes] = useState<SectionState<OwnerPaneDiagnostics>>({ data: null, loading: true, error: false });
+  const [ownerDenied, setOwnerDenied] = useState(false);
   const request = useRef<AbortController | null>(null);
   const refresh = useCallback(async () => {
     request.current?.abort();
     const controller = new AbortController();
     request.current = controller;
     const timeout = setTimeout(() => controller.abort(), 10_000);
-    setLoading(true);
-    setError(null);
-    try {
-      const response = await authenticatedFetch('/api/settings/diagnostics', {
-        signal: controller.signal, cache: 'no-store',
-      });
-      if (request.current !== controller) return;
-      if (response.status === 401 || response.status === 403) {
-        setData(null);
-        setError('owner');
+    let denied = false;
+    setOwnerDenied(false);
+    setAggregate((previous) => ({ ...previous, loading: true, error: false }));
+    setPanes((previous) => ({ ...previous, loading: true, error: false }));
+    const publish = <T,>(result: DiagnosticRead<T>, update: (state: SectionState<T>) => void) => {
+      if (request.current !== controller || denied) return;
+      if (result.kind === 'owner') {
+        denied = true;
+        setOwnerDenied(true);
+        setAggregate({ data: null, loading: false, error: false });
+        setPanes({ data: null, loading: false, error: false });
+        controller.abort();
         return;
       }
-      if (!response.ok) throw new Error('diagnostics_unavailable');
-      const result = await response.json() as OwnerDiagnostics;
-      if (result.schemaVersion !== 1) throw new Error('diagnostics_unavailable');
-      if (request.current === controller) setData(result);
-    } catch {
-      if (request.current === controller) {
-        setData(null);
-        setError('unavailable');
-      }
+      update({ data: result.kind === 'ready' ? result.data : null, loading: false, error: result.kind === 'unavailable' });
+    };
+    try {
+      await Promise.all([
+        readDiagnostics<OwnerDiagnostics>('/api/settings/diagnostics', controller.signal,
+          (data) => Boolean(data.collector && data.gjcWatcher && data.eventLoop))
+          .then((result) => publish(result, setAggregate)),
+        readDiagnostics<OwnerPaneDiagnostics>('/api/settings/diagnostics/panes', controller.signal,
+          (data) => Boolean(Array.isArray(data.panes) && data.collector && data.host && data.coverage && data.limits))
+          .then((result) => publish(result, setPanes)),
+      ]);
     } finally {
       clearTimeout(timeout);
-      if (request.current === controller) setLoading(false);
     }
   }, []);
 
@@ -167,6 +315,7 @@ export default function DiagnosticsSettingsTab() {
     };
   }, [refresh]);
 
+  const loading = aggregate.loading || panes.loading;
   return (
     <SettingsSection title={t('diagnostics.title')} description={t('diagnostics.description')}>
       <div className="flex flex-wrap items-center gap-3">
@@ -174,10 +323,12 @@ export default function DiagnosticsSettingsTab() {
           <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
           {t('diagnostics.refresh')}
         </Button>
-        {loading && <p role="status" className="text-sm text-muted-foreground">{t('diagnostics.loading')}</p>}
+        {aggregate.loading && <p role="status" className="text-sm text-muted-foreground">{t('diagnostics.loading')}</p>}
       </div>
-      {error && <p role="alert" className="py-2 text-sm">{t(`diagnostics.errors.${error}`)}</p>}
-      {data && <DiagnosticsSummary data={data} />}
+      {ownerDenied && <p role="alert" data-diagnostic-error="owner" className="py-2 text-sm">{t('diagnostics.errors.owner')}</p>}
+      {aggregate.error && <p role="alert" className="py-2 text-sm">{t('diagnostics.errors.unavailable')}</p>}
+      {aggregate.data && <DiagnosticsSummary data={aggregate.data} />}
+      {!ownerDenied && <PaneDiagnostics state={panes} />}
     </SettingsSection>
   );
 }

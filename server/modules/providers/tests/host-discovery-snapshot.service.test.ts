@@ -1,12 +1,17 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import fsPromises from 'node:fs/promises';
+import { syncBuiltinESMExports } from 'node:module';
 import test from 'node:test';
 
+import * as providers from '@/modules/providers/index.js';
 import {
   createExternalCliSessionDiscovery,
 } from '@/modules/providers/services/external-cli-sessions.service.js';
 import {
   captureHostDiscoveryPanes,
   createHostDiscoverySnapshotSource,
+  hostDiscoverySnapshotSource,
   parseHostDiscoveryPanes,
   parseHostDiscoveryProcesses,
 } from '@/modules/providers/services/host-discovery-snapshot.service.js';
@@ -27,6 +32,220 @@ const PS_OUTPUT = [
   '100 1 codex codex',
   '200 1 gjc gjc',
 ].join('\n');
+
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((complete) => { resolve = complete; });
+  return { promise, resolve };
+}
+
+test('peek before first capture returns null without commands, inspection or path resolution', (t) => {
+  let commands = 0;
+  let inspections = 0;
+  const source = createHostDiscoverySnapshotSource({
+    env: { CHATMUX_TMUX_SOCKETS: JSON.stringify([{ name: 'default' }]), TMUX_TMPDIR: '/missing-peek-root' },
+    now: () => { assert.fail('peek must not read the clock'); },
+    commandRunner: async () => { commands += 1; return ''; },
+    socketInspector: async (socketPath) => { inspections += 1; return { socketPath, generation: 'same' }; },
+  });
+  t.after(() => source.dispose());
+  const counters = snapshotHostCommandCounters();
+  for (const method of ['realpathSync', 'statSync', 'lstatSync', 'existsSync', 'readFileSync'] as const) {
+    t.mock.method(fs, method, () => assert.fail('peek must not perform synchronous filesystem I/O'));
+  }
+  for (const method of ['realpath', 'stat', 'lstat', 'readFile'] as const) {
+    t.mock.method(fsPromises, method, () => assert.fail('peek must not start asynchronous filesystem I/O'));
+  }
+  syncBuiltinESMExports();
+  try {
+    assert.equal(source.peek(), null);
+    assert.equal(commands, 0);
+    assert.equal(inspections, 0);
+    assert.deepEqual(snapshotHostCommandCounters(), counters);
+  } finally {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  }
+});
+
+test('peek during first capture returns null immediately without additional commands', { timeout: 2000 }, async (t) => {
+  const started = deferred();
+  const gate = deferred();
+  let commands = 0;
+  const source = createHostDiscoverySnapshotSource({
+    env: {}, now: () => 100,
+    commandRunner: async (command) => {
+      commands += 1;
+      if (commands === 2) started.resolve();
+      await gate.promise;
+      return command === 'tmux' ? TMUX_OUTPUT : PS_OUTPUT;
+    },
+  });
+  t.after(() => { gate.resolve(); source.dispose(); });
+  const pending = source.get();
+  await started.promise;
+  const counters = snapshotHostCommandCounters();
+  assert.equal(source.peek(), null);
+  assert.equal(commands, 2);
+  assert.deepEqual(snapshotHostCommandCounters(), counters);
+  gate.resolve();
+  const snapshot = await pending;
+  assert.equal(source.peek(), snapshot);
+  assert.equal(commands, 2);
+});
+
+for (const cacheTtlMs of [0, 10]) {
+  test('peek retains completed evidence after reuse TTL ' + cacheTtlMs + ' without extending get reuse', { timeout: 2000 }, async (t) => {
+    let now = 100;
+    let commands = 0;
+    let clockReads = 0;
+    const source = createHostDiscoverySnapshotSource({
+      env: {}, cacheTtlMs,
+      now: () => { clockReads += 1; return now; },
+      commandRunner: async (command) => { commands += 1; return command === 'tmux' ? TMUX_OUTPUT : PS_OUTPUT; },
+    });
+    t.after(() => source.dispose());
+    const snapshot = await source.get();
+    if (cacheTtlMs > 0) assert.equal(await source.get(), snapshot);
+    assert.equal(commands, 2);
+    now += cacheTtlMs + 1;
+    const counters = snapshotHostCommandCounters();
+    const reads = clockReads;
+    assert.equal(source.peek(), snapshot);
+    assert.equal(source.peek(), snapshot);
+    assert.equal(clockReads, reads);
+    assert.equal(commands, 2);
+    assert.deepEqual(snapshotHostCommandCounters(), counters);
+    assert.notEqual(await source.get(), snapshot);
+    assert.equal(commands, 4, 'peek does not renew the capture reuse TTL');
+  });
+}
+
+test('peek retains the previous completion during getFresh and publishes failed capture evidence', { timeout: 2000 }, async (t) => {
+  const started = deferred();
+  const gate = deferred();
+  let commands = 0;
+  let now = 100;
+  let fail = false;
+  const source = createHostDiscoverySnapshotSource({
+    env: {}, cacheTtlMs: 60_000, now: () => now,
+    commandRunner: async (command) => {
+      commands += 1;
+      if (fail) {
+        if (commands === 4) started.resolve();
+        await gate.promise;
+        throw new Error('capture failure');
+      }
+      return command === 'tmux' ? TMUX_OUTPUT : PS_OUTPUT;
+    },
+  });
+  t.after(() => { gate.resolve(); source.dispose(); });
+  const previous = await source.get();
+  fail = true;
+  now += 1;
+  const pending = source.getFresh();
+  await started.promise;
+  const counters = snapshotHostCommandCounters();
+  assert.equal(source.peek(), previous);
+  assert.equal(commands, 4);
+  assert.deepEqual(snapshotHostCommandCounters(), counters);
+  gate.resolve();
+  const failed = await pending;
+  assert.equal(failed.failure, 'capture_failed');
+  assert.equal(failed.capturedAtMs, now);
+  assert.equal(source.peek(), failed);
+  assert.equal(await source.get(), failed, 'failed capture reuse behavior is unchanged');
+  assert.equal(commands, 4);
+  assert.deepEqual(snapshotHostCommandCounters(), counters);
+});
+
+for (const field of ['CHATMUX_TMUX_SOCKETS', 'TMUX_TMPDIR', 'TMUX'] as const) {
+  test('peek rejects completed and in-flight evidence after inventory change: ' + field, { timeout: 2000 }, async (t) => {
+    const env: NodeJS.ProcessEnv = {};
+    const started = deferred();
+    const gate = deferred();
+    let commands = 0;
+    let refresh = false;
+    const source = createHostDiscoverySnapshotSource({
+      env, cacheTtlMs: 60_000, now: () => 100,
+      commandRunner: async (command) => {
+        commands += 1;
+        if (refresh) {
+          if (commands === 4) started.resolve();
+          await gate.promise;
+        }
+        return command === 'tmux' ? TMUX_OUTPUT : PS_OUTPUT;
+      },
+    });
+    t.after(() => { gate.resolve(); source.dispose(); });
+    const previous = await source.get();
+    refresh = true;
+    const pending = source.getFresh();
+    await started.promise;
+    assert.equal(source.peek(), previous);
+    env[field] = field === 'CHATMUX_TMUX_SOCKETS' ? '[]' : '/changed-inventory';
+    const counters = snapshotHostCommandCounters();
+    assert.equal(source.peek(), null);
+    assert.equal(commands, 4);
+    assert.deepEqual(snapshotHostCommandCounters(), counters);
+    assert.equal(source.get(), pending, 'a changed inventory must still drain the existing capture');
+    gate.resolve();
+    assert.equal((await pending).failure, 'configuration_invalid');
+    assert.equal(source.peek(), null, 'superseded completion must not enter the cache');
+    assert.equal(commands, 4);
+    assert.deepEqual(snapshotHostCommandCounters(), counters);
+  });
+}
+
+for (const mode of ['cancel', 'dispose'] as const) {
+  test('peek returns null after ' + mode + ' and ignores late capture completion', { timeout: 2000 }, async (t) => {
+    const controller = new AbortController();
+    const started = deferred();
+    const gate = deferred();
+    let commands = 0;
+    let refresh = false;
+    const source = createHostDiscoverySnapshotSource({
+      env: {}, signal: controller.signal, cacheTtlMs: 60_000, now: () => 100,
+      commandRunner: async (command) => {
+        commands += 1;
+        if (refresh) {
+          if (commands === 4) started.resolve();
+          await gate.promise;
+        }
+        return command === 'tmux' ? TMUX_OUTPUT : PS_OUTPUT;
+      },
+    });
+    t.after(() => { gate.resolve(); source.dispose(); });
+    const previous = await source.get();
+    refresh = true;
+    const pending = source.getFresh();
+    await started.promise;
+    assert.equal(source.peek(), previous);
+    if (mode === 'cancel') controller.abort();
+    else source.dispose();
+    const counters = snapshotHostCommandCounters();
+    assert.equal(source.peek(), null);
+    assert.equal(commands, 4);
+    gate.resolve();
+    assert.equal((await pending).failure, 'cancelled');
+    assert.equal(source.peek(), null);
+    assert.equal((await source.get()).failure, 'cancelled');
+    assert.equal(commands, 4);
+    assert.deepEqual(snapshotHostCommandCounters(), counters);
+  });
+}
+
+test('providers cached getter reads the existing shared source without capturing', (t) => {
+  assert.equal(typeof providers.getCachedHostDiscoverySnapshot, 'function');
+  const snapshot = Object.freeze({ ok: true, capturedAtMs: 100, panes: [], processes: [] });
+  const peek = t.mock.method(hostDiscoverySnapshotSource, 'peek', () => snapshot);
+  t.mock.method(hostDiscoverySnapshotSource, 'get', () => assert.fail('cached getter must not capture'));
+  t.mock.method(hostDiscoverySnapshotSource, 'getFresh', () => assert.fail('cached getter must not capture fresh'));
+  const counters = snapshotHostCommandCounters();
+  assert.equal(providers.getCachedHostDiscoverySnapshot(), snapshot);
+  assert.equal(peek.mock.callCount(), 1);
+  assert.deepEqual(snapshotHostCommandCounters(), counters);
+});
 
 test('host snapshot parses the shared tmux and process supersets', () => {
   assert.deepEqual(parseHostDiscoveryPanes(TMUX_OUTPUT).map((pane) => ({

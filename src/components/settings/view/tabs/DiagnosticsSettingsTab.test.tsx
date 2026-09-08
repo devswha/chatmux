@@ -6,10 +6,22 @@ import { renderToStaticMarkup } from 'react-dom/server';
 
 import type { OwnerDiagnostics } from '../../../../../shared/diagnostics';
 import enSettings from '../../../../i18n/locales/en/settings.json';
+import koSettings from '../../../../i18n/locales/ko/settings.json';
 import SettingsSidebar from '../SettingsSidebar';
 
 import { DiagnosticsSummary } from './DiagnosticsSettingsTab';
 import { i18n, summary } from './diagnostics.testSupport';
+
+test('pane locale keys and interpolation tokens have Korean coverage', () => {
+  const flatten = (value: object, prefix = ''): [string, string][] => Object.entries(value).flatMap(([key, item]) =>
+    typeof item === 'string' ? [[`${prefix}${key}`, item]] : flatten(item, `${prefix}${key}.`));
+  const english = flatten(enSettings.diagnostics.panes);
+  const korean = new Map(flatten(koSettings.diagnostics.panes));
+  assert.deepEqual([...korean.keys()].sort(), english.map(([key]) => key).sort());
+  for (const [key, value] of english) {
+    assert.deepEqual(korean.get(key)?.match(/{{\w+}}/g)?.sort(), value.match(/{{\w+}}/g)?.sort(), key);
+  }
+});
 
 function renderSummary(data: OwnerDiagnostics) {
   return renderToStaticMarkup(<I18nextProvider i18n={i18n}><DiagnosticsSummary data={data} /></I18nextProvider>);
