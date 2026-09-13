@@ -15,6 +15,7 @@ import type { ExternalCliSession, ExternalLocalCliKind, ExternalPane, ProcessTre
 import type { ExternalProviderSessionInference } from './provider-runtime-inference.js';
 import { applyInferredProviderSessionIds, inferClaudeSessionIds, inferIndexedProviderSessionIds, inferOpenPiSessionIds } from './provider-runtime-inference.js';
 import { inferFreshCodexThreadIds, inferOpenCodexThreadIds } from './codex-runtime-inference.js';
+import { inferSharedCodexForkIds } from './codex-fork-inference.js';
 import { runCommand } from './process-classification.js';
 
 
@@ -52,6 +53,9 @@ export async function inferExternalProviderSessionIds(args: {
   const inferredFreshCodex = new Map(
     [...freshCodex].filter(([targetKey]) => attemptableTargetKeys.has(targetKey)),
   );
+  const inferredForks = await inferSharedCodexForkIds({
+    sessions: safeSessions, panes: args.panes, procs: args.procs, observed: observedCodex,
+  });
   const authoritativeTargetKeys = new Set([
     ...observedCodex.keys(),
     ...inferredClaude.keys(),
@@ -59,6 +63,7 @@ export async function inferExternalProviderSessionIds(args: {
   ]);
   const directIds = new Map([
     ...inferredFreshCodex,
+    ...inferredForks,
     ...inferredClaude,
     ...inferredOmp,
     ...observedCodex,
@@ -67,6 +72,7 @@ export async function inferExternalProviderSessionIds(args: {
     safeSessions,
     directIds,
     authoritativeTargetKeys,
+    new Set(inferredForks.keys()),
   );
   const inferredIndexed = args.attemptableSessions.some((session) => (
     session.kind === 'cursor' || session.kind === 'opencode' || session.kind === 'omp' || session.kind === 'omo'
@@ -76,6 +82,7 @@ export async function inferExternalProviderSessionIds(args: {
   return {
     ids: new Map([...directIds, ...inferredIndexed]),
     authoritativeTargetKeys,
+    displayOverrideTargetKeys: new Set(inferredForks.keys()),
   };
 }
 
