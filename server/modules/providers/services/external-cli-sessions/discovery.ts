@@ -159,6 +159,7 @@ export async function discoverExternalCliSessions(
     sessions,
     inference.ids,
     inference.authoritativeTargetKeys,
+    inference.displayOverrideTargetKeys,
   );
   retryBackoff.recordResults(resolvedSessions, attemptableSessions);
   return { ok: true, sessions: resolvedSessions };

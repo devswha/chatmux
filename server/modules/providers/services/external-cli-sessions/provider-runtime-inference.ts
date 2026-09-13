@@ -223,6 +223,7 @@ export function applyInferredProviderSessionIds(
   sessions: ExternalCliSession[],
   inferredIds: ReadonlyMap<string, string>,
   authoritativeTargetKeys: ReadonlySet<string> = new Set(),
+  displayOverrideTargetKeys: ReadonlySet<string> = new Set(),
 ): ExternalCliSession[] {
   return sessions.map((session) => {
     if (session.connectionIssue || session.kind === 'shell' || session.kind === 'ssh') {
@@ -236,7 +237,7 @@ export function applyInferredProviderSessionIds(
     // from a cwd or time-window guess and is graded accordingly.
     const binding: ExternalSessionBinding = authoritativeTargetKeys.has(targetKey) ? 'observed' : 'inferred';
     return providerSessionId
-      && (!session.providerSessionId || authoritativeTargetKeys.has(targetKey))
+      && (!session.providerSessionId || authoritativeTargetKeys.has(targetKey) || displayOverrideTargetKeys.has(targetKey))
       ? { ...session, providerSessionId, binding }
       : session;
   });
@@ -245,4 +246,5 @@ export function applyInferredProviderSessionIds(
 export type ExternalProviderSessionInference = {
   ids: Map<string, string>;
   authoritativeTargetKeys: Set<string>;
+  displayOverrideTargetKeys?: Set<string>;
 };
