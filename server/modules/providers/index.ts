@@ -5,7 +5,7 @@ export { getCachedHostDiscoverySnapshot } from './services/host-discovery-snapsh
 export { listLiveGjcCommands } from './services/live-commands.service.js';
 export { answerTmuxApproval, getTmuxApprovalPrompt } from './services/tmux-approval.service.js';
 export { answerTmuxInteractivePrompt, getTmuxInteractivePrompt, submitTmuxInteractiveCustomResponse } from './services/tmux-interactive-prompt.service.js';
-export { spawnLiveSession } from './services/live-send.service.js';
+export { isValidSpawnName, spawnLiveSession } from './services/live-send.service.js';
 export { sessionSynchronizerService } from './services/session-synchronizer.service.js';
 export { providerSkillsService } from './services/skills.service.js';
 export { providerMcpService } from './services/mcp.service.js';

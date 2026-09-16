@@ -60,6 +60,39 @@ test('Given a remote native prompt and approval, when the owner responds, then e
   ]);
 });
 
+test('Given a peer pane send, when the message is a normal coding prompt, then the identifier bound is not reused', async (t) => {
+  const fixture = await startRoutesFixture();
+  t.after(() => closeFixture(fixture.server));
+  const message = 'x'.repeat(257);
+
+  const accepted = await post(fixture.baseUrl, `/hosts/${PEER_A}/providers/panes/collision-pane/actions`, {
+    ...pane, action: 'send', message,
+  });
+  const custom = await post(fixture.baseUrl, `/hosts/${PEER_B}/providers/sessions/${COLLIDING_SESSION}/prompt/respond`, {
+    response: 'custom', promptId: '0123456789abcdef0123456789abcdef', message,
+  });
+
+  assert.equal(accepted.status, 200);
+  assert.equal(custom.status, 200);
+  assert.deepEqual(fixture.calls.map((call) => call.method), ['sendPane', 'respondPrompt']);
+});
+
+test('Given a peer pane send, when the message is empty or over the mutation bound, then admission fails before mutation', async (t) => {
+  const fixture = await startRoutesFixture();
+  t.after(() => closeFixture(fixture.server));
+
+  const empty = await post(fixture.baseUrl, `/hosts/${PEER_A}/providers/panes/collision-pane/actions`, {
+    ...pane, action: 'send', message: '   ',
+  });
+  const oversized = await post(fixture.baseUrl, `/hosts/${PEER_A}/providers/panes/collision-pane/actions`, {
+    ...pane, action: 'send', message: 'x'.repeat(100_001),
+  });
+
+  assert.equal(empty.status, 400);
+  assert.equal(oversized.status, 400);
+  assert.equal(fixture.calls.length, 0);
+});
+
 test('Given an offline peer, when a destructive action is requested, then admission fails before mutation', async (t) => {
   const fixture = await startRoutesFixture();
   t.after(() => closeFixture(fixture.server));
