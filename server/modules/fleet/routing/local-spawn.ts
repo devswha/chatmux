@@ -8,7 +8,7 @@
  */
 
 import { projectsDb } from '@/modules/database/index.js';
-import { resolveExternalCliCwd, spawnLiveSession } from '@/modules/providers/index.js';
+import { isValidSpawnName, resolveExternalCliCwd, spawnLiveSession } from '@/modules/providers/index.js';
 
 import type { JsonValue } from '../../../../shared/fleet.js';
 
@@ -26,6 +26,9 @@ export function createLocalFleetSpawnService(): LocalFleetSpawnService {
     spawn: async (projectLocalId, input) => {
       if (projectsDb.getProjectById(projectLocalId) === null) {
         throw new FleetHostRoutingError('HOST_NOT_FOUND', 'Local project was not found.');
+      }
+      if (!isValidSpawnName(input.name)) {
+        throw new FleetHostRoutingError('FLEET_MALFORMED_FRAME', 'name is invalid.');
       }
       const cwd = await resolveExternalCliCwd(input.cwd);
       if (cwd === null) {
