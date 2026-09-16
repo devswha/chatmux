@@ -5,7 +5,7 @@ import express, { type Request } from 'express';
 import { isValidSpawnName } from '@/modules/providers/index.js';
 import { createApiSuccessResponse } from '@/shared/utils.js';
 
-import { FLEET_ERROR_CODES, parseFleetReference } from '../../../../shared/fleet.js';
+import { FLEET_ERROR_CODES, FLEET_MAX_PANE_PATH_LENGTH, parseFleetReference } from '../../../../shared/fleet.js';
 import type { FleetErrorCode, FleetOperation, FleetPaneReference, JsonValue } from '../../../../shared/fleet.js';
 
 import { fleetApplicationRouting, type FleetApplicationRouting } from './application-routing.js';
@@ -96,7 +96,7 @@ function pane(request: Request): FleetPaneReference {
   const input = body(request);
   const target = parseFleetReference({
     kind: 'pane', hostId: text(request.params.hostId, 'hostId'),
-    localId: text(request.params.localId, 'localId'), lane: input.lane,
+    localId: text(request.params.localId, 'localId', FLEET_MAX_PANE_PATH_LENGTH), lane: input.lane,
     tmux: input.tmux, process: input.process,
   });
   if (target.kind !== 'pane') throw new FleetHostRoutingError('FLEET_MALFORMED_FRAME', 'Pane target is invalid.');

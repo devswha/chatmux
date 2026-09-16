@@ -49,6 +49,7 @@ import { createLocalFleetSettingsRouter } from '@/modules/fleet/settings/composi
 import { getConnectableHost } from '../shared/networkHosts.js';
 
 import { findAppRoot, getModuleDir } from './utils/runtime-paths.js';
+import { resolveContainedJsonlPath, sessionBelongsToProject } from './shared/session-project-scope.js';
 import { createSystemRouter, detectInstallMode, exactUpdateRequestGuard } from './self-update.js';
 import {
     queryClaudeSDK,
@@ -491,6 +492,14 @@ app.get('/api/projects/:projectId/sessions/:sessionId/token-usage', authenticate
             return res.status(404).json({ error: 'Session not found', sessionId: safeSessionId });
         }
 
+        const projectPath = await projectsDb.getProjectPathById(projectId);
+        if (!projectPath) {
+            return res.status(404).json({ error: 'Project not found' });
+        }
+        if (!sessionBelongsToProject(sessionRow.project_path, projectPath)) {
+            return res.status(404).json({ error: 'Session not found', sessionId: safeSessionId });
+        }
+
         const provider = sessionRow.provider || 'claude';
         const providerNativeSessionId = sessionRow?.provider_session_id || safeSessionId;
 
@@ -603,40 +612,27 @@ app.get('/api/projects/:projectId/sessions/:sessionId/token-usage', authenticate
         }
 
         // Handle Claude sessions (default)
-        // Resolve the project path through the DB using the caller-supplied
-        // `projectId`. Legacy code here called extractProjectDirectory with a
-        // folder-encoded project name; the migration centralizes that lookup
-        // in the projects table.
-        const projectPath = await projectsDb.getProjectPathById(projectId);
-        if (!projectPath) {
-            return res.status(404).json({ error: 'Project not found' });
-        }
-
-        // Construct the JSONL file path
         // Claude stores session files in ~/.claude/projects/[encoded-project-path]/[session-id].jsonl
         // The encoding replaces any non-alphanumeric character (except -) with -
         const encodedPath = projectPath.replace(/[^a-zA-Z0-9-]/g, '-');
         const projectDir = path.join(homeDir, '.claude', 'projects', encodedPath);
+        const claudeRoot = path.join(homeDir, '.claude');
 
-        // Prefer the indexed transcript path (already produced by the trusted
-        // session synchronizer); fall back to the conventional location
-        // derived from the provider-native session id.
+        // Prefer the indexed transcript path; fall back to the conventional
+        // location. Both must stay under ~/.claude after realpath.
         let jsonlPath = sessionRow?.jsonl_path;
         if (!jsonlPath) {
             jsonlPath = path.join(projectDir, `${providerNativeSessionId}.jsonl`);
-
-            // Constrain the constructed path to projectDir (the id is
-            // caller-influenced in this fallback branch).
-            const rel = path.relative(path.resolve(projectDir), path.resolve(jsonlPath));
-            if (rel.startsWith('..') || path.isAbsolute(rel)) {
-                return res.status(400).json({ error: 'Invalid path' });
-            }
+        }
+        const containedJsonlPath = await resolveContainedJsonlPath(jsonlPath, [claudeRoot, projectDir]);
+        if (!containedJsonlPath) {
+            return res.status(404).json({ error: 'Session file not found' });
         }
 
         // Read and parse the JSONL file
         let fileContent;
         try {
-            fileContent = await fsPromises.readFile(jsonlPath, 'utf8');
+            fileContent = await fsPromises.readFile(containedJsonlPath, 'utf8');
         } catch (error) {
             if (error.code === 'ENOENT') {
                 return res.status(404).json({ error: 'Session file not found' });

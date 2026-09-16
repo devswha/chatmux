@@ -62,13 +62,30 @@ test('Given unknown, revoked, or unavailable peers, when routed, then explicit s
     { status: peer('offline'), code: 'HOST_OFFLINE', http: 503 },
     { status: peer('syncing'), code: 'HOST_SYNCING', http: 503 },
     { status: peer('connecting'), code: 'HOST_SYNCING', http: 503 },
-    { status: peer('degraded'), code: 'HOST_OFFLINE', http: 503 },
     { status: peer('incompatible'), code: 'HOST_INCOMPATIBLE', http: 503 },
   ] as const;
   for (const scenario of cases) {
     const router = new FleetHostRouter({ localHostId: LOCAL, clients, status: () => scenario.status });
     assert.throws(() => router.route(request(REMOTE)), (error) => error instanceof FleetHostRoutingError && error.statusCode === scenario.http && error.code === scenario.code);
   }
+});
+
+test('Given a degraded peer with a current generation, when routed, then the host stays available', () => {
+  const router = new FleetHostRouter({ localHostId: LOCAL, clients, status: () => peer('degraded') });
+  const result = router.route(request(REMOTE));
+  assert.equal(result.kind, 'remote');
+});
+
+test('Given a degraded peer missing generation, when routed, then the host is still synchronizing', () => {
+  const router = new FleetHostRouter({
+    localHostId: LOCAL,
+    clients,
+    status: () => ({ ...peer('degraded'), generation: null, peerProcessEpoch: null }),
+  });
+  assert.throws(
+    () => router.route(request(REMOTE)),
+    (error) => error instanceof FleetHostRoutingError && error.statusCode === 503 && error.code === 'HOST_SYNCING',
+  );
 });
 
 test('Given a synchronized peer lacking the operation capability, when routed, then no fleet call is admitted', () => {

@@ -3,6 +3,8 @@ import type { HostTmuxPaneTarget } from './tmux.js';
 export const FLEET_PROTOCOL_VERSION = 'fleet/1' as const;
 export const FLEET_MAX_HOSTS = 10 as const;
 export const FLEET_MAX_REMOTE_PEERS = FLEET_MAX_HOSTS - 1;
+export const FLEET_MAX_IDENTIFIER_LENGTH = 256;
+export const FLEET_MAX_PANE_PATH_LENGTH = 4_096;
 export const FLEET_TOOL_RESULT_CHUNK_BYTES = 8 * 1024;
 export type FleetToolResultChunk = Readonly<{
   toolId: string; revision: string; content: string; isError: boolean;
@@ -45,7 +47,7 @@ export type FleetResponseEnvelope = FleetEnvelopeBase & (Readonly<{ readonly kin
 export type FleetEventEnvelope = FleetEnvelopeBase & Readonly<{ readonly kind: 'event'; readonly eventId: string; readonly event: FleetEvent; readonly hostId: string; readonly body: JsonValue }>;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-const MAX_IDENTIFIER_LENGTH = 256;
+const MAX_IDENTIFIER_LENGTH = FLEET_MAX_IDENTIFIER_LENGTH;
 
 export class FleetContractError extends Error {
   readonly code: FleetErrorCode;
@@ -71,9 +73,15 @@ function literal<T extends readonly string[]>(value: unknown, values: T, code: F
   if (found === undefined) fail(code, `${name} is unsupported`);
   return found;
 }
-function identifier(value: unknown, name: string): string {
-  if (typeof value !== 'string' || !value.length || value.length > MAX_IDENTIFIER_LENGTH || value.includes('\0') || /[\uD800-\uDFFF]/.test(value)) fail(value !== null && typeof value === 'string' && value.length > MAX_IDENTIFIER_LENGTH ? 'FLEET_IDENTIFIER_TOO_LONG' : 'FLEET_IDENTIFIER_INVALID', `${name} is invalid`);
+function boundedScalar(value: unknown, name: string, maximum: number): string {
+  if (typeof value !== 'string' || !value.length || value.length > maximum || value.includes('\0') || /[\uD800-\uDFFF]/.test(value)) fail(value !== null && typeof value === 'string' && value.length > maximum ? 'FLEET_IDENTIFIER_TOO_LONG' : 'FLEET_IDENTIFIER_INVALID', `${name} is invalid`);
   return value;
+}
+function identifier(value: unknown, name: string): string {
+  return boundedScalar(value, name, MAX_IDENTIFIER_LENGTH);
+}
+function panePath(value: unknown, name: string): string {
+  return boundedScalar(value, name, FLEET_MAX_PANE_PATH_LENGTH);
 }
 function hostId(value: unknown): string { const result = identifier(value, 'hostId'); if (!UUID.test(result)) fail('FLEET_IDENTIFIER_INVALID', 'hostId must be a UUID'); return result; }
 function positiveInteger(value: unknown, name: string): number { if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 1) fail('FLEET_MALFORMED_FRAME', `${name} must be a positive integer`); return value; }
@@ -112,7 +120,7 @@ function paneTarget(value: unknown): FleetPaneReference {
   const input = record(value, 'pane target'); exact(input, ['kind', 'hostId', 'localId', 'lane', 'tmux', 'process'], 'pane target');
   const tmux = record(input.tmux, 'tmux'); exact(tmux, ['socketPath', 'sessionId', 'windowId', 'paneId'], 'tmux');
   const process = record(input.process, 'process'); exact(process, ['pid', 'startedAtMs'], 'process');
-  return { kind: literal(input.kind, ['pane'] as const, 'FLEET_MALFORMED_FRAME', 'target kind'), hostId: hostId(input.hostId), localId: identifier(input.localId, 'localId'), lane: literal(input.lane, ['external', 'live'] as const, 'FLEET_MALFORMED_FRAME', 'lane'), tmux: { socketPath: scalarString(tmux.socketPath, 'socketPath'), sessionId: scalarString(tmux.sessionId, 'sessionId'), windowId: scalarString(tmux.windowId, 'windowId'), paneId: scalarString(tmux.paneId, 'paneId') }, process: { pid: positiveInteger(process.pid, 'pid'), startedAtMs: positiveInteger(process.startedAtMs, 'startedAtMs') } };
+  return { kind: literal(input.kind, ['pane'] as const, 'FLEET_MALFORMED_FRAME', 'target kind'), hostId: hostId(input.hostId), localId: panePath(input.localId, 'localId'), lane: literal(input.lane, ['external', 'live'] as const, 'FLEET_MALFORMED_FRAME', 'lane'), tmux: { socketPath: panePath(tmux.socketPath, 'socketPath'), sessionId: scalarString(tmux.sessionId, 'sessionId'), windowId: scalarString(tmux.windowId, 'windowId'), paneId: scalarString(tmux.paneId, 'paneId') }, process: { pid: positiveInteger(process.pid, 'pid'), startedAtMs: positiveInteger(process.startedAtMs, 'startedAtMs') } };
 }
 export function parseFleetReference(value: unknown): FleetReference {
   const input = record(value, 'target');

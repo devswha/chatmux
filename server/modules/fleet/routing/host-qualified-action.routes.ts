@@ -6,6 +6,7 @@ import { createApiSuccessResponse } from '@/shared/utils.js';
 
 import {
   FLEET_ERROR_CODES,
+  FLEET_MAX_PANE_PATH_LENGTH,
   parseFleetReference,
   type FleetOperation,
   type FleetPaneReference,
@@ -79,7 +80,7 @@ function choices(value: unknown): readonly number[] {
 }
 function pane(request: Request): FleetPaneReference {
   const input = body(request);
-  const target = parseFleetReference({ kind: 'pane', hostId: text(request.params.hostId, 'hostId'), localId: text(request.params.localId, 'localId'), lane: input.lane, tmux: input.tmux, process: input.process });
+  const target = parseFleetReference({ kind: 'pane', hostId: text(request.params.hostId, 'hostId'), localId: text(request.params.localId, 'localId', FLEET_MAX_PANE_PATH_LENGTH), lane: input.lane, tmux: input.tmux, process: input.process });
   if (target.kind !== 'pane') throw new FleetHostRoutingError('FLEET_MALFORMED_FRAME', 'Pane target is invalid.');
   return target;
 }

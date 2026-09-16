@@ -17,6 +17,19 @@ async function post(baseUrl: string, path: string, body: object): Promise<Respon
   });
 }
 
+test('Given a pane key longer than an identifier, when a remote action is posted, then admission does not use the 256-character id bound', async (t) => {
+  const fixture = await startRoutesFixture();
+  t.after(() => closeFixture(fixture.server));
+  const localId = `4:live${'k'.repeat(300)}`;
+
+  const response = await post(fixture.baseUrl, `/hosts/${PEER_A}/providers/panes/${encodeURIComponent(localId)}/actions`, {
+    ...pane, action: 'interrupt',
+  });
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(fixture.calls, [{ hostId: PEER_A, method: 'interrupt', localId }]);
+});
+
 test('Given colliding panes on two peers, when every pane action is posted, then only the addressed host is mutated with distinct semantics', async (t) => {
   const fixture = await startRoutesFixture();
   t.after(() => closeFixture(fixture.server));

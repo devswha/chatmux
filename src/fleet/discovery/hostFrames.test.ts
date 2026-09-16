@@ -101,6 +101,18 @@ test('Given a snapshot with an unusable field, when it is parsed, then the frame
   );
 });
 
+test('Given a pane whose socket path exceeds the identifier bound, when it is parsed, then the row is kept', () => {
+  const socketPath = `/tmp/${'s'.repeat(300)}.sock`;
+  const localId = `4:live${Buffer.byteLength(socketPath)}:${socketPath}2:$13:@13:%1`;
+  const row = parseHostPaneRow({
+    ...paneRow(socketPath, 'omg'),
+    localId,
+  });
+
+  assert.equal(row?.localId, localId);
+  assert.equal(row?.tmux.socketPath, socketPath);
+});
+
 test('Given a pane row without a live process, when it is parsed, then it stays a row with no generation', () => {
   const row = parseHostPaneRow({ ...paneRow('/tmp/peer-a.sock', 'omg'), process: null });
 
