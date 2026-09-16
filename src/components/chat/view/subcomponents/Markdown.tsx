@@ -15,15 +15,12 @@ import { copyTextToClipboard } from '../../../../utils/clipboard';
 import { usePaletteOps } from '../../../../contexts/PaletteOpsContext';
 import { useTheme } from '../../../../contexts/ThemeContext';
 
+import { safeMarkdownHref } from './markdownHref';
+
 type MarkdownProps = {
   children: React.ReactNode;
   className?: string;
 };
-
-// Links to the wider web (or in-page anchors) keep normal browser navigation;
-// everything else is treated as a workspace file reference.
-const isExternalHref = (href?: string): boolean =>
-  !!href && (/^(https?:|mailto:|tel:|data:)/i.test(href) || href.startsWith('#'));
 
 // Strip a trailing `:line` / `:line:col` suffix (e.g. `src/foo.ts:130`).
 const stripLineSuffix = (value: string): string => value.replace(/:\d+(?::\d+)?$/, '');
@@ -201,8 +198,9 @@ export function Markdown({ children, className }: MarkdownProps) {
         // link text, since models often emit `[src/foo.ts]()` with an empty href.
         const linkText = childrenToText(linkChildren);
         const fileRef = looksLikeFilePath(href) ? href : looksLikeFilePath(linkText) ? linkText : undefined;
+        const safeHref = safeMarkdownHref(href);
 
-        if (fileRef && !isExternalHref(href)) {
+        if (fileRef && safeHref === null) {
           return (
             <a
               href={href || fileRef}
@@ -217,16 +215,19 @@ export function Markdown({ children, className }: MarkdownProps) {
           );
         }
 
-        return (
-          <a
-            href={href}
-            className="text-blue-600 hover:underline dark:text-blue-400"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            {linkChildren}
-          </a>
-        );
+        if (safeHref !== null) {
+          return (
+            <a
+              href={safeHref}
+              className="text-blue-600 hover:underline dark:text-blue-400"
+              {...(safeHref.startsWith('#') ? {} : { target: '_blank', rel: 'noopener noreferrer' })}
+            >
+              {linkChildren}
+            </a>
+          );
+        }
+
+        return <span className="text-blue-600 dark:text-blue-400">{linkChildren}</span>;
       },
     }),
     [openFileInEditor],

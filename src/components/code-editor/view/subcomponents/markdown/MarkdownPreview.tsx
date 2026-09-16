@@ -5,6 +5,8 @@ import rehypeKatex from 'rehype-katex';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 
+import { safeMarkdownHref } from '../../../../chat/view/subcomponents/markdownHref';
+
 import MarkdownCodeBlock from './MarkdownCodeBlock';
 
 type MarkdownPreviewProps = {
@@ -21,11 +23,20 @@ const markdownPreviewComponents: Components = {
       {children}
     </blockquote>
   ),
-  a: ({ href, children }) => (
-    <a href={href} className="text-blue-600 hover:underline dark:text-blue-400" target="_blank" rel="noopener noreferrer">
-      {children}
-    </a>
-  ),
+  a: ({ href, children }) => {
+    const safeHref = safeMarkdownHref(href);
+    return safeHref === null
+      ? <span className="text-blue-600 dark:text-blue-400">{children}</span>
+      : (
+        <a
+          href={safeHref}
+          className="text-blue-600 hover:underline dark:text-blue-400"
+          {...(safeHref.startsWith('#') ? {} : { target: '_blank', rel: 'noopener noreferrer' })}
+        >
+          {children}
+        </a>
+      );
+  },
   table: ({ children }) => (
     <div className="my-2 overflow-x-auto">
       <table className="min-w-full border-collapse border border-gray-200 dark:border-gray-700">{children}</table>
