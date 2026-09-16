@@ -6,6 +6,7 @@ import {
   getHomeDirSuggestions,
   getTmuxApprovalPrompt,
   getTmuxInteractivePrompt,
+  isProvenSessionBinding,
   listLiveGjcCommands,
   normalizeExternalPaneOutput,
   providerSkillsService,
@@ -49,16 +50,30 @@ async function verifiedRow(row: DiscoveryRow): Promise<VerifiedTmuxActionTarget>
     : assertFreshExternalTmuxTarget(row.tmux, row.process);
 }
 
-async function freshSessionTarget(discovery: DiscoveryCollector, localId: string): Promise<VerifiedTmuxActionTarget> {
+export async function resolveFreshSessionReadTarget(
+  discovery: DiscoveryCollector,
+  localId: string,
+  verify: (row: DiscoveryRow) => Promise<VerifiedTmuxActionTarget> = verifiedRow,
+): Promise<VerifiedTmuxActionTarget> {
   const session = sessionsDb.getSessionById(localId);
   if (session === null) throw new FleetReadRpcError('HOST_NOT_FOUND', 'local session was not found');
   await discovery.ensureFresh(0, true);
-  const nativeId = session.provider_session_id ?? session.session_id;
-  const rows = discovery.currentSnapshot().rows.filter((row) => row.providerSessionId === nativeId && row.process !== null);
-  if (rows.length !== 1) throw new FleetReadRpcError('HOST_NOT_FOUND', 'local session has no unique fresh pane');
-  const row = rows[0];
-  if (row === undefined) throw new FleetReadRpcError('HOST_NOT_FOUND', 'local session pane was not found');
-  return verifiedRow(row);
+  const nativeId = session.provider_session_id;
+  if (!nativeId) {
+    throw new FleetReadRpcError('FLEET_CAPABILITY_UNAVAILABLE', 'session has no provider identity; attach to the terminal instead');
+  }
+  const rows = discovery.currentSnapshot().rows.filter((row) => row.kind === session.provider && row.providerSessionId === nativeId && row.process !== null);
+  if (rows.length !== 1 || rows[0] === undefined) {
+    throw new FleetReadRpcError('HOST_NOT_FOUND', 'local session has no unique fresh pane');
+  }
+  const target = await verify(rows[0]);
+  if (target.kind !== session.provider || target.providerSessionId !== nativeId) {
+    throw new FleetReadRpcError('HOST_NOT_FOUND', 'session no longer belongs to this pane');
+  }
+  if (!isProvenSessionBinding(target.binding)) {
+    throw new FleetReadRpcError('FLEET_CAPABILITY_UNAVAILABLE', 'session has no proven process-bound pane link; attach to the terminal instead');
+  }
+  return target;
 }
 
 export function createLocalFleetReadServices(discovery: DiscoveryCollector): FleetReadServices {
@@ -87,8 +102,8 @@ export function createLocalFleetReadServices(discovery: DiscoveryCollector): Fle
       } });
       return { query: options.query, totalMatches, results };
     },
-    prompt: async (localId) => json({ prompt: await getTmuxInteractivePrompt(await freshSessionTarget(discovery, localId)) }),
-    approval: async (localId) => json({ approval: await getTmuxApprovalPrompt(await freshSessionTarget(discovery, localId)) }),
+    prompt: async (localId) => json({ prompt: await getTmuxInteractivePrompt(await resolveFreshSessionReadTarget(discovery, localId)) }),
+    approval: async (localId) => json({ approval: await getTmuxApprovalPrompt(await resolveFreshSessionReadTarget(discovery, localId)) }),
     capturePane: async (target) => {
       await discovery.ensureFresh(0, true);
       const row = discovery.currentSnapshot().rows.find((candidate) => rowMatchesPane(candidate, target));
