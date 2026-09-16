@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import express, { type Request } from 'express';
 
+import { isValidSpawnName } from '@/modules/providers/index.js';
 import { createApiSuccessResponse } from '@/shared/utils.js';
 
 import { FLEET_ERROR_CODES, parseFleetReference } from '../../../../shared/fleet.js';
@@ -15,8 +16,8 @@ const REQUEST_DEADLINE_MS = 10_000;
 
 export type RoutingResolver = () => FleetApplicationRouting | undefined;
 
-function text(value: unknown, name: string): string {
-  if (typeof value !== 'string' || value.length === 0 || value.length > 256 || value.includes('\0')) {
+function text(value: unknown, name: string, maximum = 256): string {
+  if (typeof value !== 'string' || value.length === 0 || value.length > maximum || value.includes('\0')) {
     throw new FleetHostRoutingError('FLEET_IDENTIFIER_INVALID', `${name} is invalid.`);
   }
   return value;
@@ -66,7 +67,7 @@ function body(request: Request): Readonly<Record<string, unknown>> {
  * value is rejected here before any host is contacted.
  */
 function peerRelativePath(value: unknown, name: string): string {
-  const candidate = text(value, name);
+  const candidate = text(value, name, 512);
   if (candidate.startsWith('/') || candidate.startsWith('~') || candidate.split('/').includes('..')) {
     throw new FleetHostRoutingError('FLEET_MALFORMED_FRAME', `${name} must be relative to the host home directory.`);
   }
@@ -155,7 +156,7 @@ export function createHostQualifiedRoutes(resolve: RoutingResolver = () => fleet
   router.get('/hosts/:hostId/projects/:projectId/search', async (request, response, next) => {
     try {
       const projectId = text(request.params.projectId, 'projectId');
-      const query = text(request.query.query, 'query');
+      const query = text(request.query.query, 'query', 4_096);
       const limit = typeof request.query.limit === 'string' && Number.isSafeInteger(Number(request.query.limit)) ? Number(request.query.limit) : 50;
       const { active, selected } = route(request, resolve, 'session.search');
       const result = selected.kind === 'local'
@@ -227,7 +228,10 @@ export function createHostQualifiedRoutes(resolve: RoutingResolver = () => fleet
     try {
       const projectId = text(request.params.projectId, 'projectId');
       const input = body(request);
-      const name = text(input.name, 'name');
+      if (!isValidSpawnName(input.name)) {
+        throw new FleetHostRoutingError('FLEET_MALFORMED_FRAME', 'name is invalid.');
+      }
+      const name = input.name;
       const cwd = peerRelativePath(input.cwd, 'cwd');
       const { active, selected } = route(request, resolve, 'session.spawn');
       const result = selected.kind === 'local'
