@@ -37,6 +37,9 @@ function unavailable(status: HubPeerStatus): FleetHostRoutingError | null {
     case 'syncing':
       return new FleetHostRoutingError('HOST_SYNCING', 'Fleet host is synchronizing.');
     case 'degraded':
+      return status.generation === null || status.peerProcessEpoch === null
+        ? new FleetHostRoutingError('HOST_SYNCING', 'Fleet host is synchronizing.')
+        : null;
     case 'offline':
       return new FleetHostRoutingError('HOST_OFFLINE', 'Fleet host is offline.');
     case 'revoked':

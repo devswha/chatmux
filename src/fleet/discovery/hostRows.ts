@@ -9,7 +9,7 @@
  * pane would otherwise become a plausible-looking action target.
  */
 
-import type { FleetLane } from '../../../shared/fleet';
+import { FLEET_MAX_IDENTIFIER_LENGTH, FLEET_MAX_PANE_PATH_LENGTH, type FleetLane } from '../../../shared/fleet';
 import type { TmuxPaneIdentity, TmuxProcessGeneration } from '../../../shared/tmux';
 import { hostQualifiedKey, type HostQualifiedKey } from '../references';
 
@@ -46,7 +46,7 @@ export type FleetHostRowSet = {
 
 export const EMPTY_HOST_ROW_SET: FleetHostRowSet = { projects: [], sessions: [], panes: [] };
 
-const MAX_TEXT_LENGTH = 256;
+const MAX_TEXT_LENGTH = FLEET_MAX_IDENTIFIER_LENGTH;
 
 function record(value: unknown): Readonly<Record<string, unknown>> | null {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -54,10 +54,10 @@ function record(value: unknown): Readonly<Record<string, unknown>> | null {
     : null;
 }
 
-function text(value: unknown): string | null {
+function text(value: unknown, maximum = MAX_TEXT_LENGTH): string | null {
   return typeof value === 'string'
     && value.length > 0
-    && value.length <= MAX_TEXT_LENGTH
+    && value.length <= maximum
     && !value.includes('\0')
     ? value
     : null;
@@ -74,7 +74,7 @@ function count(value: unknown): number | null {
 function paneIdentity(value: unknown): TmuxPaneIdentity | null {
   const row = record(value);
   if (row === null) return null;
-  const socketPath = text(row.socketPath);
+  const socketPath = text(row.socketPath, FLEET_MAX_PANE_PATH_LENGTH);
   const sessionId = text(row.sessionId);
   const windowId = text(row.windowId);
   const paneId = text(row.paneId);
@@ -115,7 +115,7 @@ export function parseHostSessionRow(value: unknown): FleetHostSessionRow | null 
 export function parseHostPaneRow(value: unknown): FleetHostPaneRow | null {
   const row = record(value);
   if (row === null) return null;
-  const localId = text(row.localId);
+  const localId = text(row.localId, FLEET_MAX_PANE_PATH_LENGTH);
   const tmuxName = text(row.tmuxName);
   const tmux = paneIdentity(row.tmux);
   if (localId === null || tmuxName === null || tmux === null) return null;

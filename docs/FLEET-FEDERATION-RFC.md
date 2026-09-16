@@ -22,6 +22,11 @@ remote ChatMux installation during SSH enrollment and bounded, owner-only
 Tailscale candidate suggestions. These are hub-local setup surfaces, not new fleet
 wire operations or remote administration capabilities.
 
+Revision 7 (2026-09-16): pane `localId` (the catalog pane key) and
+`tmux.socketPath` MAY be at most 4,096 characters so an explicit `-S` socket
+remains addressable. Host IDs remain canonical UUIDs. Other identifiers remain
+256 characters. Everything else is unchanged from revision 6.
+
 ### Full tool output
 
 - The owner-only host-qualified tool-result endpoint MUST resolve the addressed
@@ -120,8 +125,11 @@ wire operations or remote administration capabilities.
   add lane and exact `TmuxPaneIdentity`; generation references MUST also add
   `{ pid, startedAtMs }`. `shared/tmux.ts` preserves the canonical local identity
   and adds host-only wrappers.
-- IDs MUST be nonempty scalar strings of at most 256 characters; host IDs MUST be
-  canonical UUIDs. Equal local IDs from distinct hosts MUST remain distinct.
+- Host IDs MUST be canonical UUIDs. Session, project, request, event, and other
+  scalar identifiers MUST be nonempty and at most 256 characters. Pane `localId`
+  (the catalog pane key) and `tmux.socketPath` MAY be at most 4,096 characters
+  so they match TMUX-DISCOVERY and the catalog schema. Equal local IDs from
+  distinct hosts MUST remain distinct.
 - Browser/store/dedupe digests MUST SHA-256 UTF-8 fields prefixed by four-byte
   big-endian byte lengths. Delimiter concatenation is forbidden.
 - Installation descriptors MAY expose only installation ID, public-key fingerprint,
