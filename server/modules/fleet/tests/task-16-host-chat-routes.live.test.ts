@@ -91,6 +91,30 @@ test('Given an absolute controller path, when a remote spawn is requested, then 
   assert.deepEqual(fixture.calls, []);
 });
 
+test('Given host-qualified spawn and search payloads, when they exceed identifier length but stay in contract, then they are admitted', async (context) => {
+  const fixture = await startRoutesFixture(); context.after(() => closeFixture(fixture.server));
+  const cwd = `repos/${'n'.repeat(251)}`;
+  const query = 'q'.repeat(300);
+
+  const spawned = await fetch(`${fixture.baseUrl}/hosts/${PEER_A}/projects/${COLLIDING_PROJECT}/sessions/spawn`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name: 'valid-name', cwd }),
+  });
+  const searched = await fetch(`${fixture.baseUrl}/hosts/${PEER_A}/projects/${COLLIDING_PROJECT}/search?query=${encodeURIComponent(query)}`);
+  const invalidName = await fetch(`${fixture.baseUrl}/hosts/${PEER_A}/projects/${COLLIDING_PROJECT}/sessions/spawn`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name: 'a b', cwd: 'repos/app' }),
+  });
+
+  assert.equal(spawned.status, 200);
+  assert.equal(searched.status, 200);
+  assert.equal(invalidName.status, 400);
+  assert.equal(errorCode(await invalidName.json()), 'FLEET_MALFORMED_FRAME');
+  assert.deepEqual(fixture.calls.map((call) => call.method), ['spawn', 'search']);
+});
+
 test('Given a dispatched spawn whose outcome is unknown, when the peer connection drops, then the response is a non-success conflict without retry', async (context) => {
   // Given
   const fixture = await startRoutesFixture(); context.after(() => closeFixture(fixture.server));
