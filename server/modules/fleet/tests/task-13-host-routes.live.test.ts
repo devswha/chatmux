@@ -155,7 +155,6 @@ test('Given every controlled fleet denial, when production API error middleware 
     { hostId: unknown, expected: 404, code: 'HOST_NOT_FOUND' },
     { state: 'revoked', expected: 410, code: 'HOST_REVOKED' },
     { state: 'offline', expected: 503, code: 'HOST_OFFLINE' },
-    { state: 'degraded', expected: 503, code: 'HOST_OFFLINE' },
     { state: 'syncing', expected: 503, code: 'HOST_SYNCING' },
     { state: 'connecting', expected: 503, code: 'HOST_SYNCING' },
     { state: 'incompatible', expected: 503, code: 'HOST_INCOMPATIBLE' },
@@ -176,4 +175,15 @@ test('Given every controlled fleet denial, when production API error middleware 
   });
   assert.deepEqual(fixture.counts(), { peerLookups: cases.length, localCalls: 0, remoteCalls: 0 });
   assert.equal(fixture.reports(), 1);
+});
+
+test('Given a degraded peer with a current generation, when a host-qualified read runs, then the peer is still used', async (context) => {
+  const fixture = await startFixture(); context.after(() => close(fixture.server));
+  fixture.statuses.set(REMOTE, status(REMOTE, 'degraded'));
+
+  const response = await fetch(`${fixture.baseUrl}/hosts/${REMOTE}/providers/sessions/same`);
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { success: true, data: { source: 'remote' } });
+  assert.deepEqual(fixture.counts(), { peerLookups: 1, localCalls: 0, remoteCalls: 1 });
 });
