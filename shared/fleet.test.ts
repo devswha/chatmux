@@ -4,12 +4,14 @@ import test from 'node:test';
 import {
   FLEET_CAPABILITIES,
   FLEET_ERROR_CODES,
+  FLEET_MAX_PANE_PATH_LENGTH,
   FLEET_PROTOCOL_VERSION,
   FleetContractError,
   fleetCapabilityLabel,
   fleetErrorStatus,
   fleetReferenceDigest,
   parseFleetEventEnvelope,
+  parseFleetReference,
   parseFleetRequestEnvelope,
   parseFleetResponseEnvelope,
 } from './fleet.js';
@@ -119,6 +121,38 @@ test('Given malformed fleet inputs, When parsed, Then each fails closed', async 
   }));
   const digest = await fleetReferenceDigest(target);
   assert.notEqual(digest, await fleetReferenceDigest({ ...target, localId: 'session-43' }));
+});
+
+test('Given a pane key or socket longer than an identifier, when parsed, then the catalog path bound is used', () => {
+  const socketPath = `/tmp/${'s'.repeat(300)}.sock`;
+  const localId = `4:live${socketPath.length}:${socketPath}2:$13:@13:%1`;
+  const parsed = parseFleetReference({
+    kind: 'pane', hostId: hostA, localId, lane: 'live',
+    tmux: { socketPath, sessionId: '$1', windowId: '@1', paneId: '%1' },
+    process: { pid: 42, startedAtMs: 1 },
+  });
+
+  assert.equal(parsed.kind, 'pane');
+  if (parsed.kind === 'pane') {
+    assert.equal(parsed.localId, localId);
+    assert.equal(parsed.tmux.socketPath, socketPath);
+  }
+  assert.throws(
+    () => parseFleetReference({
+      kind: 'pane', hostId: hostA, localId: 'x'.repeat(FLEET_MAX_PANE_PATH_LENGTH + 1), lane: 'live',
+      tmux: { socketPath: '/tmp/tmux.sock', sessionId: '$1', windowId: '@1', paneId: '%1' },
+      process: { pid: 42, startedAtMs: 1 },
+    }),
+    (error: unknown) => error instanceof FleetContractError && error.code === 'FLEET_IDENTIFIER_TOO_LONG',
+  );
+  assert.throws(
+    () => parseFleetRequestEnvelope({
+      kind: 'request', protocolVersion: FLEET_PROTOCOL_VERSION, connectionGeneration: 1,
+      requestId: 'request-1', operation: 'session.read',
+      target: { kind: 'session', hostId: hostA, localId: 's'.repeat(257) }, body: null,
+    }),
+    (error: unknown) => error instanceof FleetContractError && error.code === 'FLEET_IDENTIFIER_TOO_LONG',
+  );
 });
 
 test('Given fleet capability and error unions, When consumed, Then every variant has an exhaustive mapping', () => {

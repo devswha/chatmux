@@ -6,6 +6,7 @@ import { createApiSuccessResponse } from '@/shared/utils.js';
 
 import {
   FLEET_ERROR_CODES,
+  FLEET_MAX_PANE_PATH_LENGTH,
   parseFleetReference,
   type FleetOperation,
   type FleetPaneReference,
@@ -19,8 +20,8 @@ import type { RoutingResolver } from './host-qualified.routes.js';
 const REQUEST_DEADLINE_MS = 10_000;
 type BrowserPaneAction = 'send' | 'interrupt' | 'escape' | 'terminate-process' | 'terminate-pane' | 'terminate-session';
 
-function text(value: unknown, name: string): string {
-  if (typeof value !== 'string' || value.length === 0 || value.length > 256 || value.includes('\0')) {
+function text(value: unknown, name: string, maximum = 256): string {
+  if (typeof value !== 'string' || value.length === 0 || value.length > maximum || value.includes('\0')) {
     throw new FleetHostRoutingError('FLEET_IDENTIFIER_INVALID', `${name} is invalid.`);
   }
   return value;
@@ -71,7 +72,7 @@ function choices(value: unknown): readonly number[] {
 }
 function pane(request: Request): FleetPaneReference {
   const input = body(request);
-  const target = parseFleetReference({ kind: 'pane', hostId: text(request.params.hostId, 'hostId'), localId: text(request.params.localId, 'localId'), lane: input.lane, tmux: input.tmux, process: input.process });
+  const target = parseFleetReference({ kind: 'pane', hostId: text(request.params.hostId, 'hostId'), localId: text(request.params.localId, 'localId', FLEET_MAX_PANE_PATH_LENGTH), lane: input.lane, tmux: input.tmux, process: input.process });
   if (target.kind !== 'pane') throw new FleetHostRoutingError('FLEET_MALFORMED_FRAME', 'Pane target is invalid.');
   return target;
 }
