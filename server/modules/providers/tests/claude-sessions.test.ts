@@ -6,6 +6,53 @@ import test from 'node:test';
 
 import { closeConnection, initializeDatabase, sessionsDb } from '@/modules/database/index.js';
 import { ClaudeSessionsProvider } from '@/modules/providers/list/claude/claude-sessions.provider.js';
+import { unwrapClaudePastedContent } from '@/modules/providers/list/claude/claude-transcript-content.js';
+
+test('Claude pasted-content envelopes expose only their user-visible text', () => {
+  const observed = '\n\n<pasted_content id="5c52">\n같은 방법을 pose Q20에 적용해서 확인해보자.\n</pasted_content id="5c52">\n';
+  assert.equal(
+    unwrapClaudePastedContent(observed),
+    '같은 방법을 pose Q20에 적용해서 확인해보자.',
+  );
+
+  const multiple = [
+    'before',
+    '<pasted_content id="first_1">',
+    'first pasted block',
+    '</pasted_content id="first_1">',
+    'between',
+    '<pasted_content id="second-2">',
+    'second pasted block',
+    '</pasted_content id="second-2">',
+    'after',
+  ].join('\n');
+  assert.equal(
+    unwrapClaudePastedContent(multiple),
+    ['before', 'first pasted block', 'between', 'second pasted block', 'after'].join('\n'),
+  );
+});
+
+test('Claude pasted-content envelopes fail closed when their ids do not match', () => {
+  const malformed = '<pasted_content id="first">\nkeep this literal\n</pasted_content id="second">';
+  assert.equal(unwrapClaudePastedContent(malformed), malformed);
+});
+
+test('Claude message normalization hides native pasted-content markup', () => {
+  const provider = new ClaudeSessionsProvider();
+  const messages = provider.normalizeMessage({
+    type: 'user',
+    uuid: 'pasted-user-message',
+    timestamp: '2026-09-19T13:56:30.703Z',
+    message: {
+      role: 'user',
+      content: '\n\n<pasted_content id="5c52">\nvisible prompt\n</pasted_content id="5c52">\n',
+    },
+  }, 'claude-session');
+
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0]?.role, 'user');
+  assert.equal(messages[0]?.content, 'visible prompt');
+});
 
 async function withIsolatedDatabase(runTest: () => void | Promise<void>): Promise<void> {
   const previousDatabasePath = process.env.DATABASE_PATH;

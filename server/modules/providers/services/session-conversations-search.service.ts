@@ -6,6 +6,7 @@ import { spawn } from 'cross-spawn';
 import { rgPath } from '@vscode/ripgrep';
 
 import { projectsDb, sessionsDb } from '@/modules/database/index.js';
+import { unwrapClaudePastedContent } from '@/modules/providers/list/claude/claude-transcript-content.js';
 
 type AnyRecord = Record<string, any>;
 type SearchableProvider = 'claude' | 'codex';
@@ -394,17 +395,19 @@ function extractClaudeSearchableMessage(entry: AnyRecord): ClaudeSearchableMessa
         : null;
     }
 
-    if (!content || isInternalContent(content)) {
+    const visibleContent = rawRole === 'user' ? unwrapClaudePastedContent(content) : content;
+    if (!visibleContent || isInternalContent(visibleContent)) {
       return null;
     }
 
     return {
-      text: content,
+      text: visibleContent,
       role: rawRole,
     };
   }
 
-  const text = extractClaudeText(entry.message.content);
+  const extractedText = extractClaudeText(entry.message.content);
+  const text = rawRole === 'user' ? unwrapClaudePastedContent(extractedText) : extractedText;
   if (!text) {
     return null;
   }

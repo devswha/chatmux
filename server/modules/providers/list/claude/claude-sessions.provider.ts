@@ -7,6 +7,7 @@ import type { IProviderSessions } from '@/shared/interfaces.js';
 import type { AnyRecord, FetchHistoryOptions, FetchHistoryResult, NormalizedMessage } from '@/shared/types.js';
 import { createNormalizedMessage, generateMessageId, readObjectRecord, sliceTailPage } from '@/shared/utils.js';
 import { sessionsDb } from '@/modules/database/index.js';
+import { unwrapClaudePastedContent } from '@/modules/providers/list/claude/claude-transcript-content.js';
 
 const PROVIDER = 'claude';
 
@@ -379,7 +380,7 @@ export class ClaudeSessionsProvider implements IProviderSessions {
               toolUseResult: raw.toolUseResult,
             }));
           } else if (part.type === 'text') {
-            const text = part.text || '';
+            const text = unwrapClaudePastedContent(part.text || '');
             if (text && !isInternalContent(text)) {
               messages.push(createNormalizedMessage({
                 id: `${baseId}_text_${partIndex}`,
@@ -399,7 +400,7 @@ export class ClaudeSessionsProvider implements IProviderSessions {
         if (messages.length === 0) {
           const textParts = raw.message.content
             .filter((part: AnyRecord) => part.type === 'text')
-            .map((part: AnyRecord) => part.text)
+            .map((part: AnyRecord) => unwrapClaudePastedContent(part.text || ''))
             .filter(Boolean)
             .join('\n');
           if (textParts && !isInternalContent(textParts)) {
@@ -506,7 +507,8 @@ export class ClaudeSessionsProvider implements IProviderSessions {
           return messages;
         }
 
-        if (text && !isInternalContent(text)) {
+        const visibleText = unwrapClaudePastedContent(text);
+        if (visibleText && !isInternalContent(visibleText)) {
           messages.push(createNormalizedMessage({
             id: baseId,
             sessionId,
@@ -514,7 +516,7 @@ export class ClaudeSessionsProvider implements IProviderSessions {
             provider: PROVIDER,
             kind: 'text',
             role: 'user',
-            content: text,
+            content: visibleText,
           }));
         }
       }
