@@ -6,6 +6,11 @@ import type { IProviderSessions } from '@/shared/interfaces.js';
 import type { AnyRecord, FetchHistoryOptions, FetchHistoryResult, NormalizedMessage } from '@/shared/types.js';
 import { createNormalizedMessage, generateMessageId, readObjectRecord, sliceTailPage } from '@/shared/utils.js';
 
+import {
+  CODEX_ASYNC_QUESTION_KIND,
+  isCodexAsyncQuestionInput,
+} from '../../../../../shared/codex-async-question.js';
+
 const PROVIDER = 'codex';
 
 export function normalizeCodexToolName(value: unknown): string {
@@ -128,6 +133,106 @@ function extractCodexTextContent(content: unknown): string {
     })
     .filter(Boolean)
     .join('\n');
+}
+
+type CodexAsyncQuestion = {
+  question: string;
+  options: Array<{ label: string }>;
+};
+
+function parseCodexAsyncQuestions(value: unknown): CodexAsyncQuestion[] | null {
+  if (!Array.isArray(value) || value.length === 0 || value.length > 32) return null;
+  const questions: CodexAsyncQuestion[] = [];
+  for (const raw of value) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    const item = raw as { title?: unknown; options?: unknown };
+    const question = typeof item.title === 'string' ? item.title.trim() : '';
+    if (!question || question.length > 2_000) return null;
+    if (item.options !== null && item.options !== undefined && !Array.isArray(item.options)) {
+      return null;
+    }
+    const labels = Array.isArray(item.options) ? item.options : [];
+    if (labels.length > 32) return null;
+    const options: Array<{ label: string }> = [];
+    for (const rawLabel of labels) {
+      const label = typeof rawLabel === 'string' ? rawLabel.trim() : '';
+      if (!label || label.length > 500) return null;
+      options.push({ label });
+    }
+    questions.push({ question, options });
+  }
+  return questions;
+}
+
+function codexAsyncQuestionMessage(
+  id: unknown,
+  questionsValue: unknown,
+  timestamp: unknown,
+): AnyRecord | null {
+  const messageId = typeof id === 'string' && id.trim() ? id.trim() : '';
+  const questions = parseCodexAsyncQuestions(questionsValue);
+  if (!messageId || !questions) return null;
+  // The native TUI presents these serially. Surface only the currently first
+  // question in transcript mode; after it is answered, the next native prompt
+  // remains visible and is picked up by the screen-derived prompt parser.
+  return {
+    type: 'tool_use',
+    timestamp,
+    toolName: 'AskUserQuestion',
+    toolInput: {
+      questions: [questions[0]],
+      _chatmux: { kind: CODEX_ASYNC_QUESTION_KIND, messageId },
+    },
+    toolCallId: `codex-async:${messageId}`,
+  };
+}
+
+function codexAsyncQuestionItem(payload: AnyRecord | null | undefined): AnyRecord | null {
+  if (!payload) return null;
+  const nested = payload.type === 'item_completed' ? readObjectRecord(payload.item) : null;
+  const item = nested ?? payload;
+  const type = typeof item.type === 'string' ? item.type.toLowerCase().replace(/_/g, '') : '';
+  return type === 'agentmessage' && item.delivery === 'async' && Array.isArray(item.questions)
+    ? item
+    : null;
+}
+
+function linkCodexAsyncQuestionAnswer(
+  messages: readonly NormalizedMessage[],
+  userMessage: NormalizedMessage,
+): void {
+  const content = typeof userMessage.content === 'string' ? userMessage.content : '';
+  if (!content.startsWith('> ')) return;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const candidate = messages[index];
+    if (
+      candidate.kind !== 'tool_use'
+      || candidate.toolName !== 'AskUserQuestion'
+      || candidate.toolResult
+      || !isCodexAsyncQuestionInput(candidate.toolInput)
+    ) continue;
+    const input = typeof candidate.toolInput === 'string'
+      ? JSON.parse(candidate.toolInput) as AnyRecord
+      : candidate.toolInput as AnyRecord;
+    const question = Array.isArray(input.questions)
+      ? readObjectRecord(input.questions[0])?.question
+      : null;
+    if (typeof question !== 'string') continue;
+    const prefix = `> ${question}\n\n`;
+    if (!content.startsWith(prefix)) continue;
+    candidate.toolInput = {
+      ...input,
+      answers: {
+        ...readObjectRecord(input.answers),
+        [question]: content.slice(prefix.length),
+      },
+    };
+    candidate.toolResult = {
+      content: content.slice(prefix.length),
+      isError: false,
+    };
+    return;
+  }
 }
 
 type CodexToolOutput = {
@@ -274,6 +379,14 @@ function parseCodexHistoryLine(line: string, accumulator: CodexHistoryAccumulato
       }
     }
 
+    if (entry.type === 'event_msg') {
+      const item = codexAsyncQuestionItem(entry.payload as AnyRecord);
+      const asyncQuestion = item
+        ? codexAsyncQuestionMessage(item.id, item.questions, entry.timestamp)
+        : null;
+      if (asyncQuestion) accumulator.messages.push(asyncQuestion);
+    }
+
     if (entry.type === 'event_msg' && isVisibleCodexUserMessage(entry.payload as AnyRecord)) {
       accumulator.messages.push({
         type: 'user',
@@ -350,6 +463,22 @@ function parseCodexHistoryLine(line: string, accumulator: CodexHistoryAccumulato
     if (entry.type === 'response_item' && entry.payload?.type === 'function_call') {
       let toolName = normalizeCodexToolName(entry.payload.name);
       let toolInput = entry.payload.arguments;
+
+      if (entry.payload.name === 'request_user_input_async') {
+        let parsedInput: AnyRecord | null = null;
+        try {
+          parsedInput = readObjectRecord(JSON.parse(String(entry.payload.arguments ?? '')));
+        } catch {
+          parsedInput = null;
+        }
+        const asyncQuestion = codexAsyncQuestionMessage(
+          entry.payload.call_id,
+          parsedInput?.questions,
+          entry.timestamp,
+        );
+        if (asyncQuestion) accumulator.messages.push(asyncQuestion);
+        return;
+      }
 
       if (toolName === 'shell_command') {
         toolName = 'Bash';
@@ -527,7 +656,18 @@ function appendNormalizedCodexHistory(
     for (const message of normalize(raw, sessionId)) {
       entry.sortTimestamps.set(message, sortTimestamp);
 
+      if (
+        message.kind === 'tool_use'
+        && message.toolName === 'AskUserQuestion'
+        && message.toolId
+        && isCodexAsyncQuestionInput(message.toolInput)
+        && entry.messages.some((candidate) => candidate.toolId === message.toolId)
+      ) {
+        continue;
+      }
+
       if (message.kind === 'text' && message.role === 'user') {
+        linkCodexAsyncQuestionAnswer(entry.messages, message);
         let duplicateIndex = -1;
         for (let index = entry.messages.length - 1; index >= 0; index -= 1) {
           const previous = entry.messages[index];

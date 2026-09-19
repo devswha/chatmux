@@ -1,4 +1,5 @@
 import type { ChatMessage } from '../types/types';
+import { isCodexAsyncQuestionInput } from '../../../../shared/codex-async-question';
 
 export type PendingRelayAsk = {
   toolId: string;
@@ -47,6 +48,7 @@ export function findPendingRelayAsk(messages: readonly ChatMessage[]): PendingRe
     const questions = input && typeof input === 'object' && !Array.isArray(input)
       ? (input as { questions?: unknown }).questions
       : null;
+    const codexAsync = isCodexAsyncQuestionInput(input);
     if (!Array.isArray(questions) || questions.length !== 1) return null;
     let maxChoiceNumber = 0;
     for (const rawQuestion of questions) {
@@ -65,7 +67,10 @@ export function findPendingRelayAsk(messages: readonly ChatMessage[]): PendingRe
         || !Array.isArray(question.options)
         || question.options.length === 0
       ) return null;
-      maxChoiceNumber = Math.max(maxChoiceNumber, question.options.length + 1);
+      maxChoiceNumber = Math.max(
+        maxChoiceNumber,
+        question.options.length + (codexAsync ? 0 : 1),
+      );
     }
     return { toolId: message.toolId, maxChoiceNumber };
   }

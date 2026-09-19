@@ -94,6 +94,22 @@ test('pending transcript question renders numbered choices, direct input, and ca
   assert.ok(!html.includes('Skipped'));
 });
 
+test('pending Codex asynchronous choices can hide unverified direct input', () => {
+  const html = renderToStaticMarkup(
+    React.createElement(QuestionAnswerContent, {
+      questions: [{ question: 'Pick one?', options: [{ label: 'Allow' }, { label: 'Reject' }] }],
+      answers: {},
+      pending: true,
+      allowDirectInput: false,
+      onSelectChoice: () => {},
+    }),
+  );
+  assert.ok(html.includes('1.'));
+  assert.ok(html.includes('2.'));
+  assert.ok(!html.includes('Direct input'));
+  assert.ok(html.includes('Cancel (0)'));
+});
+
 test('pending single-select choices become buttons only when a choice handler is provided', () => {
   const withHandler = renderToStaticMarkup(
     React.createElement(QuestionAnswerContent, {

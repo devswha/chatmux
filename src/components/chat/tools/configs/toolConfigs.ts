@@ -2,6 +2,7 @@
  * Centralized tool configuration registry
  * Defines display behavior for all tool types 
  */
+import { isCodexAsyncQuestionInput } from '../../../../../shared/codex-async-question';
 
 export interface ToolDisplayConfig {
   input: {
@@ -551,7 +552,8 @@ export const TOOL_CONFIGS: Record<string, ToolDisplayConfig> = {
       contentType: 'question-answer',
       getContentProps: (input: any) => ({
         questions: input.questions || [],
-        answers: input.answers || {}
+        answers: input.answers || {},
+        allowDirectInput: !isCodexAsyncQuestionInput(input),
       }),
     },
     result: {

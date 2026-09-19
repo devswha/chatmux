@@ -67,6 +67,30 @@ Press enter to confirm or esc to cancel
   assert.match(approval?.body ?? '', /curl -I/);
 });
 
+test('parses Codex asynchronous Questions after the native question stack is opened', () => {
+  const prompt = parseTmuxInteractivePrompt('codex', `
+Which accelerator?
+
+› 1. CUDA
+  2. CPU
+  3. NPU
+  4. Other
+
+enter submit   ctrl + ] skip
+option 1/4   shift + → main prompt
+`);
+  assert.equal(prompt?.kind, 'question');
+  assert.equal(prompt?.question, 'Which accelerator?');
+  assert.deepEqual(prompt?.options.map((option) => option.label), ['CUDA', 'CPU', 'NPU']);
+  assert.equal(prompt?.customOptionNumber, null);
+  assert.equal(parseTmuxInteractivePrompt('codex', `
+Why this backend?
+
+enter submit   ctrl + ] skip
+shift + → main prompt
+`), null);
+});
+
 test('answers a Codex pre-chat menu with its native cursor and Enter keys', async () => {
   const screen = `
   ✨ Update available! 0.146.0 -> 0.146.1

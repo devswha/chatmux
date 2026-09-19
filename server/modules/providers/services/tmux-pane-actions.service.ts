@@ -23,6 +23,8 @@ export type TmuxSelectionKey =
   | 'Space'
   | 'Tab'
   | 'BTab'
+  | 'S-Left'
+  | 'S-Right'
   | 'Escape';
 
 function tmuxProcessActionKey(

@@ -1,6 +1,8 @@
 import type { NormalizedMessage } from '@/shared/types.js';
 import { AppError } from '@/shared/utils.js';
 
+import { isCodexAsyncQuestionInput } from '../../../../shared/codex-async-question.js';
+
 import type { TmuxRunner } from './builtin-relay.service.js';
 import {
   captureTmuxPane,
@@ -15,12 +17,14 @@ const GJC_NAVIGATION_HINT_RE = /up\/down navigate\s+enter select/i;
 const GJC_CUSTOM_HINT_RE = /enter submit\s+esc back to options/i;
 const CODEX_SELECTION_HINT_RE = /tab to add notes.*enter to submit answer.*esc to interrupt/i;
 const CODEX_CUSTOM_HINT_RE = /tab or esc to clear notes.*enter to submit answer/i;
+const CODEX_ASYNC_HINT_RE = /(?:enter|return).*submit.*(?:ctrl\s*\+\s*\]|skip)/i;
 const OMP_SELECTION_HINT_RE = /enter select.*↑\/↓ move.*esc cancel/i;
 const OMP_CUSTOM_HINT_RE = /enter or ctrl\+q submit.*esc cancel/i;
 const CLAUDE_SELECTION_HINT_RE = /enter to select.*↑\/↓ to navigate.*esc to cancel/i;
 const CLAUDE_CUSTOM_HINT_RE = /ctrl\+g to edit in vs code/i;
 const GJC_OTHER_LABEL = 'Other (type your own)';
 const CODEX_OTHER_LABEL = 'None of the above';
+const CODEX_ASYNC_OTHER_LABEL = 'Other';
 const OMP_OTHER_LABEL = 'Other (type your own)';
 const CLAUDE_OTHER_LABEL = 'Type something.';
 const CLAUDE_CHAT_LABEL = 'Chat about this';
@@ -33,6 +37,7 @@ export type TmuxAskQuestion = {
 export type PendingTmuxAsk = {
   toolId: string;
   questions: TmuxAskQuestion[];
+  interaction?: 'codex-async';
 };
 export type TmuxAskAction = 'option' | 'other' | 'cancel';
 
@@ -40,6 +45,10 @@ type AskSelection = {
   action: TmuxAskAction;
   delta: number;
   label: string;
+};
+type ParsedTmuxAskQuestions = {
+  questions: TmuxAskQuestion[];
+  interaction?: 'codex-async';
 };
 
 function normalizeText(value: string): string {
@@ -55,9 +64,12 @@ function parseToolInput(value: unknown): unknown {
   }
 }
 
-function readQuestions(value: unknown): TmuxAskQuestion[] | null {
+function readQuestions(value: unknown): ParsedTmuxAskQuestions | null {
   const input = parseToolInput(value);
   if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
+  const interaction = isCodexAsyncQuestionInput(input)
+    ? 'codex-async' as const
+    : undefined;
   const questions = (input as { questions?: unknown }).questions;
   if (!Array.isArray(questions) || questions.length === 0 || questions.length > 32) return null;
 
@@ -85,7 +97,7 @@ function readQuestions(value: unknown): TmuxAskQuestion[] | null {
     }
     parsed.push({ question, options });
   }
-  return parsed;
+  return { questions: parsed, ...(interaction ? { interaction } : {}) };
 }
 
 /**
@@ -104,8 +116,8 @@ export function findPendingTmuxAsk(
     // older unanswered-looking transcript entry.
     if (!message.toolId || message.toolResult) return null;
     if (requestedToolId && message.toolId !== requestedToolId) return null;
-    const questions = readQuestions(message.toolInput);
-    return questions ? { toolId: message.toolId, questions } : null;
+    const parsed = readQuestions(message.toolInput);
+    return parsed ? { toolId: message.toolId, ...parsed } : null;
   }
   return null;
 }
@@ -241,6 +253,46 @@ export function parseCodexAskSelectionScreen(
     if (optionIndex === labels.length) {
       return { action: 'other', delta: labels.length - selectedIndex, label: 'Direct input' };
     }
+    return { action: 'option', delta: optionIndex - selectedIndex, label: labels[optionIndex] };
+  }
+  return null;
+}
+
+export function parseCodexAsyncAskSelectionScreen(
+  screen: string,
+  question: TmuxAskQuestion,
+  optionIndex: number,
+): AskSelection | null {
+  const labels = question.options.map((option) => option.label.trim());
+  if (
+    !Number.isInteger(optionIndex)
+    || optionIndex < -1
+    || optionIndex >= labels.length
+    || labels.length === 0
+    || labels.some((label) => !label)
+  ) return null;
+  const lines = screen.replace(ANSI_RE, '').split(/\r?\n/);
+  const hintIndex = (() => {
+    for (let index = lines.length - 1; index >= 0; index -= 1) {
+      if (CODEX_ASYNC_HINT_RE.test(lines[index])) return index;
+    }
+    return -1;
+  })();
+  if (hintIndex < Math.max(0, lines.length - 4)) return null;
+
+  const rowCount = labels.length + 1;
+  for (let start = Math.max(0, hintIndex - rowCount - 20); start < hintIndex; start += 1) {
+    const rows = lines.slice(start, start + rowCount).map(parseCodexOptionLine);
+    if (
+      rows.some((row) => row === null)
+      || !rows.every((row, offset) => row?.number === offset + 1)
+      || !labels.every((label, offset) => optionMatches(rows[offset]?.text ?? '', label))
+      || !optionMatches(rows[labels.length]?.text ?? '', CODEX_ASYNC_OTHER_LABEL)
+      || !questionIsVisible(lines, start, question.question)
+    ) continue;
+    if (rows.filter((row) => row?.selected).length !== 1) return null;
+    const selectedIndex = rows.findIndex((row) => row?.selected);
+    if (optionIndex === -1) return { action: 'cancel', delta: 0, label: 'Cancel' };
     return { action: 'option', delta: optionIndex - selectedIndex, label: labels[optionIndex] };
   }
   return null;
@@ -402,6 +454,15 @@ export function parseCodexAskCustomInputScreen(
     && normalizedScreen.includes(CODEX_OTHER_LABEL);
 }
 
+export function parseCodexAsyncAskCustomInputScreen(
+  _screen: string,
+  _question: TmuxAskQuestion,
+): boolean {
+  // Codex does not currently expose a stable, captured focus marker for this
+  // field. Typing without one could target an unrelated live widget.
+  return false;
+}
+
 export function parseOmpAskCustomInputScreen(
   screen: string,
   question: TmuxAskQuestion,
@@ -474,15 +535,16 @@ export async function answerPendingTmuxAskSelection(
       statusCode: 400,
     });
   }
+  if (pending.interaction === 'codex-async' && target.kind !== 'codex') {
+    throw stalePromptError(target.kind);
+  }
+  const codexAsync = pending.interaction === 'codex-async' && target.kind === 'codex';
   const screen = await captureTmuxPane(target, run);
   let matched: (AskSelection & { questionIndex: number }) | null = null;
   for (let questionIndex = 0; questionIndex < pending.questions.length; questionIndex += 1) {
-    const selection = parseSelection(
-      target.kind,
-      screen,
-      pending.questions[questionIndex],
-      optionIndex,
-    );
+    const selection = codexAsync
+      ? parseCodexAsyncAskSelectionScreen(screen, pending.questions[questionIndex], optionIndex)
+      : parseSelection(target.kind, screen, pending.questions[questionIndex], optionIndex);
     if (selection) {
       matched = { questionIndex, ...selection };
       break;
@@ -494,11 +556,13 @@ export async function answerPendingTmuxAskSelection(
     ? Array.from({ length: matched.delta }, () => 'Down' as const)
     : Array.from({ length: Math.abs(matched.delta) }, () => 'Up' as const);
   const keys: TmuxSelectionKey[] = matched.action === 'cancel'
-    ? ['Escape']
+    ? [codexAsync ? 'S-Right' : 'Escape']
     : matched.action === 'other'
-      ? target.kind === 'claude'
+      ? codexAsync
         ? navigationKeys
-        : [...navigationKeys, target.kind === 'codex' ? 'Tab' : 'Enter']
+        : target.kind === 'claude'
+          ? navigationKeys
+          : [...navigationKeys, target.kind === 'codex' ? 'Tab' : 'Enter']
       : [...navigationKeys, 'Enter'];
   if (keys.length > 0) await sendTmuxSelectionKeys(target, keys, run);
   return {
@@ -529,9 +593,15 @@ export async function submitPendingTmuxAskCustomResponse(
       statusCode: 400,
     });
   }
+  if (pending.interaction === 'codex-async' && target.kind !== 'codex') {
+    throw stalePromptError(target.kind);
+  }
   const screen = await captureTmuxPane(target, run);
+  const codexAsync = pending.interaction === 'codex-async' && target.kind === 'codex';
   const questionIndex = pending.questions.findIndex((question) =>
-    parseCustomInput(target.kind as TmuxAskKind, screen, question));
+    codexAsync
+      ? parseCodexAsyncAskCustomInputScreen(screen, question)
+      : parseCustomInput(target.kind as TmuxAskKind, screen, question));
   if (questionIndex < 0) throw stalePromptError(target.kind);
   await sendToTmuxPane(target, value, run);
   return { questionIndex };

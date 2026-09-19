@@ -37,6 +37,28 @@ test('findPendingRelayAsk exposes the newest unanswered choice range', () => {
   }]), null);
 });
 
+test('findPendingRelayAsk exposes only verified Codex asynchronous option rows', () => {
+  const asyncQuestion = {
+    ...pending,
+    toolId: 'codex-async:question-1',
+    toolInput: {
+      questions: [{ question: 'Which accelerator?', options: [{ label: 'CUDA' }, { label: 'CPU' }] }],
+      _chatmux: { kind: 'codex-async-question', messageId: 'question-1' },
+    },
+  };
+  assert.deepEqual(findPendingRelayAsk([asyncQuestion]), {
+    toolId: 'codex-async:question-1',
+    maxChoiceNumber: 2,
+  });
+  assert.equal(findPendingRelayAsk([{
+    ...asyncQuestion,
+    toolInput: {
+      questions: [{ question: 'Why?', options: [] }],
+      _chatmux: { kind: 'codex-async-question', messageId: 'question-2' },
+    },
+  }]), null);
+});
+
 test('findPendingRelayAsk rejects multi-question asks so the screen-derived prompt stays active', () => {
   assert.equal(findPendingRelayAsk([{
     ...pending,

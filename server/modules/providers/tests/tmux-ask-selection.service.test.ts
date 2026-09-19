@@ -6,6 +6,8 @@ import {
   findPendingTmuxAsk,
   parseClaudeAskCustomInputScreen,
   parseClaudeAskSelectionScreen,
+  parseCodexAsyncAskCustomInputScreen,
+  parseCodexAsyncAskSelectionScreen,
   parseCodexAskCustomInputScreen,
   parseCodexAskSelectionScreen,
   parseGjcAskCustomInputScreen,
@@ -74,6 +76,53 @@ tab to add notes | enter to submit answer | esc to interrupt
 `;
   assert.equal(parseOmpAskSelectionScreen(omp, question, 2)?.label, '거부');
   assert.equal(parseOmpAskSelectionScreen(omp, question, 3)?.action, 'other');
+});
+
+const codexAsyncQuestionScreen = `
+Which accelerator?
+
+› 1. CUDA
+  2. CPU
+  3. NPU
+  4. Other
+
+enter submit   ctrl + ] skip
+option 1/4   shift + → main prompt
+`;
+
+test('Codex asynchronous Question parser maps visible options and cancel only', () => {
+  const asyncQuestion = {
+    question: 'Which accelerator?',
+    options: [{ label: 'CUDA' }, { label: 'CPU' }, { label: 'NPU' }],
+  };
+  assert.equal(parseCodexAsyncAskSelectionScreen(codexAsyncQuestionScreen, asyncQuestion, 1)?.label, 'CPU');
+  assert.equal(parseCodexAsyncAskSelectionScreen(codexAsyncQuestionScreen, asyncQuestion, 3), null);
+  assert.equal(parseCodexAsyncAskSelectionScreen(codexAsyncQuestionScreen, asyncQuestion, -1)?.action, 'cancel');
+  assert.equal(
+    parseCodexAsyncAskSelectionScreen(
+      codexAsyncQuestionScreen.replace('Which accelerator?', 'Which device?'),
+      asyncQuestion,
+      0,
+    ),
+    null,
+  );
+  assert.equal(
+    parseCodexAsyncAskCustomInputScreen(
+      codexAsyncQuestionScreen
+        .replace('› 1. CUDA', '  1. CUDA')
+        .replace('  4. Other', '› 4. Other'),
+      asyncQuestion,
+    ),
+    false,
+  );
+  assert.equal(
+    parseCodexAsyncAskSelectionScreen(
+      `${codexAsyncQuestionScreen}\nworking in another widget\n`,
+      asyncQuestion,
+      0,
+    ),
+    null,
+  );
 });
 
 test('Claude selector parser maps transcript options without exposing Chat about this', () => {
@@ -179,6 +228,155 @@ test('pending transcript ask accepts only the newest unanswered single-select to
     ...base,
     toolInput: { questions: [{ ...question, multiSelect: true }] },
   }], 'ask-1'), null);
+
+  assert.equal(findPendingTmuxAsk([{
+    ...base,
+    toolId: 'codex-async:question-1',
+    toolInput: {
+      questions: [{ question: 'Free-form question?', options: [] }],
+      _chatmux: { kind: 'codex-async-question', messageId: 'question-1' },
+    },
+  }], 'codex-async:question-1'), null);
+});
+
+test('Codex asynchronous Question never sends a key from an identity-less collapsed stack', async () => {
+  const calls: string[][] = [];
+  const run: TmuxRunner = async (args) => {
+    calls.push(args);
+    if (args.includes('capture-pane')) {
+      return { code: 0, output: '? 1 question\nshift + ← to answer\n' };
+    }
+    if (args.includes('display-message')) return { code: 0, output: '$7\t@8\t%9\n' };
+    return { code: 0, output: '' };
+  };
+  const target = createVerifiedTmuxActionTarget(
+    {
+      socketPath: '/tmp/chatmux-test.sock',
+      sessionId: '$7',
+      windowId: '@8',
+      paneId: '%9',
+    },
+    { pid: 42, startedAtMs: 1234 },
+    'codex',
+    'test',
+    'codex-session',
+  );
+  const pending = {
+    toolId: 'codex-async:question-1',
+    questions: [{
+      question: 'Which accelerator?',
+      options: [{ label: 'CUDA' }, { label: 'CPU' }, { label: 'NPU' }],
+    }],
+    interaction: 'codex-async' as const,
+  };
+
+  await assert.rejects(
+    () => answerPendingTmuxAskSelection(target, pending, 1, run),
+    (error: unknown) => error instanceof Error
+      && 'code' in error
+      && error.code === 'TMUX_ASK_PROMPT_STALE',
+  );
+  assert.equal(calls.some((args) => args.includes('send-keys')), false);
+});
+
+test('Codex asynchronous Question answers an exact already-open option menu', async () => {
+  const calls: string[][] = [];
+  const run: TmuxRunner = async (args) => {
+    calls.push(args);
+    if (args.includes('capture-pane')) return { code: 0, output: codexAsyncQuestionScreen };
+    if (args.includes('display-message')) return { code: 0, output: '$7\t@8\t%9\n' };
+    return { code: 0, output: '' };
+  };
+  const target = createVerifiedTmuxActionTarget(
+    { socketPath: '/tmp/chatmux-test.sock', sessionId: '$7', windowId: '@8', paneId: '%9' },
+    { pid: 42, startedAtMs: 1234 }, 'codex', 'test', 'codex-session',
+  );
+  const pending = {
+    toolId: 'codex-async:question-1',
+    questions: [{ question: 'Which accelerator?', options: [{ label: 'CUDA' }, { label: 'CPU' }, { label: 'NPU' }] }],
+    interaction: 'codex-async' as const,
+  };
+  assert.equal((await answerPendingTmuxAskSelection(target, pending, 1, run)).label, 'CPU');
+  assert.deepEqual(
+    calls.filter((args) => args.includes('send-keys')).map((args) => args.at(-1)),
+    ['Down', 'Enter'],
+  );
+});
+
+test('Codex asynchronous Question cancel returns to the main prompt without skipping it', async () => {
+  const calls: string[][] = [];
+  const run: TmuxRunner = async (args) => {
+    calls.push(args);
+    if (args.includes('capture-pane')) return { code: 0, output: codexAsyncQuestionScreen };
+    if (args.includes('display-message')) return { code: 0, output: '$7\t@8\t%9\n' };
+    return { code: 0, output: '' };
+  };
+  const target = createVerifiedTmuxActionTarget(
+    {
+      socketPath: '/tmp/chatmux-test.sock',
+      sessionId: '$7',
+      windowId: '@8',
+      paneId: '%9',
+    },
+    { pid: 42, startedAtMs: 1234 },
+    'codex',
+    'test',
+    'codex-session',
+  );
+  const pending = {
+    toolId: 'codex-async:question-1',
+    questions: [{
+      question: 'Which accelerator?',
+      options: [{ label: 'CUDA' }, { label: 'CPU' }, { label: 'NPU' }],
+    }],
+    interaction: 'codex-async' as const,
+  };
+
+  assert.equal((await answerPendingTmuxAskSelection(target, pending, -1, run)).action, 'cancel');
+  assert.deepEqual(
+    calls.filter((args) => args.includes('send-keys')).map((args) => args.at(-1)),
+    ['S-Right'],
+  );
+});
+
+test('Codex asynchronous Question stays fail-closed when its collapsed summary is absent', async () => {
+  const calls: string[][] = [];
+  const run: TmuxRunner = async (args) => {
+    calls.push(args);
+    if (args.includes('capture-pane')) return { code: 0, output: 'Working on the task...\n' };
+    if (args.includes('display-message')) return { code: 0, output: '$7\t@8\t%9\n' };
+    return { code: 0, output: '' };
+  };
+  const target = createVerifiedTmuxActionTarget(
+    {
+      socketPath: '/tmp/chatmux-test.sock',
+      sessionId: '$7',
+      windowId: '@8',
+      paneId: '%9',
+    },
+    { pid: 42, startedAtMs: 1234 },
+    'codex',
+    'test',
+    'codex-session',
+  );
+  const pending = {
+    toolId: 'codex-async:question-1',
+    questions: [{
+      question: 'Which accelerator?',
+      options: [{ label: 'CUDA' }, { label: 'CPU' }, { label: 'NPU' }],
+    }],
+    interaction: 'codex-async' as const,
+  };
+
+  await assert.rejects(
+    () => answerPendingTmuxAskSelection(target, pending, 0, run),
+    (error: unknown) => (
+      error instanceof Error
+      && 'code' in error
+      && error.code === 'TMUX_ASK_PROMPT_STALE'
+    ),
+  );
+  assert.equal(calls.some((args) => args.includes('send-keys')), false);
 });
 
 test('Claude direct input navigates to the editable row without submitting it', async () => {

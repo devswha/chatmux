@@ -1,0 +1,4 @@
+{"timestamp":"2026-01-01T00:00:00.000Z","ordinal":1,"type":"response_item","payload":{"type":"function_call","name":"request_user_input_async","arguments":"{\"questions\":[{\"title\":\"Which accelerator?\",\"options\":[\"CUDA\",\"CPU\",\"NPU\"]}]}","call_id":"async-question-1"}}
+{"timestamp":"2026-01-01T00:00:00.001Z","ordinal":2,"type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","id":"async-question-1","delivery":"async","questions":[{"title":"Which accelerator?","options":["CUDA","CPU","NPU"]}],"content":[{"type":"Text","text":"Which accelerator?"}]}}}
+{"timestamp":"2026-01-01T00:00:00.002Z","ordinal":3,"type":"response_item","payload":{"type":"function_call_output","call_id":"async-question-1","output":"{\"accepted\":true}"}}
+{"timestamp":"2026-01-01T00:00:01.000Z","ordinal":4,"type":"event_msg","payload":{"type":"task_complete"}}

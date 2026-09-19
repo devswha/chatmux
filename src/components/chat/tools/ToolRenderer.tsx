@@ -277,6 +277,7 @@ export const ToolRenderer: React.FC<ToolRendererProps> = memo(({
             questions={contentProps.questions || []}
             answers={contentProps.answers || {}}
             pending={pendingAsk}
+            allowDirectInput={contentProps.allowDirectInput ?? true}
             onSelectChoice={pendingAsk ? onAskChoiceSelect : undefined}
           />
         );

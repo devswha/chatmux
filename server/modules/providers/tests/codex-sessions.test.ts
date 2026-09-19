@@ -370,6 +370,68 @@ test('Codex history incrementally appends complete JSONL records', { concurrency
   }
 });
 
+test('Codex history renders asynchronous Question items and closes them on the framed reply', { concurrency: false }, async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-async-question-'));
+  const workspacePath = path.join(tempRoot, 'workspace');
+  await mkdir(workspacePath, { recursive: true });
+
+  try {
+    const sessionId = 'codex-async-question-history';
+    const transcriptPath = await writeCodexTranscript(tempRoot, sessionId, workspacePath);
+    // Sanitized from a real Codex rollout: current Codex writes the function
+    // call and a duplicate AgentMessage with the same stable id.
+    const fixture = readFileSync(path.join(
+      process.cwd(),
+      'server/modules/providers/tests/fixtures/codex-async-question-rollout.jsonl',
+    ), 'utf8');
+    await appendFile(transcriptPath, `${fixture.trimEnd()}\n`, 'utf8');
+
+    await withIsolatedDatabase(async () => {
+      sessionsDb.createSession(
+        sessionId,
+        'codex',
+        workspacePath,
+        undefined,
+        undefined,
+        undefined,
+        transcriptPath,
+      );
+      const provider = new CodexSessionsProvider();
+      const pendingHistory = await provider.fetchHistory(sessionId);
+      const asks = pendingHistory.messages.filter((message) => message.toolName === 'AskUserQuestion');
+      assert.equal(asks.length, 1);
+      assert.equal(asks[0]?.toolId, 'codex-async:async-question-1');
+      assert.deepEqual(asks[0]?.toolInput, {
+        questions: [{
+          question: 'Which accelerator?',
+          options: [{ label: 'CUDA' }, { label: 'CPU' }, { label: 'NPU' }],
+        }],
+        _chatmux: { kind: 'codex-async-question', messageId: 'async-question-1' },
+      });
+      assert.equal(asks[0]?.toolResult, undefined);
+
+      await appendFile(transcriptPath, `${JSON.stringify({
+        type: 'event_msg',
+        timestamp: '2026-09-14T00:00:02.000Z',
+        payload: { type: 'user_message', message: '> Which accelerator?\n\nCUDA' },
+      })}\n`, 'utf8');
+      const answeredHistory = await provider.fetchHistory(sessionId);
+      const answered = answeredHistory.messages.find((message) => message.toolId === asks[0]?.toolId);
+      assert.deepEqual(answered?.toolResult, { content: 'CUDA', isError: false });
+      assert.deepEqual(answered?.toolInput, {
+        questions: [{
+          question: 'Which accelerator?',
+          options: [{ label: 'CUDA' }, { label: 'CPU' }, { label: 'NPU' }],
+        }],
+        answers: { 'Which accelerator?': 'CUDA' },
+        _chatmux: { kind: 'codex-async-question', messageId: 'async-question-1' },
+      });
+    });
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test('Codex history renders structured custom tool output without leaking transport blocks', { concurrency: false }, async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-history-custom-tool-output-'));
   const workspacePath = path.join(tempRoot, 'workspace');

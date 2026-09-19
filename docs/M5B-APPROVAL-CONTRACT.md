@@ -4,6 +4,7 @@
 개정: rev.2 — critic 반증을 반영해 §2를 "식별자 부재"에서 "해석기가 식별자를 소비하지 않음"으로 정정하고, 강등 논거를 §3 단독으로 재구성했다.
 개정: rev.3 (2026-09-02) — rev.2 이후 codex·omp에 화면 파싱 기반 in-app 승인이 구현되었다(`server/modules/providers/services/tmux-approval.service.ts`, 7691544, 2026-07-31). 계약이 구현을 판정하지 않는 상태를 끝내기 위해 §1을 "조건부 허용"으로 개정하고, 허용 조건으로 §6의 1c(응답 직전 라이브 재확인)와 새 1d(결합 등급)를 규정한다. 2026-09 코드리뷰 S12·S17.
 개정: rev.4 (2026-09-05) — Claude live-tmux 질문·명령 승인·계획 승인 경로를 반영하고, 전사/세션 기반 쓰기의 `tagged`/`observed` 양성 근거 검증을 강제한다. 기존 codex·omp 승인 API, pane 기반 interactive API, 전사 기반 질문, L1 SDK capability를 구분한다. native one-shot 승인 채널을 새로 허용하는 개정은 아니다.
+개정: rev.5 (2026-09-18) — Codex 비동기 질문의 제한된 화면 응답을 반영한다. 이미 펼쳐진 단일 선택 메뉴에서 질문·선택지·단일 커서·활성 화면 꼬리가 모두 일치할 때 표시된 선택과 취소만 허용한다. 질문 identity가 없는 접힌 요약을 자동으로 펼치지 않으며, 안정적인 입력 포커스 근거가 없는 자유 입력 전용 질문과 `Other`는 verified terminal attach로 강등한다. 비동기 질문 pending은 순서대로 추적하며 이후 abort/failure/error/completion이 이를 정리하고 우선한다.
 
 ## 1. 판정 요약
 
@@ -13,8 +14,10 @@ provider·pane에 한해 제한된 in-app 질문·승인 응답을 허용한다.
 
 1. **화면 근거** — 서버가 pane을 직접 capture해 *현재 표시 중인* 승인 메뉴를 파싱할 수
    있어야 한다. 기존 `tmux-approval.service.ts`는 codex·omp 전용이다. 별도의
-   `tmux-interactive-prompt.service.ts`는 Claude의 질문·명령 승인·계획 승인도
-   처리한다. 파싱에 실패하면 구조화된 응답을 제공하지 않는다. 이것은 B7b가
+   `tmux-interactive-prompt.service.ts`는 Claude의 질문·명령 승인·계획 승인과
+   펼쳐진 Codex 비동기 선택형 질문도 처리한다. Codex 비동기 경로는 질문 문구,
+   전체 선택지, 단일 커서와 활성 화면 꼬리가 모두 일치할 때 선택 또는 취소만
+   허용한다. 파싱에 실패하면 구조화된 응답을 제공하지 않는다. 이것은 B7b가
    상정했던 native one-shot 승인 응답이 아니다.
 2. **응답 직전 라이브 재확인(§6 1c)** — 키를 보내기 직전에 pane을 다시 capture해
    스크롤백이 아닌 화면 꼬리에 승인 메뉴가 *아직* 떠 있음을 확인한다
@@ -44,6 +47,11 @@ provider·pane에 한해 제한된 in-app 질문·승인 응답을 허용한다.
 전사 기반 작업의 `inferred` 결합, 사라지거나 변경된 메뉴)는 강등 경로(§4)를 따른다.
 화면 기반 prompt ID는 동일한 내용이 다시 나타나는 것을 구분하는 native nonce가
 아니며, B7b의 one-shot `interactionGeneration`은 여전히 구현하지 않는다.
+질문 identity를 표시하지 않는 Codex의 접힌 `? N questions` 요약에서는 펼치기 키를
+보내지 않는다. 자유 입력 전용 질문과 `Other`도 현재 입력칸 포커스를 증명하는 안정적인
+화면 표식이 확인되지 않았으므로 structured action을 노출하지 않고 terminal attach로
+강등한다. 비동기 질문의 pending 상태는 전사 순서로 추가·정확한 framed answer로 제거하며,
+그 이후의 abort/failure/error/completion은 pending을 정리하고 terminal 판정이 우선한다.
 
 §2~3은 2026-07-25 조사 당시의 배경과 native 승인 채널 강등 근거다. 전사 식별자가
 있다는 사실만으로 실행 중인 TUI에 out-of-band 승인 응답을 보낼 수는 없다.
@@ -149,7 +157,7 @@ M2에서 이미 구현·강화됐다:
 
 | 항목 | 결정 |
 |---|---|
-| B7b in-app 승인 | **Native one-shot 승인 응답은 구현하지 않음**. 기존 승인 API는 codex·omp, interactive API는 Claude 질문·명령 승인·계획 승인도 지원. §1의 화면·라이브 재확인·정확한 대상 조건 및 전사 기반 작업의 결합 조건을 충족하지 못하면 강등 |
+| B7b in-app 승인 | **Native one-shot 승인 응답은 구현하지 않음**. 기존 승인 API는 codex·omp, interactive API는 Claude 질문·명령 승인·계획 승인과 펼쳐진 Codex 비동기 선택 메뉴의 선택·취소를 지원. Codex 비동기 접힌 요약·자유 입력·`Other`를 포함해 §1의 화면·라이브 재확인·정확한 대상 조건 및 전사 기반 작업의 결합 조건을 충족하지 못하면 강등 |
 | B8 승인 action | 구현 — 아래 AC 참조 |
 | B10 relay 이미지 | 구현 — asset store 저장 후 **경로 문자열만** 붙여넣기, 프로젝트/HOME 밖 거절, B0 경유 |
 | 문서화 | 본 문서 + 사용자 대면 안내(지원 화면은 제한된 질문·승인 UI, 검증 불가 시 해당 pane의 터미널에서 응답) |
