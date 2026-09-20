@@ -30,12 +30,10 @@ function backtickRunLength(text: string, index: number): number {
 
 function isMathBoundaryLine(line: string): boolean {
   return /^[ \t]*$/.test(line)
-    || /^ {0,3}(?:`{3,}|~{3,})/.test(line)
-    || line.startsWith('    ')
-    || line.startsWith('\t');
+    || /^ {0,3}(?:`{3,}|~{3,})/.test(line);
 }
 
-function displayMathShouldNormalize(args: {
+function mathShouldNormalize(args: {
   text: string;
   closeIndex: number;
   prefixOnlyWhitespace: boolean;
@@ -101,13 +99,12 @@ export function normalizeLatexMathDelimiters(text: string) {
 
       const backslashEscaped = precedingBackslashes % 2 === 1;
       if (text[cursor] === '\\' && !backslashEscaped && text.startsWith(math.close, cursor)) {
-        const shouldNormalize = math.replacement === '$'
-          || displayMathShouldNormalize({
-            text,
-            closeIndex: cursor,
-            prefixOnlyWhitespace: math.prefixOnlyWhitespace,
-            strongMathSyntax: math.strongMathSyntax,
-          });
+        const shouldNormalize = mathShouldNormalize({
+          text,
+          closeIndex: cursor,
+          prefixOnlyWhitespace: math.prefixOnlyWhitespace,
+          strongMathSyntax: math.strongMathSyntax,
+        });
         if (shouldNormalize) {
           output[math.outputIndex] = math.replacement;
           output.push(math.replacement);
@@ -122,7 +119,7 @@ export function normalizeLatexMathDelimiters(text: string) {
         continue;
       }
       const char = text[cursor];
-      if ((char === '\\' && /[A-Za-z]/.test(text[cursor + 1] ?? '')) || char === '^' || char === '_' || char === '=') {
+      if ((char === '\\' && /[A-Za-z]/.test(text[cursor + 1] ?? '')) || char === '^' || char === '_') {
         math.strongMathSyntax = true;
       }
       output.push(char);

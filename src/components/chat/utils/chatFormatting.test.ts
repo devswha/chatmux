@@ -42,19 +42,61 @@ test('does not let an unmatched inline delimiter consume a later fenced code blo
   assert.equal(normalizeLatexMathDelimiters(markdown), markdown);
 });
 
+test('normalizes display math with space- or tab-indented bodies', () => {
+  const spaced = [
+    '\\[',
+    '    \\begin{aligned}',
+    '        a &= b \\\\',
+    '        c &= d',
+    '    \\end{aligned}',
+    '\\]',
+  ].join('\n');
+  assert.equal(normalizeLatexMathDelimiters(spaced), [
+    '$$',
+    '    \\begin{aligned}',
+    '        a &= b \\\\',
+    '        c &= d',
+    '    \\end{aligned}',
+    '$$',
+  ].join('\n'));
+
+  const tabbed = ['\\[', '\t\\begin{bmatrix}', '\t\ta & b', '\t\\end{bmatrix}', '\\]'].join('\n');
+  assert.equal(
+    normalizeLatexMathDelimiters(tabbed),
+    ['$$', '\t\\begin{bmatrix}', '\t\ta & b', '\t\\end{bmatrix}', '$$'].join('\n'),
+  );
+});
+
 test('keeps escaped Markdown brackets while accepting unambiguous display math', () => {
   const references = 'See \\[1\\] and \\[2\\].';
   assert.equal(normalizeLatexMathDelimiters(references), references);
-  assert.equal(normalizeLatexMathDelimiters('Equation: \\[x = y\\].'), 'Equation: $$x = y$$.');
+  const option = 'Usage: cmd \\[--flag=value\\]';
+  assert.equal(normalizeLatexMathDelimiters(option), option);
+  assert.equal(normalizeLatexMathDelimiters('Equation: \\[E = mc^2\\].'), 'Equation: $$E = mc^2$$.');
   assert.equal(normalizeLatexMathDelimiters('\\[x\\]'), '$$x$$');
 });
 
-test('normalizes long backslash runs in linear time', () => {
+test('keeps ambiguous inline escapes and normalizes explicit inline LaTeX', () => {
+  const sed = String.raw`Run sed 's/\(foo\)/bar/' to rename.`;
+  assert.equal(normalizeLatexMathDelimiters(sed), sed);
+  assert.equal(normalizeLatexMathDelimiters('값은 \\(x \\times y\\) 입니다.'), '값은 $x \\times y$ 입니다.');
+  assert.equal(normalizeLatexMathDelimiters('\\(x\\)'), '$x$');
+});
+
+test('normalizes long backslash runs without superlinear slowdown', () => {
   const markdown = '\\'.repeat(100_000);
-  const startedAt = performance.now();
+  const plain = 'a'.repeat(markdown.length);
+  const plainStartedAt = performance.now();
+  assert.equal(normalizeLatexMathDelimiters(plain), plain);
+  const plainElapsedMs = performance.now() - plainStartedAt;
+  const slashStartedAt = performance.now();
   assert.equal(normalizeLatexMathDelimiters(markdown), markdown);
-  const elapsedMs = performance.now() - startedAt;
-  assert.ok(elapsedMs < 2_000, `normalization took ${elapsedMs.toFixed(1)} ms`);
+  const slashElapsedMs = performance.now() - slashStartedAt;
+  const limitMs = Math.max(250, plainElapsedMs * 50);
+  assert.ok(
+    slashElapsedMs < limitMs,
+    `backslashes took ${slashElapsedMs.toFixed(1)} ms vs ${plainElapsedMs.toFixed(1)} ms for plain text`,
+  );
 });
 
 test('renders Codex backslash display math through KaTeX without dropping command prefixes', () => {

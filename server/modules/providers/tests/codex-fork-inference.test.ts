@@ -6,7 +6,7 @@ import test from 'node:test';
 
 import Database from 'better-sqlite3';
 
-import { canReuseCodexDisplayBinding, codexRenderAnchor, normalizeCodexDisplayText, readCodexForkTranscript, readCodexRenderAnchor, selectCodexForkByDisplay, selectInitialCodexThreadByDisplay, shouldInferSharedCodexDisplay } from '../services/external-cli-sessions/codex-fork-inference.js';
+import { canReuseCodexDisplayBinding, CODEX_ANCHORLESS_BINDING_RECHECK_MS, codexRenderAnchor, normalizeCodexDisplayText, readCodexForkTranscript, readCodexRenderAnchor, selectCodexForkByDisplay, selectInitialCodexThreadByDisplay, shouldInferSharedCodexDisplay } from '../services/external-cli-sessions/codex-fork-inference.js';
 import { applyInferredProviderSessionIds } from '../services/external-cli-sessions/provider-runtime-inference.js';
 import { assertProvenSessionBinding } from '../services/tmux-session-binding.service.js';
 import { tmuxPaneIdentityKey } from '../../../../shared/tmux.js';
@@ -104,20 +104,39 @@ test('shared app-server display inference includes an unbound Codex TUI but excl
   ), false);
 });
 
-test('display inference reuses anchorless bindings only for the same process generation', () => {
-  const previous = { processKey: ['pane', 'codex', '20', '1000', '20'].join('\0'), selectedId: child };
-  assert.equal(canReuseCodexDisplayBinding({ previous, processKey: previous.processKey }), true);
+test('display inference periodically revalidates anchorless bindings for the same process generation', () => {
+  const previous = {
+    processKey: ['pane', 'codex', '20', '1000', '20'].join('\0'),
+    selectedId: child,
+    validatedAtMs: 1_000,
+  };
+  assert.equal(canReuseCodexDisplayBinding({ previous, processKey: previous.processKey, nowMs: 1_001 }), true);
+  assert.equal(canReuseCodexDisplayBinding({
+    previous,
+    processKey: previous.processKey,
+    nowMs: previous.validatedAtMs + CODEX_ANCHORLESS_BINDING_RECHECK_MS,
+  }), false);
   assert.equal(canReuseCodexDisplayBinding({
     previous,
     processKey: previous.processKey,
     anchor,
+    nowMs: 1_001,
   }), false);
-  assert.equal(canReuseCodexDisplayBinding({ previous, processKey: `${previous.processKey}-restarted` }), false);
+  assert.equal(canReuseCodexDisplayBinding({
+    previous,
+    processKey: `${previous.processKey}-restarted`,
+    nowMs: 1_001,
+  }), false);
 });
 
 test('display inference reuses matching render anchors and invalidates changed anchors', () => {
-  const previous = { processKey: 'process-generation', anchor, selectedId: child };
-  assert.equal(canReuseCodexDisplayBinding({ previous, processKey: previous.processKey, anchor }), true);
+  const previous = { processKey: 'process-generation', anchor, selectedId: child, validatedAtMs: 1_000 };
+  assert.equal(canReuseCodexDisplayBinding({
+    previous,
+    processKey: previous.processKey,
+    anchor,
+    nowMs: Number.MAX_SAFE_INTEGER,
+  }), true);
   assert.equal(canReuseCodexDisplayBinding({
     previous,
     processKey: previous.processKey,

@@ -18,6 +18,7 @@ const MAX_TAIL_BYTES = 1024 * 1024;
 const MAX_LOG_ROWS = 256;
 const ANCHOR_LENGTH = 96;
 const MIN_ANCHOR_LENGTH = 64;
+export const CODEX_ANCHORLESS_BINDING_RECHECK_MS = 60_000;
 
 /** Text is evidence for display only, never a native session-binding receipt. */
 export function normalizeCodexDisplayText(text: string): string {
@@ -112,7 +113,7 @@ export function selectInitialCodexThreadByDisplay(args: {
 }
 
 type CachedTranscript = { signature: string; transcript: ForkTranscript };
-type CachedForkBinding = { processKey: string; anchor?: string; selectedId: string };
+type CachedForkBinding = { processKey: string; anchor?: string; selectedId: string; validatedAtMs: number };
 // Bounded, server-private text cache. No prompt bodies enter logs or descriptors.
 const transcriptCache = new Map<string, CachedTranscript>();
 const forkBindingsByTarget = new Map<string, CachedForkBinding>();
@@ -121,9 +122,12 @@ export function canReuseCodexDisplayBinding(args: {
   previous?: Readonly<CachedForkBinding>;
   processKey: string;
   anchor?: string;
+  nowMs?: number;
 }): boolean {
-  return args.previous?.processKey === args.processKey
-    && args.previous.anchor === args.anchor;
+  if (args.previous?.processKey !== args.processKey || args.previous.anchor !== args.anchor) return false;
+  if (args.anchor !== undefined) return true;
+  const ageMs = (args.nowMs ?? Date.now()) - args.previous.validatedAtMs;
+  return ageMs >= 0 && ageMs < CODEX_ANCHORLESS_BINDING_RECHECK_MS;
 }
 
 export async function readCodexForkTranscript(path: string, expectedId: string, root: string): Promise<ForkTranscript | null> {
@@ -256,6 +260,7 @@ export async function inferSharedCodexForkIds(args: {
       anchor?: string;
       previous?: CachedForkBinding;
     }> = [];
+    const nowMs = Date.now();
     for (const session of targets) {
       const key = tmuxPaneIdentityKey(session.tmux);
       const pane = args.panes.find((candidate) => tmuxPaneIdentityKey(candidate.tmux) === key);
@@ -273,12 +278,13 @@ export async function inferSharedCodexForkIds(args: {
       const anchor = anchors.size === 1 ? [...anchors][0] : undefined;
       const processKey = [externalSessionInferenceKey(session), ...codexPids.sort((a, b) => a - b)].join('\0');
       const cached = forkBindingsByTarget.get(key);
-      if (canReuseCodexDisplayBinding({ previous: cached, processKey, anchor })) {
-        const previous = cached!;
-        resolved.set(key, previous.selectedId);
+      if (cached && canReuseCodexDisplayBinding({ previous: cached, processKey, anchor, nowMs })) {
+        resolved.set(key, cached.selectedId);
         continue;
       }
-      const previous = cached?.processKey === processKey ? cached : undefined;
+      // An expired anchorless match must fail closed on revalidation instead of
+      // keeping an old thread visible after /new in the same TUI process.
+      const previous = cached?.processKey === processKey && cached.anchor !== undefined ? cached : undefined;
       pending.push({ session, pane, key, processKey, ...(anchor ? { anchor } : {}), ...(previous ? { previous } : {}) });
     }
     for (const key of forkBindingsByTarget.keys()) {
@@ -368,6 +374,7 @@ export async function inferSharedCodexForkIds(args: {
           processKey: target.processKey,
           ...(target.anchor ? { anchor: target.anchor } : {}),
           selectedId: selected,
+          validatedAtMs: nowMs,
         });
         resolved.set(target.key, selected);
       } else if (target.previous) {
