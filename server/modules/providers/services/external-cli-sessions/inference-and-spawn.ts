@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 import { CURSOR_CLI_COMMAND_CANDIDATES } from '@/modules/providers/list/cursor/cursor-cli-command.js';
 
+import { supportsExternalCliFullAccess } from '../../../../../shared/external-cli-spawn.js';
 import type { TmuxPaneIdentity } from '../../../../../shared/tmux.js';
 import { tmuxPaneIdentityKey } from '../../../../../shared/tmux.js';
 import { resolveTmuxSpawnLaunch } from '../tmux-spawn-scope.service.js';
@@ -344,6 +345,7 @@ export function buildExternalCliTmuxSpawnArgs(
   tmuxName: string,
   cwd: string,
   runtimePath = buildExternalCliRuntimePath(process.env.PATH ?? '', homedir(), process.execPath, executable),
+  cliArgs: readonly string[] = [],
 ): string[] {
   // Codex and OMP terminate during detached startup without an initial grid.
   // The explicit PATH also preserves user-installed Node/Bun launchers when
@@ -354,8 +356,21 @@ export function buildExternalCliTmuxSpawnArgs(
     '-e', `PATH=${runtimePath}`,
     '-s', tmuxName,
     '-c', cwd,
-    '/usr/bin/env', `PATH=${runtimePath}`, executable,
+    '/usr/bin/env', `PATH=${runtimePath}`, executable, ...cliArgs,
   ];
+}
+
+export function externalCliFullAccessArgs(
+  cli: ExternalSpawnCli,
+  fullAccess: boolean,
+): readonly string[] {
+  if (!fullAccess) return [];
+  if (!supportsExternalCliFullAccess(cli)) {
+    throw new Error(`${cli} does not support full-access interactive startup.`);
+  }
+  return cli === 'codex'
+    ? ['--dangerously-bypass-approvals-and-sandbox']
+    : ['--dangerously-skip-permissions'];
 }
 
 /**
@@ -367,12 +382,20 @@ export async function spawnExternalCliSession(
   cli: ExternalSpawnCli,
   tmuxName: string,
   cwd: string,
-  deps: { launch?: typeof resolveTmuxSpawnLaunch; run?: typeof runCommand } = {},
+  options: {
+    fullAccess?: boolean;
+    launch?: typeof resolveTmuxSpawnLaunch;
+    run?: typeof runCommand;
+  } = {},
 ): Promise<void> {
-  const run = deps.run ?? runCommand;
+  const run = options.run ?? runCommand;
   const executable = await resolveExternalCliExecutable(cli);
-  const launch = await (deps.launch ?? resolveTmuxSpawnLaunch)();
-  await run(launch.command, [...launch.prefixArgs, ...buildExternalCliTmuxSpawnArgs(executable, tmuxName, cwd)]);
+  const launch = await (options.launch ?? resolveTmuxSpawnLaunch)();
+  const cliArgs = externalCliFullAccessArgs(cli, options.fullAccess ?? false);
+  await run(launch.command, [
+    ...launch.prefixArgs,
+    ...buildExternalCliTmuxSpawnArgs(executable, tmuxName, cwd, undefined, cliArgs),
+  ]);
   try {
     await run('tmux', ['set-option', '-t', tmuxName, '@chatmux_cli_kind', cli]);
   } catch (error) {

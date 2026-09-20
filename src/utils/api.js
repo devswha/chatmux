@@ -189,10 +189,10 @@ export const api = {
       body: JSON.stringify({ tmux, process }),
     }),
   // Create a supported local coding-agent tmux session from the unified sessions tab.
-  externalCliSessionSpawn: (cli, name, cwd) =>
+  externalCliSessionSpawn: (cli, name, cwd, fullAccess = false) =>
     authenticatedFetch('/api/providers/sessions/external/spawn', {
       method: 'POST',
-      body: JSON.stringify({ name, cwd, cli }),
+      body: JSON.stringify({ name, cwd, cli, fullAccess }),
     }),
   externalCliSessionKill: (tmux, process, mode = 'process') =>
     authenticatedFetch('/api/providers/sessions/external/kill', {

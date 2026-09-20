@@ -60,6 +60,7 @@ type ProviderCapabilities = {
   supportsPermissionRequests: boolean;
   supportsTokenUsage: boolean;
   supportsEffort?: boolean;
+  supportsFullAccessSpawn?: boolean;
 };
 
 type ProviderCapabilitiesApiResponse = {

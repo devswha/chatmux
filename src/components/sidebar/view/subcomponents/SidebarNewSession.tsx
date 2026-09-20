@@ -7,6 +7,7 @@ import { EMPTY_HOST_ROW_SET } from '../../../../fleet/discovery/hostRows';
 import { spawnableHosts, type SpawnHostChoice } from '../../../../fleet/hostAvailability';
 import HomeDirInput from '../../../../shared/view/HomeDirInput';
 import { cn } from '../../../../lib/utils';
+import { supportsExternalCliFullAccess } from '../../../../../shared/external-cli-spawn';
 
 import PeerDirInput from './newSession/PeerDirInput';
 import SpawnHostFields from './newSession/SpawnHostFields';
@@ -72,6 +73,7 @@ export default function SidebarNewSession({
   const [cwd, setCwd] = useState(() => readRecentCwds()[0] ?? '');
   const [hostId, setHostId] = useState<string | null>(null);
   const [projectLocalId, setProjectLocalId] = useState<string | null>(null);
+  const [fullAccess, setFullAccess] = useState(false);
 
   const hosts = useMemo(
     () => spawnableHosts(catalog, t('newSessionForm.thisMachine')),
@@ -96,6 +98,7 @@ export default function SidebarNewSession({
     rememberCwd(path);
     setOpen(false);
     setName('');
+    setFullAccess(false);
     // Keep the path of least resistance: the next spawn most likely targets
     // the same repo, so the field reopens prefilled with the latest cwd.
     setCwd(readRecentCwds()[0] ?? '');
@@ -105,6 +108,7 @@ export default function SidebarNewSession({
   const selectHost = (nextHostId: string | null) => {
     setHostId(nextHostId);
     setProjectLocalId(null);
+    setFullAccess(false);
     // A peer's path space is its own: keeping this machine's last path would
     // pre-fill a directory that does not exist there.
     setCwd(nextHostId === null || nextHostId === catalog.localHostId ? readRecentCwds()[0] ?? '' : '');
@@ -122,6 +126,7 @@ export default function SidebarNewSession({
     ? PROVIDERS.filter((item) => (PEER_SPAWN_PROVIDERS as readonly string[]).includes(item.id))
     : PROVIDERS;
   const activeProvider = isRemote ? 'gjc' : provider;
+  const supportsFullAccess = !isRemote && supportsExternalCliFullAccess(activeProvider);
   const ready = canDispatchSpawn({ host: selectedHost, name, cwd, projectLocalId });
   const submit = () => {
     if (!ready || status.kind === 'spawning' || status.kind === 'unknown') return;
@@ -132,6 +137,7 @@ export default function SidebarNewSession({
       provider: activeProvider,
       name: name.trim(),
       cwd,
+      fullAccess: supportsFullAccess && fullAccess,
     });
   };
 
@@ -165,7 +171,7 @@ export default function SidebarNewSession({
           <button
             key={item.id}
             type="button"
-            onClick={() => setProvider(item.id)}
+            onClick={() => { setProvider(item.id); setFullAccess(false); }}
             data-spawn-provider={item.id}
             className={cn(
               'flex-1 rounded px-2 py-1 text-xs font-medium transition-colors',
@@ -206,25 +212,46 @@ export default function SidebarNewSession({
         />
       )}
       <SpawnStatusLine status={status} onReconcile={reconcileUnknown} />
-      <div className="flex items-center justify-end gap-2">
-        <button
-          type="button"
-          onClick={() => { setOpen(false); setName(''); setCwd(readRecentCwds()[0] ?? ''); acknowledge(); }}
-          className="rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+      <div className="flex items-center justify-between gap-2">
+        <label
+          className={cn(
+            'flex items-center gap-1.5 text-xs',
+            supportsFullAccess ? 'cursor-pointer text-amber-600 dark:text-amber-400' : 'cursor-not-allowed text-muted-foreground opacity-60',
+          )}
+          title={supportsFullAccess
+            ? t('newSessionForm.fullAccessWarning')
+            : t('newSessionForm.fullAccessUnsupported')}
         >
-          {t('newSessionForm.cancel')}
-        </button>
-        <button
-          type="button"
-          onClick={submit}
-          data-spawn-submit
-          disabled={!ready || status.kind === 'spawning' || status.kind === 'unknown'}
-          className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {status.kind === 'spawning'
-            ? t('newSessionForm.creating')
-            : t('newSessionForm.create')}
-        </button>
+          <input
+            type="checkbox"
+            checked={supportsFullAccess && fullAccess}
+            disabled={!supportsFullAccess}
+            onChange={(event) => setFullAccess(event.target.checked)}
+            data-spawn-full-access
+            className="h-3.5 w-3.5 accent-amber-600"
+          />
+          {t('newSessionForm.fullAccess')}
+        </label>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => { setOpen(false); setName(''); setFullAccess(false); setCwd(readRecentCwds()[0] ?? ''); acknowledge(); }}
+            className="rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+          >
+            {t('newSessionForm.cancel')}
+          </button>
+          <button
+            type="button"
+            onClick={submit}
+            data-spawn-submit
+            disabled={!ready || status.kind === 'spawning' || status.kind === 'unknown'}
+            className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {status.kind === 'spawning'
+              ? t('newSessionForm.creating')
+              : t('newSessionForm.create')}
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -49,6 +49,54 @@ test('Given a local spawn for GJC and for a native CLI, when each succeeds, then
   assert.equal(harness.created(), 2);
 });
 
+test('Given a verified native CLI, full access is opt-in and reaches spawn as a boolean', async (t) => {
+  // Given
+  const fetches = stubFetch();
+  t.after(fetches.restore);
+  const harness = mount({ localHostId: LOCAL, hosts: new Map() });
+  t.after(harness.dispose);
+
+  // When
+  press(harness, 'data-spawn-provider', 'codex');
+  const checkbox = byAttribute(harness, 'data-spawn-full-access')[0];
+  assert.equal(checkbox?.props.disabled, false);
+  act(() => { checkbox?.props.onChange({ target: { checked: true } }); });
+  typeInto(harness, 'data-spawn-name', 'trusted-codex');
+  typeInto(harness, 'placeholder', '/home/me/app', 'Working folder (e.g. ~/workspace/my-proj or an absolute path)');
+  press(harness, 'data-spawn-submit');
+  await act(async () => { await fetches.awaitRequest((url) => url.includes('spawn')); });
+  await act(async () => { await Promise.resolve(); });
+
+  // Then
+  assert.deepEqual(spawnCalls(fetches)[0]?.body, {
+    name: 'trusted-codex',
+    cwd: '/home/me/app',
+    cli: 'codex',
+    fullAccess: true,
+  });
+});
+
+test('Given an unsupported provider or remote host, full access stays disabled and stale opt-in is cleared', (t) => {
+  // Given
+  const harness = mount(catalogOf(entry(LOCAL, 'online'), entry(PEER_A, 'online')));
+  t.after(harness.dispose);
+  press(harness, 'data-spawn-provider', 'claude');
+  const supported = byAttribute(harness, 'data-spawn-full-access')[0];
+  act(() => { supported?.props.onChange({ target: { checked: true } }); });
+
+  // When / Then: changing providers clears the dangerous opt-in.
+  press(harness, 'data-spawn-provider', 'cursor');
+  const unsupported = byAttribute(harness, 'data-spawn-full-access')[0];
+  assert.equal(unsupported?.props.disabled, true);
+  assert.equal(unsupported?.props.checked, false);
+
+  // When / Then: remote spawning cannot inherit the local option.
+  press(harness, 'data-spawn-host', PEER_A);
+  const remote = byAttribute(harness, 'data-spawn-full-access')[0];
+  assert.equal(remote?.props.disabled, true);
+  assert.equal(remote?.props.checked, false);
+});
+
 test('Given a local spawn with no working directory, when submit is pressed, then nothing is dispatched', async (t) => {
   // Given
   const fetches = stubFetch();

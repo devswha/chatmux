@@ -10,6 +10,7 @@ import {
   classifyExternalSessions,
   claudeReceiptPaneTag,
   buildExternalCliTmuxSpawnArgs,
+  externalCliFullAccessArgs,
   spawnExternalCliSession,
   buildExternalCliRuntimePath,
   createExternalCliSessionDiscovery,
@@ -260,6 +261,30 @@ test('detached external CLI spawns receive a stable initial terminal grid', () =
       '-c', '/workspace',
       '/usr/bin/env', 'PATH=/runtime/bin:/usr/bin', '/home/user/.local/bin/codex',
     ],
+  );
+});
+
+test('full-access startup uses only the audited interactive CLI flags', () => {
+  assert.deepEqual(externalCliFullAccessArgs('codex', true), [
+    '--dangerously-bypass-approvals-and-sandbox',
+  ]);
+  assert.deepEqual(externalCliFullAccessArgs('claude', true), [
+    '--dangerously-skip-permissions',
+  ]);
+  assert.deepEqual(externalCliFullAccessArgs('codex', false), []);
+  assert.throws(
+    () => externalCliFullAccessArgs('cursor', true),
+    /does not support full-access interactive startup/,
+  );
+  assert.deepEqual(
+    buildExternalCliTmuxSpawnArgs(
+      '/home/user/.local/bin/codex',
+      'probe',
+      '/workspace',
+      '/runtime/bin:/usr/bin',
+      externalCliFullAccessArgs('codex', true),
+    ).slice(-2),
+    ['/home/user/.local/bin/codex', '--dangerously-bypass-approvals-and-sandbox'],
   );
 });
 
@@ -1328,4 +1353,16 @@ test('external CLI spawns run tmux new-session through the resolved launch comma
   assert.equal(calls[0].command, 'systemd-run');
   assert.deepEqual(calls[0].args.slice(0, 8), ['--user', '--scope', '--collect', '--quiet', '--', 'tmux', 'new-session', '-d'], 'session creation is wrapped in a transient scope');
   assert.deepEqual([calls[1].command, calls[1].args.slice(0, 3)], ['tmux', ['set-option', '-t', 'scoped']], 'tagging talks to the now-running server directly');
+});
+
+test('external CLI spawn appends full-access mode to the native command only when requested', async () => {
+  const calls: Array<{ command: string; args: string[] }> = [];
+  await spawnExternalCliSession('codex', 'full-access', '/workspace', {
+    fullAccess: true,
+    launch: async () => ({ command: 'tmux', prefixArgs: [] }),
+    run: async (command, args) => { calls.push({ command, args }); return ''; },
+  });
+
+  assert.equal(calls[0]?.args.at(-1), '--dangerously-bypass-approvals-and-sandbox');
+  assert.equal(calls[1]?.args.at(-1), 'codex');
 });

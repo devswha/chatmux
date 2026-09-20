@@ -79,6 +79,8 @@ import type {
 import { resolveWorkspaceDirectoryWithinRoot } from '@/shared/workspace-paths.js';
 import { AppError, asyncHandler, createApiSuccessResponse } from '@/shared/utils.js';
 
+import { EXTERNAL_SPAWN_CLIS, supportsExternalCliFullAccess } from '../../../shared/external-cli-spawn.js';
+
 import { attachCapabilityService } from './services/attach-capability.service.js';
 
 
@@ -979,14 +981,14 @@ router.post(
 router.post(
   '/sessions/external/spawn',
   asyncHandler(async (req: Request, res: Response) => {
-    const body = (req.body ?? {}) as { name?: unknown; cwd?: unknown; cli?: unknown };
+    const body = (req.body ?? {}) as { name?: unknown; cwd?: unknown; cli?: unknown; fullAccess?: unknown };
     if (!isValidSpawnName(body.name)) {
       throw new AppError('A valid session name is required (alphanumeric, not "company").', {
         code: 'INVALID_SPAWN_NAME',
         statusCode: 400,
       });
     }
-    const supportedClis: ExternalSpawnCli[] = ['claude', 'codex', 'cursor', 'opencode', 'omp', 'omo'];
+    const supportedClis: readonly ExternalSpawnCli[] = EXTERNAL_SPAWN_CLIS;
     if (body.cli !== undefined && !supportedClis.includes(body.cli as ExternalSpawnCli)) {
       throw new AppError(`cli must be one of: ${supportedClis.join(', ')}.`, {
         code: 'INVALID_CLI',
@@ -996,6 +998,19 @@ router.post(
     const cli: ExternalSpawnCli = body.cli === undefined
       ? 'codex'
       : body.cli as ExternalSpawnCli;
+    if (body.fullAccess !== undefined && typeof body.fullAccess !== 'boolean') {
+      throw new AppError('fullAccess must be a boolean.', {
+        code: 'INVALID_FULL_ACCESS',
+        statusCode: 400,
+      });
+    }
+    const fullAccess = body.fullAccess === true;
+    if (fullAccess && !supportsExternalCliFullAccess(cli)) {
+      throw new AppError(`${cli} does not support full-access startup.`, {
+        code: 'UNSUPPORTED_FULL_ACCESS',
+        statusCode: 400,
+      });
+    }
     const cwdInput = typeof body.cwd === 'string' ? body.cwd.trim() : '';
     if (!cwdInput) {
       throw new AppError('cwd is required.', { code: 'EMPTY_CWD', statusCode: 400 });
@@ -1008,7 +1023,7 @@ router.post(
       });
     }
     try {
-      await spawnExternalCliSession(cli, body.name, cwd);
+      await spawnExternalCliSession(cli, body.name, cwd, { fullAccess });
     } catch {
       throw new AppError('The external CLI session could not be created; the tmux name may already exist.', {
         code: 'EXTERNAL_CLI_SPAWN_FAILED',
