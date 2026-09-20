@@ -22,18 +22,30 @@ type MarkdownFence = {
   length: number;
 };
 
-function backslashIsEscaped(text: string, index: number): boolean {
-  let preceding = 0;
-  for (let cursor = index - 1; cursor >= 0 && text[cursor] === '\\'; cursor -= 1) {
-    preceding += 1;
-  }
-  return preceding % 2 === 1;
-}
-
 function backtickRunLength(text: string, index: number): number {
   let cursor = index;
   while (text[cursor] === '`') cursor += 1;
   return cursor - index;
+}
+
+function isMathBoundaryLine(line: string): boolean {
+  return /^[ \t]*$/.test(line)
+    || /^ {0,3}(?:`{3,}|~{3,})/.test(line)
+    || line.startsWith('    ')
+    || line.startsWith('\t');
+}
+
+function displayMathShouldNormalize(args: {
+  text: string;
+  closeIndex: number;
+  prefixOnlyWhitespace: boolean;
+  strongMathSyntax: boolean;
+}): boolean {
+  if (args.strongMathSyntax) return true;
+  if (!args.prefixOnlyWhitespace) return false;
+  const lineEnd = args.text.indexOf('\n', args.closeIndex + 2);
+  const suffix = args.text.slice(args.closeIndex + 2, lineEnd < 0 ? args.text.length : lineEnd);
+  return /^[ \t\r]*$/.test(suffix);
 }
 
 function findClosingBacktickRun(text: string, start: number, length: number): number {
@@ -60,22 +72,69 @@ export function normalizeLatexMathDelimiters(text: string) {
   const output: string[] = [];
   let cursor = 0;
   let atLineStart = true;
+  let lineHasContent = false;
+  let precedingBackslashes = 0;
   let fence: MarkdownFence | null = null;
-  let math: { close: '\\)' | '\\]'; replacement: '$' | '$$'; outputIndex: number } | null = null;
+  let math: {
+    close: '\\)' | '\\]';
+    replacement: '$' | '$$';
+    outputIndex: number;
+    prefixOnlyWhitespace: boolean;
+    strongMathSyntax: boolean;
+  } | null = null;
 
   while (cursor < text.length) {
     if (math) {
-      if (text.startsWith(math.close, cursor) && !backslashIsEscaped(text, cursor)) {
-        output[math.outputIndex] = math.replacement;
-        output.push(math.replacement);
-        cursor += math.close.length;
+      if (atLineStart) {
+        const lineEnd = text.indexOf('\n', cursor);
+        const end = lineEnd < 0 ? text.length : lineEnd;
+        if (isMathBoundaryLine(text.slice(cursor, end))) {
+          math = null;
+          continue;
+        }
+      }
+
+      if (text[cursor] === '`') {
         math = null;
         continue;
       }
+
+      const backslashEscaped = precedingBackslashes % 2 === 1;
+      if (text[cursor] === '\\' && !backslashEscaped && text.startsWith(math.close, cursor)) {
+        const shouldNormalize = math.replacement === '$'
+          || displayMathShouldNormalize({
+            text,
+            closeIndex: cursor,
+            prefixOnlyWhitespace: math.prefixOnlyWhitespace,
+            strongMathSyntax: math.strongMathSyntax,
+          });
+        if (shouldNormalize) {
+          output[math.outputIndex] = math.replacement;
+          output.push(math.replacement);
+        } else {
+          output.push(math.close);
+        }
+        cursor += math.close.length;
+        math = null;
+        atLineStart = false;
+        lineHasContent = true;
+        precedingBackslashes = 0;
+        continue;
+      }
       const char = text[cursor];
+      if ((char === '\\' && /[A-Za-z]/.test(text[cursor + 1] ?? '')) || char === '^' || char === '_' || char === '=') {
+        math.strongMathSyntax = true;
+      }
       output.push(char);
       cursor += 1;
       atLineStart = char === '\n';
+      if (atLineStart) {
+        lineHasContent = false;
+        precedingBackslashes = 0;
+      } else {
+        if (!/[ \t\r]/.test(char)) lineHasContent = true;
+        precedingBackslashes = char === '\\' ? precedingBackslashes + 1 : 0;
+      }
       continue;
     }
 
@@ -90,7 +149,9 @@ export function normalizeLatexMathDelimiters(text: string) {
         }
         output.push(text.slice(cursor, lineEnd < 0 ? end : end + 1));
         cursor = lineEnd < 0 ? end : end + 1;
-        atLineStart = true;
+        atLineStart = lineEnd >= 0;
+        lineHasContent = !atLineStart;
+        precedingBackslashes = 0;
         continue;
       }
 
@@ -99,7 +160,9 @@ export function normalizeLatexMathDelimiters(text: string) {
         fence = { marker: open[1][0] as '`' | '~', length: open[1].length };
         output.push(text.slice(cursor, lineEnd < 0 ? end : end + 1));
         cursor = lineEnd < 0 ? end : end + 1;
-        atLineStart = true;
+        atLineStart = lineEnd >= 0;
+        lineHasContent = !atLineStart;
+        precedingBackslashes = 0;
         continue;
       }
 
@@ -107,7 +170,9 @@ export function normalizeLatexMathDelimiters(text: string) {
       if (line.startsWith('    ') || line.startsWith('\t')) {
         output.push(text.slice(cursor, lineEnd < 0 ? end : end + 1));
         cursor = lineEnd < 0 ? end : end + 1;
-        atLineStart = true;
+        atLineStart = lineEnd >= 0;
+        lineHasContent = !atLineStart;
+        precedingBackslashes = 0;
         continue;
       }
     }
@@ -120,12 +185,14 @@ export function normalizeLatexMathDelimiters(text: string) {
         const code = text.slice(cursor, end);
         output.push(code);
         atLineStart = code.endsWith('\n');
+        lineHasContent = !atLineStart;
+        precedingBackslashes = 0;
         cursor = end;
         continue;
       }
     }
 
-    if (!backslashIsEscaped(text, cursor)) {
+    if (text[cursor] === '\\' && precedingBackslashes % 2 === 0) {
       const opening = text.startsWith('\\[', cursor)
         ? { token: '\\[', close: '\\]' as const, replacement: '$$' as const }
         : text.startsWith('\\(', cursor)
@@ -135,7 +202,16 @@ export function normalizeLatexMathDelimiters(text: string) {
         const outputIndex = output.length;
         output.push(opening.token);
         cursor += opening.token.length;
-        math = { close: opening.close, replacement: opening.replacement, outputIndex };
+        math = {
+          close: opening.close,
+          replacement: opening.replacement,
+          outputIndex,
+          prefixOnlyWhitespace: !lineHasContent,
+          strongMathSyntax: false,
+        };
+        atLineStart = false;
+        lineHasContent = true;
+        precedingBackslashes = 0;
         continue;
       }
     }
@@ -144,6 +220,13 @@ export function normalizeLatexMathDelimiters(text: string) {
     output.push(char);
     cursor += 1;
     atLineStart = char === '\n';
+    if (atLineStart) {
+      lineHasContent = false;
+      precedingBackslashes = 0;
+    } else {
+      if (!/[ \t\r]/.test(char)) lineHasContent = true;
+      precedingBackslashes = char === '\\' ? precedingBackslashes + 1 : 0;
+    }
   }
 
   return output.join('');

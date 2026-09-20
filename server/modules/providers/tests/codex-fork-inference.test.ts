@@ -6,7 +6,7 @@ import test from 'node:test';
 
 import Database from 'better-sqlite3';
 
-import { codexRenderAnchor, normalizeCodexDisplayText, readCodexForkTranscript, readCodexRenderAnchor, selectCodexForkByDisplay, selectInitialCodexThreadByDisplay, shouldInferSharedCodexDisplay } from '../services/external-cli-sessions/codex-fork-inference.js';
+import { canReuseCodexDisplayBinding, codexRenderAnchor, normalizeCodexDisplayText, readCodexForkTranscript, readCodexRenderAnchor, selectCodexForkByDisplay, selectInitialCodexThreadByDisplay, shouldInferSharedCodexDisplay } from '../services/external-cli-sessions/codex-fork-inference.js';
 import { applyInferredProviderSessionIds } from '../services/external-cli-sessions/provider-runtime-inference.js';
 import { assertProvenSessionBinding } from '../services/tmux-session-binding.service.js';
 import { tmuxPaneIdentityKey } from '../../../../shared/tmux.js';
@@ -87,14 +87,42 @@ test('shared app-server display inference includes an unbound Codex TUI but excl
     tmuxName: 'initial-codex', tmux, kind: 'codex' as const,
     cwd: '/workspace/edgepose', agentPid: 20, startedAtMs: 1_000,
   };
-  assert.equal(shouldInferSharedCodexDisplay(unbound, new Map()), true);
+  const targetKey = tmuxPaneIdentityKey(tmux);
+  assert.equal(shouldInferSharedCodexDisplay(unbound, new Map(), new Set([targetKey])), true);
+  assert.equal(shouldInferSharedCodexDisplay(unbound, new Map(), new Set()), false);
   assert.equal(shouldInferSharedCodexDisplay(
     { ...unbound, providerSessionId: parent, binding: 'observed' },
     new Map(),
+    new Set(),
   ), true);
-  assert.equal(shouldInferSharedCodexDisplay(unbound, new Map([[tmuxPaneIdentityKey(tmux), parent]])), false);
-  assert.equal(shouldInferSharedCodexDisplay({ ...unbound, startedAtMs: undefined }, new Map()), false);
-  assert.equal(shouldInferSharedCodexDisplay({ ...unbound, connectionIssue: 'socket_unreachable' as never }, new Map()), false);
+  assert.equal(shouldInferSharedCodexDisplay(unbound, new Map([[targetKey, parent]]), new Set([targetKey])), false);
+  assert.equal(shouldInferSharedCodexDisplay({ ...unbound, startedAtMs: undefined }, new Map(), new Set([targetKey])), false);
+  assert.equal(shouldInferSharedCodexDisplay(
+    { ...unbound, connectionIssue: 'socket_unreachable' as never },
+    new Map(),
+    new Set([targetKey]),
+  ), false);
+});
+
+test('display inference reuses anchorless bindings only for the same process generation', () => {
+  const previous = { processKey: ['pane', 'codex', '20', '1000', '20'].join('\0'), selectedId: child };
+  assert.equal(canReuseCodexDisplayBinding({ previous, processKey: previous.processKey }), true);
+  assert.equal(canReuseCodexDisplayBinding({
+    previous,
+    processKey: previous.processKey,
+    anchor,
+  }), false);
+  assert.equal(canReuseCodexDisplayBinding({ previous, processKey: `${previous.processKey}-restarted` }), false);
+});
+
+test('display inference reuses matching render anchors and invalidates changed anchors', () => {
+  const previous = { processKey: 'process-generation', anchor, selectedId: child };
+  assert.equal(canReuseCodexDisplayBinding({ previous, processKey: previous.processKey, anchor }), true);
+  assert.equal(canReuseCodexDisplayBinding({
+    previous,
+    processKey: previous.processKey,
+    anchor: `${anchor.slice(0, -1)}x`,
+  }), false);
 });
 
 test('a new Codex welcome card invalidates matching old scrollback', () => {

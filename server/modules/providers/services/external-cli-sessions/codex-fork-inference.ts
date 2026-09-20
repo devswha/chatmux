@@ -112,10 +112,19 @@ export function selectInitialCodexThreadByDisplay(args: {
 }
 
 type CachedTranscript = { signature: string; transcript: ForkTranscript };
-type CachedForkBinding = { processKey: string; anchor: string; selectedId: string };
+type CachedForkBinding = { processKey: string; anchor?: string; selectedId: string };
 // Bounded, server-private text cache. No prompt bodies enter logs or descriptors.
 const transcriptCache = new Map<string, CachedTranscript>();
 const forkBindingsByTarget = new Map<string, CachedForkBinding>();
+
+export function canReuseCodexDisplayBinding(args: {
+  previous?: Readonly<CachedForkBinding>;
+  processKey: string;
+  anchor?: string;
+}): boolean {
+  return args.previous?.processKey === args.processKey
+    && args.previous.anchor === args.anchor;
+}
 
 export async function readCodexForkTranscript(path: string, expectedId: string, root: string): Promise<ForkTranscript | null> {
   try {
@@ -197,11 +206,14 @@ export function readCodexRenderAnchor(db: Database.Database, pid: number, starte
 export function shouldInferSharedCodexDisplay(
   session: ExternalCliSession,
   observed: ReadonlyMap<string, string>,
+  attemptableTargetKeys: ReadonlySet<string>,
 ): boolean {
+  const targetKey = tmuxPaneIdentityKey(session.tmux);
   return session.kind === 'codex'
     && !session.connectionIssue
     && session.startedAtMs !== undefined
-    && !observed.has(tmuxPaneIdentityKey(session.tmux));
+    && !observed.has(targetKey)
+    && Boolean(session.providerSessionId || attemptableTargetKeys.has(targetKey));
 }
 
 /**
@@ -217,8 +229,11 @@ export async function inferSharedCodexForkIds(args: {
   panes: ExternalPane[];
   procs: ProcessTreeEntry[];
   observed: ReadonlyMap<string, string>;
+  attemptableTargetKeys: ReadonlySet<string>;
 }): Promise<Map<string, string>> {
-  const targets = args.sessions.filter((session) => shouldInferSharedCodexDisplay(session, args.observed));
+  const targets = args.sessions.filter((session) => (
+    shouldInferSharedCodexDisplay(session, args.observed, args.attemptableTargetKeys)
+  ));
   const resolved = new Map<string, string>();
   if (!targets.length) {
     forkBindingsByTarget.clear();
@@ -257,13 +272,14 @@ export async function inferSharedCodexForkIds(args: {
       if (anchors.size > 1 || (session.providerSessionId && anchors.size !== 1)) continue;
       const anchor = anchors.size === 1 ? [...anchors][0] : undefined;
       const processKey = [externalSessionInferenceKey(session), ...codexPids.sort((a, b) => a - b)].join('\0');
-      const previous = forkBindingsByTarget.get(key);
-      if (anchor && previous?.processKey === processKey && previous.anchor === anchor) {
+      const cached = forkBindingsByTarget.get(key);
+      if (canReuseCodexDisplayBinding({ previous: cached, processKey, anchor })) {
+        const previous = cached!;
         resolved.set(key, previous.selectedId);
         continue;
       }
-      const retainPrevious = previous?.processKey === processKey && (session.providerSessionId || anchor);
-      pending.push({ session, pane, key, processKey, ...(anchor ? { anchor } : {}), ...(retainPrevious ? { previous } : {}) });
+      const previous = cached?.processKey === processKey ? cached : undefined;
+      pending.push({ session, pane, key, processKey, ...(anchor ? { anchor } : {}), ...(previous ? { previous } : {}) });
     }
     for (const key of forkBindingsByTarget.keys()) {
       if (!targets.some((session) => tmuxPaneIdentityKey(session.tmux) === key)) forkBindingsByTarget.delete(key);
@@ -348,9 +364,11 @@ export async function inferSharedCodexForkIds(args: {
           candidates: initial,
         });
       if (selected) {
-        if (target.anchor) {
-          forkBindingsByTarget.set(target.key, { processKey: target.processKey, anchor: target.anchor, selectedId: selected });
-        }
+        forkBindingsByTarget.set(target.key, {
+          processKey: target.processKey,
+          ...(target.anchor ? { anchor: target.anchor } : {}),
+          selectedId: selected,
+        });
         resolved.set(target.key, selected);
       } else if (target.previous) {
         resolved.set(target.key, target.previous.selectedId);

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { performance } from 'node:perf_hooks';
 
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -28,6 +29,32 @@ test('leaves LaTeX delimiters in Markdown code and unmatched input unchanged', (
     String.raw`escaped \\[literal\\]`,
   ].join('\n');
   assert.equal(normalizeLatexMathDelimiters(markdown), markdown);
+});
+
+test('does not let an unmatched inline delimiter consume a later fenced code block', () => {
+  const markdown = [
+    'Group with \\( in BRE.',
+    '',
+    '```sh',
+    String.raw`sed 's/\(foo\)/bar/' file`,
+    '```',
+  ].join('\n');
+  assert.equal(normalizeLatexMathDelimiters(markdown), markdown);
+});
+
+test('keeps escaped Markdown brackets while accepting unambiguous display math', () => {
+  const references = 'See \\[1\\] and \\[2\\].';
+  assert.equal(normalizeLatexMathDelimiters(references), references);
+  assert.equal(normalizeLatexMathDelimiters('Equation: \\[x = y\\].'), 'Equation: $$x = y$$.');
+  assert.equal(normalizeLatexMathDelimiters('\\[x\\]'), '$$x$$');
+});
+
+test('normalizes long backslash runs in linear time', () => {
+  const markdown = '\\'.repeat(100_000);
+  const startedAt = performance.now();
+  assert.equal(normalizeLatexMathDelimiters(markdown), markdown);
+  const elapsedMs = performance.now() - startedAt;
+  assert.ok(elapsedMs < 2_000, `normalization took ${elapsedMs.toFixed(1)} ms`);
 });
 
 test('renders Codex backslash display math through KaTeX without dropping command prefixes', () => {

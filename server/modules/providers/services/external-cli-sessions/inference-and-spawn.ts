@@ -58,7 +58,11 @@ export async function inferExternalProviderSessionIds(args: {
     [...freshCodex].filter(([targetKey]) => attemptableTargetKeys.has(targetKey)),
   );
   const inferredForks = await inferSharedCodexForkIds({
-    sessions: safeSessions, panes: args.panes, procs: args.procs, observed: observedCodex,
+    sessions: safeSessions,
+    panes: args.panes,
+    procs: args.procs,
+    observed: observedCodex,
+    attemptableTargetKeys,
   });
   const authoritativeTargetKeys = new Set([
     ...observedCodex.keys(),
