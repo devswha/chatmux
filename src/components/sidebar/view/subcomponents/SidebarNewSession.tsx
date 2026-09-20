@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import { Plus } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -74,6 +74,7 @@ export default function SidebarNewSession({
   const [hostId, setHostId] = useState<string | null>(null);
   const [projectLocalId, setProjectLocalId] = useState<string | null>(null);
   const [fullAccess, setFullAccess] = useState(false);
+  const fullAccessWarningId = useId();
 
   const hosts = useMemo(
     () => spawnableHosts(catalog, t('newSessionForm.thisMachine')),
@@ -212,6 +213,16 @@ export default function SidebarNewSession({
         />
       )}
       <SpawnStatusLine status={status} onReconcile={reconcileUnknown} />
+      {supportsFullAccess && fullAccess && (
+        <p
+          id={fullAccessWarningId}
+          role="alert"
+          data-spawn-full-access-warning
+          className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[11px] leading-snug text-amber-700 dark:text-amber-300"
+        >
+          {t('newSessionForm.fullAccessActiveWarning')}
+        </p>
+      )}
       <div className="flex items-center justify-between gap-2">
         <label
           className={cn(
@@ -227,6 +238,7 @@ export default function SidebarNewSession({
             checked={supportsFullAccess && fullAccess}
             disabled={!supportsFullAccess}
             onChange={(event) => setFullAccess(event.target.checked)}
+            aria-describedby={supportsFullAccess && fullAccess ? fullAccessWarningId : undefined}
             data-spawn-full-access
             className="h-3.5 w-3.5 accent-amber-600"
           />

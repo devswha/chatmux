@@ -36,6 +36,7 @@
     "recentPaths": "最近使用的路徑",
     "fullAccess": "全部允許",
     "fullAccessWarning": "使用此供應商已驗證的自動核准或完整存取模式啟動此工作階段",
+    "fullAccessActiveWarning": "在此工作階段中，工具、Shell 指令和檔案變更可能無需再次核准即可執行。",
     "fullAccessUnsupported": "此供應商不支援以完整存取模式啟動",
     "cancel": "取消",
     "creating": "建立中…",

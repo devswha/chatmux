@@ -80,17 +80,19 @@ For link discovery, browser-only use, Android/iOS installation, notifications, a
 
 All listed agents are discovered automatically, accept direct input, and can be launched from ChatMux. Indexed histories render as conversations; live CLI output is always available.
 
-| Agent | Chat view |
-|---|---|
-| **Claude Code** | After history is indexed |
-| **Codex CLI** | After history is indexed |
-| **Cursor CLI** | After history is indexed |
-| **OpenCode** | After history is indexed |
-| **Oh My OpenAgent** (`omo`) | After history is indexed |
-| **Oh My Pi** | After history is indexed |
-| **Gajae Code (GJC)** | Native |
+| Agent | Chat view | Full access at launch |
+|---|---|---|
+| **Claude Code** | After history is indexed | Yes |
+| **Codex CLI** | After history is indexed | Yes |
+| **Cursor CLI** | After history is indexed | No |
+| **OpenCode** | After history is indexed | Yes |
+| **Oh My OpenAgent** (`omo`) | After history is indexed | Yes |
+| **Oh My Pi** | After history is indexed | Yes |
+| **Gajae Code (GJC)** | Native | Not applicable |
 
 SSH tmux and local shells are also supported as terminal-only connections.
+
+**Full access** is an explicit, per-session option for newly launched local sessions. It is not saved and does not affect existing or remote sessions. Depending on the CLI, it selects that provider's verified auto-approval or full-access mode, so tools, shell commands, and file changes may proceed without another confirmation. GJC keeps its native default-allow policy and has no separate launch switch; Cursor has no verified interactive full-access flag.
 
 <sub>Cursor sessions use the documented <code>agent</code> command; the legacy <code>cursor-agent</code> alias remains supported for older installations.</sub>
 

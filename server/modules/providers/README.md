@@ -45,6 +45,35 @@ Here, `omo` is the CLI/provider id for **Oh My OpenAgent**.
 Those ids are mirrored in backend unions and frontend provider constants. If
 adding a new provider, update every place that hardcodes this list.
 
+## External Session Startup Capabilities
+
+The new-session form can opt a newly launched local native CLI into that
+provider's verified interactive auto-approval or full-access mode. This is a
+per-request boolean: it is off by default, is not persisted, and is not sent to
+remote fleet spawns or applied to existing sessions.
+
+`shared/external-cli-spawn.ts` is the shared capability list. The client uses it
+to enable the checkbox, but `provider.routes.ts` remains authoritative: it
+validates the boolean, rejects unsupported providers, and passes only fixed
+server-owned arguments to the tmux launcher. Never accept arbitrary launch
+arguments from the browser.
+
+| Provider | Full-access startup | Native interactive arguments |
+| --- | --- | --- |
+| Claude | Supported | `--dangerously-skip-permissions` |
+| Codex | Supported | `--dangerously-bypass-approvals-and-sandbox` |
+| Cursor | Unsupported | No verified interactive full-access flag |
+| OpenCode | Supported | `--auto` |
+| GJC | Not applicable | Guarded tools use the native default-allow policy; there is no per-launch switch |
+| Oh My Pi (`omp`) | Supported | `--approval-mode=yolo` |
+| Oh My OpenAgent (`omo`) | Supported | `--approve --permission-preset full-access` |
+
+These provider modes are not semantically identical. Document them as
+auto-approval or full-access modes rather than claiming that every provider
+disables the same sandbox boundary. Keep the UI warning visible when the option
+is selected: tools, shell commands, and file changes may proceed without another
+approval in that session.
+
 ## Current File Layout
 
 Each provider lives under its own folder in `server/modules/providers/list/`:

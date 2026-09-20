@@ -78,17 +78,19 @@ curl -fsSL https://github.com/devswha/chatmux/releases/latest/download/install.s
 
 以下代理均会被自动发现，支持直接输入，也可从 ChatMux 启动新会话。已索引的历史记录会显示为对话，实时 CLI 输出则始终可用。
 
-| 代理 | 聊天视图 |
-|---|---|
-| **Claude Code** | 历史索引后 |
-| **Codex CLI** | 历史索引后 |
-| **Cursor CLI** | 历史索引后 |
-| **OpenCode** | 历史索引后 |
-| **Oh My OpenAgent** (`omo`) | 历史索引后 |
-| **Oh My Pi** | 历史索引后 |
-| **Gajae Code (GJC)** | 原生支持 |
+| 代理 | 聊天视图 | 启动时完全访问 |
+|---|---|---|
+| **Claude Code** | 历史索引后 | 支持 |
+| **Codex CLI** | 历史索引后 | 支持 |
+| **Cursor CLI** | 历史索引后 | 不支持 |
+| **OpenCode** | 历史索引后 | 支持 |
+| **Oh My OpenAgent** (`omo`) | 历史索引后 | 支持 |
+| **Oh My Pi** | 历史索引后 | 支持 |
+| **Gajae Code (GJC)** | 原生支持 | 不适用 |
 
 SSH tmux 和本地 shell 也可作为纯终端连接使用。
+
+**完全访问**是为每个新启动的本地会话明确选择的选项。该选项不会保存，也不会影响现有会话或远程会话。根据 CLI，它会选择该提供商已验证的自动批准或完全访问模式，因此工具、Shell 命令和文件更改可能无需再次确认即可执行。GJC 使用其原生的默认允许策略，没有单独的启动开关；Cursor 没有经过验证的交互式完全访问参数。
 
 <sub>Cursor 会话使用文档中的 <code>agent</code> 命令；为旧安装保留了传统的 <code>cursor-agent</code> 别名。</sub>
 

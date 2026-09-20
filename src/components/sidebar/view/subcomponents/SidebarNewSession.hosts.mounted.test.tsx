@@ -68,7 +68,12 @@ test('Given a verified native CLI, full access is opt-in and reaches spawn as a 
   press(harness, 'data-spawn-provider', 'codex');
   const checkbox = byAttribute(harness, 'data-spawn-full-access')[0];
   assert.equal(checkbox?.props.disabled, false);
+  assert.equal(byAttribute(harness, 'data-spawn-full-access-warning').length, 0);
   act(() => { checkbox?.props.onChange({ target: { checked: true } }); });
+  const warning = byAttribute(harness, 'data-spawn-full-access-warning')[0];
+  assert.ok(warning, 'the active dangerous mode has a visible warning');
+  assert.equal(checkbox?.props['aria-describedby'], warning.props.id);
+  assert.match(warning.children.join(''), /without another approval/);
   typeInto(harness, 'data-spawn-name', 'trusted-codex');
   typeInto(harness, 'placeholder', '/home/me/app', 'Working folder (e.g. ~/workspace/my-proj or an absolute path)');
   press(harness, 'data-spawn-submit');
@@ -97,6 +102,7 @@ test('Given an unsupported provider or remote host, full access stays disabled a
   const unsupported = byAttribute(harness, 'data-spawn-full-access')[0];
   assert.equal(unsupported?.props.disabled, true);
   assert.equal(unsupported?.props.checked, false);
+  assert.equal(byAttribute(harness, 'data-spawn-full-access-warning').length, 0);
 
   // GJC already runs its guarded tools with the native default allow policy;
   // it has no per-launch full-access switch for this control to apply.

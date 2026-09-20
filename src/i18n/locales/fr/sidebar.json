@@ -21,6 +21,7 @@
     "recentPaths": "Chemins récents",
     "fullAccess": "Accès total",
     "fullAccessWarning": "Démarrer cette session avec le mode vérifié d’approbation automatique ou d’accès complet du fournisseur",
+    "fullAccessActiveWarning": "Dans cette session, les outils, commandes shell et modifications de fichiers peuvent s’exécuter sans nouvelle approbation.",
     "fullAccessUnsupported": "Ce fournisseur ne prend pas en charge le démarrage en accès total",
     "cancel": "Annuler",
     "creating": "Création…",

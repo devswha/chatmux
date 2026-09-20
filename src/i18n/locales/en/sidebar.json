@@ -30,6 +30,7 @@
     "recentPaths": "Recent paths",
     "fullAccess": "Full access",
     "fullAccessWarning": "Use this provider's verified auto-approval or full-access mode for this session",
+    "fullAccessActiveWarning": "Tools, shell commands, and file changes may run without another approval in this session.",
     "fullAccessUnsupported": "This provider does not support full-access startup",
     "cancel": "Cancel",
     "creating": "Creating…",
