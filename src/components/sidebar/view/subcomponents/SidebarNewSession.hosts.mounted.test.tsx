@@ -57,6 +57,14 @@ test('Given a verified native CLI, full access is opt-in and reaches spawn as a 
   t.after(harness.dispose);
 
   // When
+  for (const cli of ['claude', 'codex', 'opencode', 'omp', 'omo']) {
+    press(harness, 'data-spawn-provider', cli);
+    assert.equal(
+      byAttribute(harness, 'data-spawn-full-access')[0]?.props.disabled,
+      false,
+      `${cli} exposes its audited startup mode`,
+    );
+  }
   press(harness, 'data-spawn-provider', 'codex');
   const checkbox = byAttribute(harness, 'data-spawn-full-access')[0];
   assert.equal(checkbox?.props.disabled, false);
@@ -89,6 +97,13 @@ test('Given an unsupported provider or remote host, full access stays disabled a
   const unsupported = byAttribute(harness, 'data-spawn-full-access')[0];
   assert.equal(unsupported?.props.disabled, true);
   assert.equal(unsupported?.props.checked, false);
+
+  // GJC already runs its guarded tools with the native default allow policy;
+  // it has no per-launch full-access switch for this control to apply.
+  press(harness, 'data-spawn-provider', 'gjc');
+  const gjc = byAttribute(harness, 'data-spawn-full-access')[0];
+  assert.equal(gjc?.props.disabled, true);
+  assert.equal(gjc?.props.checked, false);
 
   // When / Then: remote spawning cannot inherit the local option.
   press(harness, 'data-spawn-host', PEER_A);

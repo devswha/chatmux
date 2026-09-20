@@ -20,7 +20,7 @@
     "workingDirectoryPlaceholder": "作業フォルダー（例: ~/workspace/my-proj、絶対パスも可）",
     "recentPaths": "最近使用したパス",
     "fullAccess": "すべて許可",
-    "fullAccessWarning": "このセッションでは承認プロンプトとサンドボックス制限をスキップします",
+    "fullAccessWarning": "このセッションをプロバイダーで検証済みの自動承認またはフルアクセスモードで開始します",
     "fullAccessUnsupported": "このプロバイダーはフルアクセスでの起動に対応していません",
     "cancel": "キャンセル",
     "creating": "作成中…",

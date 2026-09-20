@@ -35,7 +35,7 @@
     "workingDirectoryPlaceholder": "Çalışma klasörü (ör. ~/workspace/projem veya mutlak yol)",
     "recentPaths": "Son kullanılan yollar",
     "fullAccess": "Tam erişim",
-    "fullAccessWarning": "Bu oturum için onay istemlerini ve korumalı alan kısıtlamalarını atla",
+    "fullAccessWarning": "Bu oturumu sağlayıcının doğrulanmış otomatik onay veya tam erişim modunda başlat",
     "fullAccessUnsupported": "Bu sağlayıcı tam erişimli başlatmayı desteklemiyor",
     "cancel": "İptal",
     "creating": "Oluşturuluyor…",

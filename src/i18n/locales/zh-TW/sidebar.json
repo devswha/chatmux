@@ -35,7 +35,7 @@
     "workingDirectoryPlaceholder": "工作資料夾（例如 ~/workspace/my-proj，也可使用絕對路徑）",
     "recentPaths": "最近使用的路徑",
     "fullAccess": "全部允許",
-    "fullAccessWarning": "此工作階段將略過核准提示和沙箱限制",
+    "fullAccessWarning": "使用此供應商已驗證的自動核准或完整存取模式啟動此工作階段",
     "fullAccessUnsupported": "此供應商不支援以完整存取模式啟動",
     "cancel": "取消",
     "creating": "建立中…",

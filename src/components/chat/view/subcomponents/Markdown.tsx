@@ -10,7 +10,7 @@ import oneDark from 'react-syntax-highlighter/dist/esm/styles/prism/one-dark';
 import oneLight from 'react-syntax-highlighter/dist/esm/styles/prism/one-light';
 import { useTranslation } from 'react-i18next';
 
-import { normalizeInlineCodeFences } from '../../utils/chatFormatting';
+import { normalizeInlineCodeFences, normalizeLatexMathDelimiters } from '../../utils/chatFormatting';
 import { copyTextToClipboard } from '../../../../utils/clipboard';
 import { usePaletteOps } from '../../../../contexts/PaletteOpsContext';
 import { useTheme } from '../../../../contexts/ThemeContext';
@@ -185,7 +185,7 @@ const markdownComponents = {
 };
 
 export function Markdown({ children, className }: MarkdownProps) {
-  const content = normalizeInlineCodeFences(String(children ?? ''));
+  const content = normalizeLatexMathDelimiters(normalizeInlineCodeFences(String(children ?? '')));
   const remarkPlugins = useMemo(() => [remarkGfm, remarkMath], []);
   const rehypePlugins = useMemo(() => [rehypeKatex], []);
   const { openFileInEditor } = usePaletteOps();

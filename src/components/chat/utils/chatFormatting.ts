@@ -17,6 +17,138 @@ export function normalizeInlineCodeFences(text: string) {
   }
 }
 
+type MarkdownFence = {
+  marker: '`' | '~';
+  length: number;
+};
+
+function backslashIsEscaped(text: string, index: number): boolean {
+  let preceding = 0;
+  for (let cursor = index - 1; cursor >= 0 && text[cursor] === '\\'; cursor -= 1) {
+    preceding += 1;
+  }
+  return preceding % 2 === 1;
+}
+
+function backtickRunLength(text: string, index: number): number {
+  let cursor = index;
+  while (text[cursor] === '`') cursor += 1;
+  return cursor - index;
+}
+
+function findClosingBacktickRun(text: string, start: number, length: number): number {
+  let cursor = start;
+  while (cursor < text.length) {
+    const next = text.indexOf('`', cursor);
+    if (next < 0) return -1;
+    const runLength = backtickRunLength(text, next);
+    if (runLength === length) return next;
+    cursor = next + runLength;
+  }
+  return -1;
+}
+
+/**
+ * remark-math recognizes dollar delimiters, while Codex and Claude commonly
+ * emit LaTeX's `\\(...\\)` and `\\[...\\]` forms. Normalize only paired
+ * delimiters outside Markdown code so the Markdown parser cannot consume the
+ * backslashes before remark-math sees them.
+ */
+export function normalizeLatexMathDelimiters(text: string) {
+  if (!text || typeof text !== 'string') return text;
+
+  const output: string[] = [];
+  let cursor = 0;
+  let atLineStart = true;
+  let fence: MarkdownFence | null = null;
+  let math: { close: '\\)' | '\\]'; replacement: '$' | '$$'; outputIndex: number } | null = null;
+
+  while (cursor < text.length) {
+    if (math) {
+      if (text.startsWith(math.close, cursor) && !backslashIsEscaped(text, cursor)) {
+        output[math.outputIndex] = math.replacement;
+        output.push(math.replacement);
+        cursor += math.close.length;
+        math = null;
+        continue;
+      }
+      const char = text[cursor];
+      output.push(char);
+      cursor += 1;
+      atLineStart = char === '\n';
+      continue;
+    }
+
+    if (atLineStart) {
+      const lineEnd = text.indexOf('\n', cursor);
+      const end = lineEnd < 0 ? text.length : lineEnd;
+      const line = text.slice(cursor, end);
+      if (fence) {
+        const close = line.match(/^ {0,3}(`+|~+)[ \t]*$/);
+        if (close && close[1][0] === fence.marker && close[1].length >= fence.length) {
+          fence = null;
+        }
+        output.push(text.slice(cursor, lineEnd < 0 ? end : end + 1));
+        cursor = lineEnd < 0 ? end : end + 1;
+        atLineStart = true;
+        continue;
+      }
+
+      const open = line.match(/^ {0,3}(`{3,}|~{3,})/);
+      if (open) {
+        fence = { marker: open[1][0] as '`' | '~', length: open[1].length };
+        output.push(text.slice(cursor, lineEnd < 0 ? end : end + 1));
+        cursor = lineEnd < 0 ? end : end + 1;
+        atLineStart = true;
+        continue;
+      }
+
+      // Four-space and tab-indented code lines are code even without fences.
+      if (line.startsWith('    ') || line.startsWith('\t')) {
+        output.push(text.slice(cursor, lineEnd < 0 ? end : end + 1));
+        cursor = lineEnd < 0 ? end : end + 1;
+        atLineStart = true;
+        continue;
+      }
+    }
+
+    if (text[cursor] === '`') {
+      const runLength = backtickRunLength(text, cursor);
+      const close = findClosingBacktickRun(text, cursor + runLength, runLength);
+      if (close >= 0) {
+        const end = close + runLength;
+        const code = text.slice(cursor, end);
+        output.push(code);
+        atLineStart = code.endsWith('\n');
+        cursor = end;
+        continue;
+      }
+    }
+
+    if (!backslashIsEscaped(text, cursor)) {
+      const opening = text.startsWith('\\[', cursor)
+        ? { token: '\\[', close: '\\]' as const, replacement: '$$' as const }
+        : text.startsWith('\\(', cursor)
+          ? { token: '\\(', close: '\\)' as const, replacement: '$' as const }
+          : null;
+      if (opening) {
+        const outputIndex = output.length;
+        output.push(opening.token);
+        cursor += opening.token.length;
+        math = { close: opening.close, replacement: opening.replacement, outputIndex };
+        continue;
+      }
+    }
+
+    const char = text[cursor];
+    output.push(char);
+    cursor += 1;
+    atLineStart = char === '\n';
+  }
+
+  return output.join('');
+}
+
 export function unescapeWithMathProtection(text: string) {
   if (!text || typeof text !== 'string') return text;
 

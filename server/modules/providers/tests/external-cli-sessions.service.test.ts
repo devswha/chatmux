@@ -265,12 +265,20 @@ test('detached external CLI spawns receive a stable initial terminal grid', () =
 });
 
 test('full-access startup uses only the audited interactive CLI flags', () => {
-  assert.deepEqual(externalCliFullAccessArgs('codex', true), [
-    '--dangerously-bypass-approvals-and-sandbox',
-  ]);
-  assert.deepEqual(externalCliFullAccessArgs('claude', true), [
-    '--dangerously-skip-permissions',
-  ]);
+  const fullAccessClis = ['claude', 'codex', 'opencode', 'omp', 'omo'] as const;
+  assert.deepEqual(
+    Object.fromEntries(fullAccessClis.map((cli) => [
+      cli,
+      externalCliFullAccessArgs(cli, true),
+    ])),
+    {
+      claude: ['--dangerously-skip-permissions'],
+      codex: ['--dangerously-bypass-approvals-and-sandbox'],
+      opencode: ['--auto'],
+      omp: ['--approval-mode=yolo'],
+      omo: ['--approve', '--permission-preset', 'full-access'],
+    },
+  );
   assert.deepEqual(externalCliFullAccessArgs('codex', false), []);
   assert.throws(
     () => externalCliFullAccessArgs('cursor', true),
@@ -1356,13 +1364,23 @@ test('external CLI spawns run tmux new-session through the resolved launch comma
 });
 
 test('external CLI spawn appends full-access mode to the native command only when requested', async () => {
-  const calls: Array<{ command: string; args: string[] }> = [];
-  await spawnExternalCliSession('codex', 'full-access', '/workspace', {
-    fullAccess: true,
-    launch: async () => ({ command: 'tmux', prefixArgs: [] }),
-    run: async (command, args) => { calls.push({ command, args }); return ''; },
-  });
+  const expectations = {
+    claude: ['--dangerously-skip-permissions'],
+    codex: ['--dangerously-bypass-approvals-and-sandbox'],
+    opencode: ['--auto'],
+    omp: ['--approval-mode=yolo'],
+    omo: ['--approve', '--permission-preset', 'full-access'],
+  } as const;
 
-  assert.equal(calls[0]?.args.at(-1), '--dangerously-bypass-approvals-and-sandbox');
-  assert.equal(calls[1]?.args.at(-1), 'codex');
+  for (const [cli, suffix] of Object.entries(expectations)) {
+    const calls: Array<{ command: string; args: string[] }> = [];
+    await spawnExternalCliSession(cli as keyof typeof expectations, `full-access-${cli}`, '/workspace', {
+      fullAccess: true,
+      launch: async () => ({ command: 'tmux', prefixArgs: [] }),
+      run: async (command, args) => { calls.push({ command, args }); return ''; },
+    });
+
+    assert.deepEqual(calls[0]?.args.slice(-suffix.length), suffix);
+    assert.equal(calls[1]?.args.at(-1), cli);
+  }
 });

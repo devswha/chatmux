@@ -29,7 +29,7 @@
     "workingDirectoryPlaceholder": "Working folder (e.g. ~/workspace/my-proj or an absolute path)",
     "recentPaths": "Recent paths",
     "fullAccess": "Full access",
-    "fullAccessWarning": "Skip approval prompts and sandbox restrictions for this session",
+    "fullAccessWarning": "Use this provider's verified auto-approval or full-access mode for this session",
     "fullAccessUnsupported": "This provider does not support full-access startup",
     "cancel": "Cancel",
     "creating": "Creating…",

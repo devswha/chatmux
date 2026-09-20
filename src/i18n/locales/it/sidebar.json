@@ -20,7 +20,7 @@
     "workingDirectoryPlaceholder": "Cartella di lavoro (es. ~/workspace/mio-progetto o percorso assoluto)",
     "recentPaths": "Percorsi recenti",
     "fullAccess": "Accesso completo",
-    "fullAccessWarning": "Ignora le richieste di approvazione e le restrizioni sandbox per questa sessione",
+    "fullAccessWarning": "Avvia questa sessione con la modalità verificata di approvazione automatica o accesso completo del provider",
     "fullAccessUnsupported": "Questo provider non supporta l’avvio con accesso completo",
     "cancel": "Annulla",
     "creating": "Creazione…",

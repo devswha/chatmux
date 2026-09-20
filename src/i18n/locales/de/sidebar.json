@@ -20,7 +20,7 @@
     "workingDirectoryPlaceholder": "Arbeitsordner (z. B. ~/workspace/mein-projekt oder absoluter Pfad)",
     "recentPaths": "Zuletzt verwendete Pfade",
     "fullAccess": "Vollzugriff",
-    "fullAccessWarning": "Genehmigungsabfragen und Sandbox-Beschränkungen für diese Sitzung überspringen",
+    "fullAccessWarning": "Diese Sitzung im verifizierten Auto-Genehmigungs- oder Vollzugriffsmodus des Anbieters starten",
     "fullAccessUnsupported": "Dieser Anbieter unterstützt keinen Start mit Vollzugriff",
     "cancel": "Abbrechen",
     "creating": "Wird erstellt…",

@@ -20,7 +20,7 @@
     "workingDirectoryPlaceholder": "Dossier de travail (ex. ~/workspace/mon-projet ou chemin absolu)",
     "recentPaths": "Chemins récents",
     "fullAccess": "Accès total",
-    "fullAccessWarning": "Ignorer les demandes d’autorisation et les restrictions du bac à sable pour cette session",
+    "fullAccessWarning": "Démarrer cette session avec le mode vérifié d’approbation automatique ou d’accès complet du fournisseur",
     "fullAccessUnsupported": "Ce fournisseur ne prend pas en charge le démarrage en accès total",
     "cancel": "Annuler",
     "creating": "Création…",

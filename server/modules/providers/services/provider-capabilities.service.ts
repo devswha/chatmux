@@ -25,7 +25,7 @@ type ProviderCapabilities = {
   supportsTokenUsage: boolean;
   /** Whether the provider runtime can accept model-level reasoning effort. */
   supportsEffort: boolean;
-  /** Whether a native tmux session can start with approval and sandbox checks disabled. */
+  /** Whether a native tmux session has a verified auto-approval/full-access startup mode. */
   supportsFullAccessSpawn: boolean;
 };
 
@@ -96,6 +96,8 @@ const PROVIDER_CAPABILITIES: Record<LLMProvider, ProviderCapabilities> = {
     // Runtime unsupported: spawnGjcWithRuntime does not read an effort option
     // (`server/gjc-cli.js:255`), so no reasoning-effort control reaches GJC.
     supportsEffort: false,
+    // GJC's guarded tools default to allow and it exposes no per-launch
+    // full-access flag, so enabling this checkbox would only create a no-op.
     supportsFullAccessSpawn: false,
   },
   omp: {

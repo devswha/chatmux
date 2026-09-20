@@ -7,7 +7,10 @@ import { fileURLToPath } from 'node:url';
 
 import { CURSOR_CLI_COMMAND_CANDIDATES } from '@/modules/providers/list/cursor/cursor-cli-command.js';
 
-import { supportsExternalCliFullAccess } from '../../../../../shared/external-cli-spawn.js';
+import {
+  supportsExternalCliFullAccess,
+  type FullAccessExternalSpawnCli,
+} from '../../../../../shared/external-cli-spawn.js';
 import type { TmuxPaneIdentity } from '../../../../../shared/tmux.js';
 import { tmuxPaneIdentityKey } from '../../../../../shared/tmux.js';
 import { resolveTmuxSpawnLaunch } from '../tmux-spawn-scope.service.js';
@@ -368,9 +371,16 @@ export function externalCliFullAccessArgs(
   if (!supportsExternalCliFullAccess(cli)) {
     throw new Error(`${cli} does not support full-access interactive startup.`);
   }
-  return cli === 'codex'
-    ? ['--dangerously-bypass-approvals-and-sandbox']
-    : ['--dangerously-skip-permissions'];
+  const args: Record<FullAccessExternalSpawnCli, readonly string[]> = {
+    claude: ['--dangerously-skip-permissions'],
+    codex: ['--dangerously-bypass-approvals-and-sandbox'],
+    opencode: ['--auto'],
+    omp: ['--approval-mode=yolo'],
+    // OmO separates project-local resource trust from tool-call permission
+    // policy, so both audited interactive flags are required.
+    omo: ['--approve', '--permission-preset', 'full-access'],
+  };
+  return args[cli];
 }
 
 /**

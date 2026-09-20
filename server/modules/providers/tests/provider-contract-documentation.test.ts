@@ -62,9 +62,9 @@ test('only verified native CLIs advertise full-access startup', () => {
     claude: true,
     cursor: false,
     codex: true,
-    opencode: false,
+    opencode: true,
     gjc: false,
-    omp: false,
-    omo: false,
+    omp: true,
+    omo: true,
   });
 });

@@ -11,10 +11,17 @@ export const EXTERNAL_SPAWN_CLIS = [
 export type ExternalSpawnCli = typeof EXTERNAL_SPAWN_CLIS[number];
 
 /**
- * CLIs whose interactive startup contract has a verified full-access mode.
+ * CLIs whose interactive startup contract has a verified auto-approval or
+ * full-access mode.
  * Keep this list narrow: a non-interactive `run` flag is not sufficient.
  */
-export const FULL_ACCESS_EXTERNAL_SPAWN_CLIS = ['claude', 'codex'] as const;
+export const FULL_ACCESS_EXTERNAL_SPAWN_CLIS = [
+  'claude',
+  'codex',
+  'opencode',
+  'omp',
+  'omo',
+] as const;
 
 export type FullAccessExternalSpawnCli = typeof FULL_ACCESS_EXTERNAL_SPAWN_CLIS[number];
 
