@@ -102,6 +102,7 @@ test('preserves shell-quoted BRE groups and postfix operators', () => {
   }
 
   const unquotedPostfixes = [
+    String.raw`pattern \(a\)\|b`,
     String.raw`pattern \(a\)\1`,
     String.raw`pattern \(ab\)\+`,
     String.raw`pattern \(ab\)\?`,

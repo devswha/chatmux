@@ -50,15 +50,17 @@ function inlineMathShouldNormalize(text: string, openIndex: number, closeIndex: 
   const before = text[openIndex - 1] ?? '';
   if (before === "'" || before === '"') return false;
 
-  // BRE postfix operators follow the closing group. Read them in place so a
-  // long interval cannot be truncated and repeated math does not copy the
-  // remainder of the message on every match.
+  // BRE continuation operators follow the closing group. Read them in place
+  // so a long interval cannot be truncated and repeated math does not copy
+  // the remainder of the message on every match.
   let cursor = closeIndex + 2;
   if (text[cursor] !== '\\') return true;
   cursor += 1;
 
   const operator = text[cursor];
-  if (operator === '+' || operator === '?' || /^[1-9]$/.test(operator ?? '')) return false;
+  if (operator === '|' || operator === '+' || operator === '?' || /^[1-9]$/.test(operator ?? '')) {
+    return false;
+  }
   if (operator !== '{') return true;
 
   cursor += 1;
