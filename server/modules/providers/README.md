@@ -59,9 +59,11 @@ rejects unsupported providers, and passes only fixed server-owned arguments to
 the tmux launcher. Never accept arbitrary launch arguments from the browser.
 
 Set `CHATMUX_DISABLE_FULL_ACCESS=1` to disable this feature for the entire
-deployment. The backend then advertises no full-access capability and rejects
-full-access spawn requests even if a stale or custom client sends one. A session
-that starts in this mode is tagged with tmux option `@chatmux_full_access=1`;
+deployment. Values are trimmed and case-insensitive; every non-empty value except
+`0` or `false` disables the feature. The backend then advertises no full-access
+capability and rejects full-access spawn requests even if a stale or custom
+client sends one. A full-access session is tagged with tmux option
+`@chatmux_full_access=1`;
 discovery propagates that tag so the sidebar keeps a visible warning badge for
 the lifetime of the pane.
 

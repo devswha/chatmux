@@ -4,5 +4,6 @@ export const FULL_ACCESS_DISABLE_ENV = 'CHATMUX_DISABLE_FULL_ACCESS';
 export function isFullAccessSpawnDisabled(
   environment: Readonly<Record<string, string | undefined>> = process.env,
 ): boolean {
-  return environment[FULL_ACCESS_DISABLE_ENV] === '1';
+  const value = environment[FULL_ACCESS_DISABLE_ENV]?.trim().toLowerCase();
+  return value !== undefined && value !== '' && value !== '0' && value !== 'false';
 }

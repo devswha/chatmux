@@ -1396,7 +1396,7 @@ test('external CLI spawn fails closed when the deployment disables full access',
   await assert.rejects(
     spawnExternalCliSession('codex', 'disabled-full-access', '/workspace', {
       fullAccess: true,
-      environment: { CHATMUX_DISABLE_FULL_ACCESS: '1' },
+      environment: { CHATMUX_DISABLE_FULL_ACCESS: 'true' },
       launch: async () => { launched = true; return { command: 'tmux', prefixArgs: [] }; },
       run: async () => '',
     }),

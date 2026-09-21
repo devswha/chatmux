@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 import { providerRegistry } from '../provider.registry.js';
+import { isFullAccessSpawnDisabled } from '../services/full-access-spawn-policy.js';
 import { providerCapabilitiesService } from '../services/provider-capabilities.service.js';
 
 test('provider README ids match the registered providers', async () => {
@@ -71,7 +72,17 @@ test('only verified native CLIs advertise full-access startup', () => {
 
 test('the deployment kill switch removes full-access startup from every capability', () => {
   const capabilities = providerCapabilitiesService.listAllProviderCapabilities({
-    CHATMUX_DISABLE_FULL_ACCESS: '1',
+    CHATMUX_DISABLE_FULL_ACCESS: 'true',
   });
   assert.equal(capabilities.every((entry) => entry.supportsFullAccessSpawn === false), true);
+});
+
+test('the full-access kill switch fails safe for every non-empty value except explicit false forms', () => {
+  for (const value of [undefined, '', ' ', '0', 'false', ' FALSE ']) {
+    const environment = value === undefined ? {} : { CHATMUX_DISABLE_FULL_ACCESS: value };
+    assert.equal(isFullAccessSpawnDisabled(environment), false, JSON.stringify(value));
+  }
+  for (const value of ['1', 'true', 'yes', 'unexpected']) {
+    assert.equal(isFullAccessSpawnDisabled({ CHATMUX_DISABLE_FULL_ACCESS: value }), true, value);
+  }
 });

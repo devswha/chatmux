@@ -47,12 +47,29 @@ function displayMathShouldNormalize(args: {
 }
 
 function inlineMathShouldNormalize(text: string, openIndex: number, closeIndex: number): boolean {
-  const body = text.slice(openIndex + 2, closeIndex);
-  // GNU/basic-regex extensions are stronger evidence than the ambiguous
-  // \( ... \) pair itself. Preserve those shell patterns without making a
-  // following slash reject ordinary units such as \(v\)/s.
-  return !/\\(?:[|+?]|[1-9])/.test(body)
-    && !/\\\{\d+(?:,\d*)?\\\}/.test(body);
+  const before = text[openIndex - 1] ?? '';
+  if (before === "'" || before === '"') return false;
+
+  // BRE postfix operators follow the closing group. Read them in place so a
+  // long interval cannot be truncated and repeated math does not copy the
+  // remainder of the message on every match.
+  let cursor = closeIndex + 2;
+  if (text[cursor] !== '\\') return true;
+  cursor += 1;
+
+  const operator = text[cursor];
+  if (operator === '+' || operator === '?' || /^[1-9]$/.test(operator ?? '')) return false;
+  if (operator !== '{') return true;
+
+  cursor += 1;
+  const minimumStart = cursor;
+  while (/^[0-9]$/.test(text[cursor] ?? '')) cursor += 1;
+  if (cursor === minimumStart) return true;
+  if (text[cursor] === ',') {
+    cursor += 1;
+    while (/^[0-9]$/.test(text[cursor] ?? '')) cursor += 1;
+  }
+  return !(text[cursor] === '\\' && text[cursor + 1] === '}');
 }
 
 function findClosingBacktickRun(text: string, start: number, length: number): number {
