@@ -113,6 +113,23 @@ test('stream discovery propagates a deterministic connection exclusion reason', 
   assert.equal(session.authority, 'stream');
 });
 
+test('stream discovery carries only the current pane full-access tag', () => {
+  const tagged: DiscoveryRow = {
+    key: 'external:tagged', lane: 'external', tmuxName: 'dangerous', tmux, process,
+    kind: 'codex', providerSessionId: null, activity: 'waiting_user', cwd: '/stream',
+    presence: 'present', fullAccess: true,
+  };
+  const [active] = mergeExternalDiscoveryRows([tagged], new Map(), []);
+  assert.equal(active.fullAccess, true);
+
+  const [cleared] = mergeExternalDiscoveryRows(
+    [{ ...tagged, fullAccess: false }],
+    new Map(),
+    [active],
+  );
+  assert.equal(cleared.fullAccess, undefined);
+});
+
 test('REST request generations reject a late bootstrap response', () => {
   assert.equal(shouldApplyExternalRestResponse(2, 1, false), true);
   assert.equal(

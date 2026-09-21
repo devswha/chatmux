@@ -402,6 +402,7 @@ export async function stopAgentProcessInPane(
 
   for (const option of [
     '@chatmux_cli_kind',
+    '@chatmux_full_access',
     '@chatmux_provider_session_id',
     '@chatmux_codex_thread_id',
   ]) {

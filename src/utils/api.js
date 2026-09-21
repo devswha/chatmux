@@ -36,6 +36,7 @@ export const authenticatedFetch = (url, options = {}) => {
 
 // API endpoints
 export const api = {
+  providerCapabilities: () => authenticatedFetch('/api/providers/capabilities'),
   // Auth endpoints (no token required)
   auth: {
     status: (options = {}) => withBootstrapTimeout(

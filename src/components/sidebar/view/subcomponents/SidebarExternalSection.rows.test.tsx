@@ -57,6 +57,21 @@ test('SidebarExternalSection uses the tmux name as primary and transcript metada
   assert.ok(!html.includes('%1'));
 });
 
+test('SidebarExternalSection keeps a visible warning badge on full-access sessions', async () => {
+  const html = await renderSection('en', {
+    sessions: [external('codex-yolo', 'codex', '%90', 190, {
+      authority: 'rest',
+      presence: 'present',
+      fullAccess: true,
+    })],
+    projects: [project],
+    onOpen,
+    onChanged: noop,
+  });
+  assert.match(html, /data-external-full-access="true"/);
+  assert.match(html, />Full access<\/span>/);
+});
+
 
 test('SidebarExternalSection explains why an unsafe agent binding was excluded', async () => {
   const html = await renderSection('ko', {

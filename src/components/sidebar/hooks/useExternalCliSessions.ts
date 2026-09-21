@@ -19,6 +19,8 @@ export type ExternalCliSession = {
   sessionName?: string;
   model?: string | null;
   effort?: string | null;
+  /** The pane was launched with the provider's dangerous startup mode. */
+  fullAccess?: boolean;
   activity?: ExternalSessionActivity;
   /** True when the transcript stream is closed while the pane may still run. */
   transcriptEnded?: boolean;
@@ -65,7 +67,11 @@ export function mergeExternalDiscoveryRows(
         : canReuseExternalMetadata(row, previousMetadata)
           ? previousMetadata
           : undefined;
-      const { connectionIssue: _staleConnectionIssue, ...stableMetadata } = reusableMetadata ?? {};
+      const {
+        connectionIssue: _staleConnectionIssue,
+        fullAccess: _staleFullAccess,
+        ...stableMetadata
+      } = reusableMetadata ?? {};
       if (row.presence !== 'present') {
         return externalIdentityOnly({
           tmuxName: row.tmuxName,
@@ -85,6 +91,7 @@ export function mergeExternalDiscoveryRows(
         ...(row.connectionIssue ? { connectionIssue: row.connectionIssue } : {}),
         projectPath: row.cwd ?? reusableMetadata?.projectPath,
         ...(row.providerSessionId ? { transcriptSessionId: row.providerSessionId } : {}),
+        ...(row.fullAccess === true ? { fullAccess: true } : {}),
         presence: 'present' as const,
         authority: 'stream' as const,
       };
@@ -120,6 +127,7 @@ export function externalIdentityOnly(
     process: null,
     kind: session.kind,
     activity: 'unknown',
+    ...(session.fullAccess ? { fullAccess: true } : {}),
     presence: session.presence ?? 'stale',
     authority,
   };

@@ -68,3 +68,10 @@ test('only verified native CLIs advertise full-access startup', () => {
     omo: true,
   });
 });
+
+test('the deployment kill switch removes full-access startup from every capability', () => {
+  const capabilities = providerCapabilitiesService.listAllProviderCapabilities({
+    CHATMUX_DISABLE_FULL_ACCESS: '1',
+  });
+  assert.equal(capabilities.every((entry) => entry.supportsFullAccessSpawn === false), true);
+});

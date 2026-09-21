@@ -94,6 +94,8 @@ SSH tmux and local shells are also supported as terminal-only connections.
 
 **Full access** is an explicit, per-session option for newly launched local sessions. It is not saved and does not affect existing or remote sessions. Depending on the CLI, it selects that provider's verified auto-approval or full-access mode, so tools, shell commands, and file changes may proceed without another confirmation. GJC keeps its native default-allow policy and has no separate launch switch; Cursor has no verified interactive full-access flag.
 
+Administrators can set `CHATMUX_DISABLE_FULL_ACCESS=1` to hide the option and reject full-access launch requests server-side. Sessions launched with full access retain a warning badge in the sidebar.
+
 <sub>Cursor sessions use the documented <code>agent</code> command; the legacy <code>cursor-agent</code> alias remains supported for older installations.</sub>
 
 ## Remote access

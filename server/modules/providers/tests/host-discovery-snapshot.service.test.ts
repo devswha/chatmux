@@ -24,7 +24,7 @@ import {
 } from '@/modules/providers/services/live-sessions.service.js';
 
 const TMUX_OUTPUT = [
-  '/tmp/tmux\t$1\t@1\t%1\tcodex\t100\tcodex\t\t/work\tcodex\t',
+  '/tmp/tmux\t$1\t@1\t%1\tcodex\t100\tcodex\t\t/work\tcodex\t\t1',
   '/tmp/tmux\t$2\t@2\t%2\tgjc\t200\tgjc\t\t/work\t\t',
 ].join('\n');
 const PS_OUTPUT = [
@@ -254,9 +254,10 @@ test('host snapshot parses the shared tmux and process supersets', () => {
     command: pane.command,
     cwd: pane.cwd,
     taggedKind: pane.taggedKind,
+    fullAccess: pane.fullAccess,
   })), [
-    { name: 'codex', paneId: '%1', command: 'codex', cwd: '/work', taggedKind: 'codex' },
-    { name: 'gjc', paneId: '%2', command: 'gjc', cwd: '/work', taggedKind: undefined },
+    { name: 'codex', paneId: '%1', command: 'codex', cwd: '/work', taggedKind: 'codex', fullAccess: true },
+    { name: 'gjc', paneId: '%2', command: 'gjc', cwd: '/work', taggedKind: undefined, fullAccess: undefined },
   ]);
   assert.deepEqual(parseHostDiscoveryProcesses(PS_OUTPUT), [
     { pid: 100, ppid: 1, comm: 'codex', args: 'codex' },

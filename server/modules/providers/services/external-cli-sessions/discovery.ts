@@ -127,6 +127,7 @@ export async function discoverExternalCliSessions(
         ? { taggedKind: pane.taggedKind as ExternalLocalCliKind }
         : {}),
       ...(pane.taggedSessionId ? { taggedSessionId: pane.taggedSessionId } : {}),
+      ...(pane.fullAccess ? { fullAccess: true } : {}),
     }));
     procs = [...hostSnapshot.processes];
   } else {
@@ -135,7 +136,7 @@ export async function discoverExternalCliSessions(
     try {
       tmuxOutput = await runDiscoveryCommand(commandRunner, 'tmux', [
         'list-panes', '-a', '-F',
-        `#{socket_path}${TMUX_FIELD_SEP}#{session_id}${TMUX_FIELD_SEP}#{window_id}${TMUX_FIELD_SEP}#{pane_id}${TMUX_FIELD_SEP}#{session_name}${TMUX_FIELD_SEP}#{pane_pid}${TMUX_FIELD_SEP}#{pane_current_command}${TMUX_FIELD_SEP}#{@chatmux_codex_thread_id}${TMUX_FIELD_SEP}#{pane_current_path}${TMUX_FIELD_SEP}#{@chatmux_cli_kind}${TMUX_FIELD_SEP}#{@chatmux_provider_session_id}`,
+        `#{socket_path}${TMUX_FIELD_SEP}#{session_id}${TMUX_FIELD_SEP}#{window_id}${TMUX_FIELD_SEP}#{pane_id}${TMUX_FIELD_SEP}#{session_name}${TMUX_FIELD_SEP}#{pane_pid}${TMUX_FIELD_SEP}#{pane_current_command}${TMUX_FIELD_SEP}#{@chatmux_codex_thread_id}${TMUX_FIELD_SEP}#{pane_current_path}${TMUX_FIELD_SEP}#{@chatmux_cli_kind}${TMUX_FIELD_SEP}#{@chatmux_provider_session_id}${TMUX_FIELD_SEP}#{@chatmux_full_access}`,
       ]);
       psOutput = await runDiscoveryCommand(commandRunner, 'ps', ['-eo', 'pid,ppid,comm,args']);
     } catch {

@@ -7,6 +7,7 @@ import { projectsDb, sessionsDb } from '@/modules/database/index.js';
 import { emitRelayKeyDiagnostic } from '@/modules/notifications/index.js';
 import { providerAuthService } from '@/modules/providers/services/provider-auth.service.js';
 import { providerCapabilitiesService } from '@/modules/providers/services/provider-capabilities.service.js';
+import { isFullAccessSpawnDisabled } from '@/modules/providers/services/full-access-spawn-policy.js';
 import { providerMcpService } from '@/modules/providers/services/mcp.service.js';
 import { providerModelsService } from '@/modules/providers/services/provider-models.service.js';
 import { providerSkillsService } from '@/modules/providers/services/skills.service.js';
@@ -268,6 +269,7 @@ function snapshotExternalSessions(rows: readonly DiscoveryRow[]): ExternalCliSes
     tmux: row.tmux,
     kind: row.kind as ExternalCliSession['kind'],
     providerSessionId: row.providerSessionId ?? undefined,
+    ...(row.fullAccess ? { fullAccess: true } : {}),
     cwd: row.cwd ?? undefined,
     agentPid: row.process?.pid,
     startedAtMs: row.process?.startedAtMs,
@@ -923,6 +925,7 @@ router.get(
         tmux: session.tmux,
         process: externalProcessGeneration(session),
         kind: session.kind,
+        ...(session.fullAccess ? { fullAccess: true } : {}),
         presence: rowPresence(presence, session.tmux),
         connectionIssue: session.connectionIssue,
       };
@@ -1005,6 +1008,12 @@ router.post(
       });
     }
     const fullAccess = body.fullAccess === true;
+    if (fullAccess && isFullAccessSpawnDisabled()) {
+      throw new AppError('Full-access startup is disabled by this ChatMux deployment.', {
+        code: 'FULL_ACCESS_DISABLED',
+        statusCode: 403,
+      });
+    }
     if (fullAccess && !supportsExternalCliFullAccess(cli)) {
       throw new AppError(`${cli} does not support full-access startup.`, {
         code: 'UNSUPPORTED_FULL_ACCESS',

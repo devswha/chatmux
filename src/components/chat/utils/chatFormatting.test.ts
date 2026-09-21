@@ -79,8 +79,9 @@ test('keeps escaped Markdown brackets while accepting unambiguous display math',
 test('normalizes ordinary inline math while preserving slash-delimited BRE groups', () => {
   const sed = String.raw`Run sed 's/\(foo\)/bar/' to rename.`;
   assert.equal(normalizeLatexMathDelimiters(sed), sed);
-  const slashAfter = String.raw`Pattern \(foo\)/bar`;
-  assert.equal(normalizeLatexMathDelimiters(slashAfter), slashAfter);
+  const grep = String.raw`grep '\(a\|b\)' file`;
+  assert.equal(normalizeLatexMathDelimiters(grep), grep);
+  assert.equal(normalizeLatexMathDelimiters('speed \\(v\\)/s'), 'speed $v$/s');
   assert.equal(normalizeLatexMathDelimiters('원소가 \\(n\\)개 있습니다.'), '원소가 $n$개 있습니다.');
   assert.equal(normalizeLatexMathDelimiters('value \\(x+1\\) done'), 'value $x+1$ done');
   assert.equal(normalizeLatexMathDelimiters('when \\(x = y\\) holds'), 'when $x = y$ holds');

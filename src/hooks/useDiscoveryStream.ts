@@ -15,6 +15,7 @@ export type DiscoveryRow = {
   process: TmuxProcessGeneration | null;
   kind: string;
   providerSessionId: string | null;
+  fullAccess?: boolean;
   connectionIssue?: ProviderConnectionIssue;
   activity: 'running' | 'waiting_user' | 'asking_user' | 'error' | 'unknown';
   tmuxActionable?: boolean;

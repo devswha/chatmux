@@ -208,6 +208,7 @@ export function classifyExternalSessions(args: {
       ...(ids.length === 1 ? { providerSessionId: ids[0], binding } : {}),
       ...(pane.cwd ? { cwd: pane.cwd } : {}),
       ...(agentPid !== undefined ? { agentPid } : {}),
+      ...(pane.fullAccess && pane.taggedKind === kind ? { fullAccess: true } : {}),
     });
   }
   return result.sort((a, b) => (

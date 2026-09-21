@@ -46,6 +46,15 @@ function displayMathShouldNormalize(args: {
   return /^[ \t\r]*$/.test(suffix);
 }
 
+function inlineMathShouldNormalize(text: string, openIndex: number, closeIndex: number): boolean {
+  const body = text.slice(openIndex + 2, closeIndex);
+  // GNU/basic-regex extensions are stronger evidence than the ambiguous
+  // \( ... \) pair itself. Preserve those shell patterns without making a
+  // following slash reject ordinary units such as \(v\)/s.
+  return !/\\(?:[|+?]|[1-9])/.test(body)
+    && !/\\\{\d+(?:,\d*)?\\\}/.test(body);
+}
+
 function findClosingBacktickRun(text: string, start: number, length: number): number {
   let cursor = start;
   while (cursor < text.length) {
@@ -77,6 +86,7 @@ export function normalizeLatexMathDelimiters(text: string) {
     close: '\\)' | '\\]';
     replacement: '$' | '$$';
     outputIndex: number;
+    openIndex: number;
     prefixOnlyWhitespace: boolean;
     strongMathSyntax: boolean;
   } | null = null;
@@ -100,7 +110,7 @@ export function normalizeLatexMathDelimiters(text: string) {
       const backslashEscaped = precedingBackslashes % 2 === 1;
       if (text[cursor] === '\\' && !backslashEscaped && text.startsWith(math.close, cursor)) {
         const shouldNormalize = math.replacement === '$'
-          ? text[cursor + math.close.length] !== '/'
+          ? inlineMathShouldNormalize(text, math.openIndex, cursor)
           : displayMathShouldNormalize({
             text,
             closeIndex: cursor,
@@ -207,6 +217,7 @@ export function normalizeLatexMathDelimiters(text: string) {
           close: opening.close,
           replacement: opening.replacement,
           outputIndex,
+          openIndex: cursor - opening.token.length,
           prefixOnlyWhitespace: !lineHasContent,
           strongMathSyntax: false,
         };

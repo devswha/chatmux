@@ -35,6 +35,7 @@ export const HOST_DISCOVERY_TMUX_FORMAT = [
   '#{pane_current_path}',
   '#{@chatmux_cli_kind}',
   '#{@chatmux_provider_session_id}',
+  '#{@chatmux_full_access}',
 ].join(TMUX_FIELD_SEP);
 
 export type HostDiscoveryPane = {
@@ -46,6 +47,7 @@ export type HostDiscoveryPane = {
   cwd?: string;
   taggedKind?: string;
   taggedSessionId?: string;
+  fullAccess?: boolean;
 };
 
 export type HostDiscoveryProcess = {
@@ -161,6 +163,7 @@ export function parseHostDiscoveryPanes(output: string): HostDiscoveryPane[] {
       fieldEight,
       fieldNine,
       fieldTen,
+      fieldEleven,
     ] = fields;
     const rawCodexThreadId = legacyLiveFormat ? '' : fieldSeven;
     const rawCwd = legacyLiveFormat ? fieldSeven : fieldEight;
@@ -179,6 +182,7 @@ export function parseHostDiscoveryPanes(output: string): HostDiscoveryPane[] {
     const cwd = rawCwd?.trim() ?? '';
     const taggedKind = rawKind?.trim() ?? '';
     const taggedSessionId = rawProviderSessionId?.trim() ?? '';
+    const fullAccess = !legacyLiveFormat && fieldEleven?.trim() === '1';
     if (
       !tmux.socketPath
       || !/^\$\d+$/.test(tmux.sessionId)
@@ -198,6 +202,7 @@ export function parseHostDiscoveryPanes(output: string): HostDiscoveryPane[] {
       ...(cwd ? { cwd } : {}),
       ...(taggedKind ? { taggedKind } : {}),
       ...(taggedSessionId ? { taggedSessionId } : {}),
+      ...(fullAccess ? { fullAccess: true } : {}),
     });
   }
   return panes;

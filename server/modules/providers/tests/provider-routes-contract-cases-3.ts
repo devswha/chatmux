@@ -112,6 +112,16 @@ test('external and live spawn create missing HOME cwd paths while retaining safe
   assertError(await request('/sessions/external/spawn', { name: 'contract', cwd: ' ' }), 400, 'EMPTY_CWD');
   assertError(await request('/sessions/external/spawn', { name: 'contract', cwd: '~', cli: 'codex', fullAccess: 'yes' }), 400, 'INVALID_FULL_ACCESS');
   assertError(await request('/sessions/external/spawn', { name: 'contract', cwd: '~', cli: 'cursor', fullAccess: true }), 400, 'UNSUPPORTED_FULL_ACCESS');
+  process.env.CHATMUX_DISABLE_FULL_ACCESS = '1';
+  try {
+    assertError(
+      await request('/sessions/external/spawn', { name: 'contract', cwd: '~', cli: 'codex', fullAccess: true }),
+      403,
+      'FULL_ACCESS_DISABLED',
+    );
+  } finally {
+    delete process.env.CHATMUX_DISABLE_FULL_ACCESS;
+  }
   assertError(await request('/sessions/live/spawn', { name: 'contract', cwd: ' ' }), 400, 'EMPTY_CWD');
 
   // Given: an isolated HOME and paths which must remain outside it.

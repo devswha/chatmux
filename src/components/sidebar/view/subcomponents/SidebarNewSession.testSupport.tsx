@@ -133,7 +133,20 @@ export function stubFetch(): {
   const original = globalThis.fetch;
   const calls: FetchCall[] = [];
   const waiters = new Set<{ matches: (url: string) => boolean; settle: () => void }>();
-  let handler: (url: string) => FetchAnswer = () => ({ status: 200, body: { data: { ok: true, reachable: true, conflict: false } } });
+  let handler: (url: string) => FetchAnswer = (url) => (
+    url === '/api/providers/capabilities'
+      ? {
+        status: 200,
+        body: {
+          success: true,
+          data: {
+            providers: ['claude', 'codex', 'opencode', 'omp', 'omo']
+              .map((provider) => ({ provider, supportsFullAccessSpawn: true })),
+          },
+        },
+      }
+      : { status: 200, body: { data: { ok: true, reachable: true, conflict: false } } }
+  );
   globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     calls.push({
@@ -198,4 +211,3 @@ export async function dispatchPeer(harness: Harness, peer: string, name: string)
   press(harness, 'data-spawn-submit');
   await act(async () => { await Promise.resolve(); });
 }
-
