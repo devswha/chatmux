@@ -33,7 +33,7 @@ function isMathBoundaryLine(line: string): boolean {
     || /^ {0,3}(?:`{3,}|~{3,})/.test(line);
 }
 
-function mathShouldNormalize(args: {
+function displayMathShouldNormalize(args: {
   text: string;
   closeIndex: number;
   prefixOnlyWhitespace: boolean;
@@ -99,12 +99,14 @@ export function normalizeLatexMathDelimiters(text: string) {
 
       const backslashEscaped = precedingBackslashes % 2 === 1;
       if (text[cursor] === '\\' && !backslashEscaped && text.startsWith(math.close, cursor)) {
-        const shouldNormalize = mathShouldNormalize({
-          text,
-          closeIndex: cursor,
-          prefixOnlyWhitespace: math.prefixOnlyWhitespace,
-          strongMathSyntax: math.strongMathSyntax,
-        });
+        const shouldNormalize = math.replacement === '$'
+          ? text[cursor + math.close.length] !== '/'
+          : displayMathShouldNormalize({
+            text,
+            closeIndex: cursor,
+            prefixOnlyWhitespace: math.prefixOnlyWhitespace,
+            strongMathSyntax: math.strongMathSyntax,
+          });
         if (shouldNormalize) {
           output[math.outputIndex] = math.replacement;
           output.push(math.replacement);
@@ -195,7 +197,9 @@ export function normalizeLatexMathDelimiters(text: string) {
         : text.startsWith('\\(', cursor)
           ? { token: '\\(', close: '\\)' as const, replacement: '$' as const }
           : null;
-      if (opening) {
+      // BRE groups commonly appear as /\(...\)/. Preserve that syntax while
+      // accepting ordinary inline math without requiring a LaTeX command.
+      if (opening && (opening.replacement !== '$' || text[cursor - 1] !== '/')) {
         const outputIndex = output.length;
         output.push(opening.token);
         cursor += opening.token.length;

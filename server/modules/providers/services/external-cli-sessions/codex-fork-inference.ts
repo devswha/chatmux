@@ -283,7 +283,11 @@ export async function inferSharedCodexForkIds(args: {
         continue;
       }
       // An expired anchorless match must fail closed on revalidation instead of
-      // keeping an old thread visible after /new in the same TUI process.
+      // keeping an old thread visible after /new in the same TUI process. Drop
+      // it before I/O so a failed attempt does not retry on every poll.
+      if (cached?.processKey === processKey && cached.anchor === undefined && anchor === undefined) {
+        forkBindingsByTarget.delete(key);
+      }
       const previous = cached?.processKey === processKey && cached.anchor !== undefined ? cached : undefined;
       pending.push({ session, pane, key, processKey, ...(anchor ? { anchor } : {}), ...(previous ? { previous } : {}) });
     }
