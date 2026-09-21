@@ -18,6 +18,7 @@ const MAX_TAIL_BYTES = 1024 * 1024;
 const MAX_LOG_ROWS = 256;
 const ANCHOR_LENGTH = 96;
 const MIN_ANCHOR_LENGTH = 64;
+export const CODEX_ANCHORLESS_BINDING_RECHECK_MS = 60_000;
 
 /** Text is evidence for display only, never a native session-binding receipt. */
 export function normalizeCodexDisplayText(text: string): string {
@@ -55,8 +56,7 @@ export function selectCodexForkByDisplay(args: {
 }): string | null {
   if (args.anchor.length < MIN_ANCHOR_LENGTH || args.anchor.length > ANCHOR_LENGTH) return null;
   // /new or /resume can leave old cells in scrollback above a new welcome card.
-  const headers = [...args.paneOutput.matchAll(/OpenAI Codex \(v[^\n]*\)/g)];
-  const output = args.paneOutput.slice(headers.at(-1)?.index ?? 0);
+  const output = currentCodexPaneOutput(args.paneOutput);
   if (!normalizeCodexDisplayText(output).includes(args.anchor)) return null;
   const matches = new Set(args.candidates.filter((candidate) => (
     candidate.messages.some((message) => normalizeCodexDisplayText(message).includes(args.anchor))
@@ -65,11 +65,70 @@ export function selectCodexForkByDisplay(args: {
 }
 
 type ForkTranscript = { id: string; parentId?: string; messages: string[] };
+type InitialDisplayCandidate = ForkTranscript & { cwd: string };
+
+function currentCodexPaneOutput(paneOutput: string): string {
+  const headers = [...paneOutput.matchAll(/OpenAI Codex \(v[^\n]*\)/g)];
+  return paneOutput.slice(headers.at(-1)?.index ?? 0);
+}
+
+function transcriptMessageAnchor(message: string): string | null {
+  const normalized = normalizeCodexDisplayText(message);
+  const anchor = normalized.slice(-ANCHOR_LENGTH);
+  return anchor.length >= MIN_ANCHOR_LENGTH && new Set(anchor).size >= 12 ? anchor : null;
+}
+
+/**
+ * A shared app-server owns the rollout file, so a new TUI may have no
+ * process-local file descriptor or `source = 'cli'` state row. The exact cwd
+ * narrows the app-server candidates; render and pane text must still select a
+ * single transcript before ChatMux exposes a display-only binding.
+ */
+export function selectInitialCodexThreadByDisplay(args: {
+  cwd?: string;
+  anchor?: string;
+  paneOutput: string;
+  candidates: readonly InitialDisplayCandidate[];
+}): string | null {
+  if (!args.cwd) return null;
+  const candidates = args.candidates.filter((candidate) => candidate.cwd === args.cwd);
+  if (args.anchor) {
+    return selectCodexForkByDisplay({
+      anchor: args.anchor,
+      paneOutput: args.paneOutput,
+      candidates,
+    });
+  }
+
+  // A newly attached TUI restores transcript cells without replaying their
+  // markdown-stream deltas. In that startup window, use only a long, diverse
+  // assistant-message suffix visible below the newest Codex welcome card. The
+  // cwd and uniqueness checks keep this a conservative display-only fallback.
+  const output = normalizeCodexDisplayText(currentCodexPaneOutput(args.paneOutput));
+  const matches = new Set(candidates.filter((candidate) => candidate.messages.some((message) => {
+    const messageAnchor = transcriptMessageAnchor(message);
+    return messageAnchor !== null && output.includes(messageAnchor);
+  })).map((candidate) => candidate.id));
+  return matches.size === 1 ? [...matches][0] : null;
+}
+
 type CachedTranscript = { signature: string; transcript: ForkTranscript };
-type CachedForkBinding = { processKey: string; anchor: string; selectedId: string };
+type CachedForkBinding = { processKey: string; anchor?: string; selectedId: string; validatedAtMs: number };
 // Bounded, server-private text cache. No prompt bodies enter logs or descriptors.
 const transcriptCache = new Map<string, CachedTranscript>();
 const forkBindingsByTarget = new Map<string, CachedForkBinding>();
+
+export function canReuseCodexDisplayBinding(args: {
+  previous?: Readonly<CachedForkBinding>;
+  processKey: string;
+  anchor?: string;
+  nowMs?: number;
+}): boolean {
+  if (args.previous?.processKey !== args.processKey || args.previous.anchor !== args.anchor) return false;
+  if (args.anchor !== undefined) return true;
+  const ageMs = (args.nowMs ?? Date.now()) - args.previous.validatedAtMs;
+  return ageMs >= 0 && ageMs < CODEX_ANCHORLESS_BINDING_RECHECK_MS;
+}
 
 export async function readCodexForkTranscript(path: string, expectedId: string, root: string): Promise<ForkTranscript | null> {
   try {
@@ -148,21 +207,37 @@ export function readCodexRenderAnchor(db: Database.Database, pid: number, starte
   } catch { return null; }
 }
 
+export function shouldInferSharedCodexDisplay(
+  session: ExternalCliSession,
+  observed: ReadonlyMap<string, string>,
+  attemptableTargetKeys: ReadonlySet<string>,
+): boolean {
+  const targetKey = tmuxPaneIdentityKey(session.tmux);
+  return session.kind === 'codex'
+    && !session.connectionIssue
+    && session.startedAtMs !== undefined
+    && !observed.has(targetKey)
+    && Boolean(session.providerSessionId || attemptableTargetKeys.has(targetKey));
+}
+
 /**
  * Shared app-server Codex releases no longer keep rollouts open in the TUI.
- * Recover a *display-only* fork link from native ancestry + exact TUI render
- * content + that pane's current output. Do not promote this to `observed`:
- * neither timestamps, text equality nor ancestry is a provider identity receipt.
+ * Recover a *display-only* link from exact TUI render content + that pane's
+ * current output. Existing sessions additionally require native fork ancestry;
+ * initial sessions require an exact cwd match against app-server-owned open
+ * rollouts. Do not promote either path to `observed`: text and ancestry are not
+ * provider identity receipts.
  */
 export async function inferSharedCodexForkIds(args: {
   sessions: ExternalCliSession[];
   panes: ExternalPane[];
   procs: ProcessTreeEntry[];
   observed: ReadonlyMap<string, string>;
+  attemptableTargetKeys: ReadonlySet<string>;
 }): Promise<Map<string, string>> {
-  const targets = args.sessions.filter((session) => session.kind === 'codex'
-    && !session.connectionIssue && session.providerSessionId && session.startedAtMs !== undefined
-    && !args.observed.has(tmuxPaneIdentityKey(session.tmux)));
+  const targets = args.sessions.filter((session) => (
+    shouldInferSharedCodexDisplay(session, args.observed, args.attemptableTargetKeys)
+  ));
   const resolved = new Map<string, string>();
   if (!targets.length) {
     forkBindingsByTarget.clear();
@@ -182,9 +257,10 @@ export async function inferSharedCodexForkIds(args: {
       pane: ExternalPane;
       key: string;
       processKey: string;
-      anchor: string;
+      anchor?: string;
       previous?: CachedForkBinding;
     }> = [];
+    const nowMs = Date.now();
     for (const session of targets) {
       const key = tmuxPaneIdentityKey(session.tmux);
       const pane = args.panes.find((candidate) => tmuxPaneIdentityKey(candidate.tmux) === key);
@@ -198,15 +274,22 @@ export async function inferSharedCodexForkIds(args: {
         const anchor = readCodexRenderAnchor(logs, pid, session.startedAtMs! - 1000);
         if (anchor) anchors.add(anchor);
       }
-      if (anchors.size !== 1) continue;
-      const [anchor] = [...anchors];
+      if (anchors.size > 1 || (session.providerSessionId && anchors.size !== 1)) continue;
+      const anchor = anchors.size === 1 ? [...anchors][0] : undefined;
       const processKey = [externalSessionInferenceKey(session), ...codexPids.sort((a, b) => a - b)].join('\0');
-      const previous = forkBindingsByTarget.get(key);
-      if (previous?.processKey === processKey && previous.anchor === anchor) {
-        resolved.set(key, previous.selectedId);
+      const cached = forkBindingsByTarget.get(key);
+      if (cached && canReuseCodexDisplayBinding({ previous: cached, processKey, anchor, nowMs })) {
+        resolved.set(key, cached.selectedId);
         continue;
       }
-      pending.push({ session, pane, key, processKey, anchor, ...(previous?.processKey === processKey ? { previous } : {}) });
+      // An expired anchorless match must fail closed on revalidation instead of
+      // keeping an old thread visible after /new in the same TUI process. Drop
+      // it before I/O so a failed attempt does not retry on every poll.
+      if (cached?.processKey === processKey && cached.anchor === undefined && anchor === undefined) {
+        forkBindingsByTarget.delete(key);
+      }
+      const previous = cached?.processKey === processKey && cached.anchor !== undefined ? cached : undefined;
+      pending.push({ session, pane, key, processKey, ...(anchor ? { anchor } : {}), ...(previous ? { previous } : {}) });
     }
     for (const key of forkBindingsByTarget.keys()) {
       if (!targets.some((session) => tmuxPaneIdentityKey(session.tmux) === key)) forkBindingsByTarget.delete(key);
@@ -218,34 +301,51 @@ export async function inferSharedCodexForkIds(args: {
     if (!servers.length || servers.length > 8) return resolved;
     const openIds = new Set((await Promise.all(servers.map((proc) => readOpenCodexThreads(proc.pid, root)))).flat().map((thread) => thread.id));
     if (!openIds.size || openIds.size > MAX_THREADS) return resolved;
-    const readRow = state.prepare('SELECT rollout_path, source, thread_source, agent_role FROM threads WHERE id = ?');
+    type ThreadRow = {
+      rollout_path: string;
+      cwd: string;
+      source?: string;
+      thread_source?: string;
+      agent_role?: string;
+    };
+    const readRow = state.prepare('SELECT rollout_path, cwd, source, thread_source, agent_role FROM threads WHERE id = ?');
+    const threadRows = new Map<string, ThreadRow | undefined>();
     const transcripts = new Map<string, ForkTranscript | null>();
     const read = async (id: string): Promise<ForkTranscript | null> => {
       if (transcripts.has(id)) return transcripts.get(id)!;
       if (transcripts.size >= MAX_THREADS * 2) return null;
-      const row = readRow.get(id) as { rollout_path: string; source?: string; thread_source?: string; agent_role?: string } | undefined;
+      const row = readRow.get(id) as ThreadRow | undefined;
+      threadRows.set(id, row);
       const transcript = row && isCodexMainThreadMetadata(row) ? await readCodexForkTranscript(row.rollout_path, id, root) : null;
       transcripts.set(id, transcript);
       return transcript;
     };
+    const initial: InitialDisplayCandidate[] = [];
     const forks: ForkTranscript[] = [];
     // Large rollouts can have large individual records; keep scratch buffers
     // sequential rather than multiplying them by the number of loaded threads.
     for (const id of openIds) {
       const transcript = await read(id);
+      const row = threadRows.get(id);
+      if (transcript && row?.cwd) initial.push({ ...transcript, cwd: row.cwd });
       if (transcript?.parentId) forks.push(transcript);
     }
-    if (!forks.length) return resolved;
+    if (!initial.length) return resolved;
     for (const target of pending) {
-      const candidates: ForkTranscript[] = [];
-      for (const fork of forks) {
-        let parent = fork.parentId;
-        const visited = new Set([fork.id]);
-        for (let depth = 0; parent && depth < MAX_ANCESTORS && !visited.has(parent); depth += 1) {
-          if (parent === target.session.providerSessionId) { candidates.push(fork); break; }
-          visited.add(parent);
-          parent = (await read(parent))?.parentId;
+      let candidates: ForkTranscript[];
+      if (target.session.providerSessionId) {
+        candidates = [];
+        for (const fork of forks) {
+          let parent = fork.parentId;
+          const visited = new Set([fork.id]);
+          for (let depth = 0; parent && depth < MAX_ANCESTORS && !visited.has(parent); depth += 1) {
+            if (parent === target.session.providerSessionId) { candidates.push(fork); break; }
+            visited.add(parent);
+            parent = (await read(parent))?.parentId;
+          }
         }
+      } else {
+        candidates = initial.filter((candidate) => candidate.cwd === target.session.cwd);
       }
       if (!candidates.length) {
         if (target.previous) resolved.set(target.key, target.previous.selectedId);
@@ -253,7 +353,7 @@ export async function inferSharedCodexForkIds(args: {
       }
       // Most turns need no extra tmux command: first check whether any child
       // transcript even contains this process's current rendered content.
-      if (!candidates.some((candidate) => candidate.messages.some((message) => normalizeCodexDisplayText(message).includes(target.anchor)))) {
+      if (target.anchor && !candidates.some((candidate) => candidate.messages.some((message) => normalizeCodexDisplayText(message).includes(target.anchor!)))) {
         if (target.previous) resolved.set(target.key, target.previous.selectedId);
         continue;
       }
@@ -264,9 +364,22 @@ export async function inferSharedCodexForkIds(args: {
         if (target.previous) resolved.set(target.key, target.previous.selectedId);
         continue;
       }
-      const selected = selectCodexForkByDisplay({ anchor: target.anchor, paneOutput: output.slice(-131072), candidates });
+      const paneOutput = output.slice(-131072);
+      const selected = target.session.providerSessionId
+        ? selectCodexForkByDisplay({ anchor: target.anchor!, paneOutput, candidates })
+        : selectInitialCodexThreadByDisplay({
+          cwd: target.session.cwd,
+          anchor: target.anchor,
+          paneOutput,
+          candidates: initial,
+        });
       if (selected) {
-        forkBindingsByTarget.set(target.key, { processKey: target.processKey, anchor: target.anchor, selectedId: selected });
+        forkBindingsByTarget.set(target.key, {
+          processKey: target.processKey,
+          ...(target.anchor ? { anchor: target.anchor } : {}),
+          selectedId: selected,
+          validatedAtMs: nowMs,
+        });
         resolved.set(target.key, selected);
       } else if (target.previous) {
         resolved.set(target.key, target.previous.selectedId);

@@ -1,5 +1,7 @@
 import type { LLMProvider } from '@/shared/types.js';
 
+import { supportsExternalCliFullAccess } from '../../../../shared/external-cli-spawn.js';
+
 /**
  * Static, backend-owned description of what one provider integration supports.
  *
@@ -23,6 +25,8 @@ type ProviderCapabilities = {
   supportsTokenUsage: boolean;
   /** Whether the provider runtime can accept model-level reasoning effort. */
   supportsEffort: boolean;
+  /** Whether a native tmux session has a verified auto-approval/full-access startup mode. */
+  supportsFullAccessSpawn: boolean;
 };
 
 /**
@@ -41,6 +45,7 @@ const PROVIDER_CAPABILITIES: Record<LLMProvider, ProviderCapabilities> = {
     supportsPermissionRequests: true,
     supportsTokenUsage: true,
     supportsEffort: true,
+    supportsFullAccessSpawn: supportsExternalCliFullAccess('claude'),
   },
   cursor: {
     provider: 'cursor',
@@ -51,6 +56,7 @@ const PROVIDER_CAPABILITIES: Record<LLMProvider, ProviderCapabilities> = {
     supportsPermissionRequests: false,
     supportsTokenUsage: false,
     supportsEffort: false,
+    supportsFullAccessSpawn: supportsExternalCliFullAccess('cursor'),
   },
   codex: {
     provider: 'codex',
@@ -61,6 +67,7 @@ const PROVIDER_CAPABILITIES: Record<LLMProvider, ProviderCapabilities> = {
     supportsPermissionRequests: false,
     supportsTokenUsage: true,
     supportsEffort: true,
+    supportsFullAccessSpawn: supportsExternalCliFullAccess('codex'),
   },
   opencode: {
     provider: 'opencode',
@@ -74,6 +81,7 @@ const PROVIDER_CAPABILITIES: Record<LLMProvider, ProviderCapabilities> = {
     supportsPermissionRequests: false,
     supportsTokenUsage: true,
     supportsEffort: true,
+    supportsFullAccessSpawn: supportsExternalCliFullAccess('opencode'),
   },
   gjc: {
     provider: 'gjc',
@@ -88,6 +96,9 @@ const PROVIDER_CAPABILITIES: Record<LLMProvider, ProviderCapabilities> = {
     // Runtime unsupported: spawnGjcWithRuntime does not read an effort option
     // (`server/gjc-cli.js:255`), so no reasoning-effort control reaches GJC.
     supportsEffort: false,
+    // GJC's guarded tools default to allow and it exposes no per-launch
+    // full-access flag, so enabling this checkbox would only create a no-op.
+    supportsFullAccessSpawn: false,
   },
   omp: {
     provider: 'omp',
@@ -108,6 +119,7 @@ const PROVIDER_CAPABILITIES: Record<LLMProvider, ProviderCapabilities> = {
     // B11x-omp-effort: buildOmpArgs passes effort through --thinking
     // (`server/omp-cli.ts:48-49`), but this matrix still hides the effort control.
     supportsEffort: false,
+    supportsFullAccessSpawn: supportsExternalCliFullAccess('omp'),
   },
   omo: {
     provider: 'omo',
@@ -128,6 +140,7 @@ const PROVIDER_CAPABILITIES: Record<LLMProvider, ProviderCapabilities> = {
     // `omo --list-models` reports thinking as a yes/no column and never
     // enumerates the levels, so no effort values can be offered.
     supportsEffort: false,
+    supportsFullAccessSpawn: supportsExternalCliFullAccess('omo'),
   },
 };
 

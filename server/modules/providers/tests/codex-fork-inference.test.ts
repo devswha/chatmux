@@ -6,7 +6,7 @@ import test from 'node:test';
 
 import Database from 'better-sqlite3';
 
-import { codexRenderAnchor, normalizeCodexDisplayText, readCodexForkTranscript, readCodexRenderAnchor, selectCodexForkByDisplay } from '../services/external-cli-sessions/codex-fork-inference.js';
+import { canReuseCodexDisplayBinding, CODEX_ANCHORLESS_BINDING_RECHECK_MS, codexRenderAnchor, normalizeCodexDisplayText, readCodexForkTranscript, readCodexRenderAnchor, selectCodexForkByDisplay, selectInitialCodexThreadByDisplay, shouldInferSharedCodexDisplay } from '../services/external-cli-sessions/codex-fork-inference.js';
 import { applyInferredProviderSessionIds } from '../services/external-cli-sessions/provider-runtime-inference.js';
 import { assertProvenSessionBinding } from '../services/tmux-session-binding.service.js';
 import { tmuxPaneIdentityKey } from '../../../../shared/tmux.js';
@@ -36,6 +36,112 @@ test('display matching requires both the exact pane output and a unique candidat
   assert.equal(selectCodexForkByDisplay({ anchor, paneOutput: 'another pane', candidates }), null);
   assert.equal(selectCodexForkByDisplay({ anchor, paneOutput: message, candidates: [...candidates, { id: sibling, messages: [message] }] }), null);
   assert.equal(selectCodexForkByDisplay({ anchor: 'too short', paneOutput: message, candidates }), null);
+});
+
+test('initial shared app-server display matching requires the exact cwd and unique transcript', () => {
+  const initial = '01a0be12-0298-7431-a9c8-9d15289c7f12';
+  const candidates = [
+    { id: initial, cwd: '/workspace/edgepose', messages: [message] },
+    { id: sibling, cwd: '/workspace/other', messages: [message] },
+  ];
+  assert.equal(selectInitialCodexThreadByDisplay({
+    cwd: '/workspace/edgepose', anchor, paneOutput: message, candidates,
+  }), initial);
+  assert.equal(selectInitialCodexThreadByDisplay({
+    cwd: '/workspace/missing', anchor, paneOutput: message, candidates,
+  }), null);
+  assert.equal(selectInitialCodexThreadByDisplay({
+    anchor, paneOutput: message, candidates,
+  }), null);
+  assert.equal(selectInitialCodexThreadByDisplay({
+    cwd: '/workspace/edgepose', anchor, paneOutput: message,
+    candidates: [...candidates, { id: parent, cwd: '/workspace/edgepose', messages: [message] }],
+  }), null);
+});
+
+test('initial shared app-server matching can use restored pane history before new render deltas', () => {
+  const restored = '복원된 Codex 대화의 긴 응답은 새 스트리밍 로그가 없어도 현재 welcome card 아래 화면과 열린 rollout에서 유일하게 일치해야 합니다. 짧거나 중복된 내용은 연결 근거가 되지 않습니다.';
+  const initial = '01a0be12-0298-7431-a9c8-9d15289c7f12';
+  const candidates = [
+    { id: initial, cwd: '/workspace/edgepose', messages: [restored] },
+    { id: sibling, cwd: '/workspace/edgepose', messages: ['완전히 다른 대화의 충분히 긴 응답입니다. 화면에 나타나지 않으므로 후보가 되어서는 안 됩니다. 고유한 문자를 더해 최소 길이도 충족합니다.'] },
+  ];
+  const paneOutput = `old shell output\nOpenAI Codex (v0.155.1)\n${restored}\n› Ask Codex to do anything`;
+  assert.equal(selectInitialCodexThreadByDisplay({ cwd: '/workspace/edgepose', paneOutput, candidates }), initial);
+  assert.equal(selectInitialCodexThreadByDisplay({
+    cwd: '/workspace/edgepose', paneOutput,
+    candidates: [...candidates, { id: parent, cwd: '/workspace/edgepose', messages: [restored] }],
+  }), null);
+  assert.equal(selectInitialCodexThreadByDisplay({
+    cwd: '/workspace/edgepose', paneOutput: `old ${restored}\nOpenAI Codex (v0.155.1)\nnew session`, candidates,
+  }), null);
+  assert.equal(selectInitialCodexThreadByDisplay({
+    cwd: '/workspace/edgepose', paneOutput: 'OpenAI Codex (v0.155.1)\n짧은 답변',
+    candidates: [{ id: initial, cwd: '/workspace/edgepose', messages: ['짧은 답변'] }],
+  }), null);
+});
+
+test('shared app-server display inference includes an unbound Codex TUI but excludes unsafe targets', () => {
+  const tmux = { socketPath: '/tmp/test-socket', sessionId: '$20', windowId: '@20', paneId: '%20' };
+  const unbound = {
+    tmuxName: 'initial-codex', tmux, kind: 'codex' as const,
+    cwd: '/workspace/edgepose', agentPid: 20, startedAtMs: 1_000,
+  };
+  const targetKey = tmuxPaneIdentityKey(tmux);
+  assert.equal(shouldInferSharedCodexDisplay(unbound, new Map(), new Set([targetKey])), true);
+  assert.equal(shouldInferSharedCodexDisplay(unbound, new Map(), new Set()), false);
+  assert.equal(shouldInferSharedCodexDisplay(
+    { ...unbound, providerSessionId: parent, binding: 'observed' },
+    new Map(),
+    new Set(),
+  ), true);
+  assert.equal(shouldInferSharedCodexDisplay(unbound, new Map([[targetKey, parent]]), new Set([targetKey])), false);
+  assert.equal(shouldInferSharedCodexDisplay({ ...unbound, startedAtMs: undefined }, new Map(), new Set([targetKey])), false);
+  assert.equal(shouldInferSharedCodexDisplay(
+    { ...unbound, connectionIssue: 'socket_unreachable' as never },
+    new Map(),
+    new Set([targetKey]),
+  ), false);
+});
+
+test('display inference periodically revalidates anchorless bindings for the same process generation', () => {
+  const previous = {
+    processKey: ['pane', 'codex', '20', '1000', '20'].join('\0'),
+    selectedId: child,
+    validatedAtMs: 1_000,
+  };
+  assert.equal(canReuseCodexDisplayBinding({ previous, processKey: previous.processKey, nowMs: 1_001 }), true);
+  assert.equal(canReuseCodexDisplayBinding({
+    previous,
+    processKey: previous.processKey,
+    nowMs: previous.validatedAtMs + CODEX_ANCHORLESS_BINDING_RECHECK_MS,
+  }), false);
+  assert.equal(canReuseCodexDisplayBinding({
+    previous,
+    processKey: previous.processKey,
+    anchor,
+    nowMs: 1_001,
+  }), false);
+  assert.equal(canReuseCodexDisplayBinding({
+    previous,
+    processKey: `${previous.processKey}-restarted`,
+    nowMs: 1_001,
+  }), false);
+});
+
+test('display inference reuses matching render anchors and invalidates changed anchors', () => {
+  const previous = { processKey: 'process-generation', anchor, selectedId: child, validatedAtMs: 1_000 };
+  assert.equal(canReuseCodexDisplayBinding({
+    previous,
+    processKey: previous.processKey,
+    anchor,
+    nowMs: Number.MAX_SAFE_INTEGER,
+  }), true);
+  assert.equal(canReuseCodexDisplayBinding({
+    previous,
+    processKey: previous.processKey,
+    anchor: `${anchor.slice(0, -1)}x`,
+  }), false);
 });
 
 test('a new Codex welcome card invalidates matching old scrollback', () => {

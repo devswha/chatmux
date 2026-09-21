@@ -52,3 +52,19 @@ test('GJC and OMP capability flags remain behavior-neutral', () => {
     },
   );
 });
+
+test('only verified native CLIs advertise full-access startup', () => {
+  const capabilities = Object.fromEntries(
+    providerCapabilitiesService.listAllProviderCapabilities()
+      .map((entry) => [entry.provider, entry.supportsFullAccessSpawn]),
+  );
+  assert.deepEqual(capabilities, {
+    claude: true,
+    cursor: false,
+    codex: true,
+    opencode: true,
+    gjc: false,
+    omp: true,
+    omo: true,
+  });
+});

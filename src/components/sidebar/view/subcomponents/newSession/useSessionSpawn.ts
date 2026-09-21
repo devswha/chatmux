@@ -37,6 +37,7 @@ export type SpawnRequest = {
   readonly provider: string;
   readonly name: string;
   readonly cwd: string;
+  readonly fullAccess: boolean;
 };
 
 const IDLE: SpawnStatus = { kind: 'idle' };
@@ -54,7 +55,7 @@ function detailOf(payload: Readonly<Record<string, unknown>> | null): string | n
 async function localSpawn(request: SpawnRequest): Promise<SpawnOutcome> {
   const response = request.provider === 'gjc'
     ? await api.liveSessionSpawn(request.name, request.cwd)
-    : await api.externalCliSessionSpawn(request.provider, request.name, request.cwd);
+    : await api.externalCliSessionSpawn(request.provider, request.name, request.cwd, request.fullAccess);
   const payload = body(await response.json().catch(() => null));
   const data = body(payload?.data) ?? payload;
   if (response.ok && data?.ok === true) {

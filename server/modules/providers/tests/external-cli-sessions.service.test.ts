@@ -10,6 +10,7 @@ import {
   classifyExternalSessions,
   claudeReceiptPaneTag,
   buildExternalCliTmuxSpawnArgs,
+  externalCliFullAccessArgs,
   spawnExternalCliSession,
   buildExternalCliRuntimePath,
   createExternalCliSessionDiscovery,
@@ -260,6 +261,38 @@ test('detached external CLI spawns receive a stable initial terminal grid', () =
       '-c', '/workspace',
       '/usr/bin/env', 'PATH=/runtime/bin:/usr/bin', '/home/user/.local/bin/codex',
     ],
+  );
+});
+
+test('full-access startup uses only the audited interactive CLI flags', () => {
+  const fullAccessClis = ['claude', 'codex', 'opencode', 'omp', 'omo'] as const;
+  assert.deepEqual(
+    Object.fromEntries(fullAccessClis.map((cli) => [
+      cli,
+      externalCliFullAccessArgs(cli, true),
+    ])),
+    {
+      claude: ['--dangerously-skip-permissions'],
+      codex: ['--dangerously-bypass-approvals-and-sandbox'],
+      opencode: ['--auto'],
+      omp: ['--approval-mode=yolo'],
+      omo: ['--approve', '--permission-preset', 'full-access'],
+    },
+  );
+  assert.deepEqual(externalCliFullAccessArgs('codex', false), []);
+  assert.throws(
+    () => externalCliFullAccessArgs('cursor', true),
+    /does not support full-access interactive startup/,
+  );
+  assert.deepEqual(
+    buildExternalCliTmuxSpawnArgs(
+      '/home/user/.local/bin/codex',
+      'probe',
+      '/workspace',
+      '/runtime/bin:/usr/bin',
+      externalCliFullAccessArgs('codex', true),
+    ).slice(-2),
+    ['/home/user/.local/bin/codex', '--dangerously-bypass-approvals-and-sandbox'],
   );
 });
 
@@ -1328,4 +1361,26 @@ test('external CLI spawns run tmux new-session through the resolved launch comma
   assert.equal(calls[0].command, 'systemd-run');
   assert.deepEqual(calls[0].args.slice(0, 8), ['--user', '--scope', '--collect', '--quiet', '--', 'tmux', 'new-session', '-d'], 'session creation is wrapped in a transient scope');
   assert.deepEqual([calls[1].command, calls[1].args.slice(0, 3)], ['tmux', ['set-option', '-t', 'scoped']], 'tagging talks to the now-running server directly');
+});
+
+test('external CLI spawn appends full-access mode to the native command only when requested', async () => {
+  const expectations = {
+    claude: ['--dangerously-skip-permissions'],
+    codex: ['--dangerously-bypass-approvals-and-sandbox'],
+    opencode: ['--auto'],
+    omp: ['--approval-mode=yolo'],
+    omo: ['--approve', '--permission-preset', 'full-access'],
+  } as const;
+
+  for (const [cli, suffix] of Object.entries(expectations)) {
+    const calls: Array<{ command: string; args: string[] }> = [];
+    await spawnExternalCliSession(cli as keyof typeof expectations, `full-access-${cli}`, '/workspace', {
+      fullAccess: true,
+      launch: async () => ({ command: 'tmux', prefixArgs: [] }),
+      run: async (command, args) => { calls.push({ command, args }); return ''; },
+    });
+
+    assert.deepEqual(calls[0]?.args.slice(-suffix.length), suffix);
+    assert.equal(calls[1]?.args.at(-1), cli);
+  }
 });
