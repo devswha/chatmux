@@ -79,14 +79,51 @@ test('keeps escaped Markdown brackets while accepting unambiguous display math',
 test('normalizes ordinary inline math while preserving slash-delimited BRE groups', () => {
   const sed = String.raw`Run sed 's/\(foo\)/bar/' to rename.`;
   assert.equal(normalizeLatexMathDelimiters(sed), sed);
-  const slashAfter = String.raw`Pattern \(foo\)/bar`;
-  assert.equal(normalizeLatexMathDelimiters(slashAfter), slashAfter);
+  assert.equal(normalizeLatexMathDelimiters('speed \\(v\\)/s'), 'speed $v$/s');
   assert.equal(normalizeLatexMathDelimiters('원소가 \\(n\\)개 있습니다.'), '원소가 $n$개 있습니다.');
   assert.equal(normalizeLatexMathDelimiters('value \\(x+1\\) done'), 'value $x+1$ done');
   assert.equal(normalizeLatexMathDelimiters('when \\(x = y\\) holds'), 'when $x = y$ holds');
   assert.equal(normalizeLatexMathDelimiters('points \\(a, b\\) given'), 'points $a, b$ given');
   assert.equal(normalizeLatexMathDelimiters('값은 \\(x \\times y\\) 입니다.'), '값은 $x \\times y$ 입니다.');
   assert.equal(normalizeLatexMathDelimiters('\\(x\\)'), '$x$');
+});
+
+test('preserves shell-quoted BRE groups and postfix operators', () => {
+  const shellPatterns = [
+    String.raw`grep '\(abc\)' file`,
+    String.raw`grep '\(a\|b\)' file`,
+    String.raw`grep '\(a\)\1' file`,
+    String.raw`grep '\(ab\)\{2,3\}' file`,
+    String.raw`grep '\(ab\)\+' file`,
+    String.raw`grep "\(ab\)\?" file`,
+  ];
+  for (const shellPattern of shellPatterns) {
+    assert.equal(normalizeLatexMathDelimiters(shellPattern), shellPattern);
+  }
+
+  const unquotedPostfixes = [
+    String.raw`pattern \(a\)\|b`,
+    String.raw`pattern \(a\)\1`,
+    String.raw`pattern \(ab\)\+`,
+    String.raw`pattern \(ab\)\?`,
+    String.raw`pattern \(ab\)\{12,345\}`,
+  ];
+  for (const pattern of unquotedPostfixes) {
+    assert.equal(normalizeLatexMathDelimiters(pattern), pattern);
+  }
+});
+
+test('normalizes LaTeX constructs that overlap BRE body syntax', () => {
+  const cases = [
+    [String.raw`the norm \(\|x\|\)`, String.raw`the norm $\|x\|$`],
+    [String.raw`\(\|x\|_2 \le 1\)`, String.raw`$\|x\|_2 \le 1$`],
+    [String.raw`lines \(a \| b\)`, String.raw`lines $a \| b$`],
+    [String.raw`the set \(\{1,2\}\)`, String.raw`the set $\{1,2\}$`],
+    [String.raw`the set \(\{1, 2\}\)`, String.raw`the set $\{1, 2\}$`],
+  ];
+  for (const [input, expected] of cases) {
+    assert.equal(normalizeLatexMathDelimiters(input), expected);
+  }
 });
 
 test('normalizes long backslash runs without superlinear slowdown', () => {

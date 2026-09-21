@@ -2,6 +2,8 @@ import type { LLMProvider } from '@/shared/types.js';
 
 import { supportsExternalCliFullAccess } from '../../../../shared/external-cli-spawn.js';
 
+import { isFullAccessSpawnDisabled } from './full-access-spawn-policy.js';
+
 /**
  * Static, backend-owned description of what one provider integration supports.
  *
@@ -144,15 +146,30 @@ const PROVIDER_CAPABILITIES: Record<LLMProvider, ProviderCapabilities> = {
   },
 };
 
+function applyDeploymentPolicy(
+  capabilities: ProviderCapabilities,
+  environment: Readonly<Record<string, string | undefined>>,
+): ProviderCapabilities {
+  return capabilities.supportsFullAccessSpawn && isFullAccessSpawnDisabled(environment)
+    ? { ...capabilities, supportsFullAccessSpawn: false }
+    : capabilities;
+}
+
 /**
  * Application service exposing the provider capability matrix.
  */
 export const providerCapabilitiesService = {
-  getProviderCapabilities(provider: LLMProvider): ProviderCapabilities {
-    return PROVIDER_CAPABILITIES[provider];
+  getProviderCapabilities(
+    provider: LLMProvider,
+    environment: Readonly<Record<string, string | undefined>> = process.env,
+  ): ProviderCapabilities {
+    return applyDeploymentPolicy(PROVIDER_CAPABILITIES[provider], environment);
   },
 
-  listAllProviderCapabilities(): ProviderCapabilities[] {
-    return Object.values(PROVIDER_CAPABILITIES);
+  listAllProviderCapabilities(
+    environment: Readonly<Record<string, string | undefined>> = process.env,
+  ): ProviderCapabilities[] {
+    return Object.values(PROVIDER_CAPABILITIES)
+      .map((capabilities) => applyDeploymentPolicy(capabilities, environment));
   },
 };

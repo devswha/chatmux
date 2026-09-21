@@ -9,13 +9,15 @@ import { CURSOR_CLI_COMMAND_CANDIDATES } from '@/modules/providers/list/cursor/c
 
 import {
   supportsExternalCliFullAccess,
+  type ExternalSpawnCli,
   type FullAccessExternalSpawnCli,
 } from '../../../../../shared/external-cli-spawn.js';
 import type { TmuxPaneIdentity } from '../../../../../shared/tmux.js';
 import { tmuxPaneIdentityKey } from '../../../../../shared/tmux.js';
 import { resolveTmuxSpawnLaunch } from '../tmux-spawn-scope.service.js';
+import { isFullAccessSpawnDisabled } from '../full-access-spawn-policy.js';
 
-import type { ExternalCliSession, ExternalLocalCliKind, ExternalPane, ProcessTreeEntry } from './contracts-and-resume.js';
+import type { ExternalCliSession, ExternalPane, ProcessTreeEntry } from './contracts-and-resume.js';
 import type { ExternalProviderSessionInference } from './provider-runtime-inference.js';
 import { applyInferredProviderSessionIds, inferClaudeSessionIds, inferIndexedProviderSessionIds, inferOpenPiSessionIds } from './provider-runtime-inference.js';
 import { inferFreshCodexThreadIds, inferOpenCodexThreadIds } from './codex-runtime-inference.js';
@@ -269,7 +271,7 @@ export async function ensureExternalCliCwd(input: string): Promise<string | null
   return expanded ? ensureHomeCwd(expanded, home) : null;
 }
 
-export type ExternalSpawnCli = ExternalLocalCliKind;
+export type { ExternalSpawnCli } from '../../../../../shared/external-cli-spawn.js';
 
 export const EXTERNAL_CLI_COMMANDS: Record<ExternalSpawnCli, readonly string[]> = {
   claude: ['claude'],
@@ -398,20 +400,28 @@ export async function spawnExternalCliSession(
   cwd: string,
   options: {
     fullAccess?: boolean;
+    environment?: Readonly<Record<string, string | undefined>>;
     launch?: typeof resolveTmuxSpawnLaunch;
     run?: typeof runCommand;
   } = {},
 ): Promise<void> {
+  const fullAccess = options.fullAccess === true;
+  if (fullAccess && isFullAccessSpawnDisabled(options.environment)) {
+    throw new Error('Full-access startup is disabled by the server deployment.');
+  }
   const run = options.run ?? runCommand;
   const executable = await resolveExternalCliExecutable(cli);
   const launch = await (options.launch ?? resolveTmuxSpawnLaunch)();
-  const cliArgs = externalCliFullAccessArgs(cli, options.fullAccess ?? false);
+  const cliArgs = externalCliFullAccessArgs(cli, fullAccess);
   await run(launch.command, [
     ...launch.prefixArgs,
     ...buildExternalCliTmuxSpawnArgs(executable, tmuxName, cwd, undefined, cliArgs),
   ]);
   try {
     await run('tmux', ['set-option', '-t', tmuxName, '@chatmux_cli_kind', cli]);
+    if (fullAccess) {
+      await run('tmux', ['set-option', '-t', tmuxName, '@chatmux_full_access', '1']);
+    }
   } catch (error) {
     await run('tmux', ['kill-session', '-t', `=${tmuxName}`]).catch(() => undefined);
     throw error;

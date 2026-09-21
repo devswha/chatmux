@@ -212,6 +212,7 @@ test('process stop respawns a shell when the agent shares the pane root process 
   ]);
   assert.deepEqual(calls.slice(2).map(({ args }) => args.slice(2)), [
     ['set-option', '-p', '-t', identity.paneId, '@chatmux_cli_kind', ''],
+    ['set-option', '-p', '-t', identity.paneId, '@chatmux_full_access', ''],
     ['set-option', '-p', '-t', identity.paneId, '@chatmux_provider_session_id', ''],
     ['set-option', '-p', '-t', identity.paneId, '@chatmux_codex_thread_id', ''],
   ]);
@@ -231,7 +232,10 @@ test('process stop signals the agent job group, confirms its exit against the ve
   });
   assert.deepEqual(signals, ['SIGTERM']);
   assert.equal(calls.some(({ args }) => args.includes('respawn-pane')), false, 'the user shell in the pane survives');
-  assert.deepEqual(calls.slice(1).map(({ args }) => args[2]), ['set-option', 'set-option', 'set-option']);
+  assert.deepEqual(
+    calls.slice(1).map(({ args }) => args[2]),
+    ['set-option', 'set-option', 'set-option', 'set-option'],
+  );
 });
 
 test('process stop escalates to SIGKILL and reports an agent that will not die', async () => {

@@ -46,6 +46,34 @@ function displayMathShouldNormalize(args: {
   return /^[ \t\r]*$/.test(suffix);
 }
 
+function inlineMathShouldNormalize(text: string, openIndex: number, closeIndex: number): boolean {
+  const before = text[openIndex - 1] ?? '';
+  if (before === "'" || before === '"') return false;
+
+  // BRE continuation operators follow the closing group. Read them in place
+  // so a long interval cannot be truncated and repeated math does not copy
+  // the remainder of the message on every match.
+  let cursor = closeIndex + 2;
+  if (text[cursor] !== '\\') return true;
+  cursor += 1;
+
+  const operator = text[cursor];
+  if (operator === '|' || operator === '+' || operator === '?' || /^[1-9]$/.test(operator ?? '')) {
+    return false;
+  }
+  if (operator !== '{') return true;
+
+  cursor += 1;
+  const minimumStart = cursor;
+  while (/^[0-9]$/.test(text[cursor] ?? '')) cursor += 1;
+  if (cursor === minimumStart) return true;
+  if (text[cursor] === ',') {
+    cursor += 1;
+    while (/^[0-9]$/.test(text[cursor] ?? '')) cursor += 1;
+  }
+  return !(text[cursor] === '\\' && text[cursor + 1] === '}');
+}
+
 function findClosingBacktickRun(text: string, start: number, length: number): number {
   let cursor = start;
   while (cursor < text.length) {
@@ -77,6 +105,7 @@ export function normalizeLatexMathDelimiters(text: string) {
     close: '\\)' | '\\]';
     replacement: '$' | '$$';
     outputIndex: number;
+    openIndex: number;
     prefixOnlyWhitespace: boolean;
     strongMathSyntax: boolean;
   } | null = null;
@@ -100,7 +129,7 @@ export function normalizeLatexMathDelimiters(text: string) {
       const backslashEscaped = precedingBackslashes % 2 === 1;
       if (text[cursor] === '\\' && !backslashEscaped && text.startsWith(math.close, cursor)) {
         const shouldNormalize = math.replacement === '$'
-          ? text[cursor + math.close.length] !== '/'
+          ? inlineMathShouldNormalize(text, math.openIndex, cursor)
           : displayMathShouldNormalize({
             text,
             closeIndex: cursor,
@@ -207,6 +236,7 @@ export function normalizeLatexMathDelimiters(text: string) {
           close: opening.close,
           replacement: opening.replacement,
           outputIndex,
+          openIndex: cursor - opening.token.length,
           prefixOnlyWhitespace: !lineHasContent,
           strongMathSyntax: false,
         };

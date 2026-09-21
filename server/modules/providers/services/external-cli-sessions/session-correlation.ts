@@ -221,6 +221,7 @@ export function parseExternalPanes(output: string): ExternalPane[] {
       ? { taggedKind: pane.taggedKind as ExternalLocalCliKind }
       : {}),
     ...(pane.taggedSessionId ? { taggedSessionId: pane.taggedSessionId } : {}),
+    ...(pane.fullAccess ? { fullAccess: true } : {}),
   }));
 }
 

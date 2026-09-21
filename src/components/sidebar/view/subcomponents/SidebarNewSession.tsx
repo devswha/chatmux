@@ -1,4 +1,4 @@
-import { useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import { Plus } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -7,7 +7,7 @@ import { EMPTY_HOST_ROW_SET } from '../../../../fleet/discovery/hostRows';
 import { spawnableHosts, type SpawnHostChoice } from '../../../../fleet/hostAvailability';
 import HomeDirInput from '../../../../shared/view/HomeDirInput';
 import { cn } from '../../../../lib/utils';
-import { supportsExternalCliFullAccess } from '../../../../../shared/external-cli-spawn';
+import { api } from '../../../../utils/api';
 
 import PeerDirInput from './newSession/PeerDirInput';
 import SpawnHostFields from './newSession/SpawnHostFields';
@@ -74,7 +74,31 @@ export default function SidebarNewSession({
   const [hostId, setHostId] = useState<string | null>(null);
   const [projectLocalId, setProjectLocalId] = useState<string | null>(null);
   const [fullAccess, setFullAccess] = useState(false);
+  const [fullAccessProviders, setFullAccessProviders] = useState<ReadonlySet<string>>(new Set());
   const fullAccessWarningId = useId();
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const response = await api.providerCapabilities();
+        const payload = await response.json() as {
+          success?: boolean;
+          data?: { providers?: Array<{ provider?: unknown; supportsFullAccessSpawn?: unknown }> };
+        };
+        if (cancelled || !response.ok || !payload.success || !Array.isArray(payload.data?.providers)) return;
+        setFullAccessProviders(new Set(payload.data.providers.flatMap((entry) => (
+          typeof entry.provider === 'string' && entry.supportsFullAccessSpawn === true
+            ? [entry.provider]
+            : []
+        ))));
+      } catch {
+        // Fail closed: the server capability matrix is authoritative.
+      }
+    };
+    void load();
+    return () => { cancelled = true; };
+  }, []);
 
   const hosts = useMemo(
     () => spawnableHosts(catalog, t('newSessionForm.thisMachine')),
@@ -127,7 +151,10 @@ export default function SidebarNewSession({
     ? PROVIDERS.filter((item) => (PEER_SPAWN_PROVIDERS as readonly string[]).includes(item.id))
     : PROVIDERS;
   const activeProvider = isRemote ? 'gjc' : provider;
-  const supportsFullAccess = !isRemote && supportsExternalCliFullAccess(activeProvider);
+  const supportsFullAccess = !isRemote && fullAccessProviders.has(activeProvider);
+  useEffect(() => {
+    if (!supportsFullAccess) setFullAccess(false);
+  }, [supportsFullAccess]);
   const ready = canDispatchSpawn({ host: selectedHost, name, cwd, projectLocalId });
   const submit = () => {
     if (!ready || status.kind === 'spawning' || status.kind === 'unknown') return;

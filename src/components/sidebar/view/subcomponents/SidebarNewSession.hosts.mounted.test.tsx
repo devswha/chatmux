@@ -55,6 +55,8 @@ test('Given a verified native CLI, full access is opt-in and reaches spawn as a 
   t.after(fetches.restore);
   const harness = mount({ localHostId: LOCAL, hosts: new Map() });
   t.after(harness.dispose);
+  await act(async () => { await fetches.awaitRequest((url) => url === '/api/providers/capabilities'); });
+  await act(async () => { await Promise.resolve(); });
 
   // When
   for (const cli of ['claude', 'codex', 'opencode', 'omp', 'omo']) {
@@ -89,10 +91,14 @@ test('Given a verified native CLI, full access is opt-in and reaches spawn as a 
   });
 });
 
-test('Given an unsupported provider or remote host, full access stays disabled and stale opt-in is cleared', (t) => {
+test('Given an unsupported provider or remote host, full access stays disabled and stale opt-in is cleared', async (t) => {
   // Given
+  const fetches = stubFetch();
+  t.after(fetches.restore);
   const harness = mount(catalogOf(entry(LOCAL, 'online'), entry(PEER_A, 'online')));
   t.after(harness.dispose);
+  await act(async () => { await fetches.awaitRequest((url) => url === '/api/providers/capabilities'); });
+  await act(async () => { await Promise.resolve(); });
   press(harness, 'data-spawn-provider', 'claude');
   const supported = byAttribute(harness, 'data-spawn-full-access')[0];
   act(() => { supported?.props.onChange({ target: { checked: true } }); });
@@ -116,6 +122,34 @@ test('Given an unsupported provider or remote host, full access stays disabled a
   const remote = byAttribute(harness, 'data-spawn-full-access')[0];
   assert.equal(remote?.props.disabled, true);
   assert.equal(remote?.props.checked, false);
+});
+
+test('Given the server kill switch, every full-access checkbox stays disabled', async (t) => {
+  const fetches = stubFetch();
+  fetches.reply((url) => (
+    url === '/api/providers/capabilities'
+      ? {
+        status: 200,
+        body: {
+          success: true,
+          data: {
+            providers: ['claude', 'codex', 'opencode', 'omp', 'omo']
+              .map((provider) => ({ provider, supportsFullAccessSpawn: false })),
+          },
+        },
+      }
+      : { status: 200, body: { data: { ok: true } } }
+  ));
+  t.after(fetches.restore);
+  const harness = mount({ localHostId: LOCAL, hosts: new Map() });
+  t.after(harness.dispose);
+  await act(async () => { await fetches.awaitRequest((url) => url === '/api/providers/capabilities'); });
+  await act(async () => { await Promise.resolve(); });
+
+  for (const cli of ['claude', 'codex', 'opencode', 'omp', 'omo']) {
+    press(harness, 'data-spawn-provider', cli);
+    assert.equal(byAttribute(harness, 'data-spawn-full-access')[0]?.props.disabled, true);
+  }
 });
 
 test('Given a local spawn with no working directory, when submit is pressed, then nothing is dispatched', async (t) => {

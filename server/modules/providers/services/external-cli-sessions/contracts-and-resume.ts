@@ -1,6 +1,7 @@
 import { relative, sep, isAbsolute } from 'node:path';
 
 import type { ProviderConnectionIssue } from '../../../../../shared/provider-connection.js';
+import type { ExternalSpawnCli } from '../../../../../shared/external-cli-spawn.js';
 import type { TmuxPaneIdentity } from '../../../../../shared/tmux.js';
 import { tmuxPaneIdentityKey } from '../../../../../shared/tmux.js';
 
@@ -74,7 +75,7 @@ export type ClaudeRuntimeReceipt = {
   procStart: string | null;
 };
 
-export type ExternalLocalCliKind = 'claude' | 'codex' | 'cursor' | 'opencode' | 'omp' | 'omo';
+export type ExternalLocalCliKind = ExternalSpawnCli;
 
 export type ExternalCliKind = ExternalLocalCliKind | 'ssh' | 'shell';
 
@@ -101,6 +102,8 @@ export type ExternalCliSession = {
   cwd?: string;
   agentPid?: number;
   startedAtMs?: number;
+  /** ChatMux launched this pane with the provider's dangerous startup mode. */
+  fullAccess?: boolean;
   connectionIssue?: ProviderConnectionIssue;
 };
 
@@ -205,6 +208,7 @@ export type ExternalPane = {
   cwd?: string;
   taggedKind?: ExternalLocalCliKind;
   taggedSessionId?: string;
+  fullAccess?: boolean;
 };
 
 export type ProcessTreeEntry = {

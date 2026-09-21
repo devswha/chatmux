@@ -52,11 +52,20 @@ provider's verified interactive auto-approval or full-access mode. This is a
 per-request boolean: it is off by default, is not persisted, and is not sent to
 remote fleet spawns or applied to existing sessions.
 
-`shared/external-cli-spawn.ts` is the shared capability list. The client uses it
-to enable the checkbox, but `provider.routes.ts` remains authoritative: it
-validates the boolean, rejects unsupported providers, and passes only fixed
-server-owned arguments to the tmux launcher. Never accept arbitrary launch
-arguments from the browser.
+`shared/external-cli-spawn.ts` is the shared capability list. The client reads
+the backend-owned `/api/providers/capabilities` response to enable the checkbox,
+while `provider.routes.ts` remains authoritative: it validates the boolean,
+rejects unsupported providers, and passes only fixed server-owned arguments to
+the tmux launcher. Never accept arbitrary launch arguments from the browser.
+
+Set `CHATMUX_DISABLE_FULL_ACCESS=1` to disable this feature for the entire
+deployment. Values are trimmed and case-insensitive; every non-empty value except
+`0` or `false` disables the feature. The backend then advertises no full-access
+capability and rejects full-access spawn requests even if a stale or custom
+client sends one. A full-access session is tagged with tmux option
+`@chatmux_full_access=1`;
+discovery propagates that tag so the sidebar keeps a visible warning badge for
+the lifetime of the pane.
 
 | Provider | Full-access startup | Native interactive arguments |
 | --- | --- | --- |

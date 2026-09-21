@@ -185,7 +185,10 @@ const markdownComponents = {
 };
 
 export function Markdown({ children, className }: MarkdownProps) {
-  const content = normalizeLatexMathDelimiters(normalizeInlineCodeFences(String(children ?? '')));
+  const content = useMemo(
+    () => normalizeLatexMathDelimiters(normalizeInlineCodeFences(String(children ?? ''))),
+    [children],
+  );
   const remarkPlugins = useMemo(() => [remarkGfm, remarkMath], []);
   const rehypePlugins = useMemo(() => [rehypeKatex], []);
   const { openFileInEditor } = usePaletteOps();

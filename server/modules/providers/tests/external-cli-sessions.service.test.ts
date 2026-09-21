@@ -358,7 +358,7 @@ test('parseExternalPanes splits exact identity<TAB>name<TAB>pid<TAB>pane_current
 
 test('parseExternalPanes reads ChatMux provider/session tags for freshly spawned panes', () => {
   const out = parseExternalPanes(
-    '/tmp/tmux-1000/default\t$710\t@710\t%710\tomp-work\t710\tnode\t\t/workspace\tomp\t019f848f_ff71_77f0\n',
+    '/tmp/tmux-1000/default\t$710\t@710\t%710\tomp-work\t710\tnode\t\t/workspace\tomp\t019f848f_ff71_77f0\t1\n',
   );
   assert.deepEqual(out, [{
     name: 'omp-work',
@@ -368,6 +368,7 @@ test('parseExternalPanes reads ChatMux provider/session tags for freshly spawned
     cwd: '/workspace',
     taggedKind: 'omp',
     taggedSessionId: '019f848f_ff71_77f0',
+    fullAccess: true,
   }]);
 });
 
@@ -1154,6 +1155,7 @@ test('classifyExternalSessions trusts a valid ChatMux spawn tag through a node l
       command: 'node',
       taggedKind: 'omp',
       taggedSessionId: 'omp_tagged_123',
+      fullAccess: true,
       cwd: '/workspace',
     }],
     procs: [{ pid: 1100, ppid: 1, comm: 'node', args: 'node wrapper.js' }],
@@ -1164,6 +1166,7 @@ test('classifyExternalSessions trusts a valid ChatMux spawn tag through a node l
     kind: 'omp',
     providerSessionId: 'omp_tagged_123', binding: 'tagged',
     cwd: '/workspace',
+    fullAccess: true,
   }]);
 });
 
@@ -1382,5 +1385,22 @@ test('external CLI spawn appends full-access mode to the native command only whe
 
     assert.deepEqual(calls[0]?.args.slice(-suffix.length), suffix);
     assert.equal(calls[1]?.args.at(-1), cli);
+    assert.deepEqual(calls[2]?.args, [
+      'set-option', '-t', 'full-access-' + cli, '@chatmux_full_access', '1',
+    ]);
   }
+});
+
+test('external CLI spawn fails closed when the deployment disables full access', async () => {
+  let launched = false;
+  await assert.rejects(
+    spawnExternalCliSession('codex', 'disabled-full-access', '/workspace', {
+      fullAccess: true,
+      environment: { CHATMUX_DISABLE_FULL_ACCESS: 'true' },
+      launch: async () => { launched = true; return { command: 'tmux', prefixArgs: [] }; },
+      run: async () => '',
+    }),
+    /disabled by the server deployment/,
+  );
+  assert.equal(launched, false);
 });

@@ -328,6 +328,15 @@ export function SidebarExternalSessionRow({
             {activityState && !isInputRequired && (
               <SessionActivityBadge state={activityState} />
             )}
+            {session.fullAccess && (
+              <span
+                data-external-full-access
+                title={t('newSessionForm.fullAccessActiveWarning')}
+                className="shrink-0 rounded bg-red-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-red-600 dark:text-red-400"
+              >
+                {t('newSessionForm.fullAccess')}
+              </span>
+            )}
             <span className="truncate text-sm font-medium text-foreground">{primary}</span>
           </span>
           <span className="truncate text-[11px] text-muted-foreground">

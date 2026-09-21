@@ -53,6 +53,7 @@ export type DiscoveryRow = Readonly<{
   process: TmuxProcessGeneration | null;
   kind: string;
   providerSessionId: string | null;
+  fullAccess?: boolean;
   /** How providerSessionId is tied to the process (see ExternalSessionBinding). Server-local, not on the fleet wire. */
   binding?: ExternalSessionBinding;
   connectionIssue?: ProviderConnectionIssue;
@@ -146,6 +147,7 @@ function sameRow(a: DiscoveryRow, b: DiscoveryRow): boolean {
     && a.process?.startedAtMs === b.process?.startedAtMs
     && a.kind === b.kind
     && a.providerSessionId === b.providerSessionId
+    && a.fullAccess === b.fullAccess
     && a.binding === b.binding
     && a.connectionIssue === b.connectionIssue
     && a.activity === b.activity
@@ -166,6 +168,7 @@ function hostPaneFingerprint(panes: readonly HostDiscoveryPane[]): string {
       pane.codexThreadId ?? '',
       pane.taggedKind ?? '',
       pane.taggedSessionId ?? '',
+      pane.fullAccess ? '1' : '',
     ].join('\0'))
     .sort()
     .join('\n');
@@ -256,6 +259,7 @@ export function createDiscoveryCollector(options: DiscoveryCollectorOptions = {}
         process,
         kind: session.kind,
         providerSessionId: session.providerSessionId ?? null,
+        ...(session.fullAccess ? { fullAccess: true } : {}),
         ...(session.binding ? { binding: session.binding } : {}),
         ...(session.connectionIssue ? { connectionIssue: session.connectionIssue } : {}),
         activity: process
