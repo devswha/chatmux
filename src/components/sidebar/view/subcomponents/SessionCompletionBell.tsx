@@ -106,13 +106,19 @@ export default function SessionCompletionBell({ descriptor, className }: Session
   const environmentalReason = reason !== null && ENVIRONMENTAL_REASONS.includes(reason);
 
   const statusRequiresAction = environmentalReason || repairRequired;
+  // Visible text here squeezed the row's open button to nothing and pushed the
+  // wrench out of the sidebar, so the status is only read out and shown as a
+  // tooltip: on the wrench when repair is required, otherwise on the bell.
+  const bellTitle = statusRequiresAction && !repairRequired && statusText
+    ? `${watchLabel}\n${statusText}`
+    : watchLabel;
 
   return (
     <span className={cn('flex shrink-0 items-center gap-1', className)}>
       {statusText && (
         <span
           id={statusId}
-          className={statusRequiresAction ? 'max-w-48 text-xs text-destructive' : 'sr-only'}
+          className="sr-only"
           role="status"
           aria-live="polite"
         >
@@ -121,7 +127,7 @@ export default function SessionCompletionBell({ descriptor, className }: Session
       )}
       <button
         type="button"
-        title={watchLabel}
+        title={bellTitle}
         aria-label={watchLabel}
         aria-describedby={statusText ? statusId : undefined}
         aria-pressed={watched}

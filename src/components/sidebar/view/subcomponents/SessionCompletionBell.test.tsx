@@ -143,7 +143,11 @@ test('SessionCompletionBell shows localized environmental guidance without a rep
   ] as const satisfies readonly (readonly [CompletionNotificationReason, string])[]) {
     const html = await renderBell({ error });
     assert.match(html, new RegExp(message.replace(/[.?]/g, '\\$&')), `${error} explains what prevents notifications`);
-    assert.match(html, /class="max-w-48 text-xs text-destructive"/, `${error} guidance is visible`);
+    // Visible text in the row's action slot squeezed the open button; the guidance is a tooltip.
+    assert.doesNotMatch(html, /max-w-48|text-xs text-destructive/, `${error} guidance is not visible row text`);
+    assert.match(html, /class="sr-only" role="status"/, `${error} guidance is still announced`);
+    const bellTitle = /<button[^>]*title="([^"]*)"/.exec(html)?.[1] ?? '';
+    assert.ok(bellTitle.includes(message.replace(/'/g, '&#x27;')), `${error} guidance is the bell's tooltip`);
     assert.equal((html.match(/<button/g) ?? []).length, 1, `${error} does not offer repair`);
   }
 });
@@ -159,6 +163,17 @@ test('SessionCompletionBell announces errors without changing pressed owner inte
     assert.match(html, /role="status" aria-live="polite"/);
     assert.match(html, /aria-pressed="true"/);
   }
+});
+
+test('SessionCompletionBell shows repair as a wrench with the sentence as its tooltip, never as row text', async () => {
+  const watchedItem = item(true);
+  const html = await renderBell({ item: watchedItem, target: watchedItem.target ?? null, deviceRepairRequired: true, globalPaused: true });
+  const repair = enSidebar.completionNotifications.repair;
+  assert.match(html, /lucide-wrench/);
+  assert.ok(html.includes(`title="${repair}" aria-label="${repair}"`), 'the wrench carries the repair sentence');
+  assert.doesNotMatch(html, /max-w-48|text-xs text-destructive/, 'no visible status text in the row');
+  assert.match(html, /class="sr-only" role="status"/);
+  assert.equal((html.match(/<button/g) ?? []).length, 2);
 });
 
 test('SessionCompletionBell composes paused status with concurrent error and pending state', async () => {
