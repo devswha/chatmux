@@ -390,7 +390,10 @@ test('Claude direct input navigates to the editable row without submitting it', 
 Enter to select · ↑/↓ to navigate · Esc to cancel
 `;
   const calls: Array<{ args: string[]; stdin?: string }> = [];
+  // Claude's answer reads the pane twice: the capture with scrollback, then the
+  // visible screen alone (here the same rows).
   const outputs = [
+    screen,
     screen,
     '$7\t@8\t%9\n',
     '',

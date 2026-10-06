@@ -1,0 +1,66 @@
+[38;5;174m ▐[48;5;16m▛███▛█[39m[49m   [1mClaude[0m [1mCode[0m [38;5;246mv2.1.289[39m 
+[38;5;174m▝▜[48;5;16m█████[49m█▀[39m  [38;5;246mHaiku[39m [38;5;246m4.5[39m [38;5;246m·[39m [38;5;246mClaude[39m [38;5;246mAPI[39m                               
+[38;5;174m ▝▝[39m   [38;5;174m▝▝[39m   [38;5;246m/tmp/stale-focus-demo1[39m                               
+
+  Get to finished work sooner with Opus 5.5. Switch anytime with
+  [38;5;153m/model[39m.       
+
+[38;5;246m[48;5;237m❯[39m [38;5;231m/clear[39m                                                        
+
+[38;5;246m❯ [38;5;231mCall the AskUserQuestion tool exactly once, with one [39m         
+  [38;5;231msingle-select question "Which fruit do you want?" header [39m     
+  [38;5;231m"Fruit", and exactly 4 options labelled Apple, Banana, [39m       
+  [38;5;231mCherry, Date. Each option description must be about 380 [39m      
+  [38;5;231mcharacters of filler prose about that fruit (so it wraps onto[39m 
+  [38;5;231mseven lines). Do nothing else. After I answer, reply with [39m    
+  [38;5;231monly: GOT: <label>[39m                                            
+[38;5;246m[49m────────────────────────────────────────────────────────────────
+[38;5;16m[48;5;153m ☐ Fruit [39m[49m                                                       
+
+[1m[38;5;231mWhich fruit do you want?[0m                                        
+                                                                
+[38;5;153m❯[39m [38;5;246m1.[39m [38;5;153mApple[39m      
+     [38;5;246mApples are one of the most widely cultivated fruits in the 
+[39m     [38;5;246mworld, known for their crisp texture and slightly sweet to 
+[39m     [38;5;246mtart flavor depending on the variety. They come in many [39m   
+     [38;5;246mcolors including red, green, and[39m [38;5;246myellow,[39m [38;5;246mand have been a [39m  
+     [38;5;246mstaple[39m [38;5;246mof[39m [38;5;246mhuman[39m [38;5;246mdiets[39m [38;5;246mfor[39m [38;5;246mthousands[39m [38;5;246mof[39m [38;5;246myears.[39m [38;5;246mApples[39m [38;5;246mare[39m   
+     [38;5;246mrich[39m [38;5;246min[39m [38;5;246mfiber[39m [38;5;246mand[39m [38;5;246mvitamin[39m [38;5;246mC,[39m [38;5;246mmaking[39m [38;5;246mthem[39m [38;5;246man[39m [38;5;246mexcellent[39m      
+     [38;5;246mchoice[39m [38;5;246mfor[39m [38;5;246ma[39m [38;5;246mhealthy[39m [38;5;246msnack[39m [38;5;246mthat[39m [38;5;246mcan[39m [38;5;246mbe[39m [38;5;246menjoyed[39m [38;5;246mfresh,[39m      
+     [38;5;246mbaked,[39m [38;5;246mor[39m [38;5;246mturned[39m [38;5;246minto[39m [38;5;246mdelicious[39m [38;5;246mcider.[39m                     
+  [38;5;246m2.[39m Banana     
+     [38;5;246mBananas[39m [38;5;246mare[39m [38;5;246mtropical[39m [38;5;246mfruits[39m [38;5;246mthat[39m [38;5;246mare[39m [38;5;246mknown[39m [38;5;246mfor[39m [38;5;246mtheir[39m [38;5;246msoft,[39m 
+     [38;5;246mcreamy[39m [38;5;246mtexture[39m [38;5;246mand[39m [38;5;246mnaturally[39m [38;5;246msweet[39m [38;5;246mflavor,[39m [38;5;246mmaking[39m [38;5;246mthem[39m [38;5;246mone[39m 
+     [38;5;246mof[39m [38;5;246mthe[39m [38;5;246mmost[39m [38;5;246mpopular[39m [38;5;246mfruits[39m [38;5;246mglobally.[39m [38;5;246mThey[39m [38;5;246mare[39m [38;5;246mrich[39m [38;5;246min[39m      
+     [38;5;246mpotassium,[39m [38;5;246mvitamin[39m [38;5;246mB6,[39m [38;5;246mand[39m [38;5;246mvitamin[39m [38;5;246mC,[39m [38;5;246mproviding[39m [38;5;246mnumerous[39m   
+     [38;5;246mhealth[39m [38;5;246mbenefits[39m [38;5;246mincluding[39m [38;5;246mimproved[39m [38;5;246mheart[39m [38;5;246mhealth[39m [38;5;246mand[39m [38;5;246mbetter[39m 
+     [38;5;246menergy[39m [38;5;246mlevels.[39m [38;5;246mBananas[39m [38;5;246mcome[39m [38;5;246min[39m [38;5;246mtheir[39m [38;5;246mnatural[39m [38;5;246mpackaging[39m [38;5;246mwith
+[39m     [38;5;246ma[39m [38;5;246mpeel[39m [38;5;246mthat[39m [38;5;246mturns[39m [38;5;246mfrom[39m [38;5;246mgreen[39m [38;5;246mto[39m [38;5;246myellow[39m [38;5;246mas[39m [38;5;246mthey[39m [38;5;246mripen,[39m [38;5;246mand[39m  
+     [38;5;246mthey[39m [38;5;246mcan[39m [38;5;246mbe[39m [38;5;246meaten[39m [38;5;246mfresh,[39m [38;5;246madded[39m [38;5;246mto[39m [38;5;246msmoothies,[39m [38;5;246mor[39m [38;5;246mused[39m [38;5;246min[39m    
+     [38;5;246mbaking.[39m    
+  [38;5;246m3.[39m Cherry     
+     [38;5;246mCherries[39m [38;5;246mare[39m [38;5;246msmall,[39m [38;5;246mround[39m [38;5;246mfruits[39m [38;5;246mthat[39m [38;5;246mcome[39m [38;5;246min[39m [38;5;246mshades[39m [38;5;246mof[39m    
+     [38;5;246mred,[39m [38;5;246mdark[39m [38;5;246mred,[39m [38;5;246mand[39m [38;5;246mblack,[39m [38;5;246meach[39m [38;5;246mvariety[39m [38;5;246moffering[39m [38;5;246mits[39m [38;5;246mown[39m    
+     [38;5;246munique[39m [38;5;246mtaste[39m [38;5;246mprofile[39m [38;5;246mfrom[39m [38;5;246msweet[39m [38;5;246mto[39m [38;5;246mslightly[39m [38;5;246mtart.[39m [38;5;246mThese[39m    
+     [38;5;246mdelicious[39m [38;5;246mfruits[39m [38;5;246mare[39m [38;5;246mpacked[39m [38;5;246mwith[39m [38;5;246mantioxidants[39m [38;5;246mand[39m [38;5;246mhave[39m [38;5;246mbeen
+[39m     [38;5;246menjoyed[39m [38;5;246mfor[39m [38;5;246mcenturies[39m [38;5;246min[39m [38;5;246mboth[39m [38;5;246msweet[39m [38;5;246mand[39m [38;5;246msavory[39m [38;5;246mdishes[39m      
+     [38;5;246macross[39m [38;5;246mmany[39m [38;5;246mcultures[39m [38;5;246mworldwide.[39m [38;5;246mCherries[39m [38;5;246mhave[39m [38;5;246ma[39m [38;5;246mshort[39m      
+     [38;5;246mseason,[39m [38;5;246mmaking[39m [38;5;246mthem[39m [38;5;246ma[39m [38;5;246mspecial[39m [38;5;246mtreat[39m [38;5;246mwhen[39m [38;5;246mthey[39m [38;5;246mare[39m [38;5;246mavailable
+[39m     [38;5;246mat[39m [38;5;246mfarmers[39m [38;5;246mmarkets[39m [38;5;246mand[39m [38;5;246mgrocery[39m [38;5;246mstores[39m [38;5;246mduring[39m [38;5;246msummer[39m        
+     [38;5;246mmonths.[39m    
+  [38;5;246m4.[39m Date       
+     [38;5;246mDates[39m [38;5;246mare[39m [38;5;246msweet,[39m [38;5;246mchewy[39m [38;5;246mfruits[39m [38;5;246mthat[39m [38;5;246mcome[39m [38;5;246mfrom[39m [38;5;246mdate[39m [38;5;246mpalm[39m     
+     [38;5;246mtrees[39m [38;5;246mand[39m [38;5;246mhave[39m [38;5;246mbeen[39m [38;5;246ma[39m [38;5;246mdietary[39m [38;5;246mstaple[39m [38;5;246min[39m [38;5;246mMiddle[39m [38;5;246mEastern[39m [38;5;246mand[39m 
+     [38;5;246mNorth[39m [38;5;246mAfrican[39m [38;5;246mregions[39m [38;5;246mfor[39m [38;5;246mthousands[39m [38;5;246mof[39m [38;5;246myears.[39m [38;5;246mThey[39m [38;5;246mare[39m     
+     [38;5;246mnaturally[39m [38;5;246mhigh[39m [38;5;246min[39m [38;5;246msugar,[39m [38;5;246mfiber,[39m [38;5;246mand[39m [38;5;246mvarious[39m [38;5;246mminerals[39m [38;5;246mlike[39m  
+     [38;5;246mmagnesium[39m [38;5;246mand[39m [38;5;246mpotassium,[39m [38;5;246mmaking[39m [38;5;246mthem[39m [38;5;246man[39m [38;5;246mexcellent[39m [38;5;246menergy[39m   
+     [38;5;246msource[39m [38;5;246mfor[39m [38;5;246mboth[39m [38;5;246mathletes[39m [38;5;246mand[39m [38;5;246mthose[39m [38;5;246mneeding[39m [38;5;246ma[39m [38;5;246mquick[39m         
+     [38;5;246mpick-me-up[39m [38;5;246msnack.[39m [38;5;246mDates[39m [38;5;246mcan[39m [38;5;246mbe[39m [38;5;246meaten[39m [38;5;246mfresh[39m [38;5;246mor[39m [38;5;246mdried,[39m [38;5;246mused[39m  
+     [38;5;246min[39m [38;5;246mbaking,[39m [38;5;246mstuffed[39m [38;5;246mwith[39m [38;5;246mnuts[39m [38;5;246mor[39m [38;5;246mcheese,[39m [38;5;246mor[39m [38;5;246mground[39m [38;5;246minto[39m [38;5;246ma[39m   
+     [38;5;246mpaste[39m [38;5;246mfor[39m [38;5;246mvarious[39m [38;5;246mculinary[39m [38;5;246mapplications.[39m                   
+  [38;5;246m5.[39m [38;5;246mType[39m [38;5;246msomething.[39m            
+[38;5;246m────────────────────────────────────────────────────────────────
+[39m  6. Chat about this            
+
+[38;5;246mEnter[39m [38;5;246mto[39m [38;5;246mselect[39m [38;5;246m·[39m [38;5;246m↑/↓[39m [38;5;246mto[39m [38;5;246mnavigate[39m [38;5;246m·[39m [38;5;246mEsc[39m [38;5;246mto[39m [38;5;246mcancel[39m               
+

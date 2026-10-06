@@ -142,8 +142,10 @@ test('interactive routes read and answer active external and live TUI prompts wi
     process.env.CHATMUX_CONTRACT_CAPTURE = [
       'Question 1/1 (1 unanswered)',
       'Choose an action',
-      '› 1. Allow',
-      '  2. Reject',
+      // The fake pane is static, so the cursor already sits on the answer:
+      // the answer path re-reads the screen and needs the focus there before Enter.
+      '  1. Allow',
+      '› 2. Reject',
       '  3. None of the above',
       'tab to add notes | enter to submit answer | esc to interrupt',
     ].join('\n');

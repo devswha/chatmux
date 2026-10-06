@@ -104,9 +104,14 @@ test('answers a Codex pre-chat menu with its native cursor and Enter keys', asyn
   const prompt = parseTmuxInteractivePrompt('codex', screen);
   assert.ok(prompt);
   const calls: string[][] = [];
+  // The menu moves its cursor on Down, so the pre-Enter re-read sees option 2.
+  let shown = screen;
   const run: TmuxRunner = async (args) => {
     calls.push(args);
-    if (args.includes('capture-pane')) return { code: 0, output: screen };
+    if (args.includes('send-keys') && args.at(-1) === 'Down') {
+      shown = screen.replace('› 1. Update now', '  1. Update now').replace('  2. Skip\n', '› 2. Skip\n');
+    }
+    if (args.includes('capture-pane')) return { code: 0, output: shown };
     if (args.includes('display-message')) return { code: 0, output: '$7\t@8\t%9\n' };
     return { code: 0, output: '' };
   };

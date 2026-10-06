@@ -271,6 +271,71 @@ export async function captureTmuxPane(
 }
 
 /**
+ * A pane capture that knows which of its lines are on the visible screen.
+ * `text` is the usual joined capture (scrollback plus screen); `visibleFromLine`
+ * is the index, in `text.split(/\r?\n/)`, of the first line on screen, or null
+ * when the screen could not be matched to the capture's tail.
+ */
+export type TmuxPaneCapture = { text: string; visibleFromLine: number | null };
+
+const CAPTURE_ANSI_RE = /\u001b\[[0-?]*[ -/]*[@-~]/g;
+
+/**
+ * Where the visible screen starts inside the joined capture: the screen must
+ * equal the capture's tail line for line (ignoring colour and trailing space),
+ * or nothing is known to be visible. runTmux trims its output, so both
+ * captures lose the same trailing blank rows, and the screen alone also loses
+ * its leading blank rows and the indent of its first line: that line is
+ * compared without its indent, and the dropped blank rows (which hold no focus
+ * marker) count as not visible.
+ */
+export function visibleStartLine(joined: string, screen: string): number | null {
+  const plain = (line: string) => line.replace(CAPTURE_ANSI_RE, '').replace(/\s+$/, '');
+  const all = joined.split(/\r?\n/);
+  const visible = screen.split(/\r?\n/);
+  if (visible.length > all.length) return null;
+  const start = all.length - visible.length;
+  for (let index = 0; index < visible.length; index += 1) {
+    const left = plain(all[start + index]);
+    const right = plain(visible[index]);
+    if (index === 0 ? left.trimStart() !== right.trimStart() : left !== right) return null;
+  }
+  return start;
+}
+
+/**
+ * Claude's default renderer redraws only the rows on screen, so a focus marker
+ * that has scrolled into history stays drawn there after the focus moves on.
+ * Callers that act on focus read this capture and trust a marker only on a
+ * visible line. Retries once when the screen changes between the two captures.
+ */
+export async function captureTmuxPaneWithScreen(
+  target: VerifiedTmuxActionTarget,
+  run: TmuxRunner = runTmux,
+): Promise<TmuxPaneCapture> {
+  const identity = target.tmux;
+  let text = '';
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    text = await captureTmuxPane(target, run);
+    const socketBefore = await assertActionSocket(identity);
+    const result = await run([
+      '-S', identity.socketPath,
+      'capture-pane', '-p', '-e', '-N', '-t', identity.paneId,
+    ]);
+    await assertActionSocket(identity, socketBefore);
+    if (result.code !== 0) {
+      throw new AppError('The selected tmux pane changed; reopen it from the session list.', {
+        code: 'TMUX_PANE_GENERATION_MISMATCH',
+        statusCode: 409,
+      });
+    }
+    const visibleFromLine = visibleStartLine(text, result.output);
+    if (visibleFromLine !== null) return { text, visibleFromLine };
+  }
+  return { text, visibleFromLine: null };
+}
+
+/**
  * Pane ids never repeat within a tmux server, so `%N` cannot name a different
  * pane later; it can only have moved (join-pane, break-pane) out of the
  * verified window or session. Recheck all four coordinates right before the

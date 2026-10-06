@@ -1,0 +1,31 @@
+
+  Get to finished work sooner with Opus 5.5. Switch anytime with
+  /model.
+
+❯ /clear
+
+❯ Call the AskUserQuestion tool exactly once, with one
+  single-select question "Which fruit do you want?" header
+  "Fruit", and exactly 4 options labelled Apple, Banana,
+  Cherry, Date, each with a description of at most six words.
+  Do nothing else. After I answer, reply with only: GOT:
+  <label>
+────────────────────────────────────────────────────────────────
+ ☐ Fruit
+
+Which fruit do you want?
+
+  1. Apple
+     Crisp, sweet, and crunchy red fruit
+❯ 2. Banana
+     Soft, yellow, potassium-rich tropical fruit
+  3. Cherry
+     Small, juicy, dark red stone fruit
+  4. Date
+     Sweet, chewy, caramel-flavored dried fruit
+  5. Type something.
+────────────────────────────────────────────────────────────────
+  6. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel
+

@@ -13,6 +13,7 @@ import {
 } from './tmux-ask-selection.service.js';
 import {
   captureTmuxPane,
+  captureTmuxPaneWithScreen,
   pasteToTmuxPane,
   sendTmuxSelectionKeys,
   sendToTmuxPane,
@@ -74,6 +75,8 @@ type ParsedPrompt = TmuxInteractivePrompt & {
   responder: PromptResponder;
   menuLabels: string[];
   selectedIndex: number;
+  /** Capture line of the focus marker; only a marker on a visible line is trusted. */
+  selectedLineIndex: number;
   checkedOptionIndices: number[];
   customMenuIndex: number | null;
   rejectWithEscapeIndex: number | null;
@@ -258,6 +261,7 @@ function parseGjcQuestion(screen: string): ParsedPrompt | null {
     responder: 'gjc-question',
     menuLabels: rows.map((row) => row.label),
     selectedIndex,
+    selectedLineIndex: focusLine(rows),
     checkedOptionIndices: optionRows.flatMap((row, index) => row.checked ? [index] : []),
     customMenuIndex: customIndex,
     rejectWithEscapeIndex: null,
@@ -296,10 +300,16 @@ function parseOmpQuestion(screen: string): ParsedPrompt | null {
     responder: 'omp-question',
     menuLabels: rows.map((row) => row.label),
     selectedIndex,
+    selectedLineIndex: focusLine(rows),
     checkedOptionIndices: optionRows.flatMap((row, index) => row.checked ? [index] : []),
     customMenuIndex: customIndex,
     rejectWithEscapeIndex: null,
   });
+}
+
+/** The capture line of the one marked row, or -1. */
+function focusLine(rows: readonly MenuRow[]): number {
+  return rows.find((row) => row.selected)?.lineIndex ?? -1;
 }
 
 type NumberedRow = MenuRow & { number: number };
@@ -366,6 +376,7 @@ function parseCodexContinueMenu(screen: string): ParsedPrompt | null {
     responder: 'codex-menu',
     menuLabels: rows.map((row) => row.label),
     selectedIndex: rows.findIndex((row) => row.selected),
+    selectedLineIndex: focusLine(rows),
     checkedOptionIndices: [],
     customMenuIndex: null,
     rejectWithEscapeIndex: null,
@@ -401,6 +412,7 @@ function parseCodexQuestion(screen: string): ParsedPrompt | null {
     responder: 'codex-question',
     menuLabels: rows.map((row) => row.label),
     selectedIndex: rows.findIndex((row) => row.selected),
+    selectedLineIndex: focusLine(rows),
     checkedOptionIndices: [],
     customMenuIndex: customIndex,
     rejectWithEscapeIndex: null,
@@ -437,6 +449,7 @@ function parseCodexAsyncQuestion(screen: string): ParsedPrompt | null {
     responder: 'codex-async-question',
     menuLabels: rows.map((row) => row.label),
     selectedIndex: rows.findIndex((row) => row.selected),
+    selectedLineIndex: focusLine(rows),
     checkedOptionIndices: [],
     customMenuIndex: null,
     rejectWithEscapeIndex: null,
@@ -477,6 +490,7 @@ function parseClaudeQuestion(screen: string): ParsedPrompt | null {
     responder: 'claude-question',
     menuLabels: rows.map((row) => row.label),
     selectedIndex: rows.findIndex((row) => row.selected),
+    selectedLineIndex: focusLine(rows),
     checkedOptionIndices: optionRows.flatMap((row, index) => row.checked ? [index] : []),
     customMenuIndex: customIndex,
     rejectWithEscapeIndex: null,
@@ -511,6 +525,7 @@ function parseCodexApproval(screen: string): ParsedPrompt | null {
     responder: 'codex-approval',
     menuLabels: rows.map((row) => row.label),
     selectedIndex: rows.findIndex((row) => row.selected),
+    selectedLineIndex: focusLine(rows),
     checkedOptionIndices: [],
     customMenuIndex: null,
     rejectWithEscapeIndex: rows.findIndex((row) => /^(?:No|Reject|Cancel|Deny)\b/i.test(row.label)),
@@ -546,6 +561,7 @@ function parseOmpApproval(screen: string): ParsedPrompt | null {
     responder: 'omp-approval',
     menuLabels: rows.map((row) => row.label),
     selectedIndex: rows.findIndex((row) => row.selected),
+    selectedLineIndex: focusLine(rows),
     checkedOptionIndices: [],
     customMenuIndex: null,
     rejectWithEscapeIndex: null,
@@ -576,6 +592,7 @@ function parseClaudeApproval(screen: string): ParsedPrompt | null {
       responder: 'claude-plan',
       menuLabels: rows.map((row) => row.label),
       selectedIndex: rows.findIndex((row) => row.selected),
+      selectedLineIndex: focusLine(rows),
       checkedOptionIndices: [],
       customMenuIndex: customIndex >= 0 ? customIndex : null,
       rejectWithEscapeIndex: null,
@@ -608,6 +625,7 @@ function parseClaudeApproval(screen: string): ParsedPrompt | null {
     responder: 'claude-approval',
     menuLabels: rows.map((row) => row.label),
     selectedIndex: rows.findIndex((row) => row.selected),
+    selectedLineIndex: focusLine(rows),
     checkedOptionIndices: [],
     customMenuIndex: null,
     rejectWithEscapeIndex: null,
@@ -647,7 +665,27 @@ function promptTailIsActive(prompt: ParsedPrompt, screen: string): boolean {
   return /ctrl\+g to edit|shift\+tab to approve with this feedback/i.test(last);
 }
 
+/**
+ * `visibleFromLine` is where the visible screen starts in `screen` (see
+ * captureTmuxPaneWithScreen). When given, a prompt whose focus marker is not on
+ * a visible line is not returned: Claude's default renderer leaves a stale
+ * marker on rows that scrolled into history, so such a marker says nothing
+ * about where the focus is, and answering from it picks the wrong option.
+ * `null` means no line is known to be visible. Omitted, every line counts as
+ * visible, which suits detection only, never answering.
+ */
 export function parseTmuxInteractivePrompt(
+  kind: VerifiedTmuxActionTarget['kind'],
+  screen: string,
+  visibleFromLine?: number | null,
+): ParsedPrompt | null {
+  const parsed = parseTmuxInteractivePromptAnyFocus(kind, screen);
+  if (!parsed || visibleFromLine === undefined) return parsed;
+  if (visibleFromLine === null || parsed.selectedLineIndex < visibleFromLine) return null;
+  return parsed;
+}
+
+function parseTmuxInteractivePromptAnyFocus(
   kind: VerifiedTmuxActionTarget['kind'],
   screen: string,
 ): ParsedPrompt | null {
@@ -739,8 +777,8 @@ export async function getTmuxInteractivePrompt(
   target: VerifiedTmuxActionTarget,
   run?: TmuxRunner,
 ): Promise<TmuxInteractivePrompt | null> {
-  const screen = await captureTmuxPane(target, run);
-  const parsed = parseTmuxInteractivePrompt(target.kind, screen);
+  const { text: screen, visibleFromLine } = await captureTmuxPaneWithScreen(target, run);
+  const parsed = parseTmuxInteractivePrompt(target.kind, screen, visibleFromLine);
   if (!parsed) {
     const key = targetKey(target);
     const custom = customPromptCache.get(key);
@@ -855,16 +893,73 @@ async function answerMultiSelect(
   await sendTmuxSelectionKeys(target, keys, run);
 }
 
+export type AnswerDeps = {
+  sleep?: (ms: number) => Promise<void>;
+  now?: () => number;
+};
+
+const FOCUS_CONFIRM_TIMEOUT_MS = 2_500;
+const FOCUS_CONFIRM_POLL_MS = 80;
+
+function focusHidden(keysSent: number, reason: string): AppError {
+  return new AppError(
+    keysSent > 0
+      ? 'The highlighted option did not reach your choice, so nothing was selected. Finish it in the terminal.'
+      : 'The highlighted option is not on the terminal screen, so this question cannot be answered safely here. Answer it in the terminal.',
+    {
+      code: 'TMUX_INTERACTIVE_PROMPT_STALE',
+      statusCode: 409,
+      details: { reason, keysSent },
+    },
+  );
+}
+
+/**
+ * Re-reads the pane until its VISIBLE focus marker sits on the target option of
+ * the same prompt, so the final Enter can only select what the user chose. On
+ * timeout nothing further is sent.
+ */
+async function confirmVisibleFocus(
+  target: VerifiedTmuxActionTarget,
+  prompt: ParsedPrompt,
+  optionIndex: number,
+  keysSent: number,
+  run: TmuxRunner | undefined,
+  deps: AnswerDeps,
+): Promise<void> {
+  const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const now = deps.now ?? Date.now;
+  const want = prompt.menuLabels[optionIndex];
+  const deadline = now() + FOCUS_CONFIRM_TIMEOUT_MS;
+  for (;;) {
+    const { text, visibleFromLine } = await captureTmuxPaneWithScreen(target, run);
+    const current = parseTmuxInteractivePrompt(target.kind, text, visibleFromLine);
+    if (
+      current
+      && current.id === prompt.id
+      && current.selectedIndex === optionIndex
+      && want !== undefined
+      && current.menuLabels[current.selectedIndex] === want
+    ) return;
+    if (now() >= deadline) throw focusHidden(keysSent, 'the visible focus is not on the chosen option');
+    await sleep(FOCUS_CONFIRM_POLL_MS);
+  }
+}
+
 export async function answerTmuxInteractivePrompt(
   target: VerifiedTmuxActionTarget,
   requestedId: string,
   requestedChoices: readonly number[],
   run?: TmuxRunner,
+  deps: AnswerDeps = {},
 ): Promise<{ action: 'selected' | 'other' | 'cancel' }> {
-  const prompt = assertPromptId(
-    parseTmuxInteractivePrompt(target.kind, await captureTmuxPane(target, run)),
-    requestedId,
-  );
+  const { text, visibleFromLine } = await captureTmuxPaneWithScreen(target, run);
+  const visible = parseTmuxInteractivePrompt(target.kind, text, visibleFromLine);
+  if (!visible && parseTmuxInteractivePrompt(target.kind, text)?.id === requestedId) {
+    // The prompt is there but its focus marker is only in scrollback.
+    throw focusHidden(0, 'the focus marker is not on a visible line');
+  }
+  const prompt = assertPromptId(visible, requestedId);
   const choices = validateChoices(prompt, requestedChoices);
   if (choices.length === 1 && choices[0] === 0) {
     await sendTmuxSelectionKeys(
@@ -913,11 +1008,10 @@ export async function answerTmuxInteractivePrompt(
   ) {
     await sendTmuxSelectionKeys(target, ['Escape'], run);
   } else {
-    await sendTmuxSelectionKeys(
-      target,
-      [...navigationKeys(optionIndex - prompt.selectedIndex), 'Enter'],
-      run,
-    );
+    const keys = navigationKeys(optionIndex - prompt.selectedIndex);
+    if (keys.length > 0) await sendTmuxSelectionKeys(target, keys, run);
+    await confirmVisibleFocus(target, prompt, optionIndex, keys.length, run, deps);
+    await sendTmuxSelectionKeys(target, ['Enter'], run);
   }
   promptCache.delete(targetKey(target));
   customPromptCache.delete(targetKey(target));

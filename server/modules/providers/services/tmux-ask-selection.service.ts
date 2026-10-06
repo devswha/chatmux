@@ -6,6 +6,7 @@ import { isCodexAsyncQuestionInput } from '../../../../shared/codex-async-questi
 import type { TmuxRunner } from './builtin-relay.service.js';
 import {
   captureTmuxPane,
+  captureTmuxPaneWithScreen,
   sendTmuxSelectionKeys,
   sendToTmuxPane,
   type TmuxSelectionKey,
@@ -360,11 +361,32 @@ function parseClaudeOptionLine(line: string, lineIndex: number): ClaudeOptionLin
   return parsed ? { ...parsed, lineIndex } : null;
 }
 
+/**
+ * `visibleFromLine` is where the visible screen starts in `screen` (see
+ * captureTmuxPaneWithScreen). When given, the focus marker is trusted only when
+ * it is the one marked row and sits on a visible line; otherwise the result is
+ * `'focus-hidden'`. Claude's default renderer leaves a stale marker on rows that
+ * scrolled into history, so such a marker says nothing about where the focus
+ * is. `null` means no line is known to be visible. Omitted, every line counts
+ * as visible.
+ */
 export function parseClaudeAskSelectionScreen(
   screen: string,
   question: TmuxAskQuestion,
   optionIndex: number,
-): AskSelection | null {
+): AskSelection | null;
+export function parseClaudeAskSelectionScreen(
+  screen: string,
+  question: TmuxAskQuestion,
+  optionIndex: number,
+  visibleFromLine: number | null | undefined,
+): AskSelection | 'focus-hidden' | null;
+export function parseClaudeAskSelectionScreen(
+  screen: string,
+  question: TmuxAskQuestion,
+  optionIndex: number,
+  visibleFromLine?: number | null,
+): AskSelection | 'focus-hidden' | null {
   const labels = validateSelectionInput(question, optionIndex);
   if (!labels) return null;
   const lines = screen.replace(ANSI_RE, '').split(/\r?\n/);
@@ -396,6 +418,14 @@ export function parseClaudeAskSelectionScreen(
     }
     const selectedIndex = candidates.findIndex((row) => row.selected);
     if (selectedIndex < 0) return null;
+    if (visibleFromLine !== undefined) {
+      const marked = candidates.filter((row) => row.selected);
+      if (
+        marked.length !== 1
+        || visibleFromLine === null
+        || marked[0].lineIndex < visibleFromLine
+      ) return 'focus-hidden';
+    }
     if (optionIndex === -1) return { action: 'cancel', delta: 0, label: 'Cancel' };
     if (optionIndex === labels.length) {
       return {
@@ -493,11 +523,12 @@ function parseSelection(
   screen: string,
   question: TmuxAskQuestion,
   optionIndex: number,
-): AskSelection | null {
+  visibleFromLine?: number | null,
+): AskSelection | 'focus-hidden' | null {
   if (kind === 'gjc') return parseGjcAskSelectionScreen(screen, question, optionIndex);
   if (kind === 'codex') return parseCodexAskSelectionScreen(screen, question, optionIndex);
   if (kind === 'omp') return parseOmpAskSelectionScreen(screen, question, optionIndex);
-  return parseClaudeAskSelectionScreen(screen, question, optionIndex);
+  return parseClaudeAskSelectionScreen(screen, question, optionIndex, visibleFromLine);
 }
 
 function parseCustomInput(
@@ -509,6 +540,52 @@ function parseCustomInput(
   if (kind === 'codex') return parseCodexAskCustomInputScreen(screen, question);
   if (kind === 'omp') return parseOmpAskCustomInputScreen(screen, question);
   return parseClaudeAskCustomInputScreen(screen, question);
+}
+
+function focusHiddenError(keysSent: number, reason: string): AppError {
+  return new AppError(
+    keysSent > 0
+      ? 'The highlighted option did not reach your choice, so nothing was selected. Finish it in the terminal.'
+      : 'The highlighted option is not on the terminal screen, so this question cannot be answered safely here. Answer it in the terminal.',
+    {
+      code: 'TMUX_ASK_FOCUS_HIDDEN',
+      statusCode: 409,
+      details: { reason, keysSent },
+    },
+  );
+}
+
+export type AskAnswerDeps = {
+  sleep?: (ms: number) => Promise<void>;
+  now?: () => number;
+};
+
+const FOCUS_CONFIRM_TIMEOUT_MS = 2_500;
+const FOCUS_CONFIRM_POLL_MS = 80;
+
+/**
+ * Re-reads the pane until Claude's VISIBLE focus marker sits on the chosen
+ * option of the same question, so the final Enter can only select what the
+ * user chose. On timeout nothing further is sent.
+ */
+async function confirmClaudeVisibleFocus(
+  target: VerifiedTmuxActionTarget,
+  question: TmuxAskQuestion,
+  optionIndex: number,
+  keysSent: number,
+  run: TmuxRunner | undefined,
+  deps: AskAnswerDeps,
+): Promise<void> {
+  const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const now = deps.now ?? Date.now;
+  const deadline = now() + FOCUS_CONFIRM_TIMEOUT_MS;
+  for (;;) {
+    const { text, visibleFromLine } = await captureTmuxPaneWithScreen(target, run);
+    const current = parseClaudeAskSelectionScreen(text, question, optionIndex, visibleFromLine);
+    if (current !== null && current !== 'focus-hidden' && current.action === 'option' && current.delta === 0) return;
+    if (now() >= deadline) throw focusHiddenError(keysSent, 'the visible focus is not on the chosen option');
+    await sleep(FOCUS_CONFIRM_POLL_MS);
+  }
 }
 
 function stalePromptError(kind: TmuxAskKind): AppError {
@@ -523,6 +600,7 @@ export async function answerPendingTmuxAskSelection(
   pending: PendingTmuxAsk,
   optionIndex: number,
   run?: TmuxRunner,
+  deps: AskAnswerDeps = {},
 ): Promise<{ questionIndex: number; action: TmuxAskAction; label: string }> {
   if (
     target.kind !== 'gjc'
@@ -539,12 +617,20 @@ export async function answerPendingTmuxAskSelection(
     throw stalePromptError(target.kind);
   }
   const codexAsync = pending.interaction === 'codex-async' && target.kind === 'codex';
-  const screen = await captureTmuxPane(target, run);
+  const claude = target.kind === 'claude';
+  // Claude's focus is trusted only on a visible line, so its capture knows which lines are on screen.
+  const { text: screen, visibleFromLine } = claude
+    ? await captureTmuxPaneWithScreen(target, run)
+    : { text: await captureTmuxPane(target, run), visibleFromLine: undefined };
   let matched: (AskSelection & { questionIndex: number }) | null = null;
   for (let questionIndex = 0; questionIndex < pending.questions.length; questionIndex += 1) {
     const selection = codexAsync
       ? parseCodexAsyncAskSelectionScreen(screen, pending.questions[questionIndex], optionIndex)
-      : parseSelection(target.kind, screen, pending.questions[questionIndex], optionIndex);
+      : parseSelection(target.kind, screen, pending.questions[questionIndex], optionIndex, visibleFromLine);
+    if (selection === 'focus-hidden') {
+      // The question is there but its focus marker is only in scrollback, or marked twice.
+      throw focusHiddenError(0, 'the focus marker is not on a single visible line');
+    }
     if (selection) {
       matched = { questionIndex, ...selection };
       break;
@@ -564,7 +650,16 @@ export async function answerPendingTmuxAskSelection(
           ? navigationKeys
           : [...navigationKeys, target.kind === 'codex' ? 'Tab' : 'Enter']
       : [...navigationKeys, 'Enter'];
-  if (keys.length > 0) await sendTmuxSelectionKeys(target, keys, run);
+  if (claude && matched.action === 'option') {
+    // Send the final Enter only once the visible focus is on the chosen option.
+    if (navigationKeys.length > 0) await sendTmuxSelectionKeys(target, navigationKeys, run);
+    await confirmClaudeVisibleFocus(
+      target, pending.questions[matched.questionIndex], optionIndex, navigationKeys.length, run, deps,
+    );
+    await sendTmuxSelectionKeys(target, ['Enter'], run);
+  } else if (keys.length > 0) {
+    await sendTmuxSelectionKeys(target, keys, run);
+  }
   return {
     questionIndex: matched.questionIndex,
     action: matched.action,
