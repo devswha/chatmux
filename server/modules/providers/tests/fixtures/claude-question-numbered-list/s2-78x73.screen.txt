@@ -1,0 +1,73 @@
+ ▐▛███▛█   Claude Code v2.1.291
+▝▜██████▀  Haiku 4.5 · Claude API
+ ▝▝   ▝▝   /tmp/demo-list-proj
+
+▎ Your voice can help guide AI
+▎ Take 15 min to share your experiences with Anthropic Interviewer. Start now
+
+❯ First write a plain numbered list of 40 short lines about tmux tips (no
+  tools). Then use the AskUserQuestion tool exactly once with a single
+  question: question "Pack the green fig and golden-yellow peaches
+  together?", header "Pick one", multiSelect false, two options: label "Ripe
+  avocados" description "Soft green, very ripe"; label "Big red plum"
+  description "Deep red skin".
+
+● Here are 40 tmux tips:
+
+  1. Start a new session with tmux new-session -s name
+  2. Attach to session with tmux attach-session -t name
+  3. List all sessions with tmux list-sessions
+  4. Detach from session with Ctrl-b d
+  5. Kill a session with tmux kill-session -t name
+  6. Create a new window with Ctrl-b c
+  7. Switch windows with Ctrl-b n (next) or Ctrl-b p (previous)
+  8. Jump to window N with Ctrl-b N (where N is 0-9)
+  9. Split horizontally with Ctrl-b "
+  10. Split vertically with Ctrl-b %
+  11. Navigate panes with Ctrl-b arrow-keys
+  12. Resize panes with Ctrl-b :resize-pane -D 5 (and U/L/R)
+  13. Zoom a pane with Ctrl-b z
+  14. Kill a pane with Ctrl-b x
+  15. Rename window with Ctrl-b ,
+  16. Rename session with tmux rename-session -t old new
+  17. Choose and switch sessions with Ctrl-b s
+  18. Choose and switch windows with Ctrl-b w
+  19. Show time with Ctrl-b t
+  20. Enter copy mode with Ctrl-b [
+  21. Exit copy mode with q
+  22. Search in copy mode with / then n for next
+  23. Paste buffer with Ctrl-b ]
+  24. List buffers with tmux list-buffers
+  25. Save buffer to file with tmux save-buffer -b 0 filename
+  26. Load config with tmux source-file ~/.tmux.conf
+  27. Set prefix to Ctrl-a in config with set -g prefix C-a
+  28. Enable mouse with set -g mouse on
+  29. Increase history with set -g history-limit 10000
+  30. Use vi keybindings with setw -g mode-keys vi
+  31. Set status bar position with set -g status-position top
+  32. Customize status bar with set -g status-left "#S"
+  33. Show pane numbers with Ctrl-b q
+  34. Select specific pane with Ctrl-b q then number
+  35. Break pane into new window with Ctrl-b !
+  36. Join pane from another window with tmux join-pane -t target
+  37. Display pane info with Ctrl-b i
+  38. Swap panes with Ctrl-b { or }
+  39. Swap windows with tmux swap-window -t windows
+  40. Run command without attaching with tmux new-session -d -s name command
+
+  Now, here's my question for you:
+──────────────────────────────────────────────────────────────────────────────
+ ☐ Pick one
+
+Pack the green fig and golden-yellow peaches together?
+
+❯ 1. Ripe avocados
+     Soft green, very ripe
+  2. Big red plum
+     Deep red skin
+  3. Type something.
+──────────────────────────────────────────────────────────────────────────────
+  4. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel
+

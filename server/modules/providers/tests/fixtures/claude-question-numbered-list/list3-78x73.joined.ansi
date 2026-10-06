@@ -1,0 +1,95 @@
+[1m[32muser@devbox[0m:[1m[34m/tmp/demo-list-proj[0m$ /tmp/demo-list-work/launch.sh                
+[38;5;174m ▐[48;5;16m▛███▛█[39m[49m   [1mClaude[0m [1mCode[0m [38;5;246mv2.1.291[39m        
+[38;5;174m ▐[48;5;16m▛███▛█[39m[49m   [1mClaude[0m [1mCode[0m [38;5;246mv2.1.291[39m        
+[38;5;174m▝▜[48;5;16m█████[49m█▀[39m  [38;5;246mHaiku[39m [38;5;246m4.5[39m [38;5;246m·[39m [38;5;246mClaude[39m [38;5;246mAPI[39m      
+[38;5;174m ▝▝[39m   [38;5;174m▝▝[39m   [38;5;246m/tmp/demo-list-proj[39m         
+
+
+[38;5;246m[48;5;237m❯[39m [38;5;231m/tui default[39m [49m    
+[38;5;246m [39m [38;5;246m⎿[39m  Already using the default renderer.                                      
+
+[38;5;246m[48;5;237m❯ [38;5;231mFirst write a numbered list of 40 short tmux tips, one line each, numbered [39m 
+  [38;5;231m1. to 40. Then, without any other text, use the AskUserQuestion tool [39m       
+  [38;5;231mexactly once: header "Pick one", question "Pack the green fig and [39m          
+  [38;5;231mgolden-yellow peaches together?", options "Ripe avocados" (description [39m     
+  [38;5;231m"Soft green, very ripe") and "Big red plum" (description "Deep red skin"). [39m 
+  [38;5;231mDo nothing else.[39m                                                            
+
+[38;5;231m[49m●[39m 1. Start a new session: [38;5;153mtmux[39m [38;5;153mnew-session[39m [38;5;153m-s[39m [38;5;153mname[39m                            
+  2. List all sessions: [38;5;153mtmux[39m [38;5;153mlist-sessions[39m                                    
+  3. Attach to a session: [38;5;153mtmux[39m [38;5;153mattach[39m [38;5;153m-t[39m [38;5;153mname[39m                                 
+  4. Detach from current session: [38;5;153mCtrl+B[39m then [38;5;153mD[39m                               
+  5. Kill a session: [38;5;153mtmux[39m [38;5;153mkill-session[39m [38;5;153m-t[39m [38;5;153mname[39m                                
+  6. Rename a session: [38;5;153mCtrl+B[39m then [38;5;153m$[39m   
+  7. Create a new window: [38;5;153mCtrl+B[39m then [38;5;153mC
+[39m  8. List windows: [38;5;153mCtrl+B[39m then [38;5;153mW[39m       
+  9. Next window: [38;5;153mCtrl+B[39m then [38;5;153mN[39m        
+  10. Previous window: [38;5;153mCtrl+B[39m then [38;5;153mP[39m   
+  11. Jump to window 0-9: [38;5;153mCtrl+B[39m then number                                  
+  12. Kill current window: [38;5;153mCtrl+B[39m then [38;5;153m&[39m                                      
+  13. Rename window: [38;5;153mCtrl+B[39m then [38;5;153m,[39m     
+  14. Split pane vertically: [38;5;153mCtrl+B[39m then [38;5;153m%[39m                                    
+  15. Split pane horizontally: [38;5;153mCtrl+B[39m then [38;5;153m"[39m                                  
+  16. Navigate panes: [38;5;153mCtrl+B[39m then arrow keys                                  
+  17. Close pane: [38;5;153mCtrl+B[39m then [38;5;153mX[39m        
+  18. Maximize pane: [38;5;153mCtrl+B[39m then [38;5;153mZ[39m     
+  19. Resize pane: [38;5;153mCtrl+B[39m then [38;5;153mCtrl+Arrow[39m                                     
+  20. Show pane numbers: [38;5;153mCtrl+B[39m then [38;5;153mQ[39m 
+  21. Enter copy mode: [38;5;153mCtrl+B[39m then [38;5;153m[[39m   
+  22. Paste from buffer: [38;5;153mCtrl+B[39m then [38;5;153m][39m 
+  23. List buffers: [38;5;153mCtrl+B[39m then [38;5;153m#[39m      
+  24. Choose buffer: [38;5;153mCtrl+B[39m then [38;5;153m=[39m     
+  25. Synchronize panes: [38;5;153mCtrl+B[39m then [38;5;153m:[39m then [38;5;153msetw[39m [38;5;153msynchronize-panes[39m [38;5;153mon[39m         
+  26. Break pane to new window: [38;5;153mCtrl+B[39m then [38;5;153m![39m                                 
+  27. Join pane to window: [38;5;153mCtrl+B[39m then [38;5;153m:[39m then [38;5;153mjoin-pane[39m [38;5;153m-t[39m [38;5;153mtarget[39m             
+  28. Send command to pane: [38;5;153mtmux[39m [38;5;153msend-keys[39m [38;5;153m-t[39m [38;5;153msession:pane[39m [38;5;153m"command"[39m [38;5;153mEnter[39m    
+  29. List key bindings: [38;5;153mCtrl+B[39m then [38;5;153m?[39m 
+  30. Reload config: [38;5;153mCtrl+B[39m then [38;5;153m:[39m then [38;5;153msource-file[39m [38;5;153m~/.tmux.conf[39m              
+  31. Scroll in pane: [38;5;153mCtrl+B[39m then [38;5;153m[[39m then arrow keys                           
+  32. Set custom prefix: [38;5;153mset[39m [38;5;153m-g[39m [38;5;153mprefix[39m [38;5;153mC-a[39m in config                          
+  33. Bind custom key: [38;5;153mbind-key[39m [38;5;153m-n[39m [38;5;153mC-x[39m [38;5;153mcommand[39m in config                      
+  34. New session with command: [38;5;153mtmux[39m [38;5;153mnew-session[39m [38;5;153m-d[39m [38;5;153m-s[39m [38;5;153mname[39m [38;5;153m"command"[39m         
+  35. Split window vertically (alt): [38;5;153mtmux[39m [38;5;153msplit-window[39m [38;5;153m-h[39m                     
+  36. Split window horizontally (alt): [38;5;153mtmux[39m [38;5;153msplit-window[39m [38;5;153m-v[39m                   
+  37. Cycle layouts: [38;5;153mCtrl+B[39m then [38;5;153mSpace[39m 
+  38. Show status bar time: [38;5;153mset[39m [38;5;153m-g[39m [38;5;153mstatus-right[39m [38;5;153m"%H:%M[39m [38;5;153m%d-%m-%Y"[39m              
+  39. Enable mouse: [38;5;153mset[39m [38;5;153m-g[39m [38;5;153mmouse[39m [38;5;153mon[39m in config                                 
+  40. Last active window: [38;5;153mCtrl+B[39m then [38;5;153mL
+
+[38;5;246m● [39mUser answered Claude's questions:    
+[38;5;246m [39m [38;5;246m⎿[39m [38;5;246m ·[39m [38;5;246mPack[39m [38;5;246mthe[39m [38;5;246mgreen[39m [38;5;246mfig[39m [38;5;246mand[39m [38;5;246mgolden-yellow[39m [38;5;246mpeaches[39m [38;5;246mtogether?[39m [38;5;246m→[39m [38;5;246mBig[39m [38;5;246mred[39m [38;5;246mplum[39m  
+
+[38;5;231m●[39m Got it. You've selected [1m"Big[0m [1mred[0m [1mplum"[0m for the green fig.                   
+
+  I'm ready to help you pack the green fig. What's the plan, or would you like
+  me to look at the fruit in the basket to see which of the plums need to be  
+  eaten?           
+
+[38;5;246m✻[39m [38;5;246mBrewed[39m [38;5;246mfor[39m [38;5;246m19s[39m [38;5;246m·[39m [38;5;246mdone[39m [38;5;246m7:14[39m [38;5;246mAM[39m        
+
+[38;5;246m[48;5;237m❯ [38;5;231mWrite a numbered list of exactly 3 short steps, numbered 1. to 3., with no [39m 
+  [38;5;231mtext after the list. Then immediately use the AskUserQuestion tool exactly [39m 
+  [38;5;231monce: header "Order", question "Which step goes first?", options "Apple" [39m   
+  [38;5;231m(description "First fruit"), "Banana" (description "Second fruit") and [39m     
+  [38;5;231m"Cherry" (description "Third fruit"). Do nothing else.[39m                      
+[49m                                                                              
+[38;5;231m●[39m 1. Identify the plums in a box                                              
+  2. Cut the figs                                                             
+  3. Serve the plates                                                         
+[38;5;246m──────────────────────────────────────────────────────────────────────────────
+[38;5;16m[48;5;153m ☐ Order [39m[49m                                                                     
+
+[1m[38;5;231mWhich step goes first?[0m                                                        
+                                                                              
+[38;5;153m❯[39m [38;5;246m1.[39m [38;5;153mApple[39m                                                                    
+     [38;5;246mFirst fruit[39m   
+  [38;5;246m2.[39m Banana                                                                   
+     [38;5;246mSecond fruit[39m                                                             
+  [38;5;246m3.[39m Cherry        
+     [38;5;246mThird[39m [38;5;246mfruit[39m   
+  [38;5;246m4.[39m [38;5;246mType[39m [38;5;246msomething.[39m                   
+[38;5;246m──────────────────────────────────────────────────────────────────────────────
+[39m  5. Chat about this                   
+
+[38;5;246mEnter[39m [38;5;246mto[39m [38;5;246mselect[39m [38;5;246m·[39m [38;5;246m↑/↓[39m [38;5;246mto[39m [38;5;246mnavigate[39m [38;5;246m·[39m [38;5;246mEsc[39m [38;5;246mto[39m [38;5;246mcancel[39m                             
+

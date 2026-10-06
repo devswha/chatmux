@@ -1,0 +1,73 @@
+[1m[32muser@devbox[0m:[1m[34m/tmp/demo-list-proj[0m$ /tmp/demo-list-work/launch.sh                
+[38;5;174m ▐[48;5;16m▛███▛█[39m[49m   [1mClaude[0m [1mCode[0m [38;5;246mv2.1.291[39m        
+[38;5;174m▝▜[48;5;16m█████[49m█▀[39m  [38;5;246mHaiku[39m [38;5;246m4.5[39m [38;5;246m·[39m [38;5;246mClaude[39m [38;5;246mAPI[39m      
+[38;5;174m ▝▝[39m   [38;5;174m▝▝[39m   [38;5;246m/tmp/demo-list-proj[39m         
+
+
+[38;5;246m[48;5;237m❯[39m [38;5;231m/tui default[39m [49m                                                               
+[38;5;246m  ⎿  [39mAlready using the default renderer.                                      
+
+[38;5;246m[48;5;237m❯ [38;5;231mFirst write a numbered list of 40 short tmux tips, one line each, numbered [39m 
+  [38;5;231m1. to 40. Then, without any other text, use the AskUserQuestion tool [39m       
+  [38;5;231mexactly once: header "Pick one", question "Pack the green fig and [39m          
+  [38;5;231mgolden-yellow peaches together?", options "Ripe avocados" (description [39m     
+  [38;5;231m"Soft green, very ripe") and "Big red plum" (description "Deep red skin"). [39m 
+  [38;5;231mDo nothing else.[39m                                                            
+[49m                   
+[38;5;231m●[39m 1. Start a new session: [38;5;153mtmux new-session -s name[39m                            
+  2. List all sessions: [38;5;153mtmux list-sessions[39m                                    
+  3. Attach to a session: [38;5;153mtmux attach -t name[39m                                 
+  4. Detach from current session: [38;5;153mCtrl+B[39m then [38;5;153mD[39m                               
+  5. Kill a session: [38;5;153mtmux kill-session -t name[39m                                
+  6. Rename a session: [38;5;153mCtrl+B[39m then [38;5;153m$[39m   
+  7. Create a new window: [38;5;153mCtrl+B[39m then [38;5;153mC
+[39m  8. List windows: [38;5;153mCtrl+B[39m then [38;5;153mW[39m       
+  9. Next window: [38;5;153mCtrl+B[39m then [38;5;153mN[39m        
+  10. Previous window: [38;5;153mCtrl+B[39m then [38;5;153mP[39m   
+  11. Jump to window 0-9: [38;5;153mCtrl+B[39m then number                                  
+  12. Kill current window: [38;5;153mCtrl+B[39m then [38;5;153m&[39m                                      
+  13. Rename window: [38;5;153mCtrl+B[39m then [38;5;153m,[39m     
+  14. Split pane vertically: [38;5;153mCtrl+B[39m then [38;5;153m%[39m                                    
+  15. Split pane horizontally: [38;5;153mCtrl+B[39m then [38;5;153m"[39m                                  
+  16. Navigate panes: [38;5;153mCtrl+B[39m then arrow keys                                  
+  17. Close pane: [38;5;153mCtrl+B[39m then [38;5;153mX[39m        
+  18. Maximize pane: [38;5;153mCtrl+B[39m then [38;5;153mZ[39m     
+  19. Resize pane: [38;5;153mCtrl+B[39m then [38;5;153mCtrl+Arrow[39m                                     
+  20. Show pane numbers: [38;5;153mCtrl+B[39m then [38;5;153mQ[39m 
+  21. Enter copy mode: [38;5;153mCtrl+B[39m then [38;5;153m[[39m   
+  22. Paste from buffer: [38;5;153mCtrl+B[39m then [38;5;153m][39m 
+  23. List buffers: [38;5;153mCtrl+B[39m then [38;5;153m#[39m      
+  24. Choose buffer: [38;5;153mCtrl+B[39m then [38;5;153m=[39m     
+  25. Synchronize panes: [38;5;153mCtrl+B[39m then [38;5;153m:[39m then [38;5;153msetw synchronize-panes on[39m         
+  26. Break pane to new window: [38;5;153mCtrl+B[39m then [38;5;153m![39m                                 
+  27. Join pane to window: [38;5;153mCtrl+B[39m then [38;5;153m:[39m then [38;5;153mjoin-pane -t target[39m             
+  28. Send command to pane: [38;5;153mtmux send-keys -t session:pane "command" Enter[39m    
+  29. List key bindings: [38;5;153mCtrl+B[39m then [38;5;153m?[39m 
+  30. Reload config: [38;5;153mCtrl+B[39m then [38;5;153m:[39m then [38;5;153msource-file ~/.tmux.conf[39m              
+  31. Scroll in pane: [38;5;153mCtrl+B[39m then [38;5;153m[[39m then arrow keys                           
+  32. Set custom prefix: [38;5;153mset -g prefix C-a[39m in config                          
+  33. Bind custom key: [38;5;153mbind-key -n C-x command[39m in config                      
+  34. New session with command: [38;5;153mtmux new-session -d -s name "command"[39m         
+  35. Split window vertically (alt): [38;5;153mtmux split-window -h[39m                     
+  36. Split window horizontally (alt): [38;5;153mtmux split-window -v[39m                   
+  37. Cycle layouts: [38;5;153mCtrl+B[39m then [38;5;153mSpace[39m 
+  38. Show status bar time: [38;5;153mset -g status-right "%H:%M %d-%m-%Y"[39m              
+  39. Enable mouse: [38;5;153mset -g mouse on[39m in config                                 
+  40. Last active window: [38;5;153mCtrl+B[39m then [38;5;153mL
+[38;5;246m──────────────────────────────────────────────────────────────────────────────
+[38;5;16m[48;5;153m ☐ Pick one [39m[49m                                                                  
+
+[1m[38;5;231mPack the green fig and golden-yellow peaches together?[0m                        
+                                                                              
+[38;5;153m❯[39m [38;5;246m1.[39m [38;5;153mRipe avocados[39m                                                            
+     [38;5;246mSoft green, very ripe[39m             
+  [38;5;246m2.[39m Big red plum                                                             
+     [38;5;246mDeep red skin[39m                                                            
+  [38;5;246m3.[39m [38;5;246mType[39m [38;5;246msomething.[39m                   
+[38;5;246m──────────────────────────────────────────────────────────────────────────────
+[39m  4. Chat about this                   
+
+[38;5;246mEnter[39m [38;5;246mto[39m [38;5;246mselect[39m [38;5;246m·[39m [38;5;246m↑/↓[39m [38;5;246mto[39m [38;5;246mnavigate[39m [38;5;246m·[39m [38;5;246mEsc[39m [38;5;246mto[39m [38;5;246mcancel[39m                             
+
+
+

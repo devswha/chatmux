@@ -443,11 +443,24 @@ function parseCodexAsyncQuestion(screen: string): ParsedPrompt | null {
   });
 }
 
+/**
+ * The current question frame's own options: the run of numbered rows that ends
+ * at the last row above the hint and counts back down to `1.`. A numbered line
+ * above that `1.` (a list in the assistant's reply, for example) belongs to
+ * something else and never counts as an option.
+ */
+function currentClaudeRun(rows: NumberedRow[]): NumberedRow[] {
+  let start = rows.length - 1;
+  if (start < 0) return [];
+  while (start > 0 && rows[start].number > 1 && rows[start - 1].number === rows[start].number - 1) start -= 1;
+  return rows[start].number === 1 ? rows.slice(start) : [];
+}
+
 function parseClaudeQuestion(screen: string): ParsedPrompt | null {
   const lines = screen.replace(ANSI_RE, '').split(/\r?\n/);
   const hintIndex = findLastIndex(lines, (line) => CLAUDE_ASK_HINT_RE.test(line));
   if (hintIndex < 0) return null;
-  const rows = parseNumberedRows(lines, Math.max(0, hintIndex - 64), hintIndex);
+  const rows = currentClaudeRun(parseNumberedRows(lines, Math.max(0, hintIndex - 64), hintIndex));
   if (!sequentialRows(rows) || rows.filter((row) => row.selected).length !== 1) return null;
   const chatIndex = rows.findIndex((row) => row.label === 'Chat about this');
   const customIndex = rows.findIndex((row) => /^Type something\.?$/i.test(row.label));

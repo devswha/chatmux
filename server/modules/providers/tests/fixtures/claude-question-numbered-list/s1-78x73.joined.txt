@@ -1,0 +1,73 @@
+
+ ▐▛███▛█   Claude Code v2.1.291
+▝▜██████▀  Haiku 4.5 · Claude API
+ ▝▝   ▝▝   /tmp/demo-list-proj
+
+  Get to finished work sooner with Opus 5.5. Switch anytime with /model.
+
+❯ First write a plain numbered list of 40 short lines about tmux tips (no
+  tools). Then use the AskUserQuestion tool exactly once with a single
+  question: question "Pack the green fig and golden-yellow peaches
+  together?", header "Pick one", multiSelect false, two options: label "Ripe
+  avocados" description "Soft green, very ripe"; label "Big red plum"
+  description "Deep red skin".
+
+● 1. tmux list-sessions shows all active tmux sessions
+  2. tmux new-session -s name creates a new session with a specific name
+  3. tmux attach -t name connects to an existing session
+  4. C-b is the default prefix key for all tmux commands
+  5. C-b c creates a new window in the current session
+  6. C-b , renames the current window
+  7. C-b & kills the current window
+  8. C-b n moves to the next window
+  9. C-b p moves to the previous window
+  10. C-b 0-9 jumps directly to a numbered window
+  11. C-b % splits the current pane vertically
+  12. C-b " splits the current pane horizontally
+  13. C-b o moves to the next pane
+  14. C-b ; toggles between the last two panes
+  15. C-b x closes the current pane
+  16. C-b d detaches from the current session
+  17. tmux kill-session -t name ends a specific session
+  18. tmux kill-server terminates all sessions (use with caution)
+  19. C-b [ enters copy mode for scrolling and selection
+  20. C-b ] pastes the most recent copied text
+  21. C-b = shows all paste buffers
+  22. C-b - deletes the most recent paste buffer
+  23. C-b : enters command mode for typing tmux commands
+  24. C-b ? displays all key bindings
+  25. C-b t shows a clock in the current pane
+  26. C-b { moves the current pane left
+  27. C-b } moves the current pane right
+  28. C-b ! breaks the current pane into a new window
+  29. C-b $ renames the current session
+  30. C-b s displays all sessions and allows selection
+  31. tmux send-keys -t session "command" Enter executes a command in a
+      session
+  32. C-b z toggles zoom on the current pane
+  33. set -g mouse on enables mouse support in tmux.conf
+  34. set -g prefix C-a changes the prefix key (example: Ctrl-A)
+  35. bind-key -n C-l send-keys -R clears scrollback history with a shortcut
+  36. C-b ( moves to the previous session
+  37. C-b ) moves to the next session
+  38. C-b | custom binding for vertical split (if configured)
+  39. C-b - custom binding for horizontal split (if configured)
+  40. tmux capture-pane -p -t session outputs the current pane content to
+      stdout
+
+  Now for the question:
+──────────────────────────────────────────────────────────────────────────────
+ ☐ Pick one
+
+Pack the green fig and golden-yellow peaches together?
+
+❯ 1. Ripe avocados
+     Soft green, very ripe
+  2. Big red plum
+     Deep red skin
+  3. Type something.
+──────────────────────────────────────────────────────────────────────────────
+  4. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel
+
