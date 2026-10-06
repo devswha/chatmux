@@ -310,8 +310,9 @@ function parseNumberedRows(lines: string[], start: number, end: number): Numbere
     const match = lines[index].replace(ANSI_RE, '').trim().match(NUMBERED_OPTION_RE);
     if (!match) continue;
     let label = match[3].trim();
-    const checked = /^\[[xX✓]\]/.test(label);
-    label = label.replace(/^\[[ xX✓]\]\s*/, '').trim();
+    // Claude Code draws a ticked box as `[✔]` (U+2714).
+    const checked = /^\[[xX✓✔]\]/.test(label);
+    label = label.replace(/^\[[ xX✓✔]\]\s*/, '').trim();
     rows.push({
       number: Number.parseInt(match[2], 10),
       label,
@@ -456,7 +457,7 @@ function parseClaudeQuestion(screen: string): ParsedPrompt | null {
   if (!question) return null;
   const optionRows = rows.slice(0, customIndex);
   const multiSelect = optionRows.some((row) =>
-    /^\s*(?:[›>❯]\s*)?\d+\.\s+\[[ xX✓]\]/.test(lines[row.lineIndex]));
+    /^\s*(?:[›>❯]\s*)?\d+\.\s+\[[ xX✓✔]\]/.test(lines[row.lineIndex]));
   // Public options exclude the trailing "Type something." / "Chat about this"
   // rows (mirroring the codex parser): validateChoices caps selections at
   // customOptionNumber, so exposing those rows as numbered options would

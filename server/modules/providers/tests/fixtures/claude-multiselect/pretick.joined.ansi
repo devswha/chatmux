@@ -1,0 +1,34 @@
+[38;5;174m ▐[48;5;16m▛███▛█[39m[49m   [1mClaude[0m [1mCode[0m [38;5;246mv2.1.291[39m 
+[38;5;174m▝▜[48;5;16m█████[49m█▀[39m  [38;5;246mHaiku[39m [38;5;246m4.5[39m [38;5;246m·[39m [38;5;246mClaude[39m [38;5;246mAPI[39m                               
+[38;5;174m ▝▝[39m   [38;5;174m▝▝[39m   [38;5;246m/tmp/fruit-project[39m   
+
+  Get to finished work sooner with Opus 5.5. Switch anytime with
+  [38;5;153m/model[39m.       
+
+[38;5;246m[48;5;237m❯[39m [38;5;231m/clear[39m                                                        
+
+[38;5;246m❯ [38;5;231mCall the AskUserQuestion tool exactly once, with one question[39m 
+  [38;5;231m"Which fruits do you want?" header "Fruit", multiSelect [39m      
+  [38;5;231mtrue, and exactly 4 options labelled Apple, Banana, Cherry, [39m  
+  [38;5;231mDate, each with a short description of a few words. Do [39m       
+  [38;5;231mnothing else. After I answer, reply with only: GOT: <labels>[39m  
+[38;5;246m[49m────────────────────────────────────────────────────────────────
+← [38;5;16m[48;5;153m ☒ Fruit [39m[49m ✔ Submit  →                                         
+
+[1m[38;5;231mWhich fruits do you want?[0m                                       
+
+[38;5;153m❯[39m [38;5;246m1.[39m [38;5;114m[✔][39m [38;5;153mApple[39m                                                  
+         [38;5;246mCrisp red fruit[39m        
+  [38;5;246m2.[39m [ ] Banana                                                 
+         [38;5;246mYellow[39m [38;5;246mtropical[39m [38;5;246mfruit[39m                                  
+  [38;5;246m3.[39m [ ] Cherry 
+         [38;5;246mSmall[39m [38;5;246mround[39m [38;5;246mberry[39m      
+  [38;5;246m4.[39m [ ] Date   
+         [38;5;246mSweet[39m [38;5;246mbrown[39m [38;5;246mfruit[39m      
+  [38;5;246m5.[39m [ ] [38;5;246mType[39m [38;5;246msomething[39m         
+     [1mSubmit[0m     
+[38;5;246m────────────────────────────────────────────────────────────────
+[39m  6. Chat about this            
+
+[38;5;246mEnter[39m [38;5;246mto[39m [38;5;246mselect[39m [38;5;246m·[39m [38;5;246m↑/↓[39m [38;5;246mto[39m [38;5;246mnavigate[39m [38;5;246m·[39m [38;5;246mEsc[39m [38;5;246mto[39m [38;5;246mcancel[39m               
+
